@@ -389,6 +389,13 @@ def _find_tensorrt_config(base_paths, required_version):
   header_path, header_version = _find_header(base_paths, "NvInfer.h",
                                              required_version,
                                              get_header_version)
+
+  if ".." in header_version:
+    # From TRT 6.0 onwards, version information has been moved to NvInferVersion.h.
+    header_path, header_version = _find_header(base_paths, "NvInferVersion.h",
+                                               required_version,
+                                               get_header_version)
+
   tensorrt_version = header_version.split(".")[0]
 
   library_path = _find_library(base_paths, "nvinfer", tensorrt_version)
@@ -444,7 +451,7 @@ def find_cuda_config():
 
     cuda_version = result["cuda_version"]
     cublas_paths = base_paths
-    if cuda_version.split(".") < (10, 1):
+    if tuple(int(v) for v in cuda_version.split(".")) < (10, 1):
       # Before CUDA 10.1, cuBLAS was in the same directory as the toolkit.
       cublas_paths = cuda_paths
     cublas_version = os.environ.get("TF_CUBLAS_VERSION", "")

@@ -140,6 +140,7 @@ def make_variable(name,
 
   # TODO(apassos,rohanj) figure out how to remove collections from here so we
   # can remove the V1.
+  variable_shape = tensor_shape.TensorShape(shape)
   return tf_variables.VariableV1(
       initial_value=init_val,
       name=name,
@@ -152,7 +153,7 @@ def make_variable(name,
       collections=collections,
       synchronization=synchronization,
       aggregation=aggregation,
-      shape=tensor_shape.TensorShape(shape) if shape else None)
+      shape=variable_shape if variable_shape.rank else None)
 
 
 def get_default_graph_uid_map():
