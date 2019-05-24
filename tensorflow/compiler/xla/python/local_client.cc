@@ -71,7 +71,6 @@ limitations under the License.
 #include "absl/synchronization/notification.h"
 #include "absl/time/time.h"
 #include "include/pybind11/pybind11.h"
-#include "tensorflow/compiler/jit/xla_launch_util.h"
 #include "tensorflow/compiler/xla/client/client_library.h"
 #include "tensorflow/compiler/xla/client/xla_computation.h"
 #include "tensorflow/compiler/xla/executable_run_options.h"
@@ -88,6 +87,7 @@ limitations under the License.
 #include "tensorflow/core/common_runtime/gpu/gpu_mem_allocator.h"
 #include "tensorflow/core/platform/types.h"
 #include "tensorflow/core/profiler/lib/traceme.h"
+#include "tensorflow/stream_executor/tf_allocator_adapter.h"
 
 namespace xla {
 
@@ -162,10 +162,25 @@ Device::Device(se::StreamExecutor* executor, bool use_multiple_streams,
 }
 
 Device::~Device() {
+  Status status = SynchronizeAllActivity();
+  if (!status.ok()) {
+    LOG(ERROR) << "Error when closing device: " << status;
+  }
+}
+
+Status Device::SynchronizeAllActivity() {
+  Status status;
+  // TODO(phawkins): in theory the call to SynchronizeAllActivity below should
+  // suffice. However on the Host platform SynchronizeAllActivity is a dummy
+  // implementation that doesn't actually block. To make sure activity has
+  // stopped, also block on the compute stream. If SynchronizeAllActivity is
+  // fixed, we could remove the BlockHostUntilDone call.
+  status.Update(compute_stream_->BlockHostUntilDone());
   bool ok = compute_stream_->parent()->SynchronizeAllActivity();
   if (!ok) {
-    LOG(ERROR) << "SynchronizeAllActivity failed when destroying Device.";
+    status.Update(Unknown("SynchronizeAllActivity failed."));
   }
+  return status;
 }
 
 void Device::ThenExecuteOnWorkerThread(se::Stream* stream,
@@ -174,9 +189,8 @@ void Device::ThenExecuteOnWorkerThread(se::Stream* stream,
       [this, callback]() { worker_thread_->Schedule(std::move(callback)); });
 }
 
-static StatusOr<std::unique_ptr<tensorflow::MultiDeviceAdapter>>
-CreateBFCAllocator(se::Platform* platform, LocalClient* client,
-                   double memory_fraction) {
+static StatusOr<std::unique_ptr<se::MultiDeviceAdapter>> CreateBFCAllocator(
+    se::Platform* platform, LocalClient* client, double memory_fraction) {
   CHECK_GT(client->backend().device_count(), 0);
   std::vector<std::unique_ptr<tensorflow::Allocator>> allocators;
   for (se::StreamExecutor* executor : client->backend().stream_executors()) {
@@ -203,8 +217,8 @@ CreateBFCAllocator(se::Platform* platform, LocalClient* client,
         absl::StrCat("GPU_", device_ordinal, "_bfc"));
     allocators.emplace_back(std::move(gpu_bfc_allocator));
   }
-  return absl::make_unique<tensorflow::MultiDeviceAdapter>(
-      platform, std::move(allocators));
+  return absl::make_unique<se::MultiDeviceAdapter>(platform,
+                                                   std::move(allocators));
 }
 
 StatusOr<std::shared_ptr<PyLocalClient>> PyLocalClient::Get(
@@ -555,6 +569,26 @@ PyLocalBuffer::DestructureTuple() {
         client_));
   }
   return results;
+}
+
+Status PyLocalBuffer::BlockHostUntilReady() {
+  tensorflow::profiler::TraceMe traceme("PyLocalBuffer::BlockHostUntilReady");
+  std::shared_ptr<PySharedDeviceBuffer> device_buffer = DeviceBuffer();
+  if (!device_buffer) {
+    return InvalidArgument("BlockHostUntilReady() called on invalid buffer.");
+  }
+
+  client_->py_ref_manager().CollectGarbage();
+  py::gil_scoped_release gil_release;
+
+  // This code waits at least until the buffer is ready, but it may wait longer
+  // if there are other device to host transfers scheduled. If this proves to
+  // be an issue, we could either use a separate stream for this purpose, or
+  // poll for the buffer definition events.
+  se::Stream* stream =
+      client_->device(device_buffer->device_ordinal()).device_to_host_stream();
+  WaitForBufferDefinitionEventsOnStream(*device_buffer, stream);
+  return stream->BlockHostUntilDone();
 }
 
 PyLocalExecutable::PyLocalExecutable(
