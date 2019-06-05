@@ -458,7 +458,6 @@ cc_library(
     deps = [
         ":builtin_op_kernels",
         "//tensorflow/lite:framework",
-        "//tensorflow/lite:util",
         "//tensorflow/lite/c:c_api_internal",
     ],
 )
@@ -1252,6 +1251,7 @@ cc_test(
     name = "tile_test",
     size = "small",
     srcs = ["tile_test.cc"],
+    tags = ["tflite_nnapi"],
     deps = [
         ":builtin_ops",
         ":test_main",

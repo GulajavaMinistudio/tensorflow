@@ -26,6 +26,7 @@ import numpy as np
 from six.moves import zip  # pylint: disable=redefined-builtin
 
 from tensorflow.python.keras import backend as K
+from tensorflow.python.keras import losses
 from tensorflow.python.keras import optimizers
 from tensorflow.python.keras.saving import model_config as model_config_lib
 from tensorflow.python.keras.saving import saving_utils
@@ -92,8 +93,11 @@ def save_model_to_hdf5(model, filepath, overwrite=True, include_optimizer=True):
   try:
     model_metadata = saving_utils.model_metadata(model, include_optimizer)
     for k, v in model_metadata.items():
-      f.attrs[k] = json.dumps(
-          v, default=serialization.get_json_type).encode('utf8')
+      if isinstance(v, (dict, list, tuple)):
+        f.attrs[k] = json.dumps(
+            v, default=serialization.get_json_type).encode('utf8')
+      else:
+        f.attrs[k] = v
 
     model_weights_group = f.create_group('model_weights')
     model_layers = model.layers
@@ -199,7 +203,10 @@ def load_model_from_hdf5(filepath, custom_objects=None, compile=True):  # pylint
           optimizer_config, custom_objects=custom_objects)
 
       # Recover loss functions and metrics.
-      loss = convert_custom_objects(training_config['loss'])
+      loss_config = training_config['loss']  # Deserialize loss class.
+      if isinstance(loss_config, dict) and 'class_name' in loss_config:
+        loss_config = losses.get(loss_config)
+      loss = convert_custom_objects(loss_config)
       metrics = convert_custom_objects(training_config['metrics'])
       weighted_metrics = convert_custom_objects(
           training_config.get('weighted_metrics', None))
