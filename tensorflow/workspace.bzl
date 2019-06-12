@@ -149,11 +149,11 @@ def tf_workspace(path_prefix = "", tf_repo_name = ""):
         name = "eigen_archive",
         build_file = clean_dep("//third_party:eigen.BUILD"),
         patch_file = clean_dep("//third_party/eigen3:gpu_packet_math.patch"),
-        sha256 = "48322e45a15aeee5414e8908fa0c48178091de71dd4624ead58c68c66e6554bc",
-        strip_prefix = "eigen-eigen-0cd24954b8a5",
+        sha256 = "e87a5b2e7febd15e56bb95639af77170d5d502014edc64871fc1606ef66e2960",
+        strip_prefix = "eigen-eigen-0eeb60526ce0",
         urls = [
-            "http://mirror.tensorflow.org/bitbucket.org/eigen/eigen/get/0cd24954b8a5.tar.gz",
-            "https://bitbucket.org/eigen/eigen/get/0cd24954b8a5.tar.gz",
+            "http://mirror.tensorflow.org/bitbucket.org/eigen/eigen/get/0eeb60526ce0.tar.gz",
+            "https://bitbucket.org/eigen/eigen/get/0eeb60526ce0.tar.gz",
         ],
     )
 
@@ -580,10 +580,10 @@ def tf_workspace(path_prefix = "", tf_repo_name = ""):
     tf_http_archive(
         name = "fft2d",
         build_file = clean_dep("//third_party/fft2d:fft2d.BUILD"),
-        sha256 = "52bb637c70b971958ec79c9c8752b1df5ff0218a4db4510e60826e0cb79b5296",
+        sha256 = "ada7e99087c4ed477bfdf11413f2ba8db8a840ba9bbf8ac94f4f3972e2a7cec9",
         urls = [
-            "http://mirror.tensorflow.org/www.kurims.kyoto-u.ac.jp/~ooura/fft.tgz",
-            "http://www.kurims.kyoto-u.ac.jp/~ooura/fft.tgz",
+            "http://mirror.tensorflow.org/www.kurims.kyoto-u.ac.jp/~ooura/fft2d.tgz",
+            "http://www.kurims.kyoto-u.ac.jp/~ooura/fft2d.tgz",
         ],
     )
 
