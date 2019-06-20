@@ -521,7 +521,7 @@ tf_cc_shared_object(
     deps = [
         "//tensorflow/core:framework_headers_lib",
         "//third_party/eigen3",
-        "@protobuf_archive//:protobuf_headers",
+        "@com_google_protobuf//:protobuf_headers",
     ],
 )
 
@@ -3057,6 +3057,9 @@ cuda_py_test(
         "@absl_py//absl/testing:parameterized",
         "//tensorflow/python:client_testlib",
     ],
+    tags = [
+        "no_rocm",
+    ],
     xla_enable_strict_auto_jit = True,
 )
 
@@ -3562,6 +3565,16 @@ py_library(
 )
 
 py_library(
+    name = "rnn_grad",
+    srcs = ["ops/rnn_grad.py"],
+    srcs_version = "PY2AND3",
+    deps = [
+        ":framework_for_generated_wrappers",
+        "//tensorflow/python:rnn_ops_gen",
+    ],
+)
+
+py_library(
     name = "standard_ops",
     srcs = ["ops/standard_ops.py"],
     srcs_version = "PY2AND3",
@@ -3595,6 +3608,7 @@ py_library(
         ":partitioned_variables",
         ":proto_ops",
         ":random_ops",
+        ":rnn_grad",
         ":script_ops",
         ":session_ops",
         ":sort_ops",
@@ -4395,8 +4409,8 @@ py_library(
     deps = [
         "//tensorflow/tools/compatibility:all_renames_v2",
         "//third_party/py/numpy",
+        "@com_google_protobuf//:protobuf_python",
         "@org_python_pypi_backports_weakref",
-        "@protobuf_archive//:protobuf_python",
         "@six_archive//:six",
     ],
 )
@@ -6554,6 +6568,7 @@ cuda_py_test(
     ],
     tags = [
         "grappler",
+        "no_rocm",
     ],
     # This test analyzes the graph, but XLA changes the names of nodes.
     xla_enable_strict_auto_jit = False,
