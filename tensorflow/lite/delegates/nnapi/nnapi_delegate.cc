@@ -1516,6 +1516,17 @@ class NNAPIDelegateKernel {
           return BasicMappingFn<ANEURALNETWORKS_POW>;
         }
         break;
+      case kTfLiteBuiltinSlice: {
+        const auto input_type = context->tensors[node->inputs->data[0]].type;
+        const auto begin_type = context->tensors[node->inputs->data[1]].type;
+        const auto size_type = context->tensors[node->inputs->data[2]].type;
+        if (version == 1 && android_sdk_version >= kMinSdkVersionForNNAPI12 &&
+            (input_type == kTfLiteFloat32 || input_type == kTfLiteInt32 ||
+             input_type == kTfLiteUInt8) &&
+            begin_type == kTfLiteInt32 && size_type == kTfLiteInt32) {
+          return BasicMappingFn<ANEURALNETWORKS_SLICE>;
+        }
+      } break;
       case kTfLiteBuiltinSin:
         if (version == 1 && android_sdk_version >= kMinSdkVersionForNNAPI12) {
           return BasicMappingFn<ANEURALNETWORKS_SIN>;
@@ -1917,6 +1928,28 @@ class NNAPIDelegateKernel {
                     ->tensors[mapping_args.node->inputs->data[1]];
             mapping_args.builder->AddScalarInt32Operand(*axis_param.data.i32);
             return ANEURALNETWORKS_EXPAND_DIMS;
+          };
+        }
+      } break;
+      case kTfLiteBuiltinSplit: {
+        // Tensor indices: split_dim: 0, value: 1
+        const TfLiteTensor& axis = context->tensors[node->inputs->data[0]];
+        const TfLiteTensor& input = context->tensors[node->inputs->data[1]];
+        if (version == 1 && android_sdk_version >= kMinSdkVersionForNNAPI12 &&
+            (input.type == kTfLiteFloat32 || input.type == kTfLiteUInt8 ||
+             input.type == kTfLiteInt32) &&
+            (axis.type == kTfLiteInt32 &&
+             axis.allocation_type == kTfLiteMmapRo)) {
+          return [](const NNAPIOpMappingArgs& mapping_args)
+                     -> ANeuralNetworksOperationType {
+            const TfLiteTensor& axis =
+                mapping_args.context
+                    ->tensors[mapping_args.node->inputs->data[0]];
+            auto builtin = reinterpret_cast<TfLiteSplitParams*>(
+                mapping_args.node->builtin_data);
+            mapping_args.builder->AddScalarInt32Operand(*axis.data.i32);
+            mapping_args.builder->AddScalarInt32Operand(builtin->num_splits);
+            return ANEURALNETWORKS_SPLIT;
           };
         }
       } break;
@@ -2335,6 +2368,14 @@ class NNAPIDelegateKernel {
             continue;
           }
         }
+
+        if ((reg->builtin_code == kTfLiteBuiltinSplit) &&
+            (input_index == node->inputs->data[0])) {
+          // Skip the axis input tensor; it will be added as a scalar operand
+          // by the Map() mapping.
+          continue;
+        }
+
         // Pad and Padv2 have an optional parameter for a pad value which has
         // to be converted to a scalar type in NN API.
         if ((reg->builtin_code == kTfLiteBuiltinPadv2 ||
