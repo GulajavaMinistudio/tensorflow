@@ -671,6 +671,8 @@ StatusOr<mlir::Attribute> Importer::ConvertAttributeValue(
     }
     case AttrValue::kFunc:
       return errors::Unknown("kFunc type should be handled separately!");
+    case AttrValue::VALUE_NOT_SET:
+      return builder_->getUnitAttr();
     // kPlaceholder is not implemented.
     default:
       return errors::Unimplemented(
@@ -793,7 +795,8 @@ Status Importer::ConvertFunctionArgAndRets(
               "max", builder_->getF32FloatAttr(input_spec.max_value)));
           state.attributes.push_back(builder_->getNamedAttr(
               "type", builder_->getTypeAttr(final_type)));
-          bb->getFunction().setAttr("tf.quantize", builder_->getUnitAttr());
+          inst->getParentOfType<mlir::FuncOp>().setAttr(
+              "tf.quantize", builder_->getUnitAttr());
         }
       }
 
