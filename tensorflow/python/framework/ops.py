@@ -1157,6 +1157,9 @@ def internal_convert_to_tensor(value,
           (dtype.name, value.dtype.name, value))
     return value
 
+  if preferred_dtype is not None:
+    preferred_dtype = dtypes.as_dtype(preferred_dtype)
+
   for base_type, conversion_func in tensor_conversion_registry.get(type(value)):
     # If dtype is None but preferred_dtype is not None, we try to
     # cast to preferred_dtype first.
@@ -1165,18 +1168,15 @@ def internal_convert_to_tensor(value,
       try:
         ret = conversion_func(
             value, dtype=preferred_dtype, name=name, as_ref=as_ref)
-      except (TypeError, ValueError, errors.UnimplementedError,
-              errors.InvalidArgumentError):
+      except (TypeError, ValueError):
         # Could not coerce the conversion to use the preferred dtype.
-        ret = None
-
-      if ret is not None and ret is not NotImplemented:
-        if (ret.dtype.base_dtype !=
-            dtypes.as_dtype(preferred_dtype).base_dtype):
+        pass
+      else:
+        if (ret is not NotImplemented and
+            ret.dtype.base_dtype != preferred_dtype.base_dtype):
           raise TypeError("convert_to_tensor did not convert to "
                           "the preferred dtype: %s vs %s " %
-                          (ret.dtype.base_dtype,
-                           dtypes.as_dtype(preferred_dtype).base_dtype))
+                          (ret.dtype.base_dtype, preferred_dtype.base_dtype))
 
     if ret is None:
       ret = conversion_func(value, dtype=dtype, name=name, as_ref=as_ref)
@@ -4122,7 +4122,7 @@ class Graph(object):
     if op is None and not ignore_existing:
       raise ValueError("Trying to reset colocation (op is None) but "
                        "ignore_existing is not True")
-    op = _op_to_colocate_with(op)
+    op = _op_to_colocate_with(op, self)
 
     # By default, colocate_with resets the device function stack,
     # since colocate_with is typically used in specific internal
@@ -6426,7 +6426,7 @@ def _operation_conversion_error(op, dtype=None, name=None, as_ref=False):
                   (op.name, dtype, name, as_ref))
 
 
-def _op_to_colocate_with(v):
+def _op_to_colocate_with(v, graph):
   """Operation object corresponding to v to use for colocation constraints."""
   if v is None:
     return None
@@ -6445,7 +6445,10 @@ def _op_to_colocate_with(v):
   # import dependency is acceptable.
   if hasattr(v, "handle") and hasattr(v.handle, "op") and isinstance(
       v.handle.op, Operation):
-    return v.handle.op
+    if graph.building_function:
+      return graph.capture(v.handle).op
+    else:
+      return v.handle.op
   return internal_convert_to_tensor_or_indexed_slices(v, as_ref=True).op
 
 
