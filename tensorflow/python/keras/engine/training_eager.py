@@ -243,15 +243,16 @@ def _process_single_batch(model,
       else:
         scaled_total_loss = total_loss
     if training:
-      if not model.trainable_weights:
+      trainable_weights = model._unique_trainable_weights
+      if trainable_weights:
+        grads = tape.gradient(scaled_total_loss, trainable_weights)
+        if isinstance(model.optimizer, loss_scale_optimizer.LossScaleOptimizer):
+          grads = model.optimizer.get_unscaled_gradients(grads)
+        model.optimizer.apply_gradients(zip(grads, trainable_weights))
+      else:
         logging.warning('The list of trainable weights is empty. Make sure that'
                         ' you are not setting model.trainable to False before '
                         'compiling the model.')
-      else:
-        grads = tape.gradient(scaled_total_loss, model.trainable_weights)
-        if isinstance(model.optimizer, loss_scale_optimizer.LossScaleOptimizer):
-          grads = model.optimizer.get_unscaled_gradients(grads)
-        model.optimizer.apply_gradients(zip(grads, model.trainable_weights))
     model._set_trainable_state(current_trainable_state)
     return outs, total_loss, output_losses, masks
 
@@ -345,14 +346,15 @@ def test_on_batch(model,
         training_utils.cast_if_floating_dtype(ops.convert_to_tensor(val))
         if val is not None else None for val in sample_weights
     ]
-  outs, total_loss, output_losses, masks = (
-      _model_loss(
-          model,
-          inputs,
-          targets,
-          sample_weights=sample_weights,
-          training=False,
-          output_loss_metrics=output_loss_metrics))
+  with backend.eager_learning_phase_scope(0):
+    outs, total_loss, output_losses, masks = (
+        _model_loss(
+            model,
+            inputs,
+            targets,
+            sample_weights=sample_weights,
+            training=False,
+            output_loss_metrics=output_loss_metrics))
   if not isinstance(outs, list):
     outs = [outs]
   metrics_results = _eager_metrics_fn(
