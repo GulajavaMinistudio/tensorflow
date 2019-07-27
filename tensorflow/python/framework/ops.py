@@ -525,7 +525,7 @@ class Tensor(_TensorLike):
       self._disallow_when_autograph_disabled(
           "using a `tf.Tensor` as a Python `bool`")
     elif ag_ctx.control_status_ctx().status == ag_ctx.Status.ENABLED:
-      self._disallow_when_autograph_disabled(
+      self._disallow_when_autograph_enabled(
           "using a `tf.Tensor` as a Python `bool`")
     else:
       # Default: V1-style Graph execution.
@@ -533,7 +533,7 @@ class Tensor(_TensorLike):
 
   def _disallow_iteration(self):
     if ag_ctx.control_status_ctx().status == ag_ctx.Status.DISABLED:
-      self._disallow_when_autograph_enabled("iterating over `tf.Tensor`")
+      self._disallow_when_autograph_disabled("iterating over `tf.Tensor`")
     elif ag_ctx.control_status_ctx().status == ag_ctx.Status.ENABLED:
       self._disallow_when_autograph_enabled("iterating over `tf.Tensor`")
     else:
@@ -930,7 +930,6 @@ class _EagerTensorBase(Tensor):
 
   def _copy_nograd(self, ctx=None, device_name=None):
     """Copies tensor to dest device, but doesn't record the operation."""
-    # pylint: disable=protected-access
     # Creates a new tensor on the dest device.
     if ctx is None:
       ctx = context.context()
@@ -2069,8 +2068,6 @@ class Operation(object):
     """The list of `Tensor` objects representing the outputs of this op."""
     return self._outputs
 
-# pylint: disable=protected-access
-
   class _InputList(object):
     """Immutable input list wrapper."""
 
@@ -2091,9 +2088,6 @@ class Operation(object):
 
     def __getitem__(self, i):
       return self._inputs[i]
-
-
-# pylint: enable=protected-access
 
   @property
   def inputs(self):
@@ -2845,6 +2839,10 @@ class Graph(object):
     self._add_control_dependencies = False
     # Cache for OpDef protobufs retrieved via the C API.
     self._op_def_cache = {}
+    # Cache for constant results of `broadcast_gradient_args()`. The keys are
+    # tuples of fully-defined shapes: (x_shape_tuple, y_shape_tuple), and the
+    # values are tuples of reduction indices: (rx, ry).
+    self._bcast_grad_args_cache = {}
 
     # TODO(skyewm): fold as much of the above as possible into the C
     # implementation

@@ -155,11 +155,11 @@ def tf_repositories(path_prefix = "", tf_repo_name = ""):
     tf_http_archive(
         name = "com_google_absl",
         build_file = clean_dep("//third_party:com_google_absl.BUILD"),
-        sha256 = "eee7452846aae8040037234accf9a1cfbeca1d93bb4238b70f0d43d26645a602",
-        strip_prefix = "abseil-cpp-f3840bc5e33ce4932e35986cf3718450c6f02af2",
+        sha256 = "acd93f6baaedc4414ebd08b33bebca7c7a46888916101d8c0b8083573526d070",
+        strip_prefix = "abseil-cpp-43ef2148c0936ebf7cb4be6b19927a9d9d145b8f",
         urls = [
-            "https://storage.googleapis.com/mirror.tensorflow.org/github.com/abseil/abseil-cpp/archive/f3840bc5e33ce4932e35986cf3718450c6f02af2.tar.gz",
-            "https://github.com/abseil/abseil-cpp/archive/f3840bc5e33ce4932e35986cf3718450c6f02af2.tar.gz",
+            "http://mirror.tensorflow.org/github.com/abseil/abseil-cpp/archive/43ef2148c0936ebf7cb4be6b19927a9d9d145b8f.tar.gz",
+            "https://github.com/abseil/abseil-cpp/archive/43ef2148c0936ebf7cb4be6b19927a9d9d145b8f.tar.gz",
         ],
     )
 
@@ -921,11 +921,11 @@ def tf_repositories(path_prefix = "", tf_repo_name = ""):
     tf_http_archive(
         name = "pybind11",
         urls = [
-            "https://mirror.bazel.build/github.com/pybind/pybind11/archive/v2.2.4.tar.gz",
-            "https://github.com/pybind/pybind11/archive/v2.2.4.tar.gz",
+            "https://mirror.bazel.build/github.com/pybind/pybind11/archive/v2.3.0.tar.gz",
+            "https://github.com/pybind/pybind11/archive/v2.3.0.tar.gz",
         ],
-        sha256 = "b69e83658513215b8d1443544d0549b7d231b9f201f6fc787a2b2218b408181e",
-        strip_prefix = "pybind11-2.2.4",
+        sha256 = "0f34838f2c8024a6765168227ba587b3687729ebf03dc912f88ff75c7aa9cfe8",
+        strip_prefix = "pybind11-2.3.0",
         build_file = clean_dep("//third_party:pybind11.BUILD"),
     )
 
