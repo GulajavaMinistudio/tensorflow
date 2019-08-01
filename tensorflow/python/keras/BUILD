@@ -723,7 +723,7 @@ tf_py_test(
         "//third_party/py/numpy",
         "//tensorflow/python:client_testlib",
     ],
-    shard_count = 12,
+    shard_count = 20,
 )
 
 tf_py_test(
@@ -914,7 +914,7 @@ tf_py_test(
         "//third_party/py/numpy",
         "//tensorflow/python:client_testlib",
     ],
-    shard_count = 2,
+    shard_count = 4,
     tags = ["no_windows"],
 )
 
