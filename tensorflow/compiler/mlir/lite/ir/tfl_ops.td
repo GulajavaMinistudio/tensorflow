@@ -1351,7 +1351,7 @@ def TFL_SumOp: TFL_Op<"sum", [NoSideEffect]> {
 
   let arguments = (ins
     AnyTensor:$input,
-    TFL_I32OrI64Tensor:$axes,
+    I32Tensor:$axes,
     BoolAttr:$keep_dims
   );
 
@@ -1370,7 +1370,7 @@ def TFL_ReduceMinOp: TFL_Op<"reduce_min", [NoSideEffect]> {
 
   let arguments = (ins
     AnyTensor:$input,
-    TFL_I32OrI64Tensor:$axes,
+    I32Tensor:$axes,
     BoolAttr:$keep_dims
   );
 
@@ -1389,7 +1389,7 @@ def TFL_ReduceMaxOp: TFL_Op<"reduce_max", [NoSideEffect]> {
 
   let arguments = (ins
     AnyTensor:$input,
-    TFL_I32OrI64Tensor:$axes,
+    I32Tensor:$axes,
     BoolAttr:$keep_dims
   );
 
@@ -1408,7 +1408,7 @@ def TFL_ReduceProdOp: TFL_Op<"reduce_prod", [NoSideEffect]> {
 
   let arguments = (ins
     TensorOf<[F32, I8, I32, I64]>:$input,
-    TFL_I32OrI64Tensor:$axes,
+    I32Tensor:$axes,
     BoolAttr:$keep_dims
   );
 
@@ -2239,6 +2239,27 @@ def TFL_ResizeBilinearOp: TFL_Op<"resize_bilinear", [
 
   let results = (outs
     TensorOf<[F32, TFL_QI8, TFL_QUI8]>:$output
+  );
+
+  let hasOptions = 1;
+}
+
+def TFL_ResizeNearestNeighborOp : TFL_Op<"resize_nearest_neighbor",
+                                [NoSideEffect]> {
+  let summary = "ResizeNearestNeighbor Op";
+
+  let description = [{
+    Resize `images` to `size` using nearest neighbor interpolation.
+  }];
+
+  let arguments = (ins
+    TensorOf<[F32, I8, TFL_Uint8]>:$input,
+    TensorOf<[I32]>:$size,
+    BoolAttr:$align_corners
+  );
+
+  let results = (outs
+    TensorOf<[F32, I8, TFL_Uint8]>:$output
   );
 
   let hasOptions = 1;
