@@ -931,16 +931,27 @@ class _WhileBodyGradFuncGraph(util.WhileBodyFuncGraph):
       return captured_tensor
 
     # Do not accumulate loop invariants.
-    if (tensor in self._forward_graph.inputs and
-        tensor in self._forward_graph.outputs):
+    if (any(tensor is t for t in self._forward_graph.inputs) and
+        any(tensor is t for t in self._forward_graph.outputs)):
       captured_tensor = super(_WhileBodyGradFuncGraph,
                               self)._capture_helper(tensor, name)
       # Add to `popped_tensor_lists` so that this gets added to the list of
       # outputs.
       # TODO(srbs): Rename popped_tensor_lists.
-      self.popped_tensor_lists[captured_tensor] = captured_tensor
-      self._indirect_captures[tensor] = captured_tensor
+      self.popped_tensor_lists[ops.tensor_id(captured_tensor)] = captured_tensor
+      self._indirect_captures[ops.tensor_id(tensor)] = captured_tensor
       return captured_tensor
+
+    # Do not accumulate Const nodes. Instead copy them directly in the backward
+    # graph.
+    # TODO(srbs): This just checks for `Const` nodes. Consider checking for
+    # graph compile time consts in general.
+    # TODO(srbs): Consider making this a loop input.
+    if constant_op.is_constant(tensor):
+      real_value = constant_op.constant(
+          tensor_util.constant_value(tensor), dtype=tensor.dtype)
+      self._indirect_captures[ops.tensor_id(tensor)] = real_value
+      return real_value
 
     # Resource tensors are not accumulated and handled specially.
     if tensor.dtype == dtypes.resource:

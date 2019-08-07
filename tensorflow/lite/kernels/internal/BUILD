@@ -348,6 +348,8 @@ cc_library(
     srcs = [],
     hdrs = [
         "reference/arg_min_max.h",
+        "reference/binary_function.h",
+        "reference/comparisons.h",
         "reference/conv.h",
         "reference/depthwiseconv_float.h",
         "reference/depthwiseconv_uint8.h",
@@ -372,6 +374,7 @@ cc_library(
         "reference/reference_ops.h",
         "reference/softmax.h",
         "reference/strided_slice.h",
+        "reference/svdf.h",
     ],
     deps = [
         ":common",
@@ -380,6 +383,7 @@ cc_library(
         ":round",
         ":strided_slice_logic",
         ":tensor",
+        ":tensor_utils",
         ":types",
         "@gemmlowp//:fixedpoint",
         "@gemmlowp//:profiler",
@@ -404,6 +408,8 @@ cc_library(
     srcs = [],
     hdrs = [
         "reference/arg_min_max.h",
+        "reference/binary_function.h",
+        "reference/comparisons.h",
         "reference/conv.h",
         "reference/depthwiseconv_float.h",
         "reference/depthwiseconv_uint8.h",
@@ -581,7 +587,6 @@ cc_library(
         ":cpu_check",
         ":types",
         "//tensorflow/lite/c:c_api_internal",
-        "@arm_neon_2_x86_sse",
         "//tensorflow/lite/kernels:cpu_backend_context",
         "//tensorflow/lite/kernels:op_macros",
         "@gemmlowp//:fixedpoint",

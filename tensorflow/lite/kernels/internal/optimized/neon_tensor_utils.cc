@@ -880,7 +880,7 @@ inline int32x4_t RoundToNearest(const float32x4_t input) {
   static const float32x4_t zero_val_dup = vdupq_n_f32(0.0f);
   static const float32x4_t point5_val_dup = vdupq_n_f32(0.5f);
 
-  const int32x4_t mask = static_cast<int32x4_t>(vcltq_f32(input, zero_val_dup));
+  const int32x4_t mask = vreinterpretq_s32_u32(vcltq_f32(input, zero_val_dup));
   const float32x4_t casted_mask = vcvtq_f32_s32(mask);
   const float32x4_t round = vaddq_f32(casted_mask, point5_val_dup);
   return vcvtq_s32_f32(vaddq_f32(input, round));
@@ -1018,24 +1018,6 @@ void NeonReductionSumVector(const float* input_vector, float* output_vector,
       output_vector[o] += *input_vector_ptr++;
     }
   }
-}
-
-void NeonVectorShiftLeft(float* vector, int v_size, float shift_value) {
-  // This variable keeps track of the next to the last index which is being
-  // copied to make sure we are not out of the vector boundary.
-  int last_index_copy = kFloatWeightsPerNeonLane;
-  int current_index_copy = 0;
-  while (last_index_copy < v_size) {
-    float32x4_t v_f32x4 = vld1q_f32(vector + current_index_copy + 1);
-    vst1q_f32(vector + current_index_copy, v_f32x4);
-    current_index_copy += kFloatWeightsPerNeonLane;
-    last_index_copy += kFloatWeightsPerNeonLane;
-  }
-  // Postamble loop.
-  for (int i = current_index_copy; i < v_size - 1; i++) {
-    vector[i] = vector[i + 1];
-  }
-  vector[v_size - 1] = shift_value;
 }
 
 }  // namespace tensor_utils
