@@ -23,6 +23,12 @@ TfLiteRegistration* Register_CONV_2D();
 TfLiteRegistration* Register_AVERAGE_POOL_2D();
 TfLiteRegistration* Register_MAX_POOL_2D();
 TfLiteRegistration* Register_ABS();
+TfLiteRegistration* Register_SIN();
+TfLiteRegistration* Register_COS();
+TfLiteRegistration* Register_LOG();
+TfLiteRegistration* Register_SQRT();
+TfLiteRegistration* Register_RSQRT();
+TfLiteRegistration* Register_SQUARE();
 TfLiteRegistration* Register_PRELU();
 TfLiteRegistration* Register_FLOOR();
 TfLiteRegistration* Register_MAXIMUM();
@@ -32,6 +38,8 @@ TfLiteRegistration* Register_ARG_MIN();
 TfLiteRegistration* Register_LOGICAL_OR();
 TfLiteRegistration* Register_LOGICAL_AND();
 TfLiteRegistration* Register_LOGICAL_NOT();
+TfLiteRegistration* Register_RESHAPE();
+
 AllOpsResolver::AllOpsResolver() {
   AddBuiltin(BuiltinOperator_DEPTHWISE_CONV_2D, Register_DEPTHWISE_CONV_2D());
   AddBuiltin(BuiltinOperator_FULLY_CONNECTED, Register_FULLY_CONNECTED(),
@@ -42,6 +50,12 @@ AllOpsResolver::AllOpsResolver() {
   AddBuiltin(BuiltinOperator_CONV_2D, Register_CONV_2D());
   AddBuiltin(BuiltinOperator_AVERAGE_POOL_2D, Register_AVERAGE_POOL_2D());
   AddBuiltin(BuiltinOperator_ABS, Register_ABS());
+  AddBuiltin(BuiltinOperator_SIN, Register_SIN());
+  AddBuiltin(BuiltinOperator_COS, Register_COS());
+  AddBuiltin(BuiltinOperator_LOG, Register_LOG());
+  AddBuiltin(BuiltinOperator_SQRT, Register_SQRT());
+  AddBuiltin(BuiltinOperator_RSQRT, Register_RSQRT());
+  AddBuiltin(BuiltinOperator_SQUARE, Register_SQUARE());
   AddBuiltin(BuiltinOperator_PRELU, Register_PRELU());
   AddBuiltin(BuiltinOperator_FLOOR, Register_FLOOR());
   AddBuiltin(BuiltinOperator_MAXIMUM, Register_MAXIMUM());
@@ -51,6 +65,7 @@ AllOpsResolver::AllOpsResolver() {
   AddBuiltin(BuiltinOperator_LOGICAL_OR, Register_LOGICAL_OR());
   AddBuiltin(BuiltinOperator_LOGICAL_AND, Register_LOGICAL_AND());
   AddBuiltin(BuiltinOperator_LOGICAL_NOT, Register_LOGICAL_NOT());
+  AddBuiltin(BuiltinOperator_RESHAPE, Register_RESHAPE());
 }
 
 }  // namespace micro

@@ -1,4 +1,4 @@
-/* Copyright 2016 The TensorFlow Authors. All Rights Reserved.
+/* Copyright 2018 The TensorFlow Authors. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -13,10 +13,24 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef TENSORFLOW_CORE_PLATFORM_WINDOWS_CPU_INFO_H_
-#define TENSORFLOW_CORE_PLATFORM_WINDOWS_CPU_INFO_H_
+#include "tensorflow/core/platform/rocm_rocdl_path.h"
 
-// included so __cpuidex function is available for GETCPUID on Windows
-#include <intrin.h>
+#include <stdlib.h>
 
-#endif  // TENSORFLOW_CORE_PLATFORM_WINDOWS_CPU_INFO_H_
+#if !defined(PLATFORM_GOOGLE) && TENSORFLOW_USE_ROCM
+#include "rocm/rocm_config.h"
+#endif
+#include "tensorflow/core/platform/logging.h"
+
+namespace tensorflow {
+
+string RocmRoot() {
+#if TENSORFLOW_USE_ROCM
+  VLOG(3) << "ROCM root = " << TF_ROCM_TOOLKIT_PATH;
+  return TF_ROCM_TOOLKIT_PATH;
+#else
+  return "";
+#endif
+}
+
+}  // namespace tensorflow
