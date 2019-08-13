@@ -51,6 +51,8 @@ from tensorflow.python.keras.engine import training_generator
 from tensorflow.python.keras.engine import training_utils
 from tensorflow.python.keras.engine import training_v2
 from tensorflow.python.keras.engine import training_v2_utils
+from tensorflow.python.keras.mixed_precision.experimental import loss_scale_optimizer
+from tensorflow.python.keras.optimizer_v2 import optimizer_v2
 from tensorflow.python.keras.saving import saving_utils
 from tensorflow.python.keras.utils import data_utils
 from tensorflow.python.keras.utils import losses_utils
@@ -247,13 +249,9 @@ class Model(network.Network):
     self._experimental_run_tf_function = kwargs.pop(
         'experimental_run_tf_function', True)
 
-    if isinstance(optimizer, (list, tuple)):
-      self.optimizer = [optimizers.get(opt) for opt in optimizer]
-      is_any_optimizer_v1 = any(
-          isinstance(opt, optimizers.Optimizer) for opt in self.optimizer)
-    else:
-      self.optimizer = optimizers.get(optimizer)
-      is_any_optimizer_v1 = isinstance(self.optimizer, optimizers.Optimizer)
+    self._set_optimizer(optimizer)
+    is_any_optimizer_v1 = any(isinstance(opt, optimizers.Optimizer)
+                              for opt in nest.flatten(self.optimizer))
 
     if ((sample_weight_mode is not None)
         or (target_tensors is not None)
@@ -482,7 +480,7 @@ class Model(network.Network):
   def run_eagerly(self, value):
     self._run_eagerly = value
 
-  def _select_training_loop(self, inputs):
+  def _select_training_loop(self, inputs, callbacks):
     """Select training loop for fit/eval/predict based on the inputs."""
     # TODO(kaftan) or TODO(scottzhu): This check should eventually be nicely
     #  integrated into the data adapters in the v2 loop. We can't do this yet
@@ -500,7 +498,9 @@ class Model(network.Network):
     if (context.executing_eagerly()
         and self._experimental_run_tf_function
         and not distributed_training_utils.is_tpu_strategy(
-            self._distribution_strategy)):
+            self._distribution_strategy)
+        and not training_v2_utils.should_fallback_to_v1_for_callback(
+            inputs, callbacks)):
       try:
         valid_adapter = data_adapter.select_data_adapter(inputs, None)
       except ValueError as data_failure_exception:
@@ -710,7 +710,7 @@ class Model(network.Network):
     self._assert_compile_was_called()
     self._check_call_args('fit')
 
-    func = self._select_training_loop(x)
+    func = self._select_training_loop(x, callbacks)
     return func.fit(
         self,
         x=x,
@@ -823,7 +823,7 @@ class Model(network.Network):
     self._assert_compile_was_called()
     self._check_call_args('evaluate')
 
-    func = self._select_training_loop(x)
+    func = self._select_training_loop(x, callbacks)
     return func.evaluate(
         self,
         x=x,
@@ -901,7 +901,7 @@ class Model(network.Network):
     _keras_api_gauge.get_cell('predict').set(True)
     self._check_call_args('predict')
 
-    func = self._select_training_loop(x)
+    func = self._select_training_loop(x, callbacks)
     return func.predict(
         self,
         x=x,
@@ -976,8 +976,6 @@ class Model(network.Network):
       outputs = training_v2_utils.train_on_batch(
           self, x, y=y, sample_weight=sample_weight,
           class_weight=class_weight, reset_metrics=reset_metrics)
-      outputs = (outputs['total_loss'] + outputs['output_losses'] +
-                 outputs['metrics'])
       outputs = [
           training_v2_utils._non_none_constant_value(v) for v in outputs]  # pylint: disable=protected-access
       if len(outputs) == 1:
@@ -1001,14 +999,12 @@ class Model(network.Network):
     # for each replica by `self._distribution_strategy` and the same code path
     # as Eager is expected to be taken.
     if self.run_eagerly or self._distribution_strategy:
-      output_dict = training_eager.train_on_batch(
+      outputs = training_eager.train_on_batch(
           self,
           x,
           y,
           sample_weights=sample_weights,
           output_loss_metrics=self._output_loss_metrics)
-      outputs = (output_dict['total_loss'] + output_dict['output_losses']
-                 + output_dict['metrics'])
       outputs = [
           training_v2_utils._non_none_constant_value(v) for v in outputs]  # pylint: disable=protected-access
     else:
@@ -1073,8 +1069,6 @@ class Model(network.Network):
       outputs = training_v2_utils.test_on_batch(
           self, x, y=y, sample_weight=sample_weight,
           reset_metrics=reset_metrics)
-      outputs = (outputs['total_loss'] + outputs['output_losses'] +
-                 outputs['metrics'])
       outputs = [
           training_v2_utils._non_none_constant_value(v) for v in outputs]  # pylint: disable=protected-access
       if len(outputs) == 1:
@@ -1092,14 +1086,12 @@ class Model(network.Network):
     # If `self._distribution_strategy` is True, then we are in a replica context
     # at this point.
     if self.run_eagerly or self._distribution_strategy:
-      output_dict = training_eager.test_on_batch(
+      outputs = training_eager.test_on_batch(
           self,
           x,
           y,
           sample_weights=sample_weights,
           output_loss_metrics=self._output_loss_metrics)
-      outputs = (output_dict['total_loss'] + output_dict['output_losses']
-                 + output_dict['metrics'])
       outputs = [
           training_v2_utils._non_none_constant_value(v) for v in outputs]  # pylint: disable=protected-access
     else:
@@ -1443,6 +1435,47 @@ class Model(network.Network):
           'Models passed to `' + method_name + '` can only have `training` '
           'and the first argument in `call` as positional arguments, '
           'found: ' + str(extra_args) + '.')
+
+  def _set_optimizer(self, optimizer):
+    """Sets self.optimizer.
+
+    Sets self.optimizer to `optimizer`, potentially wrapping it with a
+    LossScaleOptimizer.
+
+    Args:
+      optimizer: The optimizer(s) to assign to self.optimizer.
+    """
+    if isinstance(optimizer, (list, tuple)):
+      self.optimizer = [optimizers.get(opt) for opt in optimizer]
+    else:
+      self.optimizer = optimizers.get(optimizer)
+
+    if (self._dtype_policy.loss_scale is not None and
+        not isinstance(self.optimizer,
+                       loss_scale_optimizer.LossScaleOptimizer)):
+      if isinstance(self.optimizer, list):
+        raise ValueError('When a dtype policy with a loss scale is used, you '
+                         'can only pass a single optimizer. Using policy %s '
+                         'and got optimizers: %s' %
+                         self._dtype_policy, self.optimizer)
+      if not isinstance(self.optimizer, optimizer_v2.OptimizerV2):
+        raise ValueError('"optimizer" must be an instance of '
+                         'tf.keras.optimizers.Optimizer when a dype policy '
+                         'with a loss scale  used, but got: %s. Using policy: '
+                         '%s' %
+                         (self.optimizer, self._dtype_policy))
+      self.optimizer = loss_scale_optimizer.LossScaleOptimizer(
+          self.optimizer, self._dtype_policy.loss_scale)
+    if (isinstance(self.optimizer, loss_scale_optimizer.LossScaleOptimizer) and
+        self._dtype_policy.loss_scale and
+        self.optimizer.loss_scale != self._dtype_policy.loss_scale):
+      logging.warning('LossScale of LossScaleOptimizer passed to compile (%s) '
+                      'is not the same as the dtype policy\'s loss scale (%s). '
+                      'Because the dtype policy has a loss scale, you should '
+                      'pass an optimizer that is not wrapped with a '
+                      'LossScaleOptimizer,'
+                      % (self.optimizer.loss_scale,
+                         self._dtype_policy.loss_scale))
 
   def _prepare_validation_data(self, validation_data, batch_size,
                                validation_steps):
