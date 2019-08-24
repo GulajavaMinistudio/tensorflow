@@ -172,8 +172,7 @@ class DefaultTensorTie : public TensorTie {
     }
     switch (d.object_def.object_type) {
       case ObjectType::CPU_MEMORY: {
-        size_t bytes_size =
-            d.dimensions.product() * SizeOf(d.object_def.data_type);
+        size_t bytes_size = NumElements(d) * SizeOf(d.object_def.data_type);
         cpu_memory_.resize(bytes_size);
         external_obj_ = CpuMemory{cpu_memory_.data(), cpu_memory_.size()};
         break;
@@ -714,7 +713,7 @@ class InferenceEnvironmentImpl : public InferenceEnvironment {
   }
 
   Status NewInferenceBuilder(const InferenceOptions& options,
-                             const GraphFloat32& model,
+                             GraphFloat32 model,
                              std::unique_ptr<InferenceBuilder>* builder) final {
     if (environment_.program_cache() &&
         !options_.serialized_binary_cache.empty()) {
@@ -725,11 +724,9 @@ class InferenceEnvironmentImpl : public InferenceEnvironment {
           .IgnoreError();
     }
 
-    GraphFloat32 cl_graph;
-    RETURN_IF_ERROR(model.MakeExactCopy(&cl_graph));
-    RETURN_IF_ERROR(RunGraphTransforms(&cl_graph));
+    RETURN_IF_ERROR(RunGraphTransforms(&model));
     auto builder_impl = absl::make_unique<InferenceBuilderImpl>(&environment_);
-    RETURN_IF_ERROR(builder_impl->Initialize(options, options_, cl_graph));
+    RETURN_IF_ERROR(builder_impl->Initialize(options, options_, model));
     *builder = std::move(builder_impl);
     return OkStatus();
   }
