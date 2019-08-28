@@ -32,6 +32,12 @@ namespace absl {
 class string_view;
 }
 
+#ifdef PLATFORM_GOOGLE
+// TODO(dero): Move above to 'namespace absl' when absl moves Cord out of global
+// namepace.
+class Cord;
+#endif  // PLATFORM_GOOGLE
+
 namespace tensorflow {
 
 // tensorflow::tstring is the scalar type for DT_STRING tensors.
@@ -72,10 +78,18 @@ class tstring {
 
   tstring(const char* str) : str_(str) {}
 
+  tstring(size_t n, char c) : str_(n, c) {}
+
   template <typename T,
             typename std::enable_if<std::is_same<T, absl::string_view>::value,
                                     T>::type* = nullptr>
   explicit tstring(const T& str) : str_(str.data(), str.size()) {}
+
+#ifdef PLATFORM_GOOGLE
+  template <typename T, typename std::enable_if<std::is_same<T, Cord>::value,
+                                                T>::type* = nullptr>
+  explicit tstring(const T& cord) : str_(string(cord)) {}
+#endif  // PLATFORM_GOOGLE
 
   tstring(tstring&&) noexcept = default;
 
@@ -97,6 +111,16 @@ class tstring {
 
     return *this;
   }
+
+#ifdef PLATFORM_GOOGLE
+  template <typename T, typename std::enable_if<std::is_same<T, Cord>::value,
+                                                T>::type* = nullptr>
+  tstring& operator=(const T& cord) {
+    str_ = string(cord);
+
+    return *this;
+  }
+#endif  // PLATFORM_GOOGLE
 
   tstring& operator=(const char* str) {
     str_ = str;
