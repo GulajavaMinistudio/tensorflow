@@ -24,7 +24,7 @@ namespace xla {
 namespace mlir_gpu {
 
 // Lowers from LHLO dialect to affine dialect.
-std::unique_ptr<::mlir::FunctionPassBase> createLegalizeAffine();
+std::unique_ptr<::mlir::FunctionPassBase> createLegalizeAffinePass();
 
 // Adds patterns to convert LHLO binary ops to affine loops.
 void AppendBinaryOpsPatterns(::mlir::MLIRContext* context,
