@@ -29,6 +29,7 @@ load(
 load(
     "//tensorflow/core/platform:default/build_refactor.bzl",
     "tf_instantiate_platform_libraries",
+    "tf_platform_helper_deps",
 )
 load(
     "//tensorflow:tensorflow.bzl",
@@ -47,7 +48,11 @@ package(
 # exist to allow us incrementally add granular targets
 # to tf/core/platform/BUILD. We will remove these helpers,
 # after we finish refactoring tf/core/platform/BUILD.
-tf_instantiate_platform_libraries(names = ["context"])
+tf_instantiate_platform_libraries(names = [
+    "context",
+    "cord",
+    "env_time",
+])
 
 cc_library(
     name = "abi",
@@ -81,6 +86,15 @@ cc_library(
     deps = [
         # See call to tf_instantiate_platform_libraries() above.
         ":context_impl",
+    ],
+)
+
+cc_library(
+    name = "cord",
+    hdrs = ["cord.h"],
+    deps = [
+        ":cord_impl",
+        ":platform",
     ],
 )
 
@@ -123,11 +137,8 @@ cc_library(
 
 cc_library(
     name = "env_time",
-    srcs = tf_platform_srcs(["env_time.cc"]),
-    hdrs = ["env_time.h"],
-    deps = [
-        ":types",
-    ],
+    textual_hdrs = ["env_time.h"],
+    deps = tf_platform_helper_deps("env_time_impl"),
 )
 
 cc_library(
@@ -237,7 +248,10 @@ cc_library(
 
 cc_library(
     name = "stacktrace",
-    srcs = glob(["*/stacktrace.h"]),
+    srcs = tf_platform_srcs([
+        "stacktrace.h",
+        "stacktrace.cc",
+    ]),
     hdrs = ["stacktrace.h"],
     deps = [
         ":abi",
