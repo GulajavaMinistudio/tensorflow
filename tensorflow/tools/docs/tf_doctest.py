@@ -19,15 +19,14 @@ from __future__ import division
 from __future__ import print_function
 
 import os
-import pkgutil
 import re
+import sys
 import numpy as np
 
 from absl import flags
 from absl.testing import absltest
 
 import tensorflow.compat.v2 as tf
-import tensorflow.python as core
 tf.compat.v1.enable_v2_behavior()
 
 # We put doctest after absltest so that it picks up the unittest monkeypatch.
@@ -40,17 +39,16 @@ flags.DEFINE_string('module', '', 'A specific module to run doctest on.')
 flags.DEFINE_boolean('list', False,
                      'List all the modules in the core package imported.')
 
+PACKAGE = 'tensorflow.python.'
+
 
 def find_modules():
   """Finds all the modules in the core package imported."""
 
   tf_modules = []
-  for _, name, _ in pkgutil.walk_packages(
-      core.__path__, prefix=core.__name__ + '.'):
-    try:
-      tf_modules.append(__import__(name, fromlist=['']))
-    except (ImportError, AttributeError):
-      pass
+  for name, module in sys.modules.items():
+    if name.startswith(PACKAGE):
+      tf_modules.append(module)
 
   return tf_modules
 
@@ -72,7 +70,7 @@ def filter_on_submodules(all_modules, submodule):
 
   filtered_modules = [
       mod for mod in all_modules
-      if core.__name__ + '.' + submodule in mod.__name__
+      if PACKAGE + submodule in mod.__name__
   ]
   return filtered_modules
 
@@ -84,6 +82,9 @@ class TfTestCase(tf.test.TestCase):
 
   def tear_down(self, test):
     self.tearDown()
+
+  def runTest(self):
+    self.assertTrue(True)
 
 
 class CustomOutputChecker(doctest.OutputChecker):
@@ -105,8 +106,10 @@ def load_tests(unused_loader, tests, unused_ignore):
     tf_modules = filter_on_submodules(tf_modules, FLAGS.module)
 
   if FLAGS.list:
+    print('**************************************************')
     for mod in tf_modules:
       print(mod.__name__)
+    print('**************************************************')
     return tests
 
   for module in tf_modules:
@@ -123,7 +126,8 @@ def load_tests(unused_loader, tests, unused_ignore):
             setUp=testcase.set_up,
             tearDown=testcase.tear_down,
             checker=CustomOutputChecker(),
-            optionflags=(doctest.ELLIPSIS | doctest.NORMALIZE_WHITESPACE),
+            optionflags=(doctest.ELLIPSIS | doctest.NORMALIZE_WHITESPACE |
+                         doctest.IGNORE_EXCEPTION_DETAIL),
         ))
   return tests
 

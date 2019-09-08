@@ -98,6 +98,7 @@ py_library(
         "//third_party/py/tensorflow_core:__subpackages__",
     ],
     deps = [
+        ":_pywrap_util_port",
         ":_pywrap_utils",
         ":array_ops",
         ":audio_ops_gen",
@@ -145,7 +146,6 @@ py_library(
         ":session_ops",
         ":sets",
         ":sparse_ops",
-        ":spectral_ops_test_util",
         ":standard_ops",
         ":state_ops",
         ":string_ops",
@@ -212,8 +212,8 @@ py_library(
     srcs_version = "PY2AND3",
     visibility = ["//visibility:public"],
     deps = [
+        ":_pywrap_util_port",
         ":lib",
-        ":pywrap_tensorflow",
         ":util",
         "//tensorflow/core:protos_all_py",
         "@absl_py//absl:app",
@@ -379,6 +379,21 @@ cc_library(
 )
 
 tf_python_pybind_extension(
+    name = "_pywrap_tfprof",
+    srcs = ["util/tfprof_wrapper.cc"],
+    module_name = "_pywrap_tfprof",
+    deps = [
+        "//tensorflow/core:framework",
+        "//tensorflow/core:lib",
+        "//tensorflow/core/profiler/internal:print_model_analysis_hdr",
+        "//third_party/eigen3",
+        "//third_party/python_runtime:headers",
+        "@com_google_absl//absl/strings",
+        "@pybind11",
+    ],
+)
+
+tf_python_pybind_extension(
     name = "_pywrap_utils",
     srcs = ["util/util_wrapper.cc"],
     hdrs = ["util/util.h"],
@@ -398,6 +413,18 @@ tf_python_pybind_extension(
         "//tensorflow/core:protos_all_cc",
         "//third_party/python_runtime:headers",
         "@com_google_absl//absl/memory",
+        "@pybind11",
+    ],
+)
+
+pybind_extension(
+    name = "_pywrap_util_port",
+    srcs = ["util/port_wrapper.cc"],
+    hdrs = ["//tensorflow/core:util_port_hdrs"],
+    module_name = "_pywrap_util_port",
+    deps = [
+        "//tensorflow/core:util_port",
+        "//third_party/python_runtime:headers",
         "@pybind11",
     ],
 )
@@ -712,6 +739,7 @@ py_library(
     srcs_version = "PY2AND3",
     deps = [
         ":_pywrap_stat_summarizer",
+        ":_pywrap_util_port",
         ":_pywrap_utils",
         ":common_shapes",
         ":composite_tensor",
@@ -3685,16 +3713,6 @@ tf_py_test(
 )
 
 py_library(
-    name = "spectral_ops_test_util",
-    srcs = ["ops/spectral_ops_test_util.py"],
-    srcs_version = "PY2AND3",
-    deps = [
-        ":client_testlib",
-        ":framework_ops",
-    ],
-)
-
-py_library(
     name = "confusion_matrix",
     srcs = ["ops/confusion_matrix.py"],
     srcs_version = "PY2AND3",
@@ -5007,10 +5025,8 @@ tf_py_wrap_cc(
         "pywrap_tfe.i",
         "training/quantize_training.i",
         "util/kernel_registry.i",
-        "util/port.i",
         "util/py_checkpoint_reader.i",
         "util/scoped_annotation.i",
-        "util/tfprof.i",
         "util/traceme.i",
         "util/transform_graph.i",
         "//tensorflow/lite/toco/python:toco.i",
@@ -5105,6 +5121,7 @@ genrule(
     srcs = [
         ":cpp_python_util",  # util
         "//tensorflow/stream_executor:stream_executor_pimpl",  # stat_summarizer
+        "//tensorflow/core/profiler/internal:print_model_analysis",  # tfprof
     ],
     outs = ["pybind_symbol_target_libs_file.txt"],
     cmd = select({

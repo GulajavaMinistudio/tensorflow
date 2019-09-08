@@ -198,9 +198,11 @@ cc_library(
         "transforms/prepare_composite_functions_tf.cc",
         "transforms/prepare_tf.cc",
         "transforms/trim_functions_tf.cc",
+        "transforms/unroll_batch_matmul.cc",
     ],
     hdrs = [
         "transforms/passes.h",
+        "transforms/unroll_batch_matmul.h",
     ],
     deps = [
         ":common",
@@ -521,7 +523,7 @@ cc_library(
         ":tensorflow_lite_quantize",
         "//tensorflow/compiler/mlir/tensorflow",
         "//tensorflow/compiler/mlir/tensorflow:error_util",
-        "//tensorflow/compiler/mlir/tensorflow:tensorflow_fold_switch",
+        "//tensorflow/compiler/mlir/tensorflow:tensorflow_passes",
         "//tensorflow/compiler/mlir/tensorflow:tf_dialect_lib",
         "//tensorflow/compiler/mlir/tensorflow:tf_dialect_passes",
         "//tensorflow/compiler/mlir/tensorflow:translate_lib",

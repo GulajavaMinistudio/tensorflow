@@ -474,6 +474,48 @@ class TestModelSavingAndLoadingV2(keras_parameterized.TestCase):
       loaded_predictions = loaded.predict(features)
       self.assertAllClose(predictions, loaded_predictions)
 
+  def testSaveTensorKwarg(self):
+
+    class LayerWithTensorKwarg(keras.layers.Layer):
+
+      def call(self, inputs, tensor=None):
+        if tensor is not None:
+          return inputs * math_ops.cast(tensor, dtypes.float32)
+        else:
+          return inputs
+
+    t = array_ops.sequence_mask(1)
+    inputs = keras.layers.Input(shape=(3))
+    model = keras.models.Model(inputs, LayerWithTensorKwarg()(inputs, t))
+
+    input_arr = np.random.random((1, 3)).astype(np.float32)
+    predictions = model.predict(input_arr)
+
+    saved_model_dir = self._save_model_dir()
+    model.save(saved_model_dir, save_format='tf')
+    loaded = keras_load.load(saved_model_dir)
+    loaded_predictions = loaded.predict(input_arr)
+    self.assertAllClose(predictions, loaded_predictions)
+
+  def testModelWithTfFunctionCall(self):
+    class Subclass(keras.models.Model):
+
+      @def_function.function
+      def call(self, inputs, training=False):
+        return inputs * math_ops.cast(training, dtypes.float32)
+
+    model = Subclass()
+    model.predict(array_ops.ones((1, 2)), steps=1)
+    saved_model_dir = self._save_model_dir()
+    model.save(saved_model_dir, save_format='tf')
+    loaded = keras_load.load(saved_model_dir)
+    self.assertAllEqual(
+        [[1, 5]],
+        self.evaluate(loaded(array_ops.constant([[1, 5.]]), training=True)))
+    self.assertAllEqual(
+        [[0, 0]],
+        self.evaluate(loaded(array_ops.constant([[1, 5.]]), training=False)))
+
 
 class TestLayerCallTracing(test.TestCase):
 

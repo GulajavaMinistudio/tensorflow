@@ -25,6 +25,7 @@ import six
 from tensorflow.python.compat import compat
 from tensorflow.python.eager import context
 from tensorflow.python.framework import common_shapes
+from tensorflow.python.framework import composite_tensor
 from tensorflow.python.framework import constant_op
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import ops
@@ -194,6 +195,8 @@ def identity(input, name=None):  # pylint: disable=redefined-builtin
   Returns:
     A `Tensor`. Has the same type as `input`.
   """
+  if isinstance(input, composite_tensor.CompositeTensor):
+    return nest.map_structure(identity, input, expand_composites=True)
   if context.executing_eagerly() and not hasattr(input, "graph"):
     # Make sure we get an input with handle data attached from resource
     # variables. Variables have correct handle data when graph building.
@@ -4390,7 +4393,7 @@ def quantize_v2(
       raise ValueError("input should have known rank to use negative axis.")
     axis %= input.shape.ndims
 
-  if compat.forward_compatible(2019, 9, 25) or axis is not None:
+  if compat.forward_compatible(2019, 9, 25) or axis >= 0:
     return gen_array_ops.quantize_v2(
         input,
         min_range,
@@ -4470,7 +4473,7 @@ def dequantize(
       raise ValueError("input should have known rank to use negative axis.")
     axis %= input.shape.ndims
 
-  if compat.forward_compatible(2019, 9, 25) or axis is not None:
+  if compat.forward_compatible(2019, 9, 25) or axis >= 0:
     return gen_array_ops.dequantize(
         input, min_range, max_range, mode=mode, name=name, axis=axis)
   return gen_array_ops.dequantize(
@@ -4516,15 +4519,14 @@ def quantize_and_dequantize(
     A `Tensor`. Each element is the result of quantizing and dequantizing the
     corresponding element of `input`.
   """
-  if axis is not None:
-    if axis < 0:
-      if input.shape.ndims is None:
-        raise ValueError("input should have known rank to use negative axis.")
-      axis %= input.shape.ndims
-  else:
+  if axis is None:
     axis = -1
+  elif axis < 0:
+    if input.shape.ndims is None:
+      raise ValueError("input should have known rank to use negative axis.")
+    axis %= input.shape.ndims
 
-  if compat.forward_compatible(2019, 9, 25) or axis is not None:
+  if compat.forward_compatible(2019, 9, 25) or axis >= 0:
     return gen_array_ops.quantize_and_dequantize_v2(
         input,
         input_min=input_min,
