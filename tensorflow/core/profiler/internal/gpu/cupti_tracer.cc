@@ -19,6 +19,7 @@ limitations under the License.
 #include "absl/container/node_hash_map.h"
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/lib/gtl/cleanup.h"
+#include "tensorflow/core/lib/hash/hash.h"
 #include "tensorflow/core/platform/abi.h"
 #include "tensorflow/core/platform/annotation.h"
 #include "tensorflow/core/platform/env.h"
@@ -109,8 +110,8 @@ const char *getActivityUnifiedMemoryKindString(
 // GetCachedTID() caches the thread ID in thread-local storage (which is a
 // userspace construct) to avoid unnecessary system calls. Without this caching,
 // it can take roughly 98ns, while it takes roughly 1ns with this caching.
-pid_t GetCachedTID() {
-  static thread_local pid_t current_thread_id =
+int32 GetCachedTID() {
+  static thread_local int32 current_thread_id =
       Env::Default()->GetCurrentThreadId();
   return current_thread_id;
 }
@@ -904,7 +905,7 @@ class CudaEventRecorder {
   CuptiInterface *cupti_interface_;
   CuptiTraceCollector *collector_;
   const int ordinal_;
-  string device_name_;
+  std::string device_name_;
   uint64 end_walltime_us_;
   // Include context in key to distinguish null streams.
   using StreamKey = std::pair<CUcontext, CUstream>;
@@ -1172,7 +1173,7 @@ const char *GetTraceEventTypeName(const CuptiTracerEventType &type) {
 }
 
 void AnnotationMap::Add(uint32 device_id, uint32 correlation_id,
-                        const string &annotation) {
+                        const std::string &annotation) {
   if (annotation.empty()) return;
   VLOG(3) << "Add annotation: device_id: " << device_id
           << " correlation_id: " << correlation_id
@@ -1386,7 +1387,7 @@ Status CuptiTracer::HandleCallback(CUpti_CallbackDomain domain,
         device_id, domain, cbid, cbdata));
   } else if (cbdata->callbackSite == CUPTI_API_EXIT) {
     // Set up the map from correlation id to annotation string.
-    const string &annotation = tensorflow::Annotation::CurrentAnnotation();
+    const std::string &annotation = tensorflow::Annotation::CurrentAnnotation();
     if (!annotation.empty()) {
       annotation_map_->Add(device_id, cbdata->correlationId, annotation);
     }

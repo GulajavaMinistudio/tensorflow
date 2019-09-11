@@ -1310,9 +1310,25 @@ cc_library(
         ":Support",
         ":Transforms",
         ":VectorToLLVMTransforms",
+        ":ViewOpGraph",
         ":ViewRegionGraph",
         "@llvm//:support",
     ],
+)
+
+cc_library(
+    name = "ViewOpGraph",
+    srcs = ["lib/Transforms/ViewOpGraph.cpp"],
+    hdrs = ["include/mlir/Transforms/ViewOpGraph.h"],
+    includes = ["include"],
+    deps = [
+        ":Analysis",
+        ":IR",
+        ":Pass",
+        ":Support",
+        "@llvm//:support",
+    ],
+    alwayslink = 1,
 )
 
 cc_library(
@@ -1327,6 +1343,7 @@ cc_library(
         ":Support",
         "@llvm//:support",
     ],
+    alwayslink = 1,
 )
 
 cc_library(
@@ -1409,6 +1426,7 @@ cc_binary(
         "//test:TestDialect",
         "//test:TestTransforms",
         "@llvm//:support",
+        "@local_config_mlir//test:TestPass",
     ],
 )
 

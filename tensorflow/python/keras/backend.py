@@ -152,10 +152,11 @@ def cast_to_floatx(x):
   """Cast a Numpy array to the default Keras float type.
 
   Arguments:
-      x: Numpy array.
+      x: Numpy array or TensorFlow tensor.
 
   Returns:
-      The same Numpy array, cast to its new type.
+      The same array (Numpy array if `x` was a Numpy array, or TensorFlow tensor
+      if `x` was a tensor), cast to its new type.
 
   Example:
 
@@ -171,6 +172,10 @@ def cast_to_floatx(x):
   dtype('float32')
 
   """
+  if isinstance(x, (ops.Tensor,
+                    variables_module.Variable,
+                    sparse_tensor.SparseTensor)):
+    return math_ops.cast(x, dtype=floatx())
   return np.asarray(x, dtype=floatx())
 
 
@@ -4406,7 +4411,7 @@ def sparse_categorical_crossentropy(target, output, from_logits=False, axis=-1):
 
   target = cast(target, 'int64')
 
-  # Try to adjust the shape so that rank of labels = 1 - rank of logits.
+  # Try to adjust the shape so that rank of labels = rank of logits - 1.
   output_shape = array_ops.shape_v2(output)
   target_rank = target.shape.ndims
 

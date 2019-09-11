@@ -10,7 +10,6 @@
 
 load(
     "//tensorflow/core/platform:default/build_config.bzl",
-    "tf_additional_device_tracer_srcs",
     "tf_additional_lib_hdrs",
     "tf_additional_lib_srcs",
     "tf_additional_libdevice_srcs",
@@ -51,9 +50,15 @@ package(
 tf_instantiate_platform_libraries(names = [
     "context",
     "cord",
+    "cuda_libdevice_path",
     "dynamic_annotations",
     "env_time",
     "fingerprint",
+    "human_readable_json",
+    "mutex",
+    "notification",
+    "platform_port",
+    "strong_hash",
 ])
 
 cc_library(
@@ -134,6 +139,14 @@ cc_library(
 )
 
 cc_library(
+    name = "cuda_libdevice_path",
+    textual_hdrs = ["cuda_libdevice_path.h"],
+    deps = [
+        ":cuda_libdevice_path_impl",
+    ],
+)
+
+cc_library(
     name = "denormal",
     srcs = ["denormal.cc"],
     hdrs = ["denormal.h"],
@@ -159,6 +172,18 @@ cc_library(
     name = "env_time",
     textual_hdrs = ["env_time.h"],
     deps = tf_platform_helper_deps("env_time_impl"),
+)
+
+cc_library(
+    name = "error",
+    srcs = ["error.cc"],
+    hdrs = ["error.h"],
+    deps = [
+        ":platform",
+        ":types",
+        "//tensorflow/core/lib/core:status",
+        "//tensorflow/core/lib/strings:string_utils",
+    ],
 )
 
 cc_library(
@@ -195,6 +220,14 @@ cc_library(
 )
 
 cc_library(
+    name = "human_readable_json",
+    textual_hdrs = ["human_readable_json.h"],
+    deps = [
+        ":human_readable_json_impl",
+    ],
+)
+
+cc_library(
     name = "logging",
     srcs = tf_platform_hdrs(["logging.h"]) + tf_platform_srcs(["logging.cc"]),
     hdrs = ["logging.h"],
@@ -210,6 +243,23 @@ cc_library(
 cc_library(
     name = "macros",
     hdrs = ["macros.h"],
+)
+
+cc_library(
+    name = "mutex",
+    textual_hdrs = ["mutex.h"],
+    deps = [
+        ":mutex_impl",
+    ],
+)
+
+cc_library(
+    name = "notification",
+    hdrs = ["notification.h"],
+    deps = [
+        ":notification_impl",
+        ":platform",
+    ],
 )
 
 cc_library(
@@ -240,6 +290,28 @@ cc_library(
 cc_library(
     name = "platform",
     hdrs = ["platform.h"],
+)
+
+cc_library(
+    name = "platform_port",
+    srcs = [
+        "cpu_info.cc",
+    ],
+    copts = tf_copts(),
+    textual_hdrs = [
+        "cpu_info.h",
+        "demangle.h",
+        "host_info.h",
+        "init_main.h",
+        "mem.h",
+        "numa.h",
+        "snappy.h",
+    ],
+    deps = [
+        ":logging",
+        ":platform",
+        ":types",
+    ] + tf_platform_helper_deps("platform_port_impl"),
 )
 
 cc_library(
@@ -274,6 +346,17 @@ cc_library(
     name = "protobuf_compiler",
     hdrs = ["protobuf_compiler.h"],
     deps = tf_protobuf_compiler_deps(),
+)
+
+cc_library(
+    name = "regexp",
+    hdrs = ["regexp.h"],
+    deps = [
+        ":platform",
+        ":types",
+        "@com_google_absl//absl/strings",
+        "@com_googlesource_code_re2//:re2",
+    ],
 )
 
 cc_library(
@@ -366,6 +449,16 @@ cc_library(
 )
 
 cc_library(
+    name = "strong_hash",
+    hdrs = ["strong_hash.h"],
+    deps = [
+        ":platform",
+        ":strong_hash_impl",
+        ":types",
+    ],
+)
+
+cc_library(
     name = "thread_annotations",
     hdrs = ["thread_annotations.h"],
 )
@@ -412,8 +505,6 @@ filegroup(
             "**/monitoring.cc",
             "**/stream_executor.h",
             "**/env_time.cc",
-            "**/device_tracer.cc",
-            "**/tpu_tracer.cc",
             "**/logger.cc",
             "**/logging.cc",
             "**/human_readable_json.cc",
@@ -511,8 +602,6 @@ filegroup(
             "**/env_time.cc",
             "**/monitoring.cc",
             "**/cuda_libdevice_path.cc",
-            "**/device_tracer.cc",
-            "**/tpu_tracer.cc",
             "**/logger.cc",
             "**/logging.cc",
             "**/human_readable_json.cc",
@@ -535,12 +624,6 @@ filegroup(
 filegroup(
     name = "legacy_test_srcs",
     srcs = tf_additional_test_srcs(),
-    visibility = ["//tensorflow/core:__pkg__"],
-)
-
-filegroup(
-    name = "legacy_device_tracer_srcs",
-    srcs = tf_additional_device_tracer_srcs(),
     visibility = ["//tensorflow/core:__pkg__"],
 )
 
