@@ -34,6 +34,10 @@ load(
     "//tensorflow:tensorflow.bzl",
     "tf_copts",
 )
+load(
+    "@local_config_rocm//rocm:build_defs.bzl",
+    "if_rocm_is_configured",
+)
 
 package(
     default_visibility = [
@@ -53,12 +57,16 @@ tf_instantiate_platform_libraries(names = [
     "cuda_libdevice_path",
     "dynamic_annotations",
     "env_time",
-    "fingerprint",
     "human_readable_json",
+    "load_library",
     "mutex",
+    "net",
     "notification",
     "platform_port",
+    "rocm_rocdl_path",
     "strong_hash",
+    "subprocess",
+    "wide_char",
 ])
 
 cc_library(
@@ -193,17 +201,6 @@ cc_library(
 )
 
 cc_library(
-    name = "fingerprint",
-    hdrs = ["fingerprint.h"],
-    deps = [
-        ":fingerprint_impl",
-        ":platform",
-        ":stringpiece",
-        ":types",
-    ],
-)
-
-cc_library(
     name = "grpc_services",
     hdrs = ["grpc_services.h"],
     deps = [
@@ -225,6 +222,12 @@ cc_library(
     deps = [
         ":human_readable_json_impl",
     ],
+)
+
+cc_library(
+    name = "load_library",
+    textual_hdrs = ["load_library.h"],
+    deps = tf_platform_helper_deps("load_library_impl"),
 )
 
 cc_library(
@@ -254,6 +257,12 @@ cc_library(
 )
 
 cc_library(
+    name = "net",
+    textual_hdrs = ["net.h"],
+    deps = tf_platform_helper_deps("net_impl"),
+)
+
+cc_library(
     name = "notification",
     hdrs = ["notification.h"],
     deps = [
@@ -275,16 +284,6 @@ cc_library(
         ":types",
         "@double_conversion//:double-conversion",
     ],
-)
-
-cc_library(
-    name = "rocm_rocdl_path",
-    srcs = ["rocm_rocdl_path.cc"] + tf_additional_rocdl_srcs(),
-    hdrs = ["rocm_rocdl_path.h"],
-    deps = [
-        ":types",
-        "//tensorflow/core:lib",
-    ] + tf_additional_rocdl_deps(),
 )
 
 cc_library(
@@ -357,6 +356,23 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@com_googlesource_code_re2//:re2",
     ],
+)
+
+cc_library(
+    name = "rocm_rocdl_path",
+    textual_hdrs = ["rocm_rocdl_path.h"],
+    deps = [
+        ":rocm_rocdl_path_impl",
+    ],
+)
+
+cc_library(
+    name = "rocm",
+    hdrs = if_rocm_is_configured(["rocm.h"]),
+    deps = if_rocm_is_configured([
+        ":platform",
+        "//tensorflow/stream_executor/rocm:rocm_activation",
+    ]),
 )
 
 cc_library(
@@ -456,6 +472,14 @@ cc_library(
         ":strong_hash_impl",
         ":types",
     ],
+)
+
+cc_library(
+    name = "subprocess",
+    textual_hdrs = [
+        "subprocess.h",
+    ],
+    deps = tf_platform_helper_deps("subprocess_impl"),
 )
 
 cc_library(

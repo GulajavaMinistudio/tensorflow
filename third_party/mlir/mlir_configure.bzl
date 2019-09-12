@@ -3,8 +3,8 @@
 def _mlir_configure_impl(repository_ctx):
     repository_ctx.file("WORKSPACE", "")
     label = Label("@org_tensorflow//third_party/mlir:mlir_configure.bzl")
-    src_dir = repository_ctx.path(label).dirname
-    repository_ctx.execute(["cp", "-rLf", "%s/." % src_dir, "."])
+    for entry in repository_ctx.path(label).dirname.readdir():
+        repository_ctx.symlink(entry, entry.basename)
 
 mlir_configure = repository_rule(
     implementation = _mlir_configure_impl,
