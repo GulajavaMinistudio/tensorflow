@@ -15,6 +15,7 @@ limitations under the License.
 
 // This file implements logic for lowering TensorFlow dialect to XLA dialect.
 
+#include <cstdint>
 #include <numeric>
 
 #include "mlir/Dialect/StandardOps/Ops.h"  // TF:local_config_mlir
@@ -26,6 +27,7 @@ limitations under the License.
 #include "mlir/IR/StandardTypes.h"  // TF:local_config_mlir
 #include "mlir/Pass/Pass.h"  // TF:local_config_mlir
 #include "tensorflow/compiler/mlir/tensorflow/ir/tf_ops.h"
+#include "tensorflow/compiler/mlir/tensorflow/transforms/lower_tf.h"
 #include "tensorflow/compiler/mlir/xla/ir/hlo_ops.h"
 #include "tensorflow/compiler/mlir/xla/transforms/passes.h"
 
@@ -38,7 +40,8 @@ struct LegalizeTF : public FunctionPass<LegalizeTF> {
 };
 }  // end anonymous namespace
 
-std::unique_ptr<mlir::FunctionPassBase> mlir::xla_hlo::createLegalizeTFPass() {
+std::unique_ptr<mlir::OpPassBase<mlir::FuncOp>>
+mlir::xla_hlo::createLegalizeTFPass() {
   return std::make_unique<LegalizeTF>();
 }
 
@@ -49,6 +52,16 @@ static bool isDefaultDataFormat(StringRef format) { return format == "NHWC"; }
 static size_t getFeatureDimension(StringAttr format,
                                   RankedTensorType inputType) {
   return isDefaultDataFormat(format.getValue()) ? inputType.getRank() - 1 : 1;
+}
+
+static IntegerAttr GetHLOAxisFromTFAxis(ElementsAttr attr, int64_t rank,
+                                        Builder *b) {
+  SmallVector<uint64_t, 1> index(attr.getType().getRank(), 0);
+  int64_t axis = attr.getValue<IntegerAttr>(index).getInt();
+  if (axis < 0) {
+    axis += rank;
+  }
+  return b->getI64IntegerAttr(axis);
 }
 
 // Returns minimum value for the given int or float element type.
@@ -113,12 +126,15 @@ static bool hasValidBiasFeatureDimension(StringAttr format, Value *input,
   return biasType.getDimSize(0) == inputType.getDimSize(featureDim);
 }
 
-/// Return a 1D ElementsAttr for the feature dimension of a BiasAdd.
-static ElementsAttr getBiasFeatureDimension(Builder &b, StringAttr format,
-                                            Value *input) {
-  return b.getDenseIntElementsAttr(
-      b.getTensorType(1, b.getIntegerType(64)),
-      getFeatureDimension(format, input->getType().cast<RankedTensorType>()));
+/// Return a 1D DenseIntElementsAttr for the feature dimension of a BiasAdd.
+static DenseIntElementsAttr getBiasFeatureDimension(Builder &b,
+                                                    StringAttr format,
+                                                    Value *input) {
+  auto inputType = input->getType().cast<RankedTensorType>();
+  size_t featureDim = getFeatureDimension(format, inputType);
+  RankedTensorType type = b.getTensorType(1, b.getIntegerType(64));
+  return DenseIntElementsAttr::get(type, featureDim)
+      .cast<DenseIntElementsAttr>();
 }
 
 //===----------------------------------------------------------------------===//
@@ -142,7 +158,8 @@ static ElementsAttr getSplat(Builder &b, Value *val, T constant) {
   return DenseElementsAttr::get(valType, elementAttr);
 }
 
-static ElementsAttr getBroadcastDimensionsAttr(Builder &b, Value *x, Value *y) {
+static DenseIntElementsAttr getBroadcastDimensionsAttr(Builder &b, Value *x,
+                                                       Value *y) {
   TensorType xType = x->getType().dyn_cast<RankedTensorType>();
   TensorType yType = y->getType().dyn_cast<RankedTensorType>();
   if (xType == yType || !xType || !yType) return {};
@@ -167,8 +184,9 @@ static ElementsAttr getBroadcastDimensionsAttr(Builder &b, Value *x, Value *y) {
   std::iota(broadcastDimensions.begin(), broadcastDimensions.end(),
             maxRank - minRank);
 
-  return b.getDenseIntElementsAttr(
-      b.getTensorType({minRank}, b.getIntegerType(64)), broadcastDimensions);
+  RankedTensorType type = b.getTensorType({minRank}, b.getIntegerType(64));
+  return DenseIntElementsAttr::get<int64_t>(type, broadcastDimensions)
+      .cast<DenseIntElementsAttr>();
 }
 
 //===----------------------------------------------------------------------===//
@@ -177,7 +195,8 @@ static ElementsAttr getBroadcastDimensionsAttr(Builder &b, Value *x, Value *y) {
 
 // Returns a 1-d i64 elements attribute populated with numbers from start to
 // end, excluding.
-static ElementsAttr GetI64AttrForSeq(int start, int end, Builder *builder) {
+static DenseIntElementsAttr GetI64ElementsAttrForSeq(int start, int end,
+                                                     Builder *builder) {
   int size = end - start;
 
   SmallVector<int64_t, 4> vals;
@@ -185,7 +204,8 @@ static ElementsAttr GetI64AttrForSeq(int start, int end, Builder *builder) {
   std::iota(vals.begin(), vals.end(), start);
 
   TensorType ty = builder->getTensorType({size}, builder->getIntegerType(64));
-  return DenseIntElementsAttr::get<int64_t>(ty, vals);
+  return DenseIntElementsAttr::get<int64_t>(ty, vals)
+      .cast<DenseIntElementsAttr>();
 }
 
 // Returns the type to use for accumulating the given type.
@@ -243,7 +263,7 @@ class ConvertMaxPoolOp : public OpRewritePattern<TF::MaxPoolOp> {
         /*paddings=*/DenseIntElementsAttr());
     BuildReduceBody<xla_hlo::MaxOp>(element_type, &reduce.body(), &rewriter);
 
-    rewriter.replaceOp(op.getOperation(), reduce.getResult(0));
+    rewriter.replaceOp(op, reduce.getResult(0));
     return matchSuccess();
   }
 };
@@ -293,8 +313,8 @@ class ConvertSoftmaxOp : public OpRewritePattern<TF::SoftmaxOp> {
     // Note that the TensorFlow Softmax op verifies that the input rank is
     // greater than or equal to one so both of the following sequences are
     // valid.
-    ElementsAttr batch_dims = GetI64AttrForSeq(0, rank - 1, &rewriter);
-    ElementsAttr reduce_dim = GetI64AttrForSeq(rank - 1, rank, &rewriter);
+    auto batch_dims = GetI64ElementsAttrForSeq(0, rank - 1, &rewriter);
+    auto reduce_dim = GetI64ElementsAttrForSeq(rank - 1, rank, &rewriter);
     Location loc = op.getLoc();
 
     // Exponential of input values and then their sum can be very large here.
@@ -338,8 +358,8 @@ class ConvertSoftmaxOp : public OpRewritePattern<TF::SoftmaxOp> {
     // Convert the summation result back to the original element type and divide
     // exponentials by the summations.
     sum = rewriter.create<xla_hlo::ConvertOp>(loc, reduce_out_type, sum);
-    rewriter.replaceOpWithNewOp<xla_hlo::DivOp>(op.getOperation(), op.getType(),
-                                                exp, sum, batch_dims);
+    rewriter.replaceOpWithNewOp<xla_hlo::DivOp>(op, op.getType(), exp, sum,
+                                                batch_dims);
     return matchSuccess();
   }
 };
@@ -353,6 +373,16 @@ void mlir::xla_hlo::legalizeTF(Operation *op) {
   // Add lowering patterns to the list.
   OwningRewritePatternList patterns;
   xla::populateWithGenerated(op->getContext(), &patterns);
+
+  // Add patterns that lower some of the high level TensorFlow ops to lower
+  // level TensorFlow ops. So, we don't have to target all the TensorFlow ops
+  // here for lowering to HLO.
+  //
+  // TODO(b/140964075): Switch to DialectConversion to avoid premature lowering
+  // to lower level TensorFlow ops if we actually want to target the higher
+  // level TensorFlow op directly.
+  mlir::TF::PopulateLoweringTFPatterns(op->getContext(), &patterns);
+
   patterns.insert<mlir::xla::ConvertMaxPoolOp>(op->getContext());
   patterns.insert<mlir::xla::ConvertSoftmaxOp>(op->getContext());
 
