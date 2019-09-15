@@ -1,4 +1,4 @@
-/* Copyright 2019 The TensorFlow Authors. All Rights Reserved.
+/* Copyright 2018 The TensorFlow Authors. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -13,17 +13,17 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "tensorflow/core/framework/common_shape_fns.h"
-#include "tensorflow/core/framework/op.h"
+#include "tensorflow/core/framework/dataset.h"
+
+#include "tensorflow/core/platform/test.h"
 
 namespace tensorflow {
 
-REGISTER_OP("MlirPassthroughOp")
-    .Attr("mlir_module: string")
-    .Attr("Tinputs : list(type) >= 0")
-    .Input("inputs: Tinputs")
-    .Attr("Toutputs : list(type) >= 0")
-    .Output("outputs: Toutputs")
-    .SetShapeFn(shape_inference::UnknownShape);
+REGISTER_DATASET_OP_NAME("DummyDatasetOp");
+
+TEST(DatasetTest, RegisterDatasetOp) {
+  EXPECT_TRUE(data::DatasetOpRegistry::IsRegistered("DummyDatasetOp"));
+  EXPECT_FALSE(data::DatasetOpRegistry::IsRegistered("InvalidDatasetOp"));
+}
 
 }  // namespace tensorflow
