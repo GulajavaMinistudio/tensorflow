@@ -4397,6 +4397,7 @@ tf_kernel_library(
     deps = NN_DEPS + [
         ":fill_functor",
         ":redux_functor",
+        ":transpose_functor",
     ] + if_cuda([
         "//tensorflow/core:stream_executor",
     ]),
@@ -6527,7 +6528,7 @@ filegroup(
     name = "android_all_ops",
     srcs = [
         "//tensorflow/c/kernels:android_all_op_kernels",
-        "//tensorflow/core/kernels/data:dataset_ops_srcs",
+        "//tensorflow/core/kernels/data:android_all_op_kernels",
     ] + glob(
         [
             "*.cc",

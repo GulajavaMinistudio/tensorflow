@@ -45,6 +45,7 @@ from tensorflow.python.training.tracking import base as trackable
 from tensorflow.python.training.tracking import data_structures
 from tensorflow.python.util import nest
 from tensorflow.python.util.tf_export import keras_export
+from tensorflow.tools.docs import doc_controls
 
 
 @keras_export('keras.layers.StackedRNNCells')
@@ -119,7 +120,7 @@ class StackedRNNCells(Layer):
 
     return tuple(initial_states)
 
-  def call(self, inputs, states, constants=None, **kwargs):
+  def call(self, inputs, states, constants=None, training=None, **kwargs):
     # Recover per-cell states.
     state_size = (self.state_size[::-1]
                   if self.reverse_state_order else self.state_size)
@@ -132,6 +133,10 @@ class StackedRNNCells(Layer):
       # TF cell does not wrap the state into list when there is only one state.
       is_tf_rnn_cell = getattr(cell, '_is_tf_rnn_cell', None) is not None
       states = states[0] if len(states) == 1 and is_tf_rnn_cell else states
+      if generic_utils.has_arg(cell.call, 'training'):
+        kwargs['training'] = training
+      else:
+        kwargs.pop('training', None)
       if generic_utils.has_arg(cell.call, 'constants'):
         inputs, states = cell.call(inputs, states, constants=constants,
                                    **kwargs)
@@ -592,6 +597,7 @@ class RNN(Layer):
               tensor_shape.TensorShape(flat_cell_state_size[i])):
         raise validation_error
 
+  @doc_controls.do_not_doc_inheritable
   def get_initial_state(self, inputs):
     get_initial_state_fn = getattr(self.cell, 'get_initial_state', None)
 
@@ -819,7 +825,9 @@ class RNN(Layer):
   def reset_states(self, states=None):
     if not self.stateful:
       raise AttributeError('Layer must be stateful.')
-    spec_shape = None if self.input_spec is None else self.input_spec[0].shape
+    spec_shape = None
+    if self.input_spec is not None:
+      spec_shape = nest.flatten(self.input_spec[0])[0].shape
     if spec_shape is None:
       # It is possible to have spec shape to be None, eg when construct a RNN
       # with a custom cell, or standard RNN layers (LSTM/GRU) which we only know
@@ -990,6 +998,7 @@ class AbstractRNNCell(Layer):
     return _generate_zero_filled_state_for_cell(self, inputs, batch_size, dtype)
 
 
+@doc_controls.do_not_generate_docs
 class DropoutRNNCellMixin(object):
   """Object that hold dropout related fields for RNN Cell.
 
@@ -1050,11 +1059,11 @@ class DropoutRNNCellMixin(object):
     mask. If a new mask is generated, it will update the cache in the cell.
 
     Args:
-      inputs: the input tensor whose shape will be used to generate dropout
+      inputs: The input tensor whose shape will be used to generate dropout
         mask.
-      training: boolean tensor, whether its in training mode, dropout will be
+      training: Boolean tensor, whether its in training mode, dropout will be
         ignored in non-training mode.
-      count: int, how many dropout mask will be generated. It is useful for cell
+      count: Int, how many dropout mask will be generated. It is useful for cell
         that has internal weights fused together.
     Returns:
       List of mask tensor, generated or cached mask based on context.
@@ -1086,11 +1095,11 @@ class DropoutRNNCellMixin(object):
     mask. If a new mask is generated, it will update the cache in the cell.
 
     Args:
-      inputs: the input tensor whose shape will be used to generate dropout
+      inputs: The input tensor whose shape will be used to generate dropout
         mask.
-      training: boolean tensor, whether its in training mode, dropout will be
+      training: Boolean tensor, whether its in training mode, dropout will be
         ignored in non-training mode.
-      count: int, how many dropout mask will be generated. It is useful for cell
+      count: Int, how many dropout mask will be generated. It is useful for cell
         that has internal weights fused together.
     Returns:
       List of mask tensor, generated or cached mask based on context.
@@ -1122,41 +1131,66 @@ class DropoutRNNCellMixin(object):
 class SimpleRNNCell(DropoutRNNCellMixin, Layer):
   """Cell class for SimpleRNN.
 
+  This class processes one step within the whole time sequence input, whereas
+  `tf.keras.layer.SimpleRNN` processes the whole sequence.
+
   Arguments:
     units: Positive integer, dimensionality of the output space.
     activation: Activation function to use.
       Default: hyperbolic tangent (`tanh`).
       If you pass `None`, no activation is applied
       (ie. "linear" activation: `a(x) = x`).
-    use_bias: Boolean, whether the layer uses a bias vector.
+    use_bias: Boolean, (default `True`), whether the layer uses a bias vector.
     kernel_initializer: Initializer for the `kernel` weights matrix,
-      used for the linear transformation of the inputs.
+      used for the linear transformation of the inputs. Default:
+      `glorot_uniform`.
     recurrent_initializer: Initializer for the `recurrent_kernel`
       weights matrix, used for the linear transformation of the recurrent state.
-    bias_initializer: Initializer for the bias vector.
-    kernel_regularizer: Regularizer function applied to
-      the `kernel` weights matrix.
-    recurrent_regularizer: Regularizer function applied to
-      the `recurrent_kernel` weights matrix.
-    bias_regularizer: Regularizer function applied to the bias vector.
-    kernel_constraint: Constraint function applied to
-      the `kernel` weights matrix.
-    recurrent_constraint: Constraint function applied to
-      the `recurrent_kernel` weights matrix.
-    bias_constraint: Constraint function applied to the bias vector.
-    dropout: Float between 0 and 1.
-      Fraction of the units to drop for
-      the linear transformation of the inputs.
-    recurrent_dropout: Float between 0 and 1.
-      Fraction of the units to drop for
-      the linear transformation of the recurrent state.
+      Default: `orthogonal`.
+    bias_initializer: Initializer for the bias vector. Default: `zeros`.
+    kernel_regularizer: Regularizer function applied to the `kernel` weights
+      matrix. Default: `None`.
+    recurrent_regularizer: Regularizer function applied to the
+      `recurrent_kernel` weights matrix. Default: `None`.
+    bias_regularizer: Regularizer function applied to the bias vector. Default:
+      `None`.
+    kernel_constraint: Constraint function applied to the `kernel` weights
+      matrix. Default: `None`.
+    recurrent_constraint: Constraint function applied to the `recurrent_kernel`
+      weights matrix. Default: `None`.
+    bias_constraint: Constraint function applied to the bias vector. Default:
+      `None`.
+    dropout: Float between 0 and 1. Fraction of the units to drop for the linear
+      transformation of the inputs. Default: 0.
+    recurrent_dropout: Float between 0 and 1. Fraction of the units to drop for
+      the linear transformation of the recurrent state. Default: 0.
 
   Call arguments:
-    inputs: A 2D tensor.
-    states: List of state tensors corresponding to the previous timestep.
+    inputs: A 2D tensor, with shape of `[batch, feature]`.
+    states: A 2D tensor with shape of `[batch, units]`, which is the state from
+      the previous time step. For timestep 0, the initial state provided by user
+      will be feed to cell.
     training: Python boolean indicating whether the layer should behave in
       training mode or in inference mode. Only relevant when `dropout` or
       `recurrent_dropout` is used.
+
+  Examples:
+
+  ```python
+  inputs = np.random.random([32, 10, 8]).astype(np.float32)
+  rnn = tf.keras.layers.RNN(tf.keras.layers.SimpleRNNCell(4))
+
+  output = rnn(inputs)  # The output has shape `[32, 4]`.
+
+  rnn = tf.keras.layers.RNN(
+      tf.keras.layers.SimpleRNNCell(4),
+      return_sequences=True,
+      return_state=True)
+
+  # whole_sequence_output has shape `[32, 10, 4]`.
+  # final_state has shape `[32, 4]`.
+  whole_sequence_output, final_state = rnn(inputs)
+  ```
   """
 
   def __init__(self,
@@ -1291,35 +1325,38 @@ class SimpleRNN(RNN):
       Default: hyperbolic tangent (`tanh`).
       If you pass None, no activation is applied
       (ie. "linear" activation: `a(x) = x`).
-    use_bias: Boolean, whether the layer uses a bias vector.
+    use_bias: Boolean, (default `True`), whether the layer uses a bias vector.
     kernel_initializer: Initializer for the `kernel` weights matrix,
-      used for the linear transformation of the inputs.
+      used for the linear transformation of the inputs. Default:
+      `glorot_uniform`.
     recurrent_initializer: Initializer for the `recurrent_kernel`
-      weights matrix,
-      used for the linear transformation of the recurrent state.
-    bias_initializer: Initializer for the bias vector.
-    kernel_regularizer: Regularizer function applied to
-      the `kernel` weights matrix.
-    recurrent_regularizer: Regularizer function applied to
-      the `recurrent_kernel` weights matrix.
-    bias_regularizer: Regularizer function applied to the bias vector.
-    activity_regularizer: Regularizer function applied to
-      the output of the layer (its "activation")..
-    kernel_constraint: Constraint function applied to
-      the `kernel` weights matrix.
-    recurrent_constraint: Constraint function applied to
-      the `recurrent_kernel` weights matrix.
-    bias_constraint: Constraint function applied to the bias vector.
+      weights matrix, used for the linear transformation of the recurrent state.
+      Default: `orthogonal`.
+    bias_initializer: Initializer for the bias vector. Default: `zeros`.
+    kernel_regularizer: Regularizer function applied to the `kernel` weights
+      matrix. Default: `None`.
+    recurrent_regularizer: Regularizer function applied to the
+      `recurrent_kernel` weights matrix. Default: `None`.
+    bias_regularizer: Regularizer function applied to the bias vector. Default:
+      `None`.
+    activity_regularizer: Regularizer function applied to the output of the
+      layer (its "activation"). Default: `None`.
+    kernel_constraint: Constraint function applied to the `kernel` weights
+      matrix. Default: `None`.
+    recurrent_constraint: Constraint function applied to the `recurrent_kernel`
+      weights matrix.  Default: `None`.
+    bias_constraint: Constraint function applied to the bias vector. Default:
+      `None`.
     dropout: Float between 0 and 1.
-      Fraction of the units to drop for
-      the linear transformation of the inputs.
+      Fraction of the units to drop for the linear transformation of the inputs.
+      Default: 0.
     recurrent_dropout: Float between 0 and 1.
-      Fraction of the units to drop for
-      the linear transformation of the recurrent state.
+      Fraction of the units to drop for the linear transformation of the
+      recurrent state. Default: 0.
     return_sequences: Boolean. Whether to return the last output
-      in the output sequence, or the full sequence.
+      in the output sequence, or the full sequence. Default: `False`.
     return_state: Boolean. Whether to return the last state
-      in addition to the output.
+      in addition to the output. Default: `False`
     go_backwards: Boolean (default False).
       If True, process the input sequence backwards and return the
       reversed sequence.
@@ -1334,8 +1371,8 @@ class SimpleRNN(RNN):
       Unrolling is only suitable for short sequences.
 
   Call arguments:
-    inputs: A 3D tensor.
-    mask: Binary tensor of shape `(samples, timesteps)` indicating whether
+    inputs: A 3D tensor, with shape `[batch, timesteps, feature]`.
+    mask: Binary tensor of shape `[batch, timesteps]` indicating whether
       a given timestep should be masked.
     training: Python boolean indicating whether the layer should behave in
       training mode or in inference mode. This argument is passed to the cell
@@ -1343,6 +1380,22 @@ class SimpleRNN(RNN):
       `recurrent_dropout` is used.
     initial_state: List of initial state tensors to be passed to the first
       call of the cell.
+
+  Examples:
+
+  ```python
+  inputs = np.random.random([32, 10, 8]).astype(np.float32)
+  simple_rnn = tf.keras.layers.SimpleRNN(4)
+
+  output = simple_rnn(inputs)  # The output has shape `[32, 4]`.
+
+  simple_rnn = tf.keras.layers.SimpleRNN(
+      4, return_sequences=True, return_state=True)
+
+  # whole_sequence_output has shape `[32, 10, 4]`.
+  # final_state has shape `[32, 4]`.
+  whole_sequence_output, final_state = simple_rnn(inputs)
+  ```
   """
 
   def __init__(self,

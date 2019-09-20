@@ -1,3 +1,6 @@
+load("@build_bazel_rules_apple//apple:ios.bzl", "ios_unit_test")
+load("//tensorflow/lite:special_rules.bzl", "tflite_portable_test_suite", "tflite_ios_per_kernel_test")
+
 package(
     default_visibility = ["//visibility:public"],
     licenses = ["notice"],  # Apache 2.0
@@ -52,6 +55,28 @@ objc_library(
     deps = [
         "//tensorflow/lite/delegates/gpu/common:status",
     ],
+)
+
+objc_library(
+    name = "common_test_lib",
+    testonly = 1,
+    srcs = ["common_test.mm"],
+    sdk_frameworks = ["XCTest"],
+    deps = [
+        ":common",
+        "//tensorflow/lite/delegates/gpu/metal/kernels:test_util",
+    ],
+)
+
+ios_unit_test(
+    name = "common_test",
+    testonly = 1,
+    minimum_os_version = "10.0",
+    tags = [
+        "notap",
+        "tflite_not_portable_android",
+    ],
+    deps = [":common_test_lib"],
 )
 
 cc_library(
@@ -116,6 +141,28 @@ objc_library(
 )
 
 objc_library(
+    name = "environment_test_lib",
+    testonly = 1,
+    srcs = ["environment_test.mm"],
+    sdk_frameworks = ["XCTest"],
+    deps = [
+        ":environment",
+        "//tensorflow/lite/delegates/gpu/metal/kernels:test_util",
+    ],
+)
+
+ios_unit_test(
+    name = "environment_test",
+    testonly = 1,
+    minimum_os_version = "10.0",
+    tags = [
+        "notap",
+        "tflite_not_portable_android",
+    ],
+    deps = [":environment_test_lib"],
+)
+
+objc_library(
     name = "inference_context",
     srcs = ["inference_context.mm"],
     hdrs = ["inference_context.h"],
@@ -138,3 +185,7 @@ cc_library(
     name = "runtime_options",
     hdrs = ["runtime_options.h"],
 )
+
+tflite_portable_test_suite()
+
+tflite_ios_per_kernel_test()
