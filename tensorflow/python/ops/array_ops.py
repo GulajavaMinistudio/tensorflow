@@ -489,10 +489,24 @@ def shape_v2(input, out_type=dtypes.int32, name=None):
 
   For example:
 
-  ```python
-  t = tf.constant([[[1, 1, 1], [2, 2, 2]], [[3, 3, 3], [4, 4, 4]]])
-  tf.shape(t)  # [2, 2, 3]
-  ```
+  >>> t = tf.constant([[[1, 1, 1], [2, 2, 2]], [[3, 3, 3], [4, 4, 4]]])
+  >>> tf.shape(t)
+  <tf.Tensor: id=391, shape=(3,), dtype=int32, numpy=array([2, 2, 3],
+  dtype=int32)>
+  >>> tf.shape(t).numpy()
+  array([2, 2, 3], dtype=int32)
+
+  Note: When using symbolic tensors, such as when using the Keras functional
+  API, tf.shape() will return the shape of the symbolic tensor.
+
+  >>> a = tf.keras.layers.Input((None, 10))
+  >>> tf.shape(a)
+  <tf.Tensor ... shape=(3,) dtype=int32>
+
+  In these cases, using `tf.Tensor.shape` will return more informative results.
+
+  >>> a.shape
+  TensorShape([None, None, 10])
 
   Args:
     input: A `Tensor` or `SparseTensor`.
@@ -1194,19 +1208,24 @@ def stack(values, axis=0, name="stack"):
 
   For example:
 
-  ```python
-  x = tf.constant([1, 4])
-  y = tf.constant([2, 5])
-  z = tf.constant([3, 6])
-  tf.stack([x, y, z])  # [[1, 4], [2, 5], [3, 6]] (Pack along first dim.)
-  tf.stack([x, y, z], axis=1)  # [[1, 2, 3], [4, 5, 6]]
-  ```
+  >>> x = tf.constant([1, 4])
+  >>> y = tf.constant([2, 5])
+  >>> z = tf.constant([3, 6])
+  >>> tf.stack([x, y, z])
+  <tf.Tensor: id=19, shape=(3, 2), dtype=int32, numpy=
+  array([[1, 4],
+         [2, 5],
+         [3, 6]], dtype=int32)>
 
-  This is the opposite of unstack.  The numpy equivalent is
+  >> tf.stack([x, y, z], axis=1)
+  <tf.Tensor: id=24, shape=(2, 3), dtype=int32, numpy=
+  array([[1, 2, 3],
+         [4, 5, 6]], dtype=int32)>
 
-  ```python
-  tf.stack([x, y, z]) = np.stack([x, y, z])
-  ```
+  This is the opposite of unstack.  The numpy equivalent is `np.stack`
+
+  >>> np.array_equal(np.stack([x, y, z]), tf.stack([x, y, z]))
+  True
 
   Args:
     values: A list of `Tensor` objects with the same shape and type.
@@ -2610,25 +2629,26 @@ def ones_like_impl(tensor, dtype, name, optimize=True):
 
 @tf_export("ones")
 def ones(shape, dtype=dtypes.float32, name=None):
-  """Creates a tensor with all elements set to 1.
+  """Creates a tensor with all elements set to one (1).
 
-  This operation returns a tensor of type `dtype` with shape `shape` and all
-  elements set to 1.
+  This operation returns a tensor of type `dtype` with shape `shape` and
+  all elements set to one.
 
-  For example:
-
-  ```python
-  tf.ones([2, 3], tf.int32)  # [[1, 1, 1], [1, 1, 1]]
-  ```
+  >>> tf.ones([3, 4], tf.int32)
+  <tf.Tensor: ... shape=(3, 4), dtype=int32, numpy=
+  array([[1, 1, 1, 1],
+         [1, 1, 1, 1],
+         [1, 1, 1, 1]], dtype=int32)>
 
   Args:
-    shape: A list of integers, a tuple of integers, or a 1-D `Tensor` of type
-      `int32`.
-    dtype: The type of an element in the resulting `Tensor`.
-    name: A name for the operation (optional).
+    shape: A `list` of integers, a `tuple` of integers, or
+      a 1-D `Tensor` of type `int32`.
+    dtype: Optional DType of an element in the resulting `Tensor`. Default is
+      `tf.float32`.
+    name: Optional string. A name for the operation.
 
   Returns:
-    A `Tensor` with all elements set to 1.
+    A `Tensor` with all elements set to one (1).
   """
   dtype = dtypes.as_dtype(dtype).base_dtype
   with ops.name_scope(name, "ones", [shape]) as name:
