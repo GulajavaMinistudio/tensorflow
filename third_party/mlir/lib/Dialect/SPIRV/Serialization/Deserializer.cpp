@@ -293,9 +293,6 @@ private:
   sliceInstruction(spirv::Opcode &opcode, ArrayRef<uint32_t> &operands,
                    Optional<spirv::Opcode> expectedOpcode = llvm::None);
 
-  /// Returns the next instruction's opcode if exists.
-  Optional<spirv::Opcode> peekOpcode();
-
   /// Processes a SPIR-V instruction with the given `opcode` and `operands`.
   /// This method is the main entrance for handling SPIR-V instruction; it
   /// checks the instruction opcode and dispatches to the corresponding handler.
@@ -624,11 +621,17 @@ LogicalResult Deserializer::processDecoration(ArrayRef<uint32_t> words) {
     typeDecorations[words[0]] = static_cast<uint32_t>(words[2]);
     break;
   case spirv::Decoration::Block:
+  case spirv::Decoration::BufferBlock:
     if (words.size() != 2) {
       return emitError(unknownLoc, "OpDecoration with ")
              << decorationName << "needs a single target <id>";
     }
-    // Block decoration does not affect spv.struct type.
+    // Block decoration does not affect spv.struct type, but is still stored for
+    // verification.
+    // TODO: Update StructType to contain this information since
+    // it is needed for many validation rules.
+    decorations[words[0]].set(opBuilder.getIdentifier(attrName),
+                              opBuilder.getUnitAttr());
     break;
   default:
     return emitError(unknownLoc, "unhandled Decoration : '") << decorationName;
@@ -985,9 +988,8 @@ LogicalResult Deserializer::processType(spirv::Opcode opcode,
       return emitError(
           unknownLoc, "OpTypeInt must have bitwidth and signedness parameters");
     }
-    if (operands[2] == 0) {
-      return emitError(unknownLoc, "unhandled unsigned OpTypeInt");
-    }
+    // TODO: Ignoring the signedness right now. Need to handle this effectively
+    // in the MLIR representation.
     typeMap[operands[0]] = opBuilder.getIntegerType(operands[1]);
     break;
   case spirv::Opcode::OpTypeFloat: {
@@ -1746,12 +1748,6 @@ Deserializer::sliceInstruction(spirv::Opcode &opcode,
   return success();
 }
 
-Optional<spirv::Opcode> Deserializer::peekOpcode() {
-  if (curOffset >= binary.size())
-    return llvm::None;
-  return extractOpcode(binary[curOffset]);
-}
-
 LogicalResult Deserializer::processInstruction(spirv::Opcode opcode,
                                                ArrayRef<uint32_t> operands,
                                                bool deferInstructions) {
@@ -1787,6 +1783,14 @@ LogicalResult Deserializer::processInstruction(spirv::Opcode opcode,
     break;
   case spirv::Opcode::OpName:
     return processName(operands);
+  case spirv::Opcode::OpModuleProcessed:
+  case spirv::Opcode::OpString:
+  case spirv::Opcode::OpSource:
+  case spirv::Opcode::OpSourceContinued:
+  case spirv::Opcode::OpSourceExtension:
+    // TODO: This is debug information embedded in the binary which should be
+    // translated into the spv.module.
+    return success();
   case spirv::Opcode::OpTypeVoid:
   case spirv::Opcode::OpTypeBool:
   case spirv::Opcode::OpTypeInt:
