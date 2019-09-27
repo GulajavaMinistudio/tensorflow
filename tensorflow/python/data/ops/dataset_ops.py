@@ -127,7 +127,7 @@ class DatasetV2(tracking_base.Trackable, composite_tensor.CompositeTensor):
   # Dict element with 3 components
   d = {"a": (2, 2), "b": 3}
   # Element containing a dataset
-  e = tf.data.Dataset.from_element(10)
+  e = tf.data.Dataset.from_tensors(10)
   ```
   """
 
@@ -2286,6 +2286,14 @@ class Options(options_lib.OptionsBase):
   optimizations to apply or whether to use performance modeling to dynamically
   tune the parallelism of operations such as `tf.data.Dataset.map` or
   `tf.data.Dataset.interleave`.
+
+  After constructing an `Options` object, use `dataset.with_options(options)` to
+  apply the options to a dataset.
+
+  >>> dataset = tf.data.Dataset.range(3)
+  >>> options = tf.data.Options()
+  >>> # Set options here.
+  >>> dataset = dataset.with_options(options)
   """
 
   experimental_deterministic = options_lib.create_option(
@@ -2713,6 +2721,10 @@ class StructuredFunctionWrapper(object):
     func_name = "_".join(
         [readable_transformation_name,
          function_utils.get_func_name(func)])
+    # Sanitize function name to remove symbols that interfere with graph
+    # construction.
+    for symbol in ["<", ">"]:
+      func_name = func_name.replace(symbol, "")
 
     ag_ctx = autograph_ctx.control_status_ctx()
 
