@@ -21,6 +21,7 @@
 
 include "mlir/IR/OpBase.td"
 include "mlir/Analysis/CallInterfaces.td"
+include "mlir/Analysis/InferTypeOpInterface.td"
 
 def TEST_Dialect : Dialect {
   let name = "test";
@@ -318,8 +319,7 @@ def ParentOp : TEST_Op<"parent">;
 def ChildOp : TEST_Op<"child", [HasParent<"ParentOp">]>;
 
 
-def TerminatorOp : TEST_Op<"finish", [Terminator]> {
-}
+def TerminatorOp : TEST_Op<"finish", [Terminator]>;
 def SingleBlockImplicitTerminatorOp : TEST_Op<"SingleBlockImplicitTerminator",
     [SingleBlockImplicitTerminator<"TerminatorOp">]> {
   let regions = (region SizedRegion<1>:$region);
@@ -327,6 +327,12 @@ def SingleBlockImplicitTerminatorOp : TEST_Op<"SingleBlockImplicitTerminator",
 
 def I32ElementsAttrOp : TEST_Op<"i32ElementsAttr"> {
   let arguments = (ins I32ElementsAttr:$attr);
+}
+
+def OpWithInferTypeInterfaceOp : TEST_Op<"op_with_infer_type_if",
+    [DeclareOpInterfaceMethods<InferTypeOpInterface>]> {
+  let arguments = (ins AnyTensor:$x, AnyTensor:$y);
+  let results = (outs AnyTensor:$res);
 }
 
 def IsNotScalar : Constraint<CPred<"$0.getType().getRank() != 0">>;

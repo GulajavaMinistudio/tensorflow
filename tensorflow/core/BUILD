@@ -167,11 +167,13 @@ package_group(
 )
 
 # Export the BUILD file so automated tooling can check licenses
-exports_files(["BUILD"])
+exports_files([
+    "BUILD",
+    "framework/types.proto",
+    "ops/ops.pbtxt",
+])
 
 package_group(name = "experimental_access")
-
-exports_files(["ops/ops.pbtxt"])
 
 # -----------------------------------------------------------------------------
 # Public targets
@@ -312,10 +314,6 @@ closure_proto_library(
     visibility = ["//visibility:public"],
     deps = [":example_protos"],
 )
-
-exports_files([
-    "framework/types.proto",
-])
 
 tf_proto_library(
     name = "protos_test",
@@ -1830,6 +1828,7 @@ filegroup(
             "lib/jpeg/**/*",
             "lib/png/**/*",
             "lib/gif/**/*",
+            "util/debug_events_writer.*",
             "util/events_writer.*",
             "util/stats_calculator.*",
             "util/reporter.*",
@@ -2243,6 +2242,7 @@ tf_pyclif_proto_library(
 
 tf_pyclif_proto_library(
     name = "framework/graph_pyclif",
+    deprecated_proto_lib_visibility = True,  # TODO(b/136847937)
     proto_lib = ":protos_all_cc",
     proto_srcfile = "framework/graph.proto",
     visibility = ["//visibility:public"],
@@ -2571,7 +2571,7 @@ cc_library(
     deps = [
         ":lib",
         ":lib_internal",
-        "//tensorflow/core/platform/default/build_config:jpeg",
+        "//tensorflow/core/platform:jpeg",
     ],
 )
 
@@ -2657,8 +2657,8 @@ cc_library(
     linkopts = ["-ldl"],
     deps = [
         ":core_stringpiece",
+        "//tensorflow/core/platform:jpeg",
         "//tensorflow/core/platform:stringpiece",
-        "//tensorflow/core/platform/default/build_config:jpeg",
         "//tensorflow/core/platform/default/build_config:logging",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/strings",
@@ -4095,6 +4095,7 @@ tf_cc_tests(
         "graph/validate_test.cc",
         "util/bcast_test.cc",
         "util/command_line_flags_test.cc",
+        "util/debug_events_writer_test.cc",
         "util/device_name_utils_test.cc",
         "util/dump_graph_test.cc",
         "util/equal_graph_def_test.cc",

@@ -300,12 +300,14 @@ class GraphView {
                 : reinterpret_cast<NodeItem*>(space_ + node_offsets_[id]));
   }
 
+  int32 num_nodes() const { return num_nodes_; }
+
  private:
   char* InitializeNode(char* ptr, const Node* n);
   size_t NodeItemBytes(const Node* n);
 
   int32 num_nodes_ = 0;
-  uint32* node_offsets_ = nullptr;  // array of size "graph_.num_node_ids()"
+  uint32* node_offsets_ = nullptr;  // array of size "num_nodes_"
   // node_offsets_[id] holds the byte offset for node w/ "id" in space_
 
   char* space_;  // NodeItem objects are allocated here
@@ -315,14 +317,13 @@ class GraphView {
 
 class ExecutorImpl : public Executor {
  public:
-  ExecutorImpl(const LocalExecutorParams& p, std::unique_ptr<const Graph> g)
-      : params_(p), graph_(std::move(g)), gview_() {
+  explicit ExecutorImpl(const LocalExecutorParams& p) : params_(p), gview_() {
     CHECK(p.create_kernel != nullptr);
     CHECK(p.delete_kernel != nullptr);
   }
 
   ~ExecutorImpl() override {
-    for (int i = 0; i < graph_->num_node_ids(); i++) {
+    for (int32 i = 0; i < gview_.num_nodes(); i++) {
       NodeItem* item = gview_.node(i);
       if (item != nullptr) {
         params_.delete_kernel(item->kernel);
@@ -333,7 +334,7 @@ class ExecutorImpl : public Executor {
     }
   }
 
-  Status Initialize();
+  Status Initialize(const Graph& graph);
 
   // Process all Nodes in the current graph, attempting to infer the
   // memory allocation attributes to be used wherever they may allocate
@@ -394,7 +395,6 @@ class ExecutorImpl : public Executor {
 
   // Owned.
   LocalExecutorParams params_;
-  std::unique_ptr<const Graph> graph_;
   GraphView gview_;
 
   // A cached value of params_
@@ -623,12 +623,12 @@ void GetMaxPendingCounts(const Node* n, size_t* max_pending,
   *max_dead_count = num_in_edges;
 }
 
-Status ExecutorImpl::Initialize() {
-  gview_.Initialize(graph_.get());
+Status ExecutorImpl::Initialize(const Graph& graph) {
+  gview_.Initialize(&graph);
 
   // Build the information about frames in this subgraph.
   ControlFlowInfo cf_info;
-  TF_RETURN_IF_ERROR(BuildControlFlowInfo(graph_.get(), &cf_info));
+  TF_RETURN_IF_ERROR(BuildControlFlowInfo(&graph, &cf_info));
 
   // Cache this value so we make this virtual function call once, rather
   // that O(# steps * # nodes per step) times.
@@ -641,7 +641,7 @@ Status ExecutorImpl::Initialize() {
 
   // Preprocess every node in the graph to create an instance of op
   // kernel for each node.
-  for (const Node* n : graph_->nodes()) {
+  for (const Node* n : graph.nodes()) {
     const int id = n->id();
     const string& frame_name = cf_info.frame_names[id];
     FrameInfo* frame_info = EnsureFrameInfo(frame_name);
@@ -707,9 +707,9 @@ Status ExecutorImpl::Initialize() {
 
   // Initialize PendingCounts only after item->pending_id is initialized for
   // all nodes.
-  InitializePending(graph_.get(), cf_info);
+  InitializePending(&graph, cf_info);
 
-  return gview_.SetAllocAttrs(graph_.get(), params_.device);
+  return gview_.SetAllocAttrs(&graph, params_.device);
 }
 
 // If a Node has been marked to use a ScopedAllocator x for output i, then
@@ -968,9 +968,9 @@ class ExecutorState {
     DeviceContext* device_context = nullptr;
   };
 
-  // Contains a value for [node->id()] for the device context assigned by the
-  // device at the beginning of a step.
-  DeviceContextMap device_context_map_;
+  // Contains the device context assigned by the device at the beginning of a
+  // step.
+  DeviceContext* device_context_ = nullptr;
 
   struct TaggedNode;
   typedef gtl::InlinedVector<TaggedNode, 8> TaggedNodeSeq;
@@ -1481,8 +1481,8 @@ ExecutorState::~ExecutorState() {
   for (auto name_frame : outstanding_frames_) {
     delete name_frame.second;
   }
-  for (auto it : device_context_map_) {
-    it->Unref();
+  if (device_context_) {
+    device_context_->Unref();
   }
   delete slice_reader_cache_;
 }
@@ -1570,16 +1570,15 @@ void ExecutorImpl::InitializePending(const Graph* graph,
 }
 
 void ExecutorState::RunAsync(Executor::DoneCallback done) {
-  const Graph* graph = impl_->graph_.get();
   TaggedNodeSeq ready;
 
   // Ask the device to fill in the device context map.
   Device* device = impl_->params_.device;
-  const Status fill_status =
-      device->FillContextMap(graph, &device_context_map_);
-  if (!fill_status.ok()) {
+  const Status get_context_status =
+      device->TryGetDeviceContext(&device_context_);
+  if (!get_context_status.ok()) {
     delete this;
-    done(fill_status);
+    done(get_context_status);
     return;
   }
 
@@ -1728,6 +1727,9 @@ void ExecutorState::Process(TaggedNode tagged_node, int64 scheduled_nsec) {
     if (finish_when_deferred_ops_done) Finish();
   };
 
+  // Set the device_context for this device, if it exists.
+  params.op_device_context = device_context_;
+
   Status s;
   NodeExecStatsInterface* stats = nullptr;
 
@@ -1747,11 +1749,6 @@ void ExecutorState::Process(TaggedNode tagged_node, int64 scheduled_nsec) {
     if (vlog_ && VLOG_IS_ON(1)) {
       mutex_lock l(input_frame->mu);
       input_frame->GetIteration(input_iter)->mark_started(item.pending_id);
-    }
-
-    // Set the device_context for this node id, if it exists.
-    if (id < device_context_map_.size()) {
-      params.op_device_context = device_context_map_[id];
     }
 
     params.track_allocations = false;
@@ -2082,10 +2079,7 @@ Status ExecutorState::ProcessOutputs(const NodeItem& item, OpKernelContext* ctx,
   }
 
   // Get the device_context for this node id, if it exists.
-  DeviceContext* device_context = nullptr;
-  if (item.node_id < device_context_map_.size()) {
-    device_context = device_context_map_[item.node_id];
-  }
+  DeviceContext* device_context = device_context_;
 
   for (int i = 0; i < item.num_outputs; ++i) {
     const TensorValue val = ctx->release_output(i);
@@ -2920,11 +2914,10 @@ void ExecutorImpl::RunAsync(const Args& args, DoneCallback done) {
 
 }  // namespace
 
-Status NewLocalExecutor(const LocalExecutorParams& params,
-                        std::unique_ptr<const Graph> graph,
+Status NewLocalExecutor(const LocalExecutorParams& params, const Graph& graph,
                         Executor** executor) {
-  ExecutorImpl* impl = new ExecutorImpl(params, std::move(graph));
-  const Status s = impl->Initialize();
+  ExecutorImpl* impl = new ExecutorImpl(params);
+  const Status s = impl->Initialize(graph);
   if (s.ok()) {
     *executor = impl;
   } else {
@@ -2956,8 +2949,7 @@ class DefaultExecutorRegistrar {
 
  private:
   class Factory : public ExecutorFactory {
-    Status NewExecutor(const LocalExecutorParams& params,
-                       std::unique_ptr<const Graph> graph,
+    Status NewExecutor(const LocalExecutorParams& params, const Graph& graph,
                        std::unique_ptr<Executor>* out_executor) override {
       Executor* ret = nullptr;
       TF_RETURN_IF_ERROR(NewLocalExecutor(params, std::move(graph), &ret));
