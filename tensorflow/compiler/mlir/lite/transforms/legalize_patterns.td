@@ -124,6 +124,7 @@ def : Pat<(TF_MaxPoolOp $value,
 
 def : Pat<(TF_MaximumOp $arg1, $arg2), (TFL_MaximumOp $arg1, $arg2)>;
 def : Pat<(TF_MinimumOp $arg1, $arg2), (TFL_MinimumOp $arg1, $arg2)>;
+def : Pat<(TF_NegOp $arg), (TFL_NegOp $arg)>;
 def : Pat<(TF_OneHotOp $indices, $depth, $on_value, $off_value, $axis),
           (TFL_OneHotOp $indices, $depth, $on_value, $off_value,
            (convertIntAttrTo32Bit $axis))>;
@@ -286,12 +287,6 @@ def : Pat<(TF_MirrorPadOp $arg0, $arg1, $cst), (TFL_MirrorPadOp $arg0, $arg1, $c
 
 def : Pat<(TF_SparseToDenseOp $sparse_indices, $output_shape, $sparse_values, $default_value, $validate_indices),
           (TFL_SparseToDenseOp $sparse_indices, $output_shape, $sparse_values, $default_value)>;
-
-def : Pat<
-  (TF_StridedSliceOp $input, $begin, $end, $strides, $begin_mask, $end_mask, $ellipsis_mask, $new_axis_mask, $shrink_axis_mask),
-  (TFL_StridedSliceOp $input, $begin, $end, $strides,
-    (convertIntAttrTo32Bit $begin_mask), (convertIntAttrTo32Bit $end_mask), (convertIntAttrTo32Bit $ellipsis_mask),
-    (convertIntAttrTo32Bit $new_axis_mask), (convertIntAttrTo32Bit $shrink_axis_mask))>;
 
 def : Pat<(TF_UniqueOp $arg0),(TFL_UniqueOp $arg0)>;
 

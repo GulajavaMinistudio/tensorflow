@@ -367,6 +367,7 @@ genrule(
     ],
     cmd = ("$(location //tensorflow/compiler/mlir/lite/quantization:op_quant_spec_getters_gen) " +
            "-I external/local_config_mlir/include " +
+           "-I external/org_tensorflow " +
            "$(location //tensorflow/compiler/mlir/lite:ir/tfl_ops.td) " + " -o $@"),
     tools = ["//tensorflow/compiler/mlir/lite/quantization:op_quant_spec_getters_gen"],
 )
@@ -407,6 +408,7 @@ genrule(
     ],
     cmd = ("$(location :operator-converter-gen) " +
            "-I external/local_config_mlir/include " +
+           "-I external/org_tensorflow " +
            "$(location //tensorflow/compiler/mlir/lite:ir/tfl_ops.td) " + " -o $@"),
     tools = [":operator-converter-gen"],
 )
@@ -465,6 +467,7 @@ cc_library(
     hdrs = [
         "flatbuffer_import.h",
         "flatbuffer_translate.h",
+        "flatbuffer_translate_flags.h",
         "utils/convert_type.h",
     ],
     deps = [
@@ -477,6 +480,7 @@ cc_library(
         "//tensorflow/compiler/mlir/tensorflow:convert_tensor",
         "//tensorflow/compiler/mlir/tensorflow:export_tf_dialect_op",
         "//tensorflow/compiler/mlir/tensorflow:mangling_util",
+        "//tensorflow/compiler/mlir/tensorflow:mlir_roundtrip_flags",
         "//tensorflow/compiler/mlir/tensorflow:tensorflow_dialect_registration",
         "//tensorflow/compiler/xla:statusor",
         "//tensorflow/core:framework",

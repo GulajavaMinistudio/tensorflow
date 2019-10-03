@@ -163,6 +163,7 @@ def SPV_OC_OpFUnordGreaterThanEqual : I32EnumAttrCase<"OpFUnordGreaterThanEqual"
 def SPV_OC_OpControlBarrier         : I32EnumAttrCase<"OpControlBarrier", 224>;
 def SPV_OC_OpMemoryBarrier          : I32EnumAttrCase<"OpMemoryBarrier", 225>;
 def SPV_OC_OpLoopMerge              : I32EnumAttrCase<"OpLoopMerge", 246>;
+def SPV_OC_OpSelectionMerge         : I32EnumAttrCase<"OpSelectionMerge", 247>;
 def SPV_OC_OpLabel                  : I32EnumAttrCase<"OpLabel", 248>;
 def SPV_OC_OpBranch                 : I32EnumAttrCase<"OpBranch", 249>;
 def SPV_OC_OpBranchConditional      : I32EnumAttrCase<"OpBranchConditional", 250>;
@@ -200,8 +201,9 @@ def SPV_OpcodeAttr :
       SPV_OC_OpFOrdLessThanEqual, SPV_OC_OpFUnordLessThanEqual,
       SPV_OC_OpFOrdGreaterThanEqual, SPV_OC_OpFUnordGreaterThanEqual,
       SPV_OC_OpControlBarrier, SPV_OC_OpMemoryBarrier, SPV_OC_OpLoopMerge,
-      SPV_OC_OpLabel, SPV_OC_OpBranch, SPV_OC_OpBranchConditional, SPV_OC_OpReturn,
-      SPV_OC_OpReturnValue, SPV_OC_OpModuleProcessed
+      SPV_OC_OpSelectionMerge, SPV_OC_OpLabel, SPV_OC_OpBranch,
+      SPV_OC_OpBranchConditional, SPV_OC_OpReturn, SPV_OC_OpReturnValue,
+      SPV_OC_OpModuleProcessed
       ]> {
     let returnType = "::mlir::spirv::Opcode";
     let convertFromStorage = "static_cast<::mlir::spirv::Opcode>($_self.getInt())";
@@ -557,7 +559,7 @@ def SPV_C_SubgroupBallotKHR                         : I32EnumAttrCase<"SubgroupB
 def SPV_C_DrawParameters                            : I32EnumAttrCase<"DrawParameters", 4427>;
 def SPV_C_SubgroupVoteKHR                           : I32EnumAttrCase<"SubgroupVoteKHR", 4431>;
 def SPV_C_StorageBuffer16BitAccess                  : I32EnumAttrCase<"StorageBuffer16BitAccess", 4433>;
-def SPV_C_UniformAndStorageBuffer16BitAccess        : I32EnumAttrCase<"UniformAndStorageBuffer16BitAccess", 4434>;
+def SPV_C_StorageUniform16                          : I32EnumAttrCase<"StorageUniform16", 4434>;
 def SPV_C_StoragePushConstant16                     : I32EnumAttrCase<"StoragePushConstant16", 4435>;
 def SPV_C_StorageInputOutput16                      : I32EnumAttrCase<"StorageInputOutput16", 4436>;
 def SPV_C_DeviceGroup                               : I32EnumAttrCase<"DeviceGroup", 4437>;
@@ -652,10 +654,9 @@ def SPV_CapabilityAttr :
       SPV_C_GroupNonUniformShuffle, SPV_C_GroupNonUniformShuffleRelative,
       SPV_C_GroupNonUniformClustered, SPV_C_GroupNonUniformQuad, SPV_C_ShaderLayer,
       SPV_C_ShaderViewportIndex, SPV_C_SubgroupBallotKHR, SPV_C_DrawParameters,
-      SPV_C_SubgroupVoteKHR, SPV_C_StorageBuffer16BitAccess,
-      SPV_C_UniformAndStorageBuffer16BitAccess, SPV_C_StoragePushConstant16,
-      SPV_C_StorageInputOutput16, SPV_C_DeviceGroup, SPV_C_MultiView,
-      SPV_C_VariablePointersStorageBuffer, SPV_C_VariablePointers,
+      SPV_C_SubgroupVoteKHR, SPV_C_StorageBuffer16BitAccess, SPV_C_StorageUniform16,
+      SPV_C_StoragePushConstant16, SPV_C_StorageInputOutput16, SPV_C_DeviceGroup,
+      SPV_C_MultiView, SPV_C_VariablePointersStorageBuffer, SPV_C_VariablePointers,
       SPV_C_AtomicStorageOps, SPV_C_SampleMaskPostDepthCoverage,
       SPV_C_StorageBuffer8BitAccess, SPV_C_UniformAndStorageBuffer8BitAccess,
       SPV_C_StoragePushConstant8, SPV_C_DenormPreserve, SPV_C_DenormFlushToZero,
@@ -1100,6 +1101,19 @@ def SPV_ScopeAttr :
     ]> {
   let returnType = "::mlir::spirv::Scope";
   let convertFromStorage = "static_cast<::mlir::spirv::Scope>($_self.getInt())";
+  let cppNamespace = "::mlir::spirv";
+}
+
+def SPV_SC_None        : BitEnumAttrCase<"None", 0x0000>;
+def SPV_SC_Flatten     : BitEnumAttrCase<"Flatten", 0x0001>;
+def SPV_SC_DontFlatten : BitEnumAttrCase<"DontFlatten", 0x0002>;
+
+def SPV_SelectionControlAttr :
+    BitEnumAttr<"SelectionControl", "valid SPIR-V SelectionControl", [
+      SPV_SC_None, SPV_SC_Flatten, SPV_SC_DontFlatten
+    ]> {
+  let returnType = "::mlir::spirv::SelectionControl";
+  let convertFromStorage = "static_cast<::mlir::spirv::SelectionControl>($_self.getInt())";
   let cppNamespace = "::mlir::spirv";
 }
 

@@ -213,7 +213,7 @@ cc_library(
     name = "gif",
     copts = tf_copts(),
     deps = [
-        "@gif_archive//:gif",
+        "@gif",
     ],
 )
 
@@ -229,7 +229,7 @@ cc_library(
     name = "png",
     copts = tf_copts(),
     deps = [
-        "@png_archive//:png",
+        "@png",
         "@zlib_archive//:zlib",
     ],
 )

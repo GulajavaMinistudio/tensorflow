@@ -529,13 +529,6 @@ def tf_additional_monitoring_srcs():
         "default/monitoring.cc",
     ]
 
-def tf_additional_minimal_lib_srcs():
-    return [
-        "default/integral_types.h",
-        "default/mutex.h",
-        "default/mutex_data.h",
-    ]
-
 def tf_additional_proto_hdrs():
     return [
         "default/integral_types.h",
@@ -746,6 +739,12 @@ def tf_additional_rpc_deps():
 
 def tf_additional_tensor_coding_deps():
     return []
+
+def tf_logging_absl_deps():
+    return [
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/strings",
+    ]
 
 def tf_protobuf_deps():
     return [
