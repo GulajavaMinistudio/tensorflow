@@ -21,7 +21,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
-#include "mlir/Conversion/ControlFlowToCFG/ConvertControlFlowToCFG.h"
+#include "mlir/Conversion/LoopToStandard/ConvertLoopToStandard.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
@@ -659,8 +659,9 @@ struct AllocOpLowering : public LLVMLegalizationPattern<AllocOp> {
            "unexpected dynamic offset");
 
     // 0-D memref corner case: they have size 1 ...
-    assert((type.getRank() == 0 && strides.empty() && sizes.size() == 1) ||
-           (strides.size() == sizes.size()) && "unexpected number of strides");
+    assert(((type.getRank() == 0 && strides.empty() && sizes.size() == 1) ||
+            (strides.size() == sizes.size())) &&
+           "unexpected number of strides");
 
     // Create the MemRef descriptor.
     auto structType = lowering.convertType(type);
@@ -1080,6 +1081,15 @@ struct SIToFPLowering
   using Super::Super;
 };
 
+struct FPExtLowering : public OneToOneLLVMOpLowering<FPExtOp, LLVM::FPExtOp> {
+  using Super::Super;
+};
+
+struct FPTruncLowering
+    : public OneToOneLLVMOpLowering<FPTruncOp, LLVM::FPTruncOp> {
+  using Super::Super;
+};
+
 struct SignExtendIOpLowering
     : public OneToOneLLVMOpLowering<SignExtendIOp, LLVM::SExtOp> {
   using Super::Super;
@@ -1263,9 +1273,10 @@ void mlir::populateStdToLLVMConversionPatterns(
       DivFOpLowering, FuncOpConversion, IndexCastOpLowering, LoadOpLowering,
       MemRefCastOpLowering, MulFOpLowering, MulIOpLowering, OrOpLowering,
       RemISOpLowering, RemIUOpLowering, RemFOpLowering, ReturnOpLowering,
-      SelectOpLowering, SIToFPLowering, SignExtendIOpLowering, SplatOpLowering,
-      StoreOpLowering, SubFOpLowering, SubIOpLowering, TruncateIOpLowering,
-      XOrOpLowering, ZeroExtendIOpLowering>(*converter.getDialect(), converter);
+      SelectOpLowering, SIToFPLowering, FPExtLowering, FPTruncLowering,
+      SignExtendIOpLowering, SplatOpLowering, StoreOpLowering, SubFOpLowering,
+      SubIOpLowering, TruncateIOpLowering, XOrOpLowering,
+      ZeroExtendIOpLowering>(*converter.getDialect(), converter);
 }
 
 // Convert types using the stored LLVM IR module.
