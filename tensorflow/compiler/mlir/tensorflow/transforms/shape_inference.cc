@@ -59,6 +59,19 @@ bool InferShapeForSingleOperation(Operation* op, Dialect* tf_dialect,
     return false;
   }
 
+  // tf.Cast are only inferred if they have at least one user in the tf dialect.
+  // This is necessary to avoid reprocessing the tf.Cast that are inserted at
+  // the end of this function.
+  if (isa<CastOp>(op) &&
+      llvm::all_of(op->getResult(0)->getUsers(), [&](Operation* user) {
+        return user->getDialect() != tf_dialect;
+      })) {
+    LLVM_DEBUG(llvm::dbgs() << "Skipping inference for tf.Cast with no TF "
+                               "dialect operation users '"
+                            << *op << "'.\n";);
+    return false;
+  }
+
   StringRef op_name = op->getName().getStringRef();
   // Drop the `tf.` prefix to query TF registry.
   auto node_name =
@@ -115,7 +128,7 @@ bool InferShapeForSingleOperation(Operation* op, Dialect* tf_dialect,
   // shapes. This object is abstracting the information that the ShapeInference
   // function operates on.
   tensorflow::shape_inference::InferenceContext c(
-      graph_version, node_def.get(), op_reg_data->op_def, input_shapes,
+      graph_version, *node_def, op_reg_data->op_def, input_shapes,
       /*input_tensors=*/{}, /*input_tensors_as_shapes=*/{},
       /*input_handle_shapes_and_types=*/{});
   auto status = c.Run(op_reg_data->shape_inference_fn);
@@ -185,14 +198,16 @@ LogicalResult InferShapeUntilFixPoint(Region* region, int64_t graph_version,
   // traversal with a worklist and reconsider only the nodes for which an
   // operand type was inferred. This would need to be careful if working on a
   // region that would not be isolated.
-  while (changed) {
+  for (int iteration = 0; iteration < max_iteration && changed; ++iteration) {
+    changed = false;
+    LLVM_DEBUG(llvm::dbgs()
+               << "Shape inference, iteration " << iteration << "\n");
     region->walk([&](Operation* op) {
       if (op->getDialect() == tf_dialect)
-        changed = InferShapeForSingleOperation(op, tf_dialect, graph_version);
+        changed |= InferShapeForSingleOperation(op, tf_dialect, graph_version);
     });
-    if (max_iteration--) return failure();
   }
-  return success();
+  return success(!changed);
 }
 
 }  // namespace TF
