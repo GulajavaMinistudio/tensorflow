@@ -1,3 +1,4 @@
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load(
     "//tensorflow:tensorflow.bzl",
     "cc_header_only_library",
@@ -6685,6 +6686,11 @@ cc_library(
     alwayslink = 1,
 )
 
+build_test(
+    name = "android_tensorflow_kernels_build_test",
+    targets = [":android_tensorflow_kernels"],
+)
+
 cc_library(
     name = "android_tensorflow_image_op",
     srcs = if_android(["decode_image_op.cc"]),
@@ -6698,6 +6704,11 @@ cc_library(
         "//tensorflow/core:android_tensorflow_lib_lite",
     ],
     alwayslink = 1,
+)
+
+build_test(
+    name = "android_tensorflow_image_op_build_test",
+    targets = [":android_tensorflow_image_op"],
 )
 
 cc_library(
