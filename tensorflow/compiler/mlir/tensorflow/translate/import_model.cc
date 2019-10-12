@@ -44,6 +44,7 @@ limitations under the License.
 #include "mlir/IR/Module.h"  // TF:local_config_mlir
 #include "mlir/IR/Types.h"  // TF:local_config_mlir
 #include "tensorflow/compiler/jit/shape_inference_helpers.h"
+#include "tensorflow/compiler/mlir/op_name_mapper.h"
 #include "tensorflow/compiler/mlir/tensorflow/ir/control_flow_ops.h"
 #include "tensorflow/compiler/mlir/tensorflow/ir/tf_executor.h"
 #include "tensorflow/compiler/mlir/tensorflow/ir/tf_ops.h"
@@ -67,6 +68,7 @@ limitations under the License.
 #include "tensorflow/core/framework/shape_inference.h"
 #include "tensorflow/core/framework/tensor.pb.h"
 #include "tensorflow/core/framework/types.h"
+#include "tensorflow/core/framework/types.pb.h"
 #include "tensorflow/core/framework/versions.pb.h"
 #include "tensorflow/core/graph/algorithm.h"
 #include "tensorflow/core/graph/graph.h"
@@ -100,41 +102,27 @@ namespace {
 // function names unchanged in an MLIR roundtrip causes test failures.
 // TODO(b/142268695) Re-evaluate whether we need this class v.s. directly using
 // and TF function name as MLIR function name after b/142268695 is root caused.
-class NameUniquifier {
+class NameUniquifier : public OpNameMapper {
  public:
   explicit NameUniquifier(const FunctionLibraryDefinition& flib)
       : flib_(flib) {}
 
-  // Gets a new unique name string by appending a '$' followed by a number to
-  // `prefix`. The function also sanitizes the `prefix` to ensure the result
-  // doesn't contain any more '$' other than the appended one.
-  std::string GetUniqueName(llvm::StringRef prefix) {
-    std::string sanitized = Sanitize(prefix);
-    std::string unique_name_in_flib = flib_.UniqueFunctionName(sanitized);
-
-    int current_count = ++counters_[unique_name_in_flib];
-    if (current_count > 1) {
-      return absl::StrCat(unique_name_in_flib, "$", current_count);
-    }
-    return unique_name_in_flib;
+ private:
+  bool IsUnique(llvm::StringRef name) override {
+    return OpNameMapper::IsUnique(name) && !flib_.Contains(name);
   }
 
- private:
-  // Rewrites '$' to '_' in the string `s`.
-  std::string Sanitize(llvm::StringRef s) {
-    std::string result(s.str());
-    absl::c_replace_if(
-        result, [](char c) { return c == '$'; }, '_');
-    return result;
+  std::string GetName(mlir::Operation* op) override {
+    DCHECK(false) << "Unimplemented";
+    return "";
   }
 
   const FunctionLibraryDefinition& flib_;
-  llvm::StringMap<int> counters_;
 };
 
 // Stateful helper class to import a TensorFlow model into an MLIR Module.
 //
-// This is the base class that contains common utilties shared between the
+// This is the base class that contains common utilities shared between the
 // GraphDef importer and SavedModel importer.
 //
 // A subclass is expected to call `PrepareConvert` first to perform necessary
@@ -535,7 +523,7 @@ Status ImporterBase::AddNodesToShapeRefiner() {
     if (it != specs_.inputs.end()) {
       auto node_name = node->op_def().name();
       if (node_name != "Placeholder" && node_name != "LegacyFedInput" &&
-          node_name != "_Arg") {
+          node_name != FunctionLibraryDefinition::kArgOp) {
         // We do not handle the case where the input node has multple outputs
         if (node->num_outputs() > 1) {
           return errors::FailedPrecondition(absl::StrCat(
@@ -555,6 +543,19 @@ Status ImporterBase::AddNodesToShapeRefiner() {
     TF_RETURN_WITH_CONTEXT_IF_ERROR(shape_refiner_->AddNode(node),
                                     GetLocationStr(*node));
 
+    auto set_shape_from_list_attr = [&](const AttrValue* attr) {
+      auto& list = attr->list();
+      for (auto shape : llvm::enumerate(list.shape())) {
+        auto* node_context = shape_refiner_->GetContext(node);
+        shape_inference::ShapeHandle handle;
+        TF_RETURN_WITH_CONTEXT_IF_ERROR(
+            node_context->MakeShapeFromShapeProto(shape.value(), &handle),
+            GetLocationStr(*node));
+        node_context->set_output(shape.index(), handle);
+      }
+      return Status::OK();
+    };
+
     // We currently have no other way to get shapes from ReadVariableOp's.
     // Some graphs seem to have _output_shapes attributes on them, so use that
     // if possible.
@@ -571,17 +572,8 @@ Status ImporterBase::AddNodesToShapeRefiner() {
       // `(tensor<?x?xf32>) -> tensor<?x9216xf32>` which fails the verifier
       // (which checks for exact type equality; _output_shapes results in
       // us shoehorning in the more-precise type on the output).
-      if (const AttrValue* attr = node->attrs().Find("_output_shapes")) {
-        auto& list = attr->list();
-        for (auto shape : llvm::enumerate(list.shape())) {
-          auto* node_context = shape_refiner_->GetContext(node);
-          shape_inference::ShapeHandle handle;
-          TF_RETURN_WITH_CONTEXT_IF_ERROR(
-              node_context->MakeShapeFromShapeProto(shape.value(), &handle),
-              GetLocationStr(*node));
-          node_context->set_output(shape.index(), handle);
-        }
-      }
+      if (const AttrValue* attr = node->attrs().Find("_output_shapes"))
+        TF_RETURN_IF_ERROR(set_shape_from_list_attr(attr));
     }
 
     // If it is the argument node, the shape handle is set explicitly, so it
@@ -589,13 +581,14 @@ Status ImporterBase::AddNodesToShapeRefiner() {
     if (StringPiece(node->type_string()) == FunctionLibraryDefinition::kArgOp) {
       auto* node_context = shape_refiner_->GetContext(node);
       DCHECK(node_context != nullptr);
-      auto it = node->def().attr().find("shape");
-      if (it != node->def().attr().end()) {
+      if (const AttrValue* attr = node->attrs().Find("shape")) {
         shape_inference::ShapeHandle handle;
         TF_RETURN_WITH_CONTEXT_IF_ERROR(
-            node_context->MakeShapeFromShapeProto(it->second.shape(), &handle),
+            node_context->MakeShapeFromShapeProto(attr->shape(), &handle),
             GetLocationStr(*node));
         node_context->set_output(0, handle);
+      } else if (const AttrValue* attr = node->attrs().Find("_output_shapes")) {
+        TF_RETURN_IF_ERROR(set_shape_from_list_attr(attr));
       } else {
         node_context->set_output(0, node_context->UnknownShape());
       }
@@ -721,15 +714,15 @@ StatusOr<mlir::TensorType> ImporterBase::ConvertDataTypeAndShape(
   TF_ASSIGN_OR_RETURN(auto subtypes,
                       ConvertSubtypes(handle_subtypes, context, builder));
 
-  // TODO(hinsu): Store subtypes information for DT_RESOURCE element type as
-  // well.
   mlir::Type element_type;
-  if (dtype == DT_VARIANT) {
+  if (dtype == DT_VARIANT)
     element_type = mlir::TF::VariantType::get(subtypes, context_);
-  } else {
+  else if (dtype == DT_RESOURCE)
+    element_type = mlir::TF::ResourceType::get(subtypes, context_);
+  else
     TF_RETURN_IF_ERROR(
         ::tensorflow::ConvertDataType(dtype, builder, &element_type));
-  }
+
   return ConvertElementTypeAndShape(element_type, handle, context, builder);
 }
 
@@ -1160,7 +1153,7 @@ mlir::Location ImporterBase::GetLocation(const NodeDef& node_def) {
   // For NextIteration nodes, location is used to pair source and sink nodes.
   // Hence, we use node name as location to keep it unique.
   // TODO(prakalps): In future the plan is to use tokens to pair source/sink
-  // nodes. Then NextIteration nodes would not need to be handled seprately.
+  // nodes. Then NextIteration nodes would not need to be handled separately.
   if (node_def.op() == "NextIteration")
     return create_location(node_def.name(), function_name_for_debug_info_);
 
