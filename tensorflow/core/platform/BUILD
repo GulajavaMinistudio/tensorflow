@@ -189,7 +189,7 @@ cc_library(
         ":platform",
         ":types",
         "//tensorflow/core/lib/core:status",
-        "//tensorflow/core/lib/strings:string_utils",
+        "//tensorflow/core/platform:strcat",
     ],
 )
 
@@ -520,7 +520,7 @@ cc_library(
     name = "test",
     testonly = True,
     textual_hdrs = ["test.h"],
-    deps = tf_platform_helper_deps("test_impl"),
+    deps = tf_mobile_aware_deps("test_impl"),
 )
 
 cc_library(
@@ -653,11 +653,14 @@ filegroup(
             "**/env_time.cc",
             "**/logger.cc",
             "**/mutex.cc",
+            "**/net.cc",
             "**/logging.cc",
             "**/port.cc",
             "**/human_readable_json.cc",
             "**/rocm.h",
             "**/rocm_rocdl_path.cc",
+            "**/subprocess.cc",
+            "**/tracing.cc",
             "abi.cc",
             "cpu_info.cc",
             "numbers.cc",
@@ -767,6 +770,7 @@ filegroup(
             "cpu_info.cc",
             "cpu_feature_guard.cc",
             "denormal.cc",
+            "error.cc",
             "numbers.cc",
             "platform_strings.cc",
             "protobuf.cc",
@@ -776,6 +780,7 @@ filegroup(
             "strcat.cc",
             "stringprintf.cc",
             "str_util.cc",
+            "tracing.cc",
         ],
     ),
     visibility = ["//tensorflow/core:__pkg__"],
@@ -796,12 +801,6 @@ filegroup(
 filegroup(
     name = "legacy_monitoring_srcs",
     srcs = tf_additional_monitoring_srcs(),
-    visibility = ["//tensorflow/core:__pkg__"],
-)
-
-filegroup(
-    name = "legacy_human_readable_json_src",
-    srcs = tf_platform_srcs(["human_readable_json.cc"]),
     visibility = ["//tensorflow/core:__pkg__"],
 )
 
