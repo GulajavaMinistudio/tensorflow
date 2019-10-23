@@ -31,6 +31,7 @@ from six.moves import zip  # pylint: disable=redefined-builtin
 
 from tensorflow.python import tf2
 from tensorflow.python.data.experimental.ops import cardinality
+from tensorflow.python.data.experimental.ops.distribute_options import AutoShardPolicy
 from tensorflow.python.data.ops import dataset_ops
 from tensorflow.python.data.ops import iterator_ops
 from tensorflow.python.data.ops import readers
@@ -1194,7 +1195,7 @@ def check_steps_argument(input_data, steps, steps_name):
         but not provided.
   """
   is_x_iterator = isinstance(
-      input_data, (iterator_ops.Iterator, iterator_ops.IteratorV2))
+      input_data, (iterator_ops.Iterator, iterator_ops.OwnedIterator))
   if (input_data is None or is_x_iterator or has_symbolic_tensors(input_data) or
       (isinstance(input_data, list) and not input_data)):
     if steps is None:
@@ -1415,8 +1416,8 @@ def is_feature_layer(layer):
 
 def is_eager_dataset_or_iterator(data):
   return context.executing_eagerly() and isinstance(
-      data,
-      (dataset_ops.DatasetV1, dataset_ops.DatasetV2, iterator_ops.IteratorV2))
+      data, (dataset_ops.DatasetV1, dataset_ops.DatasetV2,
+             iterator_ops.OwnedIterator))
 
 
 # pylint: disable=protected-access
@@ -1553,7 +1554,7 @@ def verify_dataset_shuffled(x):
 
 def is_dataset_or_iterator(data):
   return isinstance(data, (dataset_ops.DatasetV1, dataset_ops.DatasetV2,
-                           iterator_ops.Iterator, iterator_ops.IteratorV2))
+                           iterator_ops.Iterator, iterator_ops.OwnedIterator))
 
 
 def get_iterator(dataset):
@@ -1647,7 +1648,8 @@ def infer_steps_for_dataset(model,
   """
   assert isinstance(dataset, dataset_ops.DatasetV2)
   if (model._in_multi_worker_mode() and
-      dataset.options().experimental_distribute.auto_shard):
+      (dataset.options().experimental_distribute.auto_shard_policy !=
+       AutoShardPolicy.OFF)):
     # If the dataset would be auto-sharded, we should not infer a local
     # steps_per_epoch due to the possible inbalanced sharding between workers.
     return None
@@ -1904,7 +1906,7 @@ def unpack_validation_data(validation_data):
     tuple of 3, (x, y, sample_weights) for numpy and tensor input.
   """
   if (isinstance(validation_data, (iterator_ops.Iterator,
-                                   iterator_ops.IteratorV2,
+                                   iterator_ops.OwnedIterator,
                                    dataset_ops.DatasetV2,
                                    data_utils.Sequence))
       or not hasattr(validation_data, '__len__')):

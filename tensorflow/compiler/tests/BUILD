@@ -316,6 +316,7 @@ tf_xla_py_test(
     size = "small",
     timeout = "moderate",
     srcs = ["matrix_solve_op_test.py"],
+    tags = ["notsan"],  # TODO(b/143080303)
     deps = [
         ":xla_test",
         "//tensorflow/python:array_ops",
@@ -1426,7 +1427,6 @@ tf_xla_py_test(
         "gpu",
     ],
     tags = [
-        "notap",  # TODO(b/143079758)
         "optonly",
     ],
     deps = [
