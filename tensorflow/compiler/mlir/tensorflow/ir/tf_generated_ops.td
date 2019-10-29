@@ -558,6 +558,28 @@ endian orderings will give different results.
   let hasCanonicalizer = 1;
 }
 
+def TF_BroadcastGradientArgsOp : TF_Op<"BroadcastGradientArgs", [NoSideEffect]> {
+  let summary = [{
+Return the reduction indices for computing gradients of s0 op s1 with broadcast.
+  }];
+
+  let description = [{
+This is typically used by gradient computations for a broadcasting operation.
+  }];
+
+  let arguments = (ins
+    TF_I32OrI64Tensor:$s0,
+    TF_I32OrI64Tensor:$s1
+  );
+
+  let results = (outs
+    TF_I32OrI64Tensor:$r0,
+    TF_I32OrI64Tensor:$r1
+  );
+
+  TF_DerivedOperandTypeAttr T = TF_DerivedOperandTypeAttr<0>;
+}
+
 def TF_BroadcastToOp : TF_Op<"BroadcastTo", [NoSideEffect]> {
   let summary = "Broadcast an array for a compatible shape.";
 
@@ -657,6 +679,28 @@ that are not a number (NaN) or infinity (Inf). Otherwise, passes `tensor` as-is.
   );
 
   TF_DerivedOperandTypeAttr T = TF_DerivedOperandTypeAttr<0>;
+}
+
+def TF_ComplexAbsOp : TF_Op<"ComplexAbs", [NoSideEffect, SameOperandsAndResultShape]> {
+  let summary = "Computes the complex absolute value of a tensor.";
+
+  let description = [{
+Given a tensor `x` of complex numbers, this operation returns a tensor of type
+`float` or `double` that is the absolute value of each element in `x`. All
+elements in `x` must be complex numbers of the form \\(a + bj\\). The absolute
+value is computed as \\( \sqrt{a^2 + b^2}\\).
+  }];
+
+  let arguments = (ins
+    TensorOf<[TF_Complex128, TF_Complex64]>:$x
+  );
+
+  let results = (outs
+    TF_F32OrF64Tensor:$y
+  );
+
+  TF_DerivedOperandTypeAttr T = TF_DerivedOperandTypeAttr<0>;
+  TF_DerivedResultTypeAttr Tout = TF_DerivedResultTypeAttr<0>;
 }
 
 def TF_ConcatOp : TF_Op<"Concat", [NoSideEffect]> {
@@ -4894,19 +4938,26 @@ def TF_UniqueOp : TF_Op<"Unique", [NoSideEffect]> {
 
   let description = [{
 This operation returns a tensor `y` containing all of the unique elements of `x`
-sorted in the same order that they occur in `x`. This operation also returns a
-tensor `idx` the same size as `x` that contains the index of each value of `x`
-in the unique output `y`. In other words:
+sorted in the same order that they occur in `x`; `x` does not need to be sorted.
+This operation also returns a tensor `idx` the same size as `x` that contains 
+the index of each value of `x` in the unique output `y`. In other words:
 
 `y[idx[i]] = x[i] for i in [0, 1,...,rank(x) - 1]`
 
-For example:
+Examples:
 
 ```
 # tensor 'x' is [1, 1, 2, 4, 4, 4, 7, 8, 8]
 y, idx = unique(x)
 y ==> [1, 2, 4, 7, 8]
 idx ==> [0, 0, 1, 2, 2, 2, 3, 4, 4]
+```
+
+```
+# tensor 'x' is [4, 5, 1, 2, 3, 3, 4, 5]
+y, idx = unique(x)
+y ==> [4, 5, 1, 2, 3]
+idx ==> [0, 1, 2, 3, 4, 4, 0, 1]
 ```
   }];
 
