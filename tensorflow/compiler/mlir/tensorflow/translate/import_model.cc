@@ -46,7 +46,7 @@ limitations under the License.
 #include "mlir/IR/Module.h"  // TF:local_config_mlir
 #include "mlir/IR/Types.h"  // TF:local_config_mlir
 #include "tensorflow/compiler/jit/shape_inference_helpers.h"
-#include "tensorflow/compiler/mlir/op_name_mapper.h"
+#include "tensorflow/compiler/mlir/op_or_arg_name_mapper.h"
 #include "tensorflow/compiler/mlir/tensorflow/ir/control_flow_ops.h"
 #include "tensorflow/compiler/mlir/tensorflow/ir/tf_executor.h"
 #include "tensorflow/compiler/mlir/tensorflow/ir/tf_ops.h"
@@ -104,17 +104,17 @@ namespace {
 // function names unchanged in an MLIR roundtrip causes test failures.
 // TODO(b/142268695) Re-evaluate whether we need this class v.s. directly using
 // and TF function name as MLIR function name after b/142268695 is root caused.
-class NameUniquifier : public OpNameMapper {
+class NameUniquifier : public OpOrArgNameMapper {
  public:
   explicit NameUniquifier(const FunctionLibraryDefinition& flib)
       : flib_(flib) {}
 
  private:
   bool IsUnique(llvm::StringRef name) override {
-    return OpNameMapper::IsUnique(name) && !flib_.Contains(name);
+    return OpOrArgNameMapper::IsUnique(name) && !flib_.Contains(name);
   }
 
-  std::string GetName(mlir::Operation* op) override {
+  std::string GetName(OpOrArg op_or_arg) override {
     DCHECK(false) << "Unimplemented";
     return "";
   }
@@ -280,7 +280,7 @@ class ImporterBase {
   // arguments are added as basic block argument. Also the argument types and
   // the id of the nodes from the input graph needs to be specified.
   Status ConvertFunctionArgAndRets(
-      mlir::Block* bb, mlir::tf_executor::GraphOp graph_op,
+      mlir::FuncOp func, mlir::tf_executor::GraphOp graph_op,
       llvm::ArrayRef<mlir::Type> arg_types,
       const absl::InlinedVector<OutputTensor, 4>& arg_nodes,
       const absl::InlinedVector<OutputTensor, 4>& ret_nodes,
@@ -1013,7 +1013,6 @@ Status ImporterBase::Convert(
   // Seeds the builder with an initial block.
   function.addEntryBlock();
   builder_ = mlir::OpBuilder(function.getBody());
-  auto* bb = &function.front();
 
   // Create the graph operation in which we will convert the individual nodes.
   auto graph = builder_.create<mlir::tf_executor::GraphOp>(
@@ -1028,18 +1027,19 @@ Status ImporterBase::Convert(
   // pairs.
   TF_RETURN_IF_ERROR(AddBackedges());
 
-  return ConvertFunctionArgAndRets(bb, graph, func_type.getInputs(), arg_nodes,
-                                   ret_nodes, control_ret_nodes,
+  return ConvertFunctionArgAndRets(function, graph, func_type.getInputs(),
+                                   arg_nodes, ret_nodes, control_ret_nodes,
                                    add_pseudo_input_nodes);
 }
 
 Status ImporterBase::ConvertFunctionArgAndRets(
-    mlir::Block* bb, mlir::tf_executor::GraphOp graph_op,
+    mlir::FuncOp func, mlir::tf_executor::GraphOp graph_op,
     llvm::ArrayRef<mlir::Type> arg_types,
     const absl::InlinedVector<OutputTensor, 4>& arg_nodes,
     const absl::InlinedVector<OutputTensor, 4>& ret_nodes,
     const absl::InlinedVector<Node*, 4>& control_ret_nodes,
     bool add_pseudo_input_nodes) {
+  auto* bb = &func.front();
   llvm::SmallDenseMap<std::pair<Node*, int>, mlir::Value*, 4>
       arg_nodes_to_values;
   for (int i = 0, e = arg_types.size(); i < e; ++i) {
@@ -1064,6 +1064,16 @@ Status ImporterBase::ConvertFunctionArgAndRets(
       // Collect mapping of OutputTensor to associated block arg.
       arg_nodes_to_values.try_emplace({arg_node.node, arg_node.index}, arg_def);
       island->getResult(0)->replaceAllUsesWith(arg_def);
+      // Erase control outputs from feed.
+      auto control_uses = island->getResult(1)->getUses();
+      for (auto& control_use : llvm::make_early_inc_range(control_uses))
+        control_use.getOwner()->eraseOperand(control_use.getOperandNumber());
+
+      if (!arg_node.node->requested_device().empty())
+        func.setArgAttr(
+            i, "tf.device",
+            builder_.getStringAttr(arg_node.node->requested_device()));
+
       island->dropAllReferences();
       island->erase();
       continue;
