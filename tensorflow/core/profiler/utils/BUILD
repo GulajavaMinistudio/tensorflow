@@ -13,15 +13,6 @@ package_group(
 )
 
 cc_library(
-    name = "timespan",
-    hdrs = ["timespan.h"],
-    deps = [
-        "//tensorflow/core/platform:logging",
-        "//tensorflow/core/platform:types",
-    ],
-)
-
-cc_library(
     name = "event_span",
     srcs = ["event_span.cc"],
     hdrs = ["event_span.h"],
@@ -35,6 +26,42 @@ cc_library(
     ],
 )
 
+cc_library(
+    name = "math_utils",
+    hdrs = ["math_utils.h"],
+)
+
+cc_library(
+    name = "tf_op_utils",
+    srcs = ["tf_op_utils.cc"],
+    hdrs = ["tf_op_utils.h"],
+    deps = [
+        "//tensorflow/core/platform:regexp",
+        "@com_google_absl//absl/strings",
+    ],
+)
+
+tf_cc_test(
+    name = "tf_op_utils_test",
+    size = "small",
+    srcs = ["tf_op_utils_test.cc"],
+    deps = [
+        ":tf_op_utils",
+        "//tensorflow/core:test",
+        "//tensorflow/core:test_main",
+    ],
+)
+
+cc_library(
+    name = "timespan",
+    hdrs = ["timespan.h"],
+    deps = [
+        ":time_utils",
+        "//tensorflow/core/platform:logging",
+        "//tensorflow/core/platform:types",
+    ],
+)
+
 tf_cc_test(
     name = "timespan_test",
     srcs = ["timespan_test.cc"],
@@ -42,6 +69,14 @@ tf_cc_test(
         ":timespan",
         "//tensorflow/core:test",
         "//tensorflow/core:test_main",
+    ],
+)
+
+cc_library(
+    name = "time_utils",
+    hdrs = ["time_utils.h"],
+    deps = [
+        "//tensorflow/core/platform:types",
     ],
 )
 
