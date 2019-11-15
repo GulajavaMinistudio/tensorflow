@@ -216,6 +216,7 @@ py_library(
         "//tensorflow/python/ops/ragged:ragged_tensor",
         "//tensorflow/python/ops/ragged:ragged_util",
         "//tensorflow/python/profiler:traceme",
+        "//tensorflow/python/tpu:tpu_lib",
         "//tensorflow/python/training/tracking:data_structures",
         "//tensorflow/tools/docs:doc_controls",
         "@six_archive//:six",
@@ -1422,8 +1423,10 @@ tf_py_test(
         ":keras",
         "@absl_py//absl/testing:parameterized",
         "//third_party/py/numpy",
+        "@six_archive//:six",
         "//tensorflow/python:client_testlib",
     ],
+    python_version = "PY3",
     shard_count = 4,
     tags = [
         "no_oss",

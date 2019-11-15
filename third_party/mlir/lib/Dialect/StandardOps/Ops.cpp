@@ -2533,11 +2533,11 @@ struct ViewOpShapeFolder : public OpRewritePattern<ViewOp> {
            dynamicOffsetOperandCount + newMemRefType.getNumDynamicDims());
 
     // Create new ViewOp.
-    auto newShapeCastOp = rewriter.create<ViewOp>(
-        viewOp.getLoc(), newMemRefType, viewOp.getOperand(0), newOperands);
+    auto newViewOp = rewriter.create<ViewOp>(viewOp.getLoc(), newMemRefType,
+                                             viewOp.getOperand(0), newOperands);
     // Insert a cast so we have the same type as the old memref type.
     rewriter.replaceOpWithNewOp<MemRefCastOp>(droppedOperands, viewOp,
-                                              newShapeCastOp, viewOp.getType());
+                                              newViewOp, viewOp.getType());
     return matchSuccess();
   }
 };
@@ -2552,6 +2552,43 @@ void ViewOp::getCanonicalizationPatterns(OwningRewritePatternList &results,
 //===----------------------------------------------------------------------===//
 // SubViewOp
 //===----------------------------------------------------------------------===//
+
+// Returns a MemRefType with dynamic sizes and offset and the same stride as the
+// `memRefType` passed as argument.
+// TODO(andydavis,ntv) Evolve to a more powerful inference that can also keep
+// sizes and offset static.
+static Type inferSubViewResultType(MemRefType memRefType) {
+  auto rank = memRefType.getRank();
+  int64_t offset;
+  SmallVector<int64_t, 4> strides;
+  Type elementType = memRefType.getElementType();
+  auto res = getStridesAndOffset(memRefType, strides, offset);
+  assert(succeeded(res) && "SubViewOp expected strided memref type");
+  (void)res;
+
+  // Assume sizes and offset are fully dynamic for now until canonicalization
+  // occurs on the ranges. Typed strides don't change though.
+  offset = MemRefType::getDynamicStrideOrOffset();
+  // Overwrite strides because verifier will not pass.
+  // TODO(b/144419106): don't force degrade the strides to fully dynamic.
+  for (auto &stride : strides)
+    stride = MemRefType::getDynamicStrideOrOffset();
+  auto stridedLayout =
+      makeStridedLinearLayoutMap(strides, offset, memRefType.getContext());
+  SmallVector<int64_t, 4> sizes(rank, ShapedType::kDynamicSize);
+  return MemRefType::get(sizes, elementType, stridedLayout,
+                         memRefType.getMemorySpace());
+}
+
+void mlir::SubViewOp::build(Builder *b, OperationState &result, Value *source,
+                            ArrayRef<Value *> offsets, ArrayRef<Value *> sizes,
+                            ArrayRef<Value *> strides, Type resultType,
+                            ArrayRef<NamedAttribute> attrs) {
+  if (!resultType)
+    resultType = inferSubViewResultType(source->getType().cast<MemRefType>());
+  build(b, result, resultType, source, offsets, sizes, strides);
+  result.addAttributes(attrs);
+}
 
 static ParseResult parseSubViewOp(OpAsmParser &parser, OperationState &result) {
   OpAsmParser::OperandType srcInfo;
@@ -2621,7 +2658,8 @@ static LogicalResult verify(SubViewOp op) {
            << subViewType;
 
   // Verify that the subview layout map has a dynamic offset.
-  if (subViewOffset != MemRefType::getDynamicStrideOrOffset())
+  if (op.getNumOperands() > 1 &&
+      subViewOffset != MemRefType::getDynamicStrideOrOffset())
     return op.emitError("subview memref layout map must specify a dynamic "
                         "offset for type ")
            << subViewType;
@@ -2632,6 +2670,179 @@ static LogicalResult verify(SubViewOp op) {
     return op.emitError("incorrect dynamic strides in view memref type ")
            << subViewType;
   return success();
+}
+
+llvm::raw_ostream &mlir::operator<<(llvm::raw_ostream &os,
+                                    SubViewOp::Range &range) {
+  return os << "range " << *range.offset << ":" << *range.size << ":"
+            << *range.stride;
+}
+
+SmallVector<SubViewOp::Range, 8> SubViewOp::getRanges() {
+  SmallVector<Range, 8> res;
+  unsigned rank = getType().getRank();
+  res.reserve(rank);
+  for (unsigned i = 0; i < rank; ++i)
+    res.emplace_back(Range{*(getDynamicOffsets().begin() + i),
+                           *(getDynamicSizes().begin() + i),
+                           *(getDynamicStrides().begin() + i)});
+  return res;
+}
+
+static bool hasConstantOffsetSizesAndStrides(MemRefType memrefType) {
+  if (memrefType.getNumDynamicDims() > 0)
+    return false;
+  // Get offset and strides.
+  int64_t offset;
+  llvm::SmallVector<int64_t, 4> strides;
+  if (failed(getStridesAndOffset(memrefType, strides, offset)))
+    return false;
+  // Return 'false' if any of offset or strides is dynamic.
+  if (offset == MemRefType::getDynamicStrideOrOffset() ||
+      llvm::is_contained(strides, MemRefType::getDynamicStrideOrOffset()))
+    return false;
+  return true;
+}
+
+namespace {
+
+struct SubViewOpShapeFolder : public OpRewritePattern<SubViewOp> {
+  using OpRewritePattern<SubViewOp>::OpRewritePattern;
+
+  PatternMatchResult matchAndRewrite(SubViewOp subViewOp,
+                                     PatternRewriter &rewriter) const override {
+    // Get base memref type.
+    auto baseMemrefType = subViewOp.getBaseMemRefType();
+    if (baseMemrefType.getAffineMaps().size() != 1)
+      return matchFailure();
+    auto baseMap = baseMemrefType.getAffineMaps()[0];
+
+    // Get base memref offsets and strides.
+    int64_t baseOffset;
+    llvm::SmallVector<int64_t, 4> baseStrides;
+    if (failed(getStridesAndOffset(baseMemrefType, baseStrides, baseOffset)))
+      return matchFailure();
+
+    // Keep it simple for now: return if any of the base memrefs offset, sizes
+    // or strides is dynamic.
+    if (baseOffset == MemRefType::getDynamicStrideOrOffset() ||
+        baseMemrefType.getNumDynamicDims() > 0 ||
+        llvm::is_contained(baseStrides, MemRefType::getDynamicStrideOrOffset()))
+      return matchFailure();
+
+    // Get subView memref type.
+    auto subViewMemrefType = subViewOp.getType();
+    if (subViewMemrefType.getAffineMaps().size() != 1)
+      return matchFailure();
+    auto subViewMap = subViewMemrefType.getAffineMaps()[0];
+
+    // Return if the subViewOp has already been constant folded.
+    if (subViewOp.getNumOperands() == 1) {
+      assert(hasConstantOffsetSizesAndStrides(subViewMemrefType));
+      return matchFailure();
+    }
+
+    // Keep it simple for now: return if any view memref operands are dynamic.
+    SmallVector<Value *, 4> operands(subViewOp.getOperands().begin(),
+                                     subViewOp.getOperands().end());
+    ArrayRef<Value *> operandsRef(operands);
+    if (llvm::any_of(operandsRef.drop_front(), [](Value *operand) {
+          return !matchPattern(operand, m_ConstantIndex());
+        }))
+      return matchFailure();
+
+    // Compute new subview offset based on base memref strides.
+    int64_t newSubViewOffset = baseOffset;
+    SmallVector<Value *, 4> offsets(subViewOp.getDynamicOffsets().begin(),
+                                    subViewOp.getDynamicOffsets().end());
+    assert(offsets.size() == baseStrides.size());
+    for (unsigned i = 0, e = offsets.size(); i < e; ++i) {
+      auto constantOffsetOp =
+          cast<ConstantIndexOp>(offsets[i]->getDefiningOp());
+      newSubViewOffset += constantOffsetOp.getValue() * baseStrides[i];
+    }
+
+    // Fold any dynamic dim operands which are produced by a constant.
+    SmallVector<int64_t, 4> newShapeConstants;
+    newShapeConstants.reserve(subViewMemrefType.getRank());
+
+    unsigned dynamicDimPos = 1 + subViewMemrefType.getRank();
+    unsigned rank = subViewMemrefType.getRank();
+    for (unsigned dim = 0, e = rank; dim < e; ++dim) {
+      int64_t dimSize = subViewMemrefType.getDimSize(dim);
+      // SubViewOp shape folding currently folds everything or nothing, so we
+      // expect all dynamic sizes at this point.
+      assert(ShapedType::isDynamic(dimSize));
+      (void)dimSize;
+
+      auto *defOp = subViewOp.getOperand(dynamicDimPos)->getDefiningOp();
+      assert(defOp != nullptr);
+      assert(isa<ConstantIndexOp>(defOp));
+      auto constantSizeOp = cast<ConstantIndexOp>(defOp);
+      // Dynamic shape dimension will be folded.
+      newShapeConstants.push_back(constantSizeOp.getValue());
+      dynamicDimPos++;
+    }
+
+    // Compute new strides based on 'newShapeConstants'.
+    SmallVector<int64_t, 4> newSubViewStrides(rank);
+    newSubViewStrides[rank - 1] = 1;
+    for (int i = rank - 2; i >= 0; --i) {
+      assert(!ShapedType::isDynamic(newShapeConstants[i + 1]));
+      newSubViewStrides[i] =
+          newShapeConstants[i + 1] * newSubViewStrides[i + 1];
+    }
+
+    // Regenerate strided layout map with 'newSubViewStrides' and
+    // 'newSubViewOffset'.
+    subViewMap = makeStridedLinearLayoutMap(newSubViewStrides, newSubViewOffset,
+                                            rewriter.getContext());
+
+    // Create new memref type with constant folded dims and/or offset/strides.
+    auto newMemRefType =
+        MemRefType::get(newShapeConstants, subViewMemrefType.getElementType(),
+                        {subViewMap}, subViewMemrefType.getMemorySpace());
+
+    // Create new SubViewOp.
+    auto newSubViewOp = rewriter.create<SubViewOp>(
+        subViewOp.getLoc(), newMemRefType, subViewOp.getOperand(0));
+    // Insert a cast so we have the same type as the old memref type.
+    rewriter.replaceOpWithNewOp<MemRefCastOp>(
+        operandsRef.drop_front(), subViewOp, newSubViewOp, subViewOp.getType());
+    return matchSuccess();
+  }
+};
+
+} // end anonymous namespace
+
+SubViewOp::operand_range SubViewOp::getDynamicOffsets() {
+  if (hasConstantOffsetSizesAndStrides(getBaseMemRefType()) &&
+      hasConstantOffsetSizesAndStrides(getType()))
+    return {operand_end(), operand_end()};
+  return {operand_begin() + 1, operand_begin() + 1 + getType().getRank()};
+}
+
+SubViewOp::operand_range SubViewOp::getDynamicSizes() {
+  if (hasConstantOffsetSizesAndStrides(getBaseMemRefType()) &&
+      hasConstantOffsetSizesAndStrides(getType()))
+    return {operand_end(), operand_end()};
+  unsigned sizesOperandsStart = 1 + getType().getRank();
+  return {operand_begin() + sizesOperandsStart,
+          operand_begin() + sizesOperandsStart + getType().getRank()};
+}
+
+SubViewOp::operand_range SubViewOp::getDynamicStrides() {
+  if (hasConstantOffsetSizesAndStrides(getBaseMemRefType()) &&
+      hasConstantOffsetSizesAndStrides(getType()))
+    return {operand_end(), operand_end()};
+  unsigned stridesOperandsStart = 1 + 2 * getType().getRank();
+  return {operand_begin() + stridesOperandsStart,
+          operand_begin() + stridesOperandsStart + getType().getRank()};
+}
+
+void SubViewOp::getCanonicalizationPatterns(OwningRewritePatternList &results,
+                                            MLIRContext *context) {
+  results.insert<SubViewOpShapeFolder>(context);
 }
 
 //===----------------------------------------------------------------------===//
