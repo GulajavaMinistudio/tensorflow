@@ -24,10 +24,9 @@
 #define MLIR_DIALECT_STANDARDOPS_OPS_H
 
 #include "mlir/Analysis/CallInterfaces.h"
-#include "mlir/IR/Attributes.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Dialect.h"
-#include "mlir/IR/OpDefinition.h"
+#include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/StandardTypes.h"
 
 // Pull in all enum type definitions and utility function declarations.
@@ -338,7 +337,7 @@ void printDimAndSymbolList(Operation::operand_iterator begin,
 
 /// Parses dimension and symbol list and returns true if parsing failed.
 ParseResult parseDimAndSymbolList(OpAsmParser &parser,
-                                  SmallVector<Value *, 4> &operands,
+                                  SmallVectorImpl<Value *> &operands,
                                   unsigned &numDims);
 
 llvm::raw_ostream &operator<<(llvm::raw_ostream &os, SubViewOp::Range &range);

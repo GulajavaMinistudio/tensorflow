@@ -279,6 +279,24 @@ see the incremented value or a subsequent newer one.
   TF_DerivedOperandTypeAttr dtype = TF_DerivedOperandTypeAttr<1>;
 }
 
+def TF_AssignSubVariableOp : TF_Op<"AssignSubVariableOp", []> {
+  let summary = "Subtracts a value from the current value of a variable.";
+
+  let description = [{
+Any ReadVariableOp with a control dependency on this op is guaranteed to
+see the decremented value or a subsequent newer one.
+  }];
+
+  let arguments = (ins
+    TF_ResourceTensor:$resource,
+    TF_Tensor:$value
+  );
+
+  let results = (outs);
+
+  TF_DerivedOperandTypeAttr dtype = TF_DerivedOperandTypeAttr<1>;
+}
+
 def TF_AssignVariableOp : TF_Op<"AssignVariableOp", []> {
   let summary = "Assigns a new value to a variable.";
 
@@ -1186,6 +1204,124 @@ def TF_DivOp : TF_Op<"Div", [Broadcastable, NoSideEffect]>,
   TF_DerivedOperandTypeAttr T = TF_DerivedOperandTypeAttr<0>;
 
   let hasCanonicalizer = 1;
+}
+
+def TF_DivNoNanOp : TF_Op<"DivNoNan", [Broadcastable, NoSideEffect]>,
+                    WithBroadcastableBinOpBuilder {
+  let summary = "Returns 0 if the denominator is zero.";
+
+  let description = [{
+*NOTE*: `DivNoNan` supports broadcasting. More about broadcasting
+[here](http://docs.scipy.org/doc/numpy/user/basics.broadcasting.html)
+  }];
+
+  let arguments = (ins
+    TensorOf<[F16, F32, F64, TF_Complex128, TF_Complex64]>:$x,
+    TensorOf<[F16, F32, F64, TF_Complex128, TF_Complex64]>:$y
+  );
+
+  let results = (outs
+    TensorOf<[F16, F32, F64, TF_Complex128, TF_Complex64]>:$z
+  );
+
+  TF_DerivedOperandTypeAttr T = TF_DerivedOperandTypeAttr<0>;
+}
+
+def TF_EinsumOp : TF_Op<"Einsum", [NoSideEffect]> {
+  let summary = [{
+Tensor contraction according to Einstein summation convention.
+  }];
+
+  let description = [{
+Implements generalized Tensor contraction and reduction. Each input Tensor must
+have a corresponding input subscript appearing in the comma-separated left-hand
+side of the equation. The right-hand side of the equation consists of the
+output subscript. The input subscripts and the output subscript should consist
+of zero or more named axis labels and at most one ellipsis (`...`).
+
+The named axis labels may be any single character other than those having
+special meaning, namely `,.->`. The behavior of this Op is undefined if it
+receives an ill-formatted equation; since the validation is done at
+graph-building time, we omit format validation checks at runtime.
+
+Note: This Op is *not* intended to be called by the user; instead users should
+call `tf.einsum` directly. It is a hidden Op used by `tf.einsum`.
+
+Operations are applied to the input(s) according to the following rules:
+
+ (a) Generalized Diagonals: For input dimensions corresponding to axis labels
+     appearing more than once in the same input subscript, we take the
+     generalized (`k`-dimensional) diagonal.
+     For example, in the equation `iii->i` with input shape `[3, 3, 3]`, the
+     generalized diagonal would consist of `3` elements at indices `(0, 0, 0)`,
+     `(1, 1, 1)` and `(2, 2, 2)` to create a Tensor of shape `[3]`.
+
+ (b) Reduction: Axes corresponding to labels appearing only in one input
+     subscript but not in the output subscript are summed over prior to Tensor
+     contraction.
+     For example, in the equation `ab,bc->b`, the axis labels `a` and `c` are
+     the reduction axis labels.
+
+ (c) Batch Dimensions: Axes corresponding to labels appearing in each of the
+     input subscripts and also in the output subscript make up the batch
+     dimensions in Tensor contraction. Unnamed axis labels corresponding to
+     ellipsis (`...`) also correspond to batch dimensions.
+     For example, for the equation denoting batch matrix multiplication,
+     `bij,bjk->bik`, the axis label `b` corresponds to a batch dimension.
+
+ (d) Contraction: In case of binary einsum, axes corresponding to labels
+     appearing in two different inputs (and not in the output) are contracted
+     against each other.
+     Considering the batch matrix multiplication equation again
+     (`bij,bjk->bik`), the contracted axis label is `j`.
+
+ (e) Expand Diagonal: If the output subcripts contain repeated (explicit) axis
+     labels, the opposite operation of (a) is applied. For example, in the
+     equation `i->iii`, and input shape `[3]`, the output of shape `[3, 3, 3]`
+     are all zeros, except for the (generalized) diagonal which is populated
+     with values from the input.
+     Note: This operation is not supported by `np.einsum` or `tf.einsum`; it is
+     provided to enable computing the symbolic gradient of `tf.einsum`.
+
+The output subcripts must contain only labels appearing in at least one of the
+input subscripts. Furthermore, all dimensions mapping to the same axis label
+must be equal.
+
+Any of the input and output subscripts may contain at most a single ellipsis
+(`...`). These ellipsis are mapped against dimensions not corresponding to any
+named axis label. If two inputs contain ellipsis, then they are broadcasted
+according to standard NumPy broadcasting
+[rules](http://docs.scipy.org/doc/numpy/user/basics.broadcasting.html).
+
+The broadcasted dimensions are placed in the corresponding location of the
+ellipsis in the output subscript. If the broadcasted dimensions are non-empty
+and the output subcripts do not contain ellipsis, then an InvalidArgument error
+is raised.
+
+@compatibility(numpy)
+Similar to [`numpy.einsum`](https://docs.scipy.org/doc/numpy/reference/generated/numpy.einsum.html).
+
+Comparison with `numpy.einsum`:
+
+ * This Op only supports unary and binary forms of `numpy.einsum`.
+ * This Op does not support implicit form. (i.e. equations without `->`).
+ * This Op also supports repeated indices in the output subscript, which is not
+   supported by `numpy.einsum`.
+@end_compatibility
+  }];
+
+  let arguments = (ins
+    Variadic<TF_Tensor>:$inputs,
+
+    StrAttr:$equation
+  );
+
+  let results = (outs
+    TF_Tensor:$output
+  );
+
+  TF_DerivedOperandTypeAttr T = TF_DerivedOperandTypeAttr<0>;
+  TF_DerivedOperandSizeAttr N = TF_DerivedOperandSizeAttr<0>;
 }
 
 def TF_EluOp : TF_Op<"Elu", [NoSideEffect, SameOperandsAndResultType]> {
@@ -4268,6 +4404,26 @@ I.e., \\(y = 1 / \sqrt{x}\\).
   TF_DerivedOperandTypeAttr T = TF_DerivedOperandTypeAttr<0>;
 }
 
+def TF_RsqrtGradOp : TF_Op<"RsqrtGrad", [NoSideEffect, SameOperandsAndResultType]> {
+  let summary = "Computes the gradient for the rsqrt of `x` wrt its input.";
+
+  let description = [{
+Specifically, `grad = dy * -0.5 * y^3`, where `y = rsqrt(x)`, and `dy`
+is the corresponding input gradient.
+  }];
+
+  let arguments = (ins
+    TF_FpOrComplexTensor:$y,
+    TF_FpOrComplexTensor:$dy
+  );
+
+  let results = (outs
+    TF_FpOrComplexTensor:$z
+  );
+
+  TF_DerivedOperandTypeAttr T = TF_DerivedOperandTypeAttr<0>;
+}
+
 def TF_SelectOp : TF_Op<"Select", [NoSideEffect]> {
   let summary = "Selects elements from `x` or `y`, depending on `condition`.";
 
@@ -4568,6 +4724,23 @@ Inputs are the logits, not probabilities.
   let verifier = [{
     return Verify(*this);
   }];
+}
+
+def TF_SoftplusOp : TF_Op<"Softplus", [NoSideEffect, SameOperandsAndResultType]> {
+  let summary = "Computes softplus: `log(exp(features) + 1)`.";
+
+  let description = [{
+  }];
+
+  let arguments = (ins
+    TF_FpTensor:$features
+  );
+
+  let results = (outs
+    TF_FpTensor:$activations
+  );
+
+  TF_DerivedOperandTypeAttr T = TF_DerivedOperandTypeAttr<0>;
 }
 
 def TF_SpaceToBatchNDOp : TF_Op<"SpaceToBatchND", [NoSideEffect]> {
@@ -5105,6 +5278,57 @@ occurred during compilation.
   );
 }
 
+def TF_TPUExecuteOp : TF_Op<"TPUExecute", []> {
+  let summary = "Op that loads and executes a TPU program on a TPU device.";
+
+  let description = [{
+For the internal use of the distributed TPU compiler.
+  }];
+
+  let arguments = (ins
+    Variadic<TF_Tensor>:$args,
+    TF_StrTensor:$key
+  );
+
+  let results = (outs
+    Variadic<TF_Tensor>:$results
+  );
+
+  TF_DerivedOperandTypeListAttr Targs = TF_DerivedOperandTypeListAttr<0>;
+  TF_DerivedResultTypeListAttr Tresults = TF_DerivedResultTypeListAttr<0>;
+}
+
+def TF_TPUExecuteAndUpdateVariablesOp : TF_Op<"TPUExecuteAndUpdateVariables", []> {
+  let summary = [{
+Op that executes a program with optional in-place variable updates.
+  }];
+
+  let description = [{
+It (optionally) reads device variables, loads and executes a TPU program on a
+TPU device, and then (optionally) in-place updates variables using the program
+outputs, as specified in attributes device_var_reads_indices (program input
+indices from directly reading variables) and device_var_updates_indices (program
+output indices used to update variables, -1 means no-update/read-only). Such
+program outputs are consumed by these variables will not appear in the op
+output. For the internal use of the distributed TPU compiler.
+  }];
+
+  let arguments = (ins
+    Variadic<TF_Tensor>:$args,
+    TF_StrTensor:$key,
+
+    I64ArrayAttr:$device_var_reads_indices,
+    I64ArrayAttr:$device_var_updates_indices
+  );
+
+  let results = (outs
+    Variadic<TF_Tensor>:$results
+  );
+
+  TF_DerivedOperandTypeListAttr Targs = TF_DerivedOperandTypeListAttr<0>;
+  TF_DerivedResultTypeListAttr Tresults = TF_DerivedResultTypeListAttr<0>;
+}
+
 def TF_TanhOp : TF_Op<"Tanh", [NoSideEffect, SameOperandsAndResultType]> {
   let summary = "Computes hyperbolic tangent of `x` element-wise.";
 
@@ -5125,6 +5349,26 @@ Given an input tensor, this function computes hyperbolic tangent of every
 
   let results = (outs
     TF_FpOrComplexTensor:$y
+  );
+
+  TF_DerivedOperandTypeAttr T = TF_DerivedOperandTypeAttr<0>;
+}
+
+def TF_TanhGradOp : TF_Op<"TanhGrad", [NoSideEffect, SameOperandsAndResultType]> {
+  let summary = "Computes the gradient for the tanh of `x` wrt its input.";
+
+  let description = [{
+Specifically, `grad = dy * (1 - y*y)`, where `y = tanh(x)`, and `dy`
+is the corresponding input gradient.
+  }];
+
+  let arguments = (ins
+    TF_FpOrComplexTensor:$y,
+    TF_FpOrComplexTensor:$dy
+  );
+
+  let results = (outs
+    TF_FpOrComplexTensor:$z
   );
 
   TF_DerivedOperandTypeAttr T = TF_DerivedOperandTypeAttr<0>;
