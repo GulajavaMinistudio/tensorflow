@@ -558,6 +558,13 @@ Status DirectSession::RunInternal(
   std::unique_ptr<thread::ThreadPool> threadpool_wrapper;
   thread::ThreadPool* pool = nullptr;
 
+  if (run_options.inter_op_thread_pool() < -1 ||
+      run_options.inter_op_thread_pool() >=
+          static_cast<int32>(thread_pools_.size())) {
+    return errors::InvalidArgument("Invalid inter_op_thread_pool: ",
+                                   run_options.inter_op_thread_pool());
+  }
+
   if (run_in_caller_thread_) {
     pool = nullptr;
   } else if (threadpool_options.inter_op_threadpool != nullptr) {
@@ -576,13 +583,6 @@ Status DirectSession::RunInternal(
     } else {
       VLOG(1) << "Executing Session::Run() synchronously!";
     }
-  }
-
-  if (run_options.inter_op_thread_pool() < -1 ||
-      run_options.inter_op_thread_pool() >=
-          static_cast<int32>(thread_pools_.size())) {
-    return errors::InvalidArgument("Invalid inter_op_thread_pool: ",
-                                   run_options.inter_op_thread_pool());
   }
 
   std::unique_ptr<RunHandler> handler;

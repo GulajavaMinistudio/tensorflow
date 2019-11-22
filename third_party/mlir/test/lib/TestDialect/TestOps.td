@@ -409,6 +409,10 @@ def UpdateAttr : Pat<(I32ElementsAttrOp $attr),
                      (I32ElementsAttrOp ConstantAttr<I32ElementsAttr, "0">),
                      [(IsNotScalar $attr)]>;
 
+def TestBranchOp : TEST_Op<"br", [Terminator]> {
+  let arguments = (ins Variadic<AnyType>:$operands);
+}
+
 //===----------------------------------------------------------------------===//
 // Test Patterns
 //===----------------------------------------------------------------------===//
@@ -999,9 +1003,8 @@ def PolyForOp : TEST_Op<"polyfor">
 //===----------------------------------------------------------------------===//
 // Test OpAsmInterface.
 
-def AsmInterfaceOp : TEST_Op<"asm_interface_op",
-    [DeclareOpInterfaceMethods<OpAsmOpInterface>]> {
-  let results = (outs AnyType:$firstResult, Variadic<AnyType>:$middleResults,
+def AsmInterfaceOp : TEST_Op<"asm_interface_op"> {
+  let results = (outs AnyType:$first, Variadic<AnyType>:$middle_results,
                       AnyType);
 }
 
