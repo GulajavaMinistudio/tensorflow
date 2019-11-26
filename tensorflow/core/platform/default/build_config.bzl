@@ -2,7 +2,7 @@
 
 load("@com_google_protobuf//:protobuf.bzl", "proto_gen")
 load("//tensorflow:tensorflow.bzl", "clean_dep", "if_not_windows")
-load("//tensorflow/core/platform:default/build_config_root.bzl", "if_static")
+load("//tensorflow/core/platform:build_config_root.bzl", "if_static")
 load("@local_config_cuda//cuda:build_defs.bzl", "if_cuda")
 load("@local_config_rocm//rocm:build_defs.bzl", "if_rocm")
 load(
@@ -477,6 +477,7 @@ def tf_proto_library(
         cc_libs = [],
         cc_api_version = 2,
         cc_grpc_version = None,
+        use_grpc_namespace = False,
         j2objc_api_version = 1,
         js_codegen = "jspb",
         make_default_target_header_only = False,
@@ -489,6 +490,7 @@ def tf_proto_library(
         testonly = testonly,
         srcs = srcs,
         cc_grpc_version = cc_grpc_version,
+        use_grpc_namespace = use_grpc_namespace,
         cc_libs = cc_libs,
         make_default_target_header_only = make_default_target_header_only,
         protodeps = protodeps,

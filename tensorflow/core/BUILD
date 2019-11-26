@@ -102,7 +102,7 @@ load("//tensorflow:tensorflow.bzl", "tf_version_info_genrule")
 
 # For platform specific build config
 load(
-    "//tensorflow/core/platform:default/build_config.bzl",
+    "//tensorflow/core/platform:build_config.bzl",
     "tf_additional_all_protos",
     "tf_additional_core_deps",
     "tf_additional_lib_deps",
@@ -121,7 +121,7 @@ load(
     "tf_pyclif_proto_library",
 )
 load(
-    "//tensorflow/core/platform:default/build_config_root.bzl",
+    "//tensorflow/core/platform:build_config_root.bzl",
     "if_dynamic_kernels",
     "if_static",
     "tf_cuda_tests_tags",
@@ -386,11 +386,6 @@ filegroup(
 )
 
 alias(
-    name = "grpc_services",
-    actual = "//tensorflow/core/platform:grpc_services",
-)
-
-alias(
     name = "human_readable_json",
     actual = "//tensorflow/core/platform:human_readable_json",
 )
@@ -433,6 +428,7 @@ filegroup(
         "//tensorflow/core/platform:profile_utils/i_cpu_utils_helper.h",
         "//tensorflow/core/platform:stacktrace.h",
         "//tensorflow/core/platform:stacktrace_handler.h",
+        "//tensorflow/core/platform:status.h",
         "//tensorflow/core/platform:stringpiece.h",
         "//tensorflow/core/platform:stringprintf.h",
         "//tensorflow/core/platform:strcat.h",
@@ -491,6 +487,7 @@ cc_library(
         "//tensorflow/core/platform:macros",
         "//tensorflow/core/platform:protobuf",
         "//tensorflow/core/platform:platform",
+        "//tensorflow/core/platform:status",
         "//tensorflow/core/platform:stringpiece",
         "//tensorflow/core/platform:tstring",
         "//tensorflow/core/platform:types",
@@ -529,9 +526,6 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         ":lib_internal",
-        "//tensorflow/core/platform:str_util",
-        "//tensorflow/core/platform:stringpiece",
-        "//tensorflow/core/platform:stringprintf",
         "@com_google_absl//absl/container:inlined_vector",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:optional",
@@ -1953,40 +1947,35 @@ tf_pyclif_proto_library(
     visibility = ["//visibility:public"],
 )
 
-tf_pyclif_proto_library(
-    name = "protobuf/config_pyclif",
-    proto_lib = ":protos_all",
-    proto_srcfile = "protobuf/config.proto",
-    visibility = ["//visibility:public"],
-)
-
-tf_pyclif_proto_library(
-    name = "protobuf/device_properties_pyclif",
-    proto_lib = ":protos_all",
-    proto_srcfile = "protobuf/device_properties.proto",
-    visibility = ["//visibility:public"],
-)
-
-tf_pyclif_proto_library(
-    name = "protobuf/graph_debug_info_pyclif",
-    proto_lib = ":protos_all",
-    proto_srcfile = "protobuf/graph_debug_info.proto",
-    visibility = ["//visibility:public"],
-)
-
-tf_pyclif_proto_library(
-    name = "protobuf/meta_graph_pyclif",
-    proto_lib = ":protos_all",
-    proto_srcfile = "protobuf/meta_graph.proto",
-    visibility = ["//visibility:public"],
-)
-
-tf_pyclif_proto_library(
-    name = "protobuf/saved_model_pyclif",
-    proto_lib = ":protos_all",
-    proto_srcfile = "protobuf/saved_model.proto",
-    visibility = ["//visibility:public"],
-)
+# The following targets will be moved to core/protobuf. The aliases are only temporary
+# since moving existing users will require several CLs over several projects.
+[
+    [
+        alias(
+            name = "protobuf_%s_pyclif%s" % (proto_name, target_suffix),
+            actual = ":protobuf/%s_pyclif%s" % (proto_name, target_suffix),
+            visibility = ["//visibility:public"],
+        )
+        for target_suffix in [
+            "",
+            "_pb2",
+        ]
+    ] + [
+        tf_pyclif_proto_library(
+            name = "protobuf/%s_pyclif" % proto_name,
+            proto_lib = ":protos_all",
+            proto_srcfile = "protobuf/%s.proto" % proto_name,
+            visibility = ["//visibility:public"],
+        ),
+    ]
+    for proto_name in [
+        "config",
+        "device_properties",
+        "graph_debug_info",
+        "meta_graph",
+        "saved_model",
+    ]
+]
 
 # The following targets were moved to core/framework. The aliases are only temporary
 # since moving existing users will require several CLs over several projects.
@@ -2096,6 +2085,7 @@ tf_proto_library_cc(
 LIB_INTERNAL_PRIVATE_HEADERS = [
     "//tensorflow/core/framework:resource_handle.h",
     "//tensorflow/core/platform:legacy_lib_internal_headers",
+    "//tensorflow/core/platform:raw_coding.h",
     "//tensorflow/core/platform:scanner.h",
     "//tensorflow/core/platform:str_util.h",
     "//tensorflow/core/lib/bfloat16:bfloat16.h",
@@ -2135,6 +2125,7 @@ LIB_INTERNAL_PUBLIC_HEADERS = [
     "//tensorflow/core/platform:platform.h",
     "//tensorflow/core/platform:monitoring.h",
     "//tensorflow/core/platform:protobuf_internal.h",
+    "//tensorflow/core/platform:refcount.h",
     "//tensorflow/core/platform:setround.h",
     "//tensorflow/core/platform:snappy.h",
     "//tensorflow/core/platform:tensor_coding.h",
@@ -2163,7 +2154,6 @@ cc_library(
         "@com_google_absl//absl/strings",
         "//third_party/eigen3",
         "@com_google_absl//absl/base:core_headers",
-        "//tensorflow/core/platform:regexp",
         "//tensorflow/core/platform/default/build_config:platformlib",
     ] + if_static([":lib_internal_impl"]),
 )
@@ -2284,9 +2274,11 @@ cc_library(
         "//tensorflow/core/platform:regexp",
         "//tensorflow/core/platform:scanner",
         "//tensorflow/core/platform:setround",
-        "//tensorflow/core/platform:strong_hash",
+        "//tensorflow/core/platform:status",
         "//tensorflow/core/platform:strcat",
+        "//tensorflow/core/platform:stringpiece",
         "//tensorflow/core/platform:stringprintf",
+        "//tensorflow/core/platform:strong_hash",
         "//tensorflow/core/platform:str_util",
         "//tensorflow/core/platform:subprocess",
         "//tensorflow/core/platform:tensor_coding",
@@ -2680,6 +2672,7 @@ tf_cuda_library(
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/memory",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
         "//third_party/eigen3",
@@ -2687,6 +2680,8 @@ tf_cuda_library(
         "//tensorflow/core/kernels:bounds_check",
         "//tensorflow/core/platform/default/build_config:platformlib",
         "//tensorflow/core/profiler/lib:traceme",
+        "//tensorflow/core/profiler/internal:traceme_recorder_impl",
+        "//tensorflow/core/profiler/internal:annotation_stack_impl",
     ] + if_static(
         extra_deps = ["@com_google_protobuf//:protobuf"],
         otherwise = ["@com_google_protobuf//:protobuf_headers"],
