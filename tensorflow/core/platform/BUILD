@@ -173,9 +173,22 @@ cc_library(
     hdrs = ["error.h"],
     deps = [
         ":platform",
+        ":status",
+        ":strcat",
         ":types",
-        "//tensorflow/core/lib/core:status",
-        "//tensorflow/core/platform:strcat",
+    ],
+)
+
+cc_library(
+    name = "errors",
+    hdrs = ["errors.h"],
+    deps = [
+        ":logging",
+        ":macros",
+        ":status",
+        ":str_util",
+        ":strcat",
+        "@com_google_absl//absl/strings",
     ],
 )
 
@@ -356,10 +369,10 @@ cc_library(
     name = "protobuf_internal",
     hdrs = ["protobuf_internal.h"],
     deps = [
+        ":errors",
         ":platform",
         ":protobuf",
         ":types",
-        "//tensorflow/core/lib/core:errors",
     ] + if_static(["@com_google_protobuf//:protobuf"]),
 )
 
@@ -460,7 +473,6 @@ cc_library(
         ":logging",
         ":macros",
         ":mutex",
-        ":stacktrace",
         ":str_util",
         ":strcat",
         ":stringpiece",

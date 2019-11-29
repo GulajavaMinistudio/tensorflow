@@ -50,6 +50,24 @@ namespace TFL {
 // The actual Optimize Pass.
 namespace {
 
+bool L2NormalizeReduceAxis(Value *sq_op, DenseElementsAttr axis) {
+  if (sq_op->getType().cast<ShapedType>().getRank() - 1 ==
+          *axis.getValues<int>().begin() ||
+      *axis.getValues<int>().begin() == -1) {
+    return true;
+  }
+  if (sq_op->getType().cast<ShapedType>().getRank() != axis.getNumElements()) {
+    return false;
+  }
+  auto shape = sq_op->getType().cast<ShapedType>();
+  SmallVector<int, 4> elems{axis.getValues<int>().begin(),
+                            axis.getValues<int>().end()};
+  for (int i = 0; i < shape.getRank(); ++i) {
+    if (i != elems[i]) return false;
+  }
+  return true;
+}
+
 using ::llvm::cast;
 
 // Optimize TFLite operations in functions.
@@ -122,6 +140,8 @@ ElementsAttr ExpandTo4DForDepthwiseConv(Attribute a) {
   return ExpandTo4DForConvImpl(a, true);
 }
 
+// Returns shape of a ranked tensor.
+// Precondition: output_val's is ranked tensor.
 DenseElementsAttr GetShape(Value *output_val) {
   auto output_type = output_val->getType().cast<RankedTensorType>();
   auto shape_vector = output_type.getShape();
