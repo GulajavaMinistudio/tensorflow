@@ -89,6 +89,18 @@ cc_library(
 )
 
 cc_library(
+    name = "coding",
+    srcs = ["coding.cc"],
+    hdrs = ["coding.h"],
+    deps = [
+        ":byte_order",
+        ":raw_coding",
+        ":stringpiece",
+        ":types",
+    ],
+)
+
+cc_library(
     name = "context",
     textual_hdrs = ["context.h"],
     # See call to tf_instantiate_platform_libraries() above.
@@ -216,6 +228,18 @@ cc_library(
 )
 
 cc_library(
+    name = "hash",
+    srcs = ["hash.cc"],
+    hdrs = ["hash.h"],
+    deps = [
+        ":macros",
+        ":raw_coding",
+        ":stringpiece",
+        ":types",
+    ],
+)
+
+cc_library(
     name = "human_readable_json",
     textual_hdrs = ["human_readable_json.h"],
     deps = tf_mobile_aware_deps("human_readable_json_impl"),
@@ -301,6 +325,21 @@ cc_library(
         ":types",
         "@double_conversion//:double-conversion",
     ],
+)
+
+cc_library(
+    name = "path",
+    srcs = ["path.cc"],
+    hdrs = ["path.h"],
+    deps = [
+        ":logging",
+        ":mutex",
+        ":scanner",
+        ":strcat",
+        ":stringpiece",
+        ":types",
+    ],
+    alwayslink = True,
 )
 
 cc_library(
@@ -560,13 +599,13 @@ cc_library(
     srcs = ["tensor_coding.cc"],
     hdrs = ["tensor_coding.h"],
     deps = [
+        ":coding",
         ":platform",
         ":protobuf",
+        ":refcount",
         ":stringpiece",
         ":strcat",
         ":types",
-        "//tensorflow/core/lib/core:coding",
-        "//tensorflow/core/lib/core:refcount",
     ] + tf_additional_tensor_coding_deps(),
 )
 
@@ -719,8 +758,11 @@ filegroup(
             "**/unbounded_work_queue.cc",
             "**/windows_file_system.cc",
             "abi.cc",
+            "coding.cc",
             "cpu_info.cc",
+            "hash.cc",
             "numbers.cc",
+            "path.cc",
             "platform_strings.cc",
             "protobuf.cc",
             "random.cc",
@@ -823,6 +865,7 @@ filegroup(
             "**/human_readable_json.cc",
             "**/rocm_rocdl_path.cc",
             "abi.cc",
+            "coding.cc",
             "cpu_info.cc",
             "cpu_feature_guard.cc",
             "denormal.cc",
@@ -830,8 +873,10 @@ filegroup(
             "error.cc",
             "file_system.cc",
             "file_system_helper.cc",
+            "hash.cc",
             "logger.cc",
             "numbers.cc",
+            "path.cc",
             "platform_strings.cc",
             "protobuf.cc",
             "protobuf_util.cc",
