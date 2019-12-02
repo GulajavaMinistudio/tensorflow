@@ -396,6 +396,7 @@ filegroup(
         "//tensorflow/core/platform:env.h",
         "//tensorflow/core/platform:file_statistics.h",
         "//tensorflow/core/platform:file_system.h",
+        "//tensorflow/core/platform:path.h",
     ],
     visibility = ["//visibility:private"],
 )
@@ -1976,32 +1977,6 @@ tf_pyclif_proto_library(
     ]
 ]
 
-# The following targets were moved to core/framework. The aliases are only temporary
-# since moving existing users will require several CLs over several projects.
-
-[
-    alias(
-        name = "framework_%s_pyclif%s" % (proto_name, target_suffix),
-        actual = "//tensorflow/core/framework:%s_pyclif%s" % (proto_name, target_suffix),
-        visibility = ["//visibility:public"],
-    )
-    for target_suffix in [
-        "",
-        "_pb2",
-    ]
-    for proto_name in [
-        "cost_graph",
-        "tensor",
-        "kernel_def",
-        "node_def",
-        "function",
-        "graph",
-        "step_stats",
-        "types",
-        "variable",
-    ]
-]
-
 # -----------------------------------------------------------------------------
 # Internal targets
 
@@ -2260,6 +2235,7 @@ cc_library(
         "//tensorflow/core/lib/strings:strcat",
         "//tensorflow/core/lib/strings:stringprintf",
         "//tensorflow/core/platform:abi",
+        "//tensorflow/core/platform:blocking_counter",
         "//tensorflow/core/platform:coding",
         "//tensorflow/core/platform:context",
         "//tensorflow/core/platform:cord",

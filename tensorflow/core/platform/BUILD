@@ -84,6 +84,25 @@ cc_library(
 )
 
 cc_library(
+    name = "base64",
+    srcs = ["base64.cc"],
+    hdrs = ["base64.h"],
+    deps = [
+        ":errors",
+        ":status",
+    ],
+)
+
+cc_library(
+    name = "blocking_counter",
+    hdrs = ["blocking_counter.h"],
+    deps = [
+        ":logging",
+        ":mutex",
+    ],
+)
+
+cc_library(
     name = "byte_order",
     hdrs = ["byte_order.h"],
 )
