@@ -210,32 +210,34 @@ def fill(dims, value, name=None):
 
   For example:
 
-  ```
-  # Output tensor has shape [2, 3].
-  fill([2, 3], 9) ==> [[9, 9, 9]
-                       [9, 9, 9]]
-  ```
+  # Output tensor with shape [2, 3].
+  >>> tf.fill([2, 3], 9)
+  <tf.Tensor: shape=(2, 3), dtype=int32, numpy=
+  array([[9, 9, 9],
+         [9, 9, 9]], dtype=int32)>
 
-  `tf.fill` differs from `tf.constant` in a few ways:
-
-  *   `tf.fill` only supports scalar contents, whereas `tf.constant` supports
-      Tensor values.
-  *   `tf.fill` creates an Op in the computation graph that constructs the
-  actual
-      Tensor value at runtime. This is in contrast to `tf.constant` which embeds
-      the entire Tensor into the graph with a `Const` node.
-  *   Because `tf.fill` evaluates at graph runtime, it supports dynamic shapes
-      based on other runtime Tensors, unlike `tf.constant`.
+  `tf.fill` evaluates at graph runtime and supports dynamic shapes based on
+  other runtime `tf.Tensors`, unlike `tf.constant(value, shape=dims)`, which
+  embeds the value as a `Const` node.
 
   Args:
-    dims: A `Tensor`. Must be one of the following types: `int32`, `int64`. 1-D.
-      Represents the shape of the output tensor.
-    value: A `Tensor`. 0-D (scalar). Value to fill the returned tensor.
-      @compatibility(numpy) Equivalent to np.full @end_compatibility
-    name: A name for the operation (optional).
+    dims: A 1-D sequence of non-negative numbers. Represents the shape of the
+      output `tf.Tensor`. Entries should be of type: `int32`, `int64`.
+    value: A value to fill the returned `tf.Tensor`.
+    name: Optional string. The name of the output `tf.Tensor`.
 
   Returns:
-    A `Tensor`. Has the same type as `value`.
+    A `tf.Tensor` with shape `dims` and the same dtype as `value`.
+
+  Raises:
+    InvalidArgumentError: `dims` contains negative entries.
+    NotFoundError: `dims` contains non-integer entries.
+
+  @compatibility(numpy)
+  Similar to `np.full`. In `numpy`, more parameters are supported. Passing a
+  number argument as the shape (`np.full(5, value)`) is valid in `numpy` for
+  specifying a 1-D shaped result, while TensorFlow does not support this syntax.
+  @end_compatibility
   """
   result = gen_array_ops.fill(dims, value, name=name)
   tensor_util.maybe_set_static_shape(result, dims)
@@ -245,18 +247,32 @@ def fill(dims, value, name=None):
 @tf_export("identity")
 @dispatch.add_dispatch_support
 def identity(input, name=None):  # pylint: disable=redefined-builtin
-  r"""Return a tensor with the same shape and contents as input.
+  r"""Return a Tensor with the same shape and contents as input.
+
+  The return value is not the same Tensor as the original, but contains the same
+  values.  This operation is fast when used on the same device.
 
   For example:
 
-  ```python
-  import tensorflow as tf
-  val0 = tf.ones((1,), dtype=tf.float32)
-  a = tf.atan2(val0, val0)
-  a_identity = tf.identity(a)
-  print(a.numpy())          #[0.7853982]
-  print(a_identity.numpy()) #[0.7853982]
-  ```
+  >>> a = tf.constant([0.78])
+  >>> a_identity = tf.identity(a)
+  >>> a.numpy()
+  array([0.78], dtype=float32)
+  >>> a_identity.numpy()
+  array([0.78], dtype=float32)
+
+  Calling `tf.identity` on a variable will make a Tensor that represents the
+  value of that variable at the time it is called. This is equivalent to calling
+  `<variable>.read_value()`.
+
+  >>> a = tf.Variable(5)
+  >>> a_identity = tf.identity(a)
+  >>> a.assign_add(1)
+  <tf.Variable ... shape=() dtype=int32, numpy=6>
+  >>> a.numpy()
+  6
+  >>> a_identity.numpy()
+  5
 
   Args:
     input: A `Tensor`.
@@ -645,10 +661,9 @@ def size_v2(input, out_type=dtypes.int32, name=None):
 
   For example:
 
-  ```python
-  t = tf.constant([[[1, 1, 1], [2, 2, 2]], [[3, 3, 3], [4, 4, 4]]])
-  tf.size(t)  # 12
-  ```
+  >>> t = tf.constant([[[1, 1, 1], [2, 2, 2]], [[3, 3, 3], [4, 4, 4]]])
+  >>> tf.size(t)
+  <tf.Tensor: shape=(), dtype=int32, numpy=12>
 
   Args:
     input: A `Tensor` or `SparseTensor`.
@@ -2840,7 +2855,7 @@ def ones_like_v2(
     input,  # pylint: disable=redefined-builtin
     dtype=None,
     name=None):
-  """Creates a tensor with all elements set to one.
+  """Creates a tensor of all ones that has the same shape as the input.
 
   Given a single tensor (`tensor`), this operation returns a tensor of the
   same type and shape as `tensor` with all elements set to 1. Optionally,
@@ -2848,10 +2863,11 @@ def ones_like_v2(
 
   For example:
 
-  ```python
-  tensor = tf.constant([[1, 2, 3], [4, 5, 6]])
-  tf.ones_like(tensor)  # [[1, 1, 1], [1, 1, 1]]
-  ```
+  >>> tensor = tf.constant([[1, 2, 3], [4, 5, 6]])
+  >>> tf.ones_like(tensor)
+  <tf.Tensor: shape=(2, 3), dtype=int32, numpy=
+    array([[1, 1, 1],
+           [1, 1, 1]], dtype=int32)>
 
   Args:
     input: A `Tensor`.
