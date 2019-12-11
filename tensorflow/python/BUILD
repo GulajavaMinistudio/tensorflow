@@ -11,7 +11,7 @@ load("//tensorflow:tensorflow.bzl", "cuda_py_test")
 load("//tensorflow:tensorflow.bzl", "cuda_py_tests")
 load("//tensorflow:tensorflow.bzl", "tf_external_workspace_visible")
 load("//tensorflow/core/platform:build_config.bzl", "pyx_library", "tf_additional_all_protos", "tf_additional_cupti_test_flags", "tf_additional_lib_deps", "tf_proto_library", "tf_proto_library_py", "tf_protos_grappler")  # @unused
-load("//tensorflow/core/platform:build_config_root.bzl", "if_static", "tf_additional_plugin_deps", "tf_additional_xla_deps_py")
+load("//tensorflow/core/platform:build_config_root.bzl", "if_static", "tf_additional_plugin_deps")
 load("//tensorflow/python:build_defs.bzl", "tf_gen_op_wrapper_private_py")
 load(
     "//third_party/ngraph:build_defs.bzl",
@@ -594,10 +594,10 @@ tf_python_pybind_extension(
 tf_python_pybind_extension(
     name = "_pywrap_util_port",
     srcs = ["util/port_wrapper.cc"],
-    hdrs = ["//tensorflow/core:util_port_hdrs"],
+    hdrs = ["//tensorflow/core/util:port_hdrs"],
     module_name = "_pywrap_util_port",
     deps = [
-        "//tensorflow/core:util_port",
+        "//tensorflow/core/util:port",
         "//third_party/python_runtime:headers",
         "@pybind11",
     ],
@@ -1532,7 +1532,7 @@ cuda_py_test(
         ":platform",
         ":test_ops",
         ":util",
-    ] + tf_additional_xla_deps_py(),
+    ],
     python_version = "PY3",
     tags = ["no_pip"],  # test_ops are not available in pip.
 )
@@ -5556,7 +5556,7 @@ WIN_LIB_FILES_FOR_EXPORTED_SYMBOLS = [
     ":cpp_python_util",  # util
     ":py_func_lib",  # py_func
     ":model_analyzer_lib",  # model_analyzer
-    "//tensorflow/core:util_port",  # util_port
+    "//tensorflow/core/util:port",  # util_port
     "//tensorflow/stream_executor:stream_executor_pimpl",  # stat_summarizer
     "//tensorflow/core/grappler/graph_analyzer:graph_analyzer_tool",  # graph_analyzer
     "//tensorflow/core/profiler/internal:print_model_analysis",  # tfprof

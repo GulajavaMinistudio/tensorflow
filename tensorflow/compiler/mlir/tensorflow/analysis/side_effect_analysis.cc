@@ -223,6 +223,18 @@ bool OpIsDeclaration(Operation* op,
           !FindAccessedResources(op, alias_analysis).empty());
 }
 
+// Returns if `op` is know to not have any side effect.
+bool OpIsKnownToHaveNoSideEffect(Operation* op) {
+  if (op->hasNoSideEffect()) return true;
+  if (auto if_op = llvm::dyn_cast<TF::IfOp>(op)) {
+    return if_op.is_stateless();
+  }
+  if (auto while_op = llvm::dyn_cast<TF::WhileOp>(op)) {
+    return while_op.is_stateless();
+  }
+  return false;
+}
+
 }  // namespace
 
 void SideEffectAnalysis::TrackAccess(int64_t resource_id, Operation* op,
@@ -242,11 +254,15 @@ void SideEffectAnalysis::TrackAccess(int64_t resource_id, Operation* op,
   auto& info = per_resource_access_info_[resource_id];
   if (read_only) {
     info.reads_since_last_write.push_back(op);
-    // Resource read must have carried control dependencies of unknown write.
-    info.tracked_last_unknown_write = true;
+    // Resource read must have carried control dependencies of unknown write. It
+    // can only avoid adding control edges (from uknown accesses) for a later
+    // write, but not for a later read, because this read can be reordered with
+    // a later read.
+    info.tracked_last_unknown_write_for_write = true;
   } else {
     // Resource write must have carried control dependencies of unknown access.
-    info.tracked_last_unknown_write = true;
+    info.tracked_last_unknown_write_for_read = true;
+    info.tracked_last_unknown_write_for_write = true;
     info.tracked_last_unknown_read = true;
     info.last_write = op;
     info.reads_since_last_write.clear();
@@ -318,8 +334,8 @@ void SideEffectAnalysis::AnalyzeRegion(
         unknown_it == per_resource_access_info_.end() ||
         unknown_it->getSecond().reads_since_last_write.empty();
     return read_only
-               ? it->second.tracked_last_unknown_write
-               : it->second.tracked_last_unknown_write &&
+               ? it->second.tracked_last_unknown_write_for_read
+               : it->second.tracked_last_unknown_write_for_write &&
                      (it->second.tracked_last_unknown_read || no_unknown_read);
   };
 
@@ -340,7 +356,7 @@ void SideEffectAnalysis::AnalyzeRegion(
       if (OpIsDeclaration(&op, alias_analysis)) continue;
 
       auto resource_op_info = GetResourceInfoForOp(&op);
-      if (!resource_op_info && op.hasNoSideEffect()) continue;
+      if (!resource_op_info && OpIsKnownToHaveNoSideEffect(&op)) continue;
 
       llvm::SmallDenseSet<int64_t, 8> resources =
           resource_op_info ? FindAccessedResources(&op, alias_analysis)

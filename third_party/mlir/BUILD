@@ -490,7 +490,7 @@ cc_library(
     name = "VectorOps",
     srcs = [
         "lib/Dialect/VectorOps/VectorOps.cpp",
-        "lib/Dialect/VectorOps/VectorToVector.cpp",
+        "lib/Dialect/VectorOps/VectorTransforms.cpp",
     ],
     hdrs = [
         "include/mlir/Dialect/VectorOps/Utils.h",
@@ -505,7 +505,7 @@ cc_library(
         ":StandardOps",
         ":Support",
         ":VectorOpsIncGen",
-        ":VectorTransformPatterns",
+        ":VectorTransformPatternsIncGen",
         "@llvm//:support",
     ],
 )
@@ -596,6 +596,7 @@ filegroup(
     name = "GPUOpsTdFiles",
     srcs = [
         "include/mlir/Dialect/GPU/GPUOps.td",
+        "include/mlir/Dialect/LLVMIR/LLVMOpBase.td",
         ":OpBaseTdFiles",
     ],
 )
@@ -2413,8 +2414,21 @@ gentbl(
     ],
 )
 
+filegroup(
+    name = "VectorTransformPatternsTdFiles",
+    srcs = [
+        "include/mlir/Dialect/VectorOps/VectorTransformPatterns.td",
+        ":AffineOpsTdFiles",
+        ":LinalgLibraryOpsTdFiles",
+        ":LinalgOpsTdFiles",
+        ":OpBaseTdFiles",
+        ":StdOpsTdFiles",
+        ":VectorOpsTdFiles",
+    ],
+)
+
 gentbl(
-    name = "VectorTransformPatterns",
+    name = "VectorTransformPatternsIncGen",
     tbl_outs = [
         (
             "-gen-rewriters",
@@ -2424,9 +2438,7 @@ gentbl(
     tblgen = ":mlir-tblgen",
     td_file = "include/mlir/Dialect/VectorOps/VectorTransformPatterns.td",
     td_srcs = [
-        ":OpBaseTdFiles",
-        ":StdOpsTdFiles",
-        ":VectorOpsTdFiles",
+        ":VectorTransformPatternsTdFiles",
     ],
 )
 
