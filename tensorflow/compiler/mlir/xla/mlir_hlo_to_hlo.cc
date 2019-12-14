@@ -34,6 +34,7 @@ limitations under the License.
 #include "tensorflow/compiler/mlir/xla/ir/hlo_ops.h"
 #include "tensorflow/compiler/mlir/xla/type_to_shape.h"
 #include "tensorflow/compiler/xla/client/lib/matrix.h"
+#include "tensorflow/compiler/xla/client/lib/slicing.h"
 #include "tensorflow/compiler/xla/client/xla_builder.h"
 #include "tensorflow/compiler/xla/comparison_util.h"
 #include "tensorflow/compiler/xla/literal_util.h"
@@ -426,6 +427,16 @@ namespace mlir {
 namespace xla_hlo {
 namespace {
 
+LogicalResult ExportXlaOp(AfterAllOp op, OpLoweringContext ctx) {
+  auto& value_map = *ctx.values;
+  std::vector<xla::XlaOp> tokens(op.operands().size());
+  for (auto index_and_value : llvm::enumerate(op.operands())) {
+    tokens[index_and_value.index()] = value_map[index_and_value.value()];
+  }
+  value_map[op] = xla::AfterAll(ctx.builder, tokens);
+  return mlir::success();
+}
+
 LogicalResult ExportXlaOp(AllReduceOp op, OpLoweringContext ctx) {
   auto& value_map = *ctx.values;
   xla::XlaComputation computation;
@@ -517,14 +528,6 @@ LogicalResult ExportXlaOp(ConvertOp op, OpLoweringContext ctx) {
 }
 
 LogicalResult ExportXlaOp(CopyOp op, OpLoweringContext ctx) {
-  return failure();
-}
-
-LogicalResult ExportXlaOp(DynamicSliceOp op, OpLoweringContext ctx) {
-  return failure();
-}
-
-LogicalResult ExportXlaOp(DynamicUpdateSliceOp op, OpLoweringContext ctx) {
   return failure();
 }
 
@@ -734,6 +737,18 @@ StatusOr<xla::Literal> CreateLiteralFromAttr(Type type, ElementsAttr attr) {
     ELEMENTS_ATTR_TO_LITERAL(xla::PrimitiveType::U16, uint16)
     ELEMENTS_ATTR_TO_LITERAL(xla::PrimitiveType::U32, uint32)
     ELEMENTS_ATTR_TO_LITERAL(xla::PrimitiveType::U64, uint64)
+    case xla::PrimitiveType::BF16: {
+      xla::Array<double> source_data(shape.dimensions());
+      auto attr_values = attr.getValues<APFloat>();
+      std::vector<double> values_double(source_data.num_elements());
+      for (auto index_and_value : llvm::enumerate(attr_values)) {
+        values_double[index_and_value.index()] =
+            index_and_value.value().convertToDouble();
+      }
+      source_data.SetValues(values_double);
+      return xla::LiteralUtil::ConvertF64ToBF16(
+          xla::LiteralUtil::CreateFromArray(source_data));
+    }
     default:
       return tensorflow::errors::Internal(absl::StrCat(
           "Unsupported type: ", xla::PrimitiveType_Name(shape.element_type())));

@@ -892,6 +892,44 @@ static LogicalResult Verify(FusedBatchNormOp op) {
 }
 
 //===----------------------------------------------------------------------===//
+// GatherV2Op
+//===----------------------------------------------------------------------===//
+
+static LogicalResult Verify(GatherV2Op op) {
+  int64_t batch_dims = op.batch_dims().getSExtValue();
+  if (auto ty = op.indices()->getType().dyn_cast<RankedTensorType>()) {
+    int64_t rank = ty.getRank();
+    if (batch_dims > rank || batch_dims < -rank)
+      return op.emitOpError()
+             << "batch_dims (" << batch_dims << ") must be in range [" << -rank
+             << ", " << rank + 1 << ")";
+    if (batch_dims < 0) batch_dims += rank;
+  }
+
+  if (!HasRankAtMost(op.axis(), 1))
+    return op.emitOpError("requires axis to have rank at most 1");
+
+  DenseIntElementsAttr axis_attr;
+  if (matchPattern(op.axis(), m_Constant(&axis_attr))) {
+    int64_t axis = (*axis_attr.begin()).getSExtValue();
+    if (auto ty = op.params()->getType().dyn_cast<RankedTensorType>()) {
+      int64_t rank = ty.getRank();
+      if (axis >= rank || axis < -rank)
+        return op.emitOpError() << "axis (" << axis << ") must be in range ["
+                                << -rank << ", " << rank << ")";
+      if (axis < 0) axis += rank;
+    }
+
+    if (batch_dims >= 0 && axis >= 0 && axis < batch_dims) {
+      return op.emitOpError() << "requires axis (" << axis
+                              << ") to be greater than or equal to batch_dims ("
+                              << batch_dims << ")";
+    }
+  }
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // IfOp
 //===----------------------------------------------------------------------===//
 
@@ -1939,6 +1977,49 @@ static LogicalResult Verify(UnpackOp op) {
 
   if (dim_size != op.getNumResults())
     return op.emitOpError("result count must be equal to ") << dim_size;
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// Unsorted segment reduction ops
+//===----------------------------------------------------------------------===//
+
+template <class Op>
+static LogicalResult VerifyUnsortedSegmentReduction(Op op) {
+  if (!HasRankAtMost(op.num_segments(), 0))
+    return op.emitOpError("number of segments should be a 0-D tensor");
+
+  auto data_type = op.data()->getType().template dyn_cast<RankedTensorType>();
+  auto segment_ids_type =
+      op.segment_ids()->getType().template dyn_cast<RankedTensorType>();
+  if (data_type && segment_ids_type) {
+    if (data_type.getRank() < segment_ids_type.getRank())
+      return op.emitOpError(
+          "requires segment ids rank to be less than or equal to data's rank");
+
+    int index = 0;
+    for (auto shape_pair :
+         llvm::zip_first(segment_ids_type.getShape(), data_type.getShape())) {
+      int64_t segment_id_dim = std::get<0>(shape_pair);
+      int64_t data_dim = std::get<1>(shape_pair);
+      if (!ShapedType::isDynamic(segment_id_dim) &&
+          !ShapedType::isDynamic(data_dim) && segment_id_dim != data_dim)
+        return op.emitOpError(
+                   "requires segment ids shape to be a prefix of data shape, "
+                   "but dimension #")
+               << index << " differs: " << segment_id_dim << " vs. "
+               << data_dim;
+      ++index;
+    }
+  }
+
+  DenseIntElementsAttr num_segments_attr;
+  if (matchPattern(op.num_segments(), m_Constant(&num_segments_attr))) {
+    int64_t num_segments = (*num_segments_attr.begin()).getSExtValue();
+    if (num_segments < 0)
+      return op.emitOpError("num of segments cannot be negative");
+  }
 
   return success();
 }
