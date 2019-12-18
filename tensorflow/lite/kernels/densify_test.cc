@@ -12,12 +12,30 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
+#include <cstdint>
 
-#ifndef TENSORFLOW_LITE_MICRO_EXAMPLES_MAGIC_WAND_ANGLE_MICRO_FEATURES_DATA_H_
-#define TENSORFLOW_LITE_MICRO_EXAMPLES_MAGIC_WAND_ANGLE_MICRO_FEATURES_DATA_H_
+#include <gtest/gtest.h>
+#include "absl/memory/memory.h"
+#include "third_party/eigen3/Eigen/Core"
+#include "tensorflow/lite/interpreter.h"
+#include "tensorflow/lite/kernels/internal/types.h"
+#include "tensorflow/lite/kernels/register.h"
+#include "tensorflow/lite/kernels/test_util.h"
+#include "tensorflow/lite/model.h"
 
-extern const int g_angle_micro_f2e59fea_nohash_1_length;
-extern const int g_angle_micro_f2e59fea_nohash_1_dim;
-extern const float g_angle_micro_f2e59fea_nohash_1_data[];
+namespace tflite {
 
-#endif  // TENSORFLOW_LITE_MICRO_EXAMPLES_MAGIC_WAND_ANGLE_MICRO_FEATURES_DATA_H_
+namespace ops {
+namespace builtin {
+
+TfLiteRegistration* Register_DENSIFY();
+
+}  // namespace builtin
+}  // namespace ops
+
+namespace {
+
+TEST(DensifyOpTest, Float) {}
+
+}  // namespace
+}  // namespace tflite
