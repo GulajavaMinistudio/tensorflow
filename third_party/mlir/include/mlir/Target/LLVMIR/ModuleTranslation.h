@@ -87,8 +87,16 @@ protected:
                                          llvm::IRBuilder<> &builder);
   static std::unique_ptr<llvm::Module> prepareLLVMModule(Operation *m);
 
+  // A helper to look up remapped operands in the value remapping table.
   template <typename Range>
-  SmallVector<llvm::Value *, 8> lookupValues(Range &&values);
+  SmallVector<llvm::Value *, 8> lookupValues(Range &&values) {
+    SmallVector<llvm::Value *, 8> remapped;
+    remapped.reserve(llvm::size(values));
+    for (Value *v : values) {
+      remapped.push_back(valueMapping.lookup(v));
+    }
+    return remapped;
+  }
 
 private:
   /// Check whether the module contains only supported ops directly in its body.
@@ -108,13 +116,13 @@ private:
   std::unique_ptr<llvm::Module> llvmModule;
 
   // Mappings between llvm.mlir.global definitions and corresponding globals.
-  llvm::DenseMap<Operation *, llvm::GlobalValue *> globalsMapping;
+  DenseMap<Operation *, llvm::GlobalValue *> globalsMapping;
 
 protected:
   // Mappings between original and translated values, used for lookups.
   llvm::StringMap<llvm::Function *> functionMapping;
-  llvm::DenseMap<Value *, llvm::Value *> valueMapping;
-  llvm::DenseMap<Block *, llvm::BasicBlock *> blockMapping;
+  DenseMap<Value *, llvm::Value *> valueMapping;
+  DenseMap<Block *, llvm::BasicBlock *> blockMapping;
 };
 
 } // namespace LLVM

@@ -781,6 +781,15 @@ using BinaryOpLLVMOpLowering = NaryOpLLVMOpLowering<SourceOp, TargetOp, 2>;
 
 // Specific lowerings.
 // FIXME: this should be tablegen'ed.
+struct AbsFOpLowering : public UnaryOpLLVMOpLowering<AbsFOp, LLVM::FAbsOp> {
+  using Super::Super;
+};
+struct CeilFOpLowering : public UnaryOpLLVMOpLowering<CeilFOp, LLVM::FCeilOp> {
+  using Super::Super;
+};
+struct CosOpLowering : public UnaryOpLLVMOpLowering<CosOp, LLVM::CosOp> {
+  using Super::Super;
+};
 struct ExpOpLowering : public UnaryOpLLVMOpLowering<ExpOp, LLVM::ExpOp> {
   using Super::Super;
 };
@@ -791,6 +800,9 @@ struct Log10OpLowering : public UnaryOpLLVMOpLowering<Log10Op, LLVM::Log10Op> {
   using Super::Super;
 };
 struct Log2OpLowering : public UnaryOpLLVMOpLowering<Log2Op, LLVM::Log2Op> {
+  using Super::Super;
+};
+struct NegFOpLowering : public UnaryOpLLVMOpLowering<NegFOp, LLVM::FNegOp> {
   using Super::Super;
 };
 struct AddIOpLowering : public BinaryOpLLVMOpLowering<AddIOp, LLVM::AddOp> {
@@ -836,6 +848,10 @@ struct DivFOpLowering : public BinaryOpLLVMOpLowering<DivFOp, LLVM::FDivOp> {
   using Super::Super;
 };
 struct RemFOpLowering : public BinaryOpLLVMOpLowering<RemFOp, LLVM::FRemOp> {
+  using Super::Super;
+};
+struct CopySignOpLowering
+    : public BinaryOpLLVMOpLowering<CopySignOp, LLVM::CopySignOp> {
   using Super::Super;
 };
 struct SelectOpLowering
@@ -1462,6 +1478,39 @@ struct StoreOpLowering : public LoadStoreOpLowering<StoreOp> {
   }
 };
 
+// The prefetch operation is lowered in a way similar to the load operation
+// except that the llvm.prefetch operation is used for replacement.
+struct PrefetchOpLowering : public LoadStoreOpLowering<PrefetchOp> {
+  using Base::Base;
+
+  PatternMatchResult
+  matchAndRewrite(Operation *op, ArrayRef<Value *> operands,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto prefetchOp = cast<PrefetchOp>(op);
+    OperandAdaptor<PrefetchOp> transformed(operands);
+    auto type = prefetchOp.getMemRefType();
+
+    Value *dataPtr = getDataPtr(op->getLoc(), type, transformed.memref(),
+                                transformed.indices(), rewriter, getModule());
+
+    // Replace with llvm.prefetch.
+    auto llvmI32Type = lowering.convertType(rewriter.getIntegerType(32));
+    auto isWrite = rewriter.create<LLVM::ConstantOp>(
+        op->getLoc(), llvmI32Type,
+        rewriter.getI32IntegerAttr(prefetchOp.isWrite()));
+    auto localityHint = rewriter.create<LLVM::ConstantOp>(
+        op->getLoc(), llvmI32Type,
+        rewriter.getI32IntegerAttr(prefetchOp.localityHint().getZExtValue()));
+    auto isData = rewriter.create<LLVM::ConstantOp>(
+        op->getLoc(), llvmI32Type,
+        rewriter.getI32IntegerAttr(prefetchOp.isDataCache()));
+
+    rewriter.replaceOpWithNewOp<LLVM::Prefetch>(op, dataPtr, isWrite,
+                                                localityHint, isData);
+    return matchSuccess();
+  }
+};
+
 // The lowering of index_cast becomes an integer conversion since index becomes
 // an integer.  If the bit width of the source and target integer types is the
 // same, just erase the cast.  If the target type is wider, sign-extend the
@@ -1603,15 +1652,14 @@ struct ReturnOpLowering : public LLVMLegalizationPattern<ReturnOp> {
 
     // If ReturnOp has 0 or 1 operand, create it and return immediately.
     if (numArguments == 0) {
-      rewriter.replaceOpWithNewOp<LLVM::ReturnOp>(op, llvm::ArrayRef<Value *>(),
-                                                  llvm::ArrayRef<Block *>(),
-                                                  op->getAttrs());
+      rewriter.replaceOpWithNewOp<LLVM::ReturnOp>(
+          op, ArrayRef<Value *>(), ArrayRef<Block *>(), op->getAttrs());
       return matchSuccess();
     }
     if (numArguments == 1) {
       rewriter.replaceOpWithNewOp<LLVM::ReturnOp>(
-          op, llvm::ArrayRef<Value *>(operands.front()),
-          llvm::ArrayRef<Block *>(), op->getAttrs());
+          op, ArrayRef<Value *>(operands.front()), ArrayRef<Block *>(),
+          op->getAttrs());
       return matchSuccess();
     }
 
@@ -1626,9 +1674,8 @@ struct ReturnOpLowering : public LLVMLegalizationPattern<ReturnOp> {
           op->getLoc(), packedType, packed, operands[i],
           rewriter.getI64ArrayAttr(i));
     }
-    rewriter.replaceOpWithNewOp<LLVM::ReturnOp>(op, llvm::makeArrayRef(packed),
-                                                llvm::ArrayRef<Block *>(),
-                                                op->getAttrs());
+    rewriter.replaceOpWithNewOp<LLVM::ReturnOp>(
+        op, llvm::makeArrayRef(packed), ArrayRef<Block *>(), op->getAttrs());
     return matchSuccess();
   }
 };
@@ -1971,7 +2018,7 @@ static void ensureDistinctSuccessors(Block &bb) {
   auto *terminator = bb.getTerminator();
 
   // Find repeated successors with arguments.
-  llvm::SmallDenseMap<Block *, llvm::SmallVector<int, 4>> successorPositions;
+  llvm::SmallDenseMap<Block *, SmallVector<int, 4>> successorPositions;
   for (int i = 0, e = terminator->getNumSuccessors(); i < e; ++i) {
     Block *successor = terminator->getSuccessor(i);
     // Blocks with no arguments are safe even if they appear multiple times
@@ -2020,15 +2067,19 @@ void mlir::populateStdToLLVMNonMemoryConversionPatterns(
   // FIXME: this should be tablegen'ed
   // clang-format off
   patterns.insert<
+      AbsFOpLowering,
       AddFOpLowering,
       AddIOpLowering,
       AndOpLowering,
       BranchOpLowering,
       CallIndirectOpLowering,
       CallOpLowering,
+      CeilFOpLowering,
       CmpFOpLowering,
       CmpIOpLowering,
       CondBranchOpLowering,
+      CopySignOpLowering,
+      CosOpLowering,
       ConstLLVMOpLowering,
       DivFOpLowering,
       DivISOpLowering,
@@ -2042,7 +2093,9 @@ void mlir::populateStdToLLVMNonMemoryConversionPatterns(
       IndexCastOpLowering,
       MulFOpLowering,
       MulIOpLowering,
+      NegFOpLowering,
       OrOpLowering,
+      PrefetchOpLowering,
       RemFOpLowering,
       RemISOpLowering,
       RemIUOpLowering,

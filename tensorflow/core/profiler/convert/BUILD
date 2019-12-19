@@ -8,8 +8,9 @@ cc_library(
     srcs = ["host_threads_xplane_to_tf_metrics_db.cc"],
     hdrs = ["host_threads_xplane_to_tf_metrics_db.h"],
     deps = [
+        ":op_metrics_db_combiner",
         ":op_stack",
-        "//tensorflow/core/platform:types",
+        "//tensorflow/core:lib",
         "//tensorflow/core/profiler/protobuf:op_metrics_proto_cc",
         "//tensorflow/core/profiler/protobuf:xplane_proto_cc",
         "//tensorflow/core/profiler/utils:event_span",
@@ -31,6 +32,17 @@ cc_library(
         "//tensorflow/core:lib",
         "//tensorflow/core:protos_all_cc",
         "@com_google_absl//absl/strings",
+    ],
+)
+
+cc_library(
+    name = "op_metrics_db_combiner",
+    srcs = ["op_metrics_db_combiner.cc"],
+    hdrs = ["op_metrics_db_combiner.h"],
+    deps = [
+        "//tensorflow/core:lib",
+        "//tensorflow/core/profiler/protobuf:op_metrics_proto_cc",
+        "//tensorflow/core/profiler/utils:op_metrics_db_utils",
     ],
 )
 
@@ -59,7 +71,7 @@ cc_library(
     srcs = ["op_stats_to_tf_stats.cc"],
     hdrs = ["op_stats_to_tf_stats.h"],
     deps = [
-        "//tensorflow/core/profiler/convert:op_metrics_to_record",
+        ":op_metrics_to_record",
         "//tensorflow/core/profiler/protobuf:op_metrics_proto_cc",
         "//tensorflow/core/profiler/protobuf:op_stats_proto_cc",
         "//tensorflow/core/profiler/protobuf:tf_stats_proto_cc",
