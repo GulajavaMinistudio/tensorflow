@@ -1254,7 +1254,9 @@ cc_library(
 cc_library(
     name = "dynamic_kernels_impl",
     visibility = [":__subpackages__"],
-    deps = [],
+    deps = [
+        "//tensorflow/core/kernels:sobol_op",
+    ],
 )
 
 cc_library(
@@ -2234,7 +2236,7 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         ":platform_base",
-        "//tensorflow/core/platform/default/build_config:logging",
+        "//tensorflow/core/platform:logging",
     ],
 )
 
@@ -2267,8 +2269,8 @@ cc_library(
         ":core_stringpiece",
         "//tensorflow/core/platform:dynamic_annotations",
         "//tensorflow/core/platform:jpeg",
+        "//tensorflow/core/platform:logging",
         "//tensorflow/core/platform:stringpiece",
-        "//tensorflow/core/platform/default/build_config:logging",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/strings",
     ],
@@ -2302,10 +2304,10 @@ cc_library(
         "//tensorflow/core/lib/strings:strcat",
         "//tensorflow/core/platform:dynamic_annotations",
         "//tensorflow/core/platform:gif",
+        "//tensorflow/core/platform:logging",
         "//tensorflow/core/platform:numbers",
         "//tensorflow/core/platform:strcat",
         "//tensorflow/core/platform:stringpiece",
-        "//tensorflow/core/platform/default/build_config:logging",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/strings",
     ],
