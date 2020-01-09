@@ -823,6 +823,22 @@ class BASE_HLO_ClampOp  {
   }];
 }
 
+class BASE_HLO_CollectivePermuteOp {
+  string summary = "CollectivePermute operator";
+
+  string description = [{
+    CollectivePermute is a collective operation that sends and receives data
+    cross replicas.
+    Note that there are the following restrictions on the source_target_pair:
+    - Any two pairs should not have the same target replica id, and they should
+    not have the same source replica id.
+    - If a replica id is not a target in any pair, then the output on that
+    replica is a tensor consists of 0(s) with the same shape as the input.
+
+    See https://www.tensorflow.org/xla/operation_semantics#collectivepermute.
+
+  }];
+}
 class BASE_HLO_ConcatenateOp {
    string summary = "XLA's concatenate op";
 
@@ -856,6 +872,24 @@ class BASE_HLO_ConvOp {
     Computes a convolution of the kind used in neural networks.
 
     See https://www.tensorflow.org/xla/operation_semantics#conv_convolution.
+  }];
+}
+
+class BASE_HLO_CustomCallOp {
+  string summary = "CustomCall operator";
+
+  string description = [{
+    A custom call invokes code external to XLA. The `args` are passed to the
+    external code, and the external code is expected to produce a result of the
+    given type. The exact mechanism is backend-specific. For example, in the CPU
+    backend, a call instruction is emitted which targets a symbol with the name
+    `call_target_name`.
+
+    `call_target_name` and `backend_config` can be arbitrary strings, but
+    `call_target_name` should be short as it may be used in labels.
+    `backend_config` can encode arbitrarily large amounts of information.
+
+    See https://www.tensorflow.org/xla/operation_semantics#customcall.
   }];
 }
 

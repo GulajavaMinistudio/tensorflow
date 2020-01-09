@@ -28,8 +28,6 @@ py_library(
         "utils/multi_gpu_utils.py",
         "utils/np_utils.py",
         "utils/vis_utils.py",
-        "wrappers/__init__.py",
-        "wrappers/scikit_learn.py",
     ],
     srcs_version = "PY2AND3",
     visibility = ["//visibility:public"],
@@ -45,6 +43,7 @@ py_library(
         "//tensorflow/python/keras/mixed_precision/experimental:mixed_precision_experimental",
         "//tensorflow/python/keras/optimizer_v2",
         "//tensorflow/python/keras/premade",
+        "//tensorflow/python/keras/wrappers",
         "//tensorflow/python/saved_model",
     ],
 )
@@ -1276,20 +1275,6 @@ tf_py_test(
 )
 
 tf_py_test(
-    name = "scikit_learn_test",
-    size = "small",
-    srcs = ["wrappers/scikit_learn_test.py"],
-    python_version = "PY3",
-    tags = ["notsan"],
-    deps = [
-        ":keras",
-        "//tensorflow/python:client_testlib",
-        "//third_party/py/numpy",
-        "@absl_py//absl/testing:parameterized",
-    ],
-)
-
-tf_py_test(
     name = "data_utils_test",
     size = "medium",
     srcs = ["utils/data_utils_test.py"],
@@ -1887,6 +1872,7 @@ tf_py_test(
     python_version = "PY3",
     shard_count = 4,
     tags = [
+        "no_oss_py35",  # b/147011479
         "no_windows",
     ],
     deps = [
@@ -1920,7 +1906,6 @@ tf_py_test(
     python_version = "PY3",
     shard_count = 8,
     tags = [
-        "no_oss_py35",  # b/147251467
         "notsan",  # b/67509773
     ],
     deps = [

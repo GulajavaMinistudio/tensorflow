@@ -418,6 +418,31 @@ def HLO_SendOp : HLO_Op<"send", []> {
   let hasCustomHLOConverter = 1;
 }
 
+def HLO_RecvOp : HLO_Op<"recv", []> {
+
+  string summary = "Recv operator";
+
+  string description = [{
+    Receives data of the given shape from a Send instruction in another
+    computation that shares the same channel handle. Returns a tuple containing
+    value for the received data and a token. Recv operation represents
+    synchronous communication. However, the instruction is internally decomposed
+    into 2 HLO instructions (Recv and RecvDone) to enable asynchronous data
+    transfers.
+
+    See https://www.tensorflow.org/xla/operation_semantics#recv.
+  }];
+
+  let arguments = (ins
+    HLO_Token:$token,
+    ChannelHandle:$channel_id,
+    DefaultValuedAttr<BoolAttr, "false">:$is_host_transfer
+  );
+
+  let results = (outs HLO_Tuple);
+  let hasCustomHLOConverter = 1;
+}
+
 //===----------------------------------------------------------------------===//
 // XLA parallelism related op definitions.
 //===----------------------------------------------------------------------===//
@@ -824,6 +849,17 @@ def HLO_ConvOp : HLO_Op<"conv", [NoSideEffect]>, BASE_HLO_ConvOp {
 
 }
 
+def HLO_CollectivePermuteOp: HLO_Op<"collective_permute",
+    [NoSideEffect, SameOperandsAndResultType]>, BASE_HLO_CollectivePermuteOp {
+
+  let arguments = (ins
+    HLO_Tensor:$operand,
+    I64ElementsAttr:$source_target_pairs
+  );
+  let results = (outs HLO_Tensor);
+}
+
+
 def HLO_CopyOp: HLO_Op<"copy", [NoSideEffect, SameOperandsAndResultType]> {
   string summary = "Copy operator";
 
@@ -833,6 +869,17 @@ def HLO_CopyOp: HLO_Op<"copy", [NoSideEffect, SameOperandsAndResultType]> {
 
   let arguments = (ins HLO_Tensor);
   let results = (outs HLO_Tensor);
+}
+
+def HLO_CustomCallOp: HLO_Op<"custom_call", []>, BASE_HLO_CustomCallOp {
+  let arguments = (ins
+    Variadic<HLO_Tensor>:$args,
+    StrAttr:$call_target_name,
+    DefaultValuedAttr<BoolAttr, "false">:$has_side_effect,
+    DefaultValuedAttr<StrAttr, "">:$backend_config
+  );
+  let results = (outs HLO_Tensor);
+  let hasCustomHLOConverter = 1;
 }
 
 def HLO_DotOp: HLO_Op<"dot", [NoSideEffect]>, BASE_HLO_DotOp {
