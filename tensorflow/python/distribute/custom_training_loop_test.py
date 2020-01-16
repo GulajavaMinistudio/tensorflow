@@ -41,6 +41,27 @@ class InputIterationTest(test.TestCase, parameterized.TestCase):
 
   @combinations.generate(
       combinations.combine(
+          distribution=strategy_combinations.all_strategies,
+          mode=["eager"]
+      ))
+  def testConstantNumpyInput(self, distribution):
+
+    @def_function.function
+    def run(x):
+
+      def computation(x):
+        return math_ops.square(x)
+
+      outputs = distribution.experimental_local_results(
+          distribution.experimental_run_v2(computation, args=(x,)))
+      return outputs
+
+    self.assertAllEqual(
+        constant_op.constant(4., shape=(distribution.num_replicas_in_sync)),
+        run(2.))
+
+  @combinations.generate(
+      combinations.combine(
           distribution=strategy_combinations.strategies_minus_tpu,
           mode=["eager"]))
   def testFullEager(self, distribution):
@@ -303,6 +324,23 @@ class InputIterationTest(test.TestCase, parameterized.TestCase):
           distribution=strategy_combinations.multidevice_strategies,
           mode=["eager"]
       ))
+  def testStrategyReduceWithDynamicShapesRank2(self, distribution):
+    dataset = self._get_dataset_from_tensor_slices(
+        [[1., 1.], [1., 1.], [1., 1.]]).batch(4)
+    input_iterator = iter(distribution.experimental_distribute_dataset(dataset))
+
+    @def_function.function
+    def run(iterator):
+      inputs = next(iterator)
+      return distribution.reduce(reduce_util.ReduceOp.MEAN, inputs, axis=0)
+
+    self.assertAllEqual([1., 1.], run(input_iterator))
+
+  @combinations.generate(
+      combinations.combine(
+          distribution=strategy_combinations.multidevice_strategies,
+          mode=["eager"]
+      ))
   def testDynamicShapesWithSizeOp(self, distribution):
     dataset = self._get_dataset_from_tensor_slices([5., 6., 7.]).batch(4)
     input_iterator = iter(distribution.experimental_distribute_dataset(dataset))
@@ -317,6 +355,34 @@ class InputIterationTest(test.TestCase, parameterized.TestCase):
 
     # This assumes that there are exactly 2 replicas
     self.assertAllEqual([2, 1], run(next(input_iterator)))
+
+  @combinations.generate(
+      combinations.combine(
+          distribution=strategy_combinations.multidevice_strategies,
+          mode=["eager"]
+      ))
+  def testDynamicShapesWithFirstReplicaNotMaximumShape(self, distribution):
+    def dataset_fn(_):
+      dataset1 = self._get_dataset_from_tensor_slices([[1., 2.], [1., 2.]])
+      dataset2 = self._get_dataset_from_tensor_slices([[1., 2., 3.],
+                                                       [1., 2., 3.]])
+      dataset = dataset1.concatenate(dataset2)
+      dataset = dataset.batch(2, drop_remainder=True)
+      return dataset
+
+    input_iterator = iter(
+        distribution.experimental_distribute_datasets_from_function(dataset_fn))
+
+    @def_function.function
+    def run(inputs):
+      def computation(x):
+        return math_ops.reduce_mean(x)
+      outputs = distribution.experimental_local_results(
+          distribution.experimental_run_v2(computation, args=(inputs,)))
+      return outputs
+
+    # This assumes that there are exactly 2 replicas
+    self.assertAllEqual([1.5, 2.], run(next(input_iterator)))
 
   @combinations.generate(
       combinations.combine(

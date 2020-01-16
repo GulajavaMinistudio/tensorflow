@@ -10,6 +10,16 @@ package(
 )
 
 cc_library(
+    name = "casts",
+    hdrs = ["casts.h"],
+    tags = [
+        "manual",
+        "no_oss",
+        "nobuilder",
+    ],
+)
+
+cc_library(
     name = "context",
     hdrs = ["//tensorflow/core/platform:context.h"],
     tags = [
@@ -277,12 +287,8 @@ cc_library(
         "@snappy",
     ] + select({
         # TF Additional NUMA dependencies
-        "//tensorflow:android": [],
-        "//tensorflow:ios": [],
-        "//tensorflow:macos": [],
-        "//conditions:default": [
-            "@hwloc",
-        ],
+        "//tensorflow:with_numa_support": ["//third_party/hwloc"],
+        "//conditions:default": [],
     }),
 )
 

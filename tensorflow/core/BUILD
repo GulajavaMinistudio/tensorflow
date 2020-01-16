@@ -1974,6 +1974,7 @@ cc_library(
         "//tensorflow/core/platform:abi",
         "//tensorflow/core/platform:base64",
         "//tensorflow/core/platform:blocking_counter",
+        "//tensorflow/core/platform:casts",
         "//tensorflow/core/platform:coding",
         "//tensorflow/core/platform:context",
         "//tensorflow/core/platform:cord",
@@ -2779,7 +2780,9 @@ cc_library(
         ":protos_all_cc",
         ":shared_counter",
         "//tensorflow/core/framework:allocator",
+        "//tensorflow/core/profiler/lib:traceme",
         "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/strings",
     ],
 )
 
@@ -4652,13 +4655,6 @@ tf_portable_proto_library(
     ],
     visibility = ["//visibility:public"],
     deps = ["@com_google_protobuf//:protobuf"],
-)
-
-# There is currently no need for a full proto version of emscripten tf lib lite.
-alias(
-    name = "emscripten_lib_lite_no_runtime",
-    actual = ":emscripten_tensorflow_lib_lite_nortti_lite_protos_no_runtime",
-    visibility = ["//visibility:public"],
 )
 
 alias(
