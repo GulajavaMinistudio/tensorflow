@@ -1,7 +1,7 @@
 # Description:
 #  Tools for building the TensorFlow pip package.
 
-load("//tensorflow:tensorflow.bzl", "if_windows", "transitive_hdrs")
+load("//tensorflow:tensorflow.bzl", "if_windows", "if_xla_available", "transitive_hdrs")
 load("//third_party/mkl:build_defs.bzl", "if_mkl", "if_mkl_ml")
 load("@local_config_cuda//cuda:build_defs.bzl", "if_cuda")
 load("@local_config_syslibs//:build_defs.bzl", "if_not_system_lib")
@@ -104,7 +104,9 @@ COMMON_PIP_DEPS = [
     "//tensorflow/tools/docs:generate_lib",
     "//tensorflow/tools/docs:parser",
     "//tensorflow/tools/docs:py_guide_parser",
-]
+] + if_xla_available([
+    "//tensorflow/compiler/tf2xla:xla_compiled_cpu_function",
+])
 
 # On Windows, python binary is a zip file of runfiles tree.
 # Add everything to its data dependency for generating a runfiles tree
@@ -128,6 +130,7 @@ filegroup(
         "//third_party/hadoop:LICENSE.txt",
         "//third_party/icu/data:LICENSE",
         "@arm_neon_2_x86_sse//:LICENSE",
+        "@astunparse_archive//:LICENSE",
         "@astor_archive//:LICENSE",
         "@boringssl//:LICENSE",
         "@com_google_absl//:LICENSE",
@@ -191,7 +194,7 @@ filegroup(
         "//conditions:default": [],
     }) + select({
         "//tensorflow:with_numa_support": [
-            "//third_party/hwloc:COPYING",
+            "@hwloc//:COPYING",
         ],
         "//conditions:default": [],
     }) + if_cuda([
