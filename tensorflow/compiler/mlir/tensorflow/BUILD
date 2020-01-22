@@ -263,6 +263,7 @@ cc_library(
         "translate/breakup-islands.cc",
         "translate/control_to_executor_dialect.cc",
         "translate/executor_to_control_dialect.cc",
+        "translate/prepare_executor_export.cc",
         "translate/tf_functional_to_executor.cc",
     ],
     hdrs = [
@@ -838,6 +839,7 @@ cc_library(
     srcs = ["utils/compile_mlir_util.cc"],
     hdrs = ["utils/compile_mlir_util.h"],
     deps = [
+        ":bridge_logger",
         ":convert_type",
         ":dump_mlir_util",
         ":error_util",
