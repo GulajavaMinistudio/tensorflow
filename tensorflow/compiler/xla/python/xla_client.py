@@ -161,12 +161,6 @@ class LocalBackend(Backend):
       # TODO(skye): delete this case after all callers can handle 2D output
       return self.client.GetDefaultDeviceAssignment(num_replicas)
 
-  def serialize(self, executable):
-    return self.client.SerializeExecutable(executable)
-
-  def deserialize(self, serialized_executable):
-    return self.client.DeserializeExecutable(serialized_executable, self.client)
-
 
 xla_platform_names = {
     'cpu': 'Host',
@@ -1700,6 +1694,8 @@ _BINARY_OPS = [
     'ShiftRightArithmetic',
     'ShiftRightLogical',
     'Atan2',
+    'Igamma',
+    'Igammac',
     'Complex',
     'NextAfter',
 ]

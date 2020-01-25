@@ -462,14 +462,17 @@ PYBIND11_MODULE(xla_extension, m) {
              }
              return LiteralToPython(std::move(literal_shared));
            })
-      .def("SerializeExecutable",
-           [](PyLocalClient* client,
-              PyLocalExecutable* executable) -> StatusOr<py::bytes> {
-             TF_ASSIGN_OR_RETURN(std::string serialized,
-                                 client->SerializeExecutable(*executable));
-             return py::bytes(serialized);
+      .def("CreateChannelHandle",
+           [](PyLocalClient* client) {
+             return client->client()->CreateChannelHandle();
            })
-      .def("DeserializeExecutable", &PyLocalClient::DeserializeExecutable);
+      .def("CreateDeviceToHostChannelHandle",
+           [](PyLocalClient* client) {
+             return client->client()->CreateDeviceToHostChannelHandle();
+           })
+      .def("CreateHostToDeviceChannelHandle", [](PyLocalClient* client) {
+        return client->client()->CreateHostToDeviceChannelHandle();
+      });
 
   py::class_<PyLocalBuffer>(m, "PyLocalBuffer")
       .def_static(
@@ -764,7 +767,6 @@ PYBIND11_MODULE(xla_extension, m) {
   ops.def("ReducePrecision", &ReducePrecision, py::arg("operand"),
           py::arg("exponent_bits"), py::arg("mantissa_bits"));
   ops.def("ReduceWindowWithGeneralPadding", &ReduceWindowWithGeneralPadding);
-  ops.def("RegularizedIncompleteBeta", &RegularizedIncompleteBeta);
   ops.def("ReplicaId", &ReplicaId);
   ops.def("Reshape", static_cast<XlaOp (*)(XlaOp, absl::Span<const int64>,
                                            absl::Span<const int64>)>(&Reshape));
@@ -806,6 +808,10 @@ PYBIND11_MODULE(xla_extension, m) {
   ops.def("TriangularSolve", &TriangularSolve);
   ops.def("Tuple", &Tuple);
   ops.def("While", &While);
+
+  ops.def("Igamma", &Igamma);
+  ops.def("Igammac", &Igammac);
+  ops.def("RegularizedIncompleteBeta", &RegularizedIncompleteBeta);
 
 #define BINARY_OP(op)                                                 \
   ops.def(                                                            \
@@ -899,8 +905,16 @@ PYBIND11_MODULE(xla_extension, m) {
       .value("TUPLE", OpSharding::TUPLE)
       .value("OTHER", OpSharding::OTHER);
 
-  // TODO(phawkins): improve bindings for these types.
-  py::class_<ChannelHandle>(m, "ChannelHandle");
+  py::enum_<ChannelHandle::ChannelType>(m, "ChannelHandle_ChannelType")
+      .value("CHANNEL_TYPE_INVALID", ChannelHandle::CHANNEL_TYPE_INVALID)
+      .value("DEVICE_TO_DEVICE", ChannelHandle::DEVICE_TO_DEVICE)
+      .value("DEVICE_TO_HOST", ChannelHandle::DEVICE_TO_HOST)
+      .value("HOST_TO_DEVICE", ChannelHandle::HOST_TO_DEVICE);
+
+  py::class_<ChannelHandle>(m, "ChannelHandle")
+      .def_property_readonly("type", &ChannelHandle::type)
+      .def_property_readonly("handle", &ChannelHandle::handle)
+      .def("__repr__", [](ChannelHandle* h) { return h->DebugString(); });
 }  // NOLINT(readability/fn_size)
 
 }  // namespace xla

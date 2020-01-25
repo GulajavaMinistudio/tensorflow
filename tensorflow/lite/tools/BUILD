@@ -1,7 +1,6 @@
 load("//tensorflow/lite:special_rules.bzl", "tflite_portable_test_suite")
 load("//tensorflow:tensorflow.bzl", "tf_cc_binary")
 load("//tensorflow/lite:build_def.bzl", "tflite_copts")
-load("@flatbuffers//:build_defs.bzl", "flatbuffer_py_library")
 
 package(
     default_visibility = [
@@ -12,21 +11,15 @@ package(
 
 common_copts = ["-Wall"]
 
-flatbuffer_py_library(
-    name = "schema_py",
-    srcs = ["//tensorflow/lite/schema:schema.fbs"],
-)
-
 py_binary(
     name = "visualize",
     srcs = ["visualize.py"],
-    data = [
-        ":schema_py",
-        "//tensorflow/lite/schema:schema.fbs",
-        "//tensorflow/python:platform",
-    ],
     python_version = "PY3",
     srcs_version = "PY2AND3",
+    deps = [
+        "//tensorflow/lite/python:schema_py",
+        "//tensorflow/python:platform",
+    ],
 )
 
 py_test(
@@ -34,6 +27,9 @@ py_test(
     srcs = ["visualize_test.py"],
     python_version = "PY3",
     srcs_version = "PY2AND3",
+    tags = [
+        "no_mac",  # TODO(b/148247402): flatbuffers import broken on Mac OS.
+    ],
     deps = [
         ":visualize",
         "//tensorflow/python:client_testlib",

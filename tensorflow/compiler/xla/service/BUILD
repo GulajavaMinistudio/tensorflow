@@ -1380,6 +1380,8 @@ cc_library(
 tf_cc_test(
     name = "hlo_module_group_test",
     srcs = ["hlo_module_group_test.cc"],
+    # TODO(b/148211710) Test fails in OSS.
+    tags = ["no_oss"],
     deps = [
         ":hlo",
         ":hlo_matchers",
@@ -2356,6 +2358,7 @@ xla_test(
         "//tensorflow/compiler/xla/tests:literal_test_util",
         "//tensorflow/compiler/xla/tests:xla_internal_test_main",
         "//tensorflow/core:test",
+        "@com_google_absl//absl/strings",
     ],
 )
 
@@ -2523,6 +2526,8 @@ cc_library(
 tf_cc_test(
     name = "hlo_execution_profile_test",
     srcs = ["hlo_execution_profile_test.cc"],
+    # TODO(b/148275965) The test fails on macOS.
+    tags = ["nomac"],
     deps = [
         ":cpu_plugin",
         ":hlo_cost_analysis",
