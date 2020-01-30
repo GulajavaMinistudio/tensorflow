@@ -1514,7 +1514,7 @@ std::unique_ptr<KernelThunk> IrEmitterUnnested::BuildKernelThunk(
   }
 
   return absl::make_unique<KernelThunk>(
-      non_constant_buffers, kernel->getName(),
+      non_constant_buffers, std::string(kernel->getName()),
       implements_whole_instruction ? inst : nullptr, unroll_factor);
 }
 
@@ -2191,14 +2191,14 @@ static llvm::Value* GetUntransposedOutputLinearAddress(
 }
 
 void IrEmitterUnnested::EmitEpilogueForReduction(
-    HloInstruction* unnested_hlo, const ReductionCodegenInfo& reduction_info,
+    llvm::Type* index_ty, HloInstruction* unnested_hlo,
+    const ReductionCodegenInfo& reduction_info,
     absl::Span<const HloInstruction* const> reduce_instructions,
     absl::Span<const ShapeIndex> reduction_output_shape_indices,
     absl::Span<HloComputation* const> reducers,
     const IrArray::Index& starting_tile) {
   const KernelMappingScheme& mapping_scheme =
       reduction_info.GetKernelMappingScheme();
-  llvm::Type* index_ty = b_.getInt32Ty();
   auto constant = [&](uint64 c) -> llvm::Constant* {
     return llvm::ConstantInt::get(index_ty, c);
   };
@@ -3078,9 +3078,9 @@ Status IrEmitterUnnested::EmitReductionFromOrToContiguousDimensions(
         EmitTile(reduction_info.GetKernelMappingScheme(), index, loop_name, ksl,
                  &b_, y, x, tile_height, tile_width, emit_reduction_tile);
       });
-  EmitEpilogueForReduction(unnested_hlo, reduction_info, reduce_instructions,
-                           reduction_output_shape_indices, reducers,
-                           starting_tile);
+  EmitEpilogueForReduction(index_ty, unnested_hlo, reduction_info,
+                           reduce_instructions, reduction_output_shape_indices,
+                           reducers, starting_tile);
 
   UpdateLaunchDimensions(launch_dimensions, kernel_thunk.get(),
                          ir_emitter_context_->llvm_module());
