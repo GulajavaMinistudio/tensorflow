@@ -40,6 +40,10 @@ static OpInfo::TensorProperties GetTensorProperties(absl::string_view info) {
   if (!DataTypeFromString(parts[0], &data_type)) return tensor_prop;
   tensor_prop.set_dtype(data_type);
   absl::ConsumeSuffix(&parts[1], "]");
+  if (parts[1].empty()) {  // Scalar type.
+    tensor_prop.mutable_shape()->add_dim()->set_size(1);
+    return tensor_prop;
+  }
   std::vector<absl::string_view> dims = absl::StrSplit(parts[1], ',');
   for (const auto dim : dims) {
     int size;
@@ -88,8 +92,8 @@ TfOpRoofLineCostEstimator::OpRoofLineStats TfOpRoofLineCostEstimator::Predict(
   }
 
   grappler::OpContext op_context;
-  op_context.name = tf_op.type;
-  op_context.op_info.set_op(tf_op.type);
+  op_context.name = std::string(tf_op.type);
+  op_context.op_info.set_op(op_context.name);
   for (const auto& tensor : input_tensors) {
     *op_context.op_info.add_inputs() = GetTensorProperties(tensor);
   }

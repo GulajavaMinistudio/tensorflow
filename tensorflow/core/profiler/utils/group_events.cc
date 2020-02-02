@@ -84,26 +84,26 @@ void SetGroupId(const XPlaneVisitor& visitor, int64 group_id, XEvent* event) {
 
 }  // namespace
 
-absl::optional<const XStat*> EventNode::GetContextStat(int64 stat_type) const {
+const XStat* EventNode::GetContextStat(int64 stat_type) const {
   if (const XStat* stat = GetStat(*visitor_, *event_, stat_type)) {
     return stat;
   } else if (parent_) {
     return parent_->GetContextStat(stat_type);
   }
-  return absl::nullopt;
+  return nullptr;
 }
 
 std::string EventNode::GetGroupName() const {
   std::vector<std::string> name_parts;
-  if (auto graph_type_stat = GetContextStat(StatType::kGraphType)) {
-    name_parts.push_back((*graph_type_stat)->str_value());
+  if (const XStat* graph_type_stat = GetContextStat(StatType::kGraphType)) {
+    name_parts.push_back(graph_type_stat->str_value());
   }
   int64 step_num = group_id_.value_or(0);
-  if (auto step_num_stat = GetContextStat(StatType::kStepNum)) {
-    step_num = (*step_num_stat)->int64_value();
+  if (const XStat* step_num_stat = GetContextStat(StatType::kStepNum)) {
+    step_num = step_num_stat->int64_value();
   }
-  if (auto iter_num_stat = GetContextStat(StatType::kIterNum)) {
-    step_num += (*iter_num_stat)->int64_value();
+  if (const XStat* iter_num_stat = GetContextStat(StatType::kIterNum)) {
+    step_num += iter_num_stat->int64_value();
   }
   name_parts.push_back(absl::StrCat(step_num));
   return absl::StrJoin(name_parts, " ");
@@ -126,9 +126,9 @@ bool EventNode::IsNestedIn(EventNode* parent) {
   return parent && IsNested(GetEvent(), parent->GetEvent());
 }
 
-void ConnectIntraThread(const XPlaneVisitor& visitor, XPlane* host_trace,
+void ConnectIntraThread(const XPlaneVisitor& visitor, XPlane* plane,
                         EventNodeMap* event_node_map) {
-  for (auto& line : *host_trace->mutable_lines()) {
+  for (auto& line : *plane->mutable_lines()) {
     std::vector<EventNode*> parent_nodes;
     for (auto& event : *line.mutable_events()) {
       auto cur_node = absl::make_unique<EventNode>(&visitor, &event);
@@ -159,12 +159,11 @@ void ConnectInterThread(
       for (const auto& parent_event_node : *parent_event_node_list) {
         std::vector<int64> stats;
         for (auto stat_type : stat_types) {
-          absl::optional<const XStat*> stat =
-              parent_event_node->GetContextStat(stat_type);
+          const XStat* stat = parent_event_node->GetContextStat(stat_type);
           if (!stat) break;
-          stats.push_back((*stat)->value_case() == (*stat)->kInt64Value
-                              ? (*stat)->int64_value()
-                              : (*stat)->uint64_value());
+          stats.push_back(stat->value_case() == stat->kInt64Value
+                              ? stat->int64_value()
+                              : stat->uint64_value());
         }
         if (stats.size() == stat_types.size()) {
           connect_map[stats] = parent_event_node.get();
@@ -176,12 +175,11 @@ void ConnectInterThread(
       for (const auto& child_event_node : *child_event_node_list) {
         std::vector<int64> stats;
         for (auto stat_type : stat_types) {
-          absl::optional<const XStat*> stat =
-              child_event_node->GetContextStat(stat_type);
+          const XStat* stat = child_event_node->GetContextStat(stat_type);
           if (!stat) break;
-          stats.push_back((*stat)->value_case() == (*stat)->kInt64Value
-                              ? (*stat)->int64_value()
-                              : (*stat)->uint64_value());
+          stats.push_back(stat->value_case() == stat->kInt64Value
+                              ? stat->int64_value()
+                              : stat->uint64_value());
         }
         if (stats.size() == stat_types.size()) {
           if (auto parent_event_node = gtl::FindPtrOrNull(connect_map, stats)) {
@@ -205,11 +203,13 @@ void CreateEventGroup(const std::vector<int64 /*EventType*/>& root_event_types,
         if (root_event_node->GetGroupId()) continue;
         int64 group_id = next_group_id++;
         root_event_node->PropagateGroupId(group_id);
-        (*event_group_name_map)[group_id] = root_event_node->GetGroupName();
-        // Add step_name stat if it is a TraceContext event.
-        // TODO(jihochoi): change event name instead.
-        if (root_event_type == HostEventType::kTraceContext) {
-          root_event_node->AddStepName((*event_group_name_map)[group_id]);
+        if (event_group_name_map) {
+          (*event_group_name_map)[group_id] = root_event_node->GetGroupName();
+          // Add step_name stat if it is a TraceContext event.
+          // TODO(jihochoi): change event name instead.
+          if (root_event_type == HostEventType::kTraceContext) {
+            root_event_node->AddStepName((*event_group_name_map)[group_id]);
+          }
         }
       }
     }
@@ -217,27 +217,20 @@ void CreateEventGroup(const std::vector<int64 /*EventType*/>& root_event_types,
 }
 
 void GroupEvents(const std::vector<InterThreadConnectInfo>& connect_info_list,
-                 const std::vector<int64>& root_event_types, XPlane* host_trace,
-                 const std::vector<XPlane*>& device_traces,
+                 const std::vector<int64>& root_event_types, XSpace* space,
                  EventGroupNameMap* event_group_name_map) {
-  if (!host_trace) return;
   EventNodeMap event_node_map;
-  XPlaneVisitor host_plane_visitor = CreateTfXPlaneVisitor(host_trace);
-  ConnectIntraThread(host_plane_visitor, host_trace, &event_node_map);
-  std::vector<XPlaneVisitor> device_plane_visitors;
-  device_plane_visitors.reserve(device_traces.size());
-  for (XPlane* device_trace : device_traces) {
-    device_plane_visitors.push_back(CreateTfXPlaneVisitor(device_trace));
-    ConnectIntraThread(device_plane_visitors.back(), device_trace,
-                       &event_node_map);
+  std::vector<XPlaneVisitor> visitors;
+  visitors.reserve(space->planes_size());
+  for (auto& plane : *space->mutable_planes()) {
+    visitors.push_back(CreateTfXPlaneVisitor(&plane));
+    ConnectIntraThread(visitors.back(), &plane, &event_node_map);
   }
   ConnectInterThread(event_node_map, connect_info_list);
   CreateEventGroup(root_event_types, event_node_map, event_group_name_map);
 }
 
-void GroupTfEvents(XPlane* host_trace,
-                   const std::vector<XPlane*>& device_traces,
-                   EventGroupNameMap* event_group_name_map) {
+void GroupTfEvents(XSpace* space, EventGroupNameMap* event_group_name_map) {
   std::vector<InterThreadConnectInfo> connect_info_list(
       {{HostEventType::kFunctionRun,
         HostEventType::kExecutorStateProcess,
@@ -251,8 +244,7 @@ void GroupTfEvents(XPlane* host_trace,
   const std::vector<int64 /*EventType*/> root_event_types(
       {HostEventType::kTraceContext, HostEventType::kFunctionRun,
        HostEventType::kSessionRun});
-  GroupEvents(connect_info_list, root_event_types, host_trace, device_traces,
-              event_group_name_map);
+  GroupEvents(connect_info_list, root_event_types, space, event_group_name_map);
 }
 
 }  // namespace profiler
