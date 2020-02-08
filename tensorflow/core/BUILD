@@ -72,7 +72,6 @@ load(
     "if_mobile",
     "if_not_windows",
     "tf_android_core_proto_headers",
-    "tf_android_core_proto_sources",
     "tf_cc_test",
     "tf_cc_test_mkl",
     "tf_cc_tests",
@@ -975,6 +974,7 @@ tf_cuda_library(
         "common_runtime/device.h",
         "common_runtime/device_factory.h",
         "common_runtime/function.h",
+        "common_runtime/function_optimization_registry.h",
         "common_runtime/optimization_registry.h",
         "common_runtime/shape_refiner.h",
         "//tensorflow/core/graph:core_cpu_headers",
@@ -1252,7 +1252,7 @@ alias(
 # List of protos we want on android
 filegroup(
     name = "android_proto_srcs",
-    srcs = tf_android_core_proto_sources(CORE_PROTO_SRCS),
+    srcs = CORE_PROTO_SRCS,
     visibility = ["//visibility:public"],
 )
 
@@ -1274,6 +1274,7 @@ filegroup(
         "//tensorflow/core/platform:mobile_srcs_no_runtime",
         "//tensorflow/core/public:mobile_srcs_no_runtime",
         "//tensorflow/core/util:mobile_srcs_no_runtime",
+        "//tensorflow/core/util/ctc:android_srcs",
     ] + glob(
         [
             "client/**/*.cc",
@@ -1305,7 +1306,6 @@ filegroup(
         "//tensorflow/core/lib/io:mobile_srcs_only_runtime",
         "//tensorflow/core/profiler:mobile_srcs",
         "//tensorflow/core/public:mobile_srcs_only_runtime",
-        "//tensorflow/core/util/ctc:android_srcs",
         "//tensorflow/core/util/sparse:mobile_srcs_only_runtime",
         "//tensorflow/core/util/tensor_bundle:android_srcs",
         "//tensorflow/core/util:mobile_srcs_only_runtime",
@@ -1727,50 +1727,58 @@ tf_proto_library_cc(
     ],
 )
 
-LIB_INTERNAL_PRIVATE_HEADERS = [
-    "//tensorflow/core/framework:resource_handle.h",
-    "//tensorflow/core/platform:legacy_lib_internal_headers",
-    "//tensorflow/core/platform:lib_internal_private_hdrs",
-    "//tensorflow/core/lib/bfloat16:bfloat16.h",
-    "//tensorflow/core/lib/core:legacy_lib_core_all_headers",
-    "//tensorflow/core/lib/gtl:legacy_lib_gtl_all_headers",
-    "//tensorflow/core/lib/histogram:legacy_lib_histogram_all_headers",
-    "//tensorflow/core/lib/hash:legacy_lib_hash_all_headers",
-    "//tensorflow/core/lib/monitoring:legacy_lib_monitoring_all_headers",
-    "//tensorflow/core/lib/io:legacy_lib_io_all_headers",
-    "//tensorflow/core/lib/random:legacy_lib_random_all_headers",
-    "//tensorflow/core/lib/strings:legacy_lib_strings_all_headers",
-    "//tensorflow/core/lib/math:math_util.h",
-] + glob(
-    [
-        "lib/**/*.h",
-    ],
-    exclude = [
-        "**/*test*",
-        "lib/gif/**/*",
-        "lib/jpeg/**/*",
-        "lib/png/**/*",
-    ],
+filegroup(
+    name = "lib_internal_private_headers",
+    srcs = [
+        "//tensorflow/core/framework:resource_handle.h",
+        "//tensorflow/core/platform:legacy_lib_internal_headers",
+        "//tensorflow/core/platform:lib_internal_private_hdrs",
+        "//tensorflow/core/lib/bfloat16:bfloat16.h",
+        "//tensorflow/core/lib/core:legacy_lib_core_all_headers",
+        "//tensorflow/core/lib/gtl:legacy_lib_gtl_all_headers",
+        "//tensorflow/core/lib/histogram:legacy_lib_histogram_all_headers",
+        "//tensorflow/core/lib/hash:legacy_lib_hash_all_headers",
+        "//tensorflow/core/lib/monitoring:legacy_lib_monitoring_all_headers",
+        "//tensorflow/core/lib/io:legacy_lib_io_all_headers",
+        "//tensorflow/core/lib/random:legacy_lib_random_all_headers",
+        "//tensorflow/core/lib/strings:legacy_lib_strings_all_headers",
+        "//tensorflow/core/lib/math:math_util.h",
+    ] + glob(
+        [
+            "lib/**/*.h",
+        ],
+        exclude = [
+            "**/*test*",
+            "lib/gif/**/*",
+            "lib/jpeg/**/*",
+            "lib/png/**/*",
+        ],
+    ),
+    visibility = ["//visibility:private"],
 )
 
-LIB_INTERNAL_PUBLIC_HEADERS = [
-    "//tensorflow/core/lib/core:legacy_lib_internal_core_headers",
-    "//tensorflow/core/lib/gtl:legacy_lib_internal_public_gtl_headers",
-    "//tensorflow/core/lib/hash:legacy_lib_internal_public_headers",
-    "//tensorflow/core/lib/io:legacy_lib_internal_public_headers",
-    "//tensorflow/core/lib/monitoring:legacy_lib_monitoring_lib_internal_public_headers",
-    "//tensorflow/core/lib/random:legacy_lib_internal_public_random_headers",
-    "//tensorflow/core/lib/strings:legacy_lib_internal_public_string_headers",
-    "lib/wav/wav_io.h",
-    "//tensorflow/core/platform:lib_internal_public_hdrs",
-    "//tensorflow/core/platform:legacy_platform_lib_hdrs",
-    "//tensorflow/core/util:lib_internal_public_hdrs",
-]
+filegroup(
+    name = "lib_internal_public_headers",
+    srcs = [
+        "lib/wav/wav_io.h",
+        "//tensorflow/core/lib/core:legacy_lib_internal_core_headers",
+        "//tensorflow/core/lib/gtl:legacy_lib_internal_public_gtl_headers",
+        "//tensorflow/core/lib/hash:legacy_lib_internal_public_headers",
+        "//tensorflow/core/lib/io:legacy_lib_internal_public_headers",
+        "//tensorflow/core/lib/monitoring:legacy_lib_monitoring_lib_internal_public_headers",
+        "//tensorflow/core/lib/random:legacy_lib_internal_public_random_headers",
+        "//tensorflow/core/lib/strings:legacy_lib_internal_public_string_headers",
+        "//tensorflow/core/platform:legacy_platform_lib_hdrs",
+        "//tensorflow/core/platform:lib_internal_public_hdrs",
+        "//tensorflow/core/util:lib_internal_public_hdrs",
+    ],
+    visibility = ["//visibility:private"],
+)
 
 cc_library(
     name = "lib_internal",
-    srcs = LIB_INTERNAL_PRIVATE_HEADERS,
-    hdrs = LIB_INTERNAL_PUBLIC_HEADERS,
+    srcs = [":lib_internal_private_headers"],
+    hdrs = [":lib_internal_public_headers"],
     copts = tf_copts(),
     linkopts = select({
         "//tensorflow:freebsd": [],
@@ -1792,7 +1800,10 @@ cc_library(
 
 cc_library(
     name = "lib_internal_impl",
-    srcs = LIB_INTERNAL_PRIVATE_HEADERS + glob(
+    srcs = [
+        ":lib_internal_private_headers",
+        "//tensorflow/core/platform:legacy_lib_internal_srcs",
+    ] + glob(
         [
             "lib/**/*.cc",
         ],
@@ -1803,10 +1814,8 @@ cc_library(
             "lib/jpeg/**/*",
             "lib/png/**/*",
         ],
-    ) + [
-        "//tensorflow/core/platform:legacy_lib_internal_srcs",
-    ],
-    hdrs = LIB_INTERNAL_PUBLIC_HEADERS,
+    ),
+    hdrs = [":lib_internal_public_headers"],
     copts = tf_copts(),
     deps = tf_additional_lib_deps() + [
         ":core_stringpiece",
@@ -2284,6 +2293,7 @@ tf_cuda_library(
         "//tensorflow/core/platform/default/build_config:platformlib",
         "//tensorflow/core/profiler/internal:annotation_stack_impl",
         "//tensorflow/core/profiler/internal:traceme_recorder_impl",
+        "//tensorflow/core/profiler/internal:profiler_factory_impl",
         "//tensorflow/core/profiler/lib:annotated_traceme",
         "//tensorflow/core/profiler/lib:traceme",
         "//tensorflow/core/util:einsum_op_util",
@@ -2463,6 +2473,7 @@ filegroup(
         "common_runtime/dma_helper.h",
         "common_runtime/executor.h",
         "common_runtime/executor_factory.h",
+        "common_runtime/function_optimization_registry.h",
         "common_runtime/graph_optimizer.h",
         "common_runtime/input_colocation_exemption_registry.h",
         "common_runtime/isolate_placer_inspection_required_ops_pass.h",
@@ -2523,6 +2534,7 @@ tf_cuda_library(
         "common_runtime/executor.cc",
         "common_runtime/executor_factory.cc",
         "common_runtime/function.cc",
+        "common_runtime/function_optimization_registry.cc",
         "common_runtime/graph_optimizer.cc",
         "common_runtime/graph_runner.cc",
         "common_runtime/hierarchical_tree_broadcaster.cc",
@@ -2758,23 +2770,27 @@ cc_library(
     ],
 )
 
-GPU_RUNTIME_HEADERS = [
-    "common_runtime/gpu/gpu_bfc_allocator.h",
-    "common_runtime/gpu/gpu_cudamalloc_allocator.h",
-    "common_runtime/gpu/gpu_debug_allocator.h",
-    "common_runtime/gpu/gpu_device.h",
-    "common_runtime/gpu/gpu_host_allocator.h",
-    "common_runtime/gpu/gpu_id.h",
-    "common_runtime/gpu/gpu_id_manager.h",
-    "common_runtime/gpu/gpu_id_utils.h",
-    "common_runtime/gpu/gpu_init.h",
-    "common_runtime/gpu/gpu_managed_allocator.h",
-    "common_runtime/gpu/gpu_mem_allocator.h",
-    "common_runtime/gpu/gpu_process_state.h",
-    "common_runtime/gpu/gpu_stream_util.h",
-    "common_runtime/gpu/gpu_util.h",
-    "common_runtime/gpu_device_context.h",
-]
+filegroup(
+    name = "gpu_runtime_headers",
+    srcs = [
+        "common_runtime/gpu/gpu_bfc_allocator.h",
+        "common_runtime/gpu/gpu_cudamalloc_allocator.h",
+        "common_runtime/gpu/gpu_debug_allocator.h",
+        "common_runtime/gpu/gpu_device.h",
+        "common_runtime/gpu/gpu_host_allocator.h",
+        "common_runtime/gpu/gpu_id.h",
+        "common_runtime/gpu/gpu_id_manager.h",
+        "common_runtime/gpu/gpu_id_utils.h",
+        "common_runtime/gpu/gpu_init.h",
+        "common_runtime/gpu/gpu_managed_allocator.h",
+        "common_runtime/gpu/gpu_mem_allocator.h",
+        "common_runtime/gpu/gpu_process_state.h",
+        "common_runtime/gpu/gpu_stream_util.h",
+        "common_runtime/gpu/gpu_util.h",
+        "common_runtime/gpu_device_context.h",
+    ],
+    visibility = ["//visibility:private"],
+)
 
 tf_cuda_library(
     name = "gpu_runtime_impl",
@@ -2789,7 +2805,7 @@ tf_cuda_library(
         "common_runtime/gpu/gpu_util.cc",
         "common_runtime/gpu/gpu_util_platform_specific.cc",
     ],
-    hdrs = GPU_RUNTIME_HEADERS,
+    hdrs = [":gpu_runtime_headers"],
     copts = tf_copts(),
     cuda_deps = [
         "@local_config_cuda//cuda:cudnn_header",
@@ -2817,7 +2833,7 @@ tf_cuda_library(
 
 tf_cuda_library(
     name = "gpu_runtime",
-    hdrs = GPU_RUNTIME_HEADERS,
+    hdrs = [":gpu_runtime_headers"],
     linkstatic = 1,
     deps = [
         ":core_cpu_lib",
@@ -3135,6 +3151,10 @@ tf_cc_tests(
         "common_runtime/device_resolver_local_test.cc",
         "common_runtime/device_set_test.cc",
         "common_runtime/dynamic_device_mgr_test.cc",
+        "common_runtime/function_optimization_registration_test.cc",
+        "common_runtime/function_optimization_registry_no_pass_test.cc",
+        "common_runtime/function_optimization_registry_pass_failure_test.cc",
+        "common_runtime/function_optimization_registry_test.cc",
         "common_runtime/isolate_placer_inspection_required_ops_pass_test.cc",
         "common_runtime/optimization_registry_test.cc",
         "common_runtime/pending_counts_test.cc",
