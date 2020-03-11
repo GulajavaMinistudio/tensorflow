@@ -18118,6 +18118,13 @@ op {
     name: "interpolation"
     type: "string"
   }
+  attr {
+    name: "fill_mode"
+    type: "string"
+    default_value {
+      s: "constant"
+    }
+  }
 }
 op {
   name: "ImageSummary"
@@ -48114,6 +48121,7 @@ op {
         type: DT_INT64
         type: DT_COMPLEX64
         type: DT_COMPLEX128
+        type: DT_UINT32
       }
     }
   }
