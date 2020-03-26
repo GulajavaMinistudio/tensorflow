@@ -28,7 +28,7 @@ limitations under the License.
 namespace tensorflow {
 
 thread_local const char* pending_op_name = nullptr;
-thread_local uint64 pending_step_id = 0;
+thread_local int64 pending_step_id = 0;
 
 string AllocatorStats::DebugString() const {
   return strings::Printf(

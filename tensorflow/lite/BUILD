@@ -72,6 +72,8 @@ FRAMEWORK_LIB_HDRS = [
     "graph_info.h",
     "interpreter.h",
     "model.h",
+    "model_builder.h",
+    "interpreter_builder.h",
     "mutable_op_resolver.h",
     "op_resolver.h",
     "optional_debug_tools.h",
@@ -222,7 +224,8 @@ cc_library(
         "core/subgraph.cc",
         "graph_info.cc",
         "interpreter.cc",
-        "model.cc",
+        "interpreter_builder.cc",
+        "model_builder.cc",
         "mutable_op_resolver.cc",
         "optional_debug_tools.cc",
         "stderr_reporter.cc",
@@ -250,7 +253,12 @@ cc_library(
         "//tensorflow/lite/experimental/resource",
         "//tensorflow/lite/nnapi:nnapi_implementation",
         "//tensorflow/lite/schema:schema_fbs",
-    ],
+    ] + select({
+        ":enable_default_profiler": [
+            "//tensorflow/lite/profiling:platform_profiler",
+        ],
+        "//conditions:default": [],
+    }),
     alwayslink = 1,
 )
 
@@ -285,13 +293,7 @@ cc_library(
         "//tensorflow/lite/experimental/resource",
         "//tensorflow/lite/nnapi:nnapi_implementation",
         "//tensorflow/lite/schema:schema_fbs",
-    ] + select({
-        ":enable_default_profiler": [
-            "//tensorflow/lite/profiling:platform_profiler",
-        ],
-        "//conditions:default": [],
-    }) + tflite_experimental_runtime_linkopts(),
-    alwayslink = 1,
+    ] + tflite_experimental_runtime_linkopts(),
 )
 
 cc_library(
