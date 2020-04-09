@@ -151,6 +151,7 @@ DepthToSpaceOpModel/UInt8
 DepthToSpaceOpModel/int8
 
 # div_test
+-FloatDivOpTest/WithBroadcast5D
 FloatDivOpTest/.+
 
 # elementwise_test
@@ -348,6 +349,7 @@ SVDFOpTest/BlackBoxTestRank2
 # tile_test
 -TileTest/TileTest/Int64.+/.+
 -TileTest/TileTest/Boolean.+/.+
+-TileTest/TileTest/String.+/.+
 # Const tensor only
 TileTest/TileTest/.+/0,29
 
