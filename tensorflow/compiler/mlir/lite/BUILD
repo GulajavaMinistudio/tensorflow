@@ -521,6 +521,7 @@ cc_library(
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/strings",
         "@flatbuffers",
+        "@llvm-project//llvm:analysis",
         "@llvm-project//llvm:support",
         "@llvm-project//mlir:AllPassesAndDialects",
         "@llvm-project//mlir:IR",
@@ -533,6 +534,15 @@ tf_native_cc_binary(
     srcs = ["flatbuffer_to_string.cc"],
     deps = [
         "//tensorflow/lite/schema:schema_fbs_with_reflection",
+        "@flatbuffers",
+    ],
+)
+
+tf_native_cc_binary(
+    name = "json_to_flatbuffer",
+    srcs = ["json_to_flatbuffer.cc"],
+    deps = [
+        "//tensorflow/lite/schema:schema_fbs",
         "@flatbuffers",
     ],
 )

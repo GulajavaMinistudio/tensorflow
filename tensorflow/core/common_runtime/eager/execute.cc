@@ -80,8 +80,7 @@ const string& DeviceNameOrUnspecified(Device* device) {
   return (device == nullptr) ? *unspecified_string : device->name();
 }
 
-const string& DeviceNameOrUnspecified(
-    absl::variant<Device*, CustomDevice*> device) {
+const string& DeviceNameOrUnspecified(VariantDevice device) {
   if (VariantDeviceIsCustom(device)) {
     return absl::get<CustomDevice*>(device)->name();
   } else {
@@ -878,7 +877,6 @@ Status MaybeUpdateOpDevice(EagerOperation* op) {
         if (!allowed_devices.empty()) {
           // TODO(b/145922293): Support allowed_devices specified in wildcard
           // patterns.
-          std::vector<string> device_names;
           if (std::find(allowed_devices.begin(), allowed_devices.end(),
                         op->GetDeviceName()) != allowed_devices.end()) {
             TF_RETURN_IF_ERROR(ctx.FindDeviceFromName(
@@ -1014,13 +1012,8 @@ Status EagerKernelExecute(
   // device. We don't call it now because it is an unneeded overhead (it
   // acquires a lock) and we can't recover from errors anyway.
   ScopedStepContainer* container = ctx->StepContainer();
-  if (container == nullptr) {
-    TF_RETURN_IF_ERROR(kernel->Run(inputs, &outputs, cancellation_manager,
-                                   remote_func_params));
-  } else {
-    TF_RETURN_IF_ERROR(kernel->Run(container, inputs, &outputs,
-                                   cancellation_manager, remote_func_params));
-  }
+  TF_RETURN_IF_ERROR(kernel->Run(container, inputs, &outputs,
+                                 cancellation_manager, remote_func_params));
   if (graph_collector != nullptr) {
     mutex_lock ml(*ctx->MetadataMu());
     {
