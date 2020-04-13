@@ -13,23 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef TENSORFLOW_COMPILER_MLIR_LITE_QUANTIZATION_NUMERICAL_UTILS_H_
-#define TENSORFLOW_COMPILER_MLIR_LITE_QUANTIZATION_NUMERICAL_UTILS_H_
+#include "tensorflow/compiler/mlir/tfjs/ir/tfjs_ops.h"
 
-#include <cstdint>
-#include <utility>
-
-namespace mlir {
-namespace quant {
-
-using QuantizedMultiplier = std::pair<int32_t, int32_t>;
-
-// Decompose double precision multiplier to integer multiplier and exponent.
-//    double_multiplier = int_multiplier * 2 ^ (-31 + exponent)
-// int_multiplier will be range of (2^31, 2^30].
-QuantizedMultiplier QuantizeMultiplier(double double_multiplier);
-
-}  // namespace quant
-}  // namespace mlir
-
-#endif  // TENSORFLOW_COMPILER_MLIR_LITE_QUANTIZATION_NUMERICAL_UTILS_H_
+// Static initialization for TensorFlow.js op registration.
+static mlir::DialectRegistration<mlir::tfjs::TFJSDialect> tfjs_ops;
