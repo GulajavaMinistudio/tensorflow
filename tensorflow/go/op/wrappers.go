@@ -48512,7 +48512,7 @@ func MaxPool3DGradDataFormat(value string) MaxPool3DGradAttr {
 	}
 }
 
-// Computes gradients of max pooling function.
+// Computes gradients of 3D max pooling function.
 //
 // Arguments:
 //	orig_input: The original input tensor.

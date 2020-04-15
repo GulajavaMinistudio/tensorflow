@@ -328,6 +328,7 @@ LogicalResult HandlePartitionedCallOp(
   // Rewrite the callee on a cloned function.
   llvm::SmallDenseMap<Value, SizeInfo> callee_map;
   auto callee_clone = callee.clone();
+  callee_clone.setVisibility(SymbolTable::Visibility::Private);
   auto find_arg_buffer_type = [&](int64_t index) -> llvm::Optional<Type> {
     auto it = buffer_to_size->find(call.getOperand(index));
     if (it == buffer_to_size->end()) return llvm::None;
@@ -540,7 +541,8 @@ LogicalResult HandleTensorListSetItemOp(
   auto new_buffer = cutil::SetElement(index, buffer, set_item.item(), builder,
                                       set_item.getLoc());
   set_item.output_handle().replaceAllUsesWith(new_buffer);
-  (*buffer_to_size)[new_buffer] = it->getSecond();
+  auto size = it->getSecond();
+  (*buffer_to_size)[new_buffer] = size;
   set_item.erase();
   return success();
 }
@@ -664,12 +666,14 @@ LogicalResult DecomposeTensorListOpsInternal(
       auto it = buffer_to_size->find(addn.getOperand(0));
       if (it != buffer_to_size->end()) {
         addn.sum().setType(addn.getOperand(0).getType());
-        (*buffer_to_size)[addn.sum()] = it->getSecond();
+        auto size = it->getSecond();
+        (*buffer_to_size)[addn.sum()] = size;
       }
     } else if (auto zeros = llvm::dyn_cast<TF::ZerosLikeOp>(&op)) {
       if (buffer_to_size->count(zeros.x()) > 0) {
         zeros.y().setType(zeros.x().getType());
-        (*buffer_to_size)[zeros.y()] = (*buffer_to_size)[zeros.x()];
+        auto size = (*buffer_to_size)[zeros.x()];
+        (*buffer_to_size)[zeros.y()] = size;
       }
     } else if (auto while_op = llvm::dyn_cast<TF::WhileOp>(&op)) {
       if (failed(HandleWhileOp(while_op, module, buffer_to_size,

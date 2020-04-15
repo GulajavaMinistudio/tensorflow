@@ -1141,6 +1141,15 @@ cc_library(
 )
 
 cc_library(
+    name = "distributed_tensorflow_dependencies",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//tensorflow/core/distributed_runtime/rpc:grpc_session",
+        "//tensorflow/core/kernels:data_service_ops",
+    ],
+)
+
+cc_library(
     name = "testlib_kernels_impl",
     deps = [
         "//tensorflow/core/kernels:aggregate_ops",
@@ -1444,7 +1453,6 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         ":ios_tensorflow_lib",
-        ":portable_test_proto_lib",
         "//tensorflow/core/platform/default/build_config:gtest",
         "//third_party/eigen3",
     ],

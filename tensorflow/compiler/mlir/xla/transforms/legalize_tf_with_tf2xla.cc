@@ -77,9 +77,13 @@ static bool IsOpWhitelisted(Operation* op) {
   // building valid MLIR using MlirHloBuilder.
   // TODO(hinsu): Drop explicit whitelist when MLIR based bridge is enabled for
   // all tf2xla kernels.
-  return isa<TF::AbsOp>(op) || isa<TF::Atan2Op>(op) || isa<TF::CastOp>(op) ||
-         isa<TF::GreaterOp>(op) || isa<TF::InvOp>(op) ||
-         isa<TF::SelectV2Op>(op);
+  return isa<TF::AbsOp>(op) || isa<TF::Atan2Op>(op) ||
+         isa<TF::BiasAddGradOp>(op) || isa<TF::CastOp>(op) ||
+         isa<TF::ComplexAbsOp>(op) || isa<TF::GreaterOp>(op) ||
+         isa<TF::InvOp>(op) || isa<TF::InvertOp>(op) || isa<TF::LogOp>(op) ||
+         isa<TF::LogicalNotOp>(op) || isa<TF::NegOp>(op) ||
+         isa<TF::SelectV2Op>(op) || isa<TF::SinOp>(op) ||
+         isa<TF::SquareOp>(op) || isa<TF::UnpackOp>(op);
 }
 
 static std::unique_ptr<tensorflow::StaticDeviceMgr> CreateDeviceMgr(
@@ -214,8 +218,8 @@ LogicalResult FuncLegalizer::LegalizeOp(Operation* op) {
 
   // Only static shaped operands are supported in XLA builders for now.
   for (Type ty : op->getOperandTypes()) {
-    auto ranked_ty = ty.cast<RankedTensorType>();
-    if (!ranked_ty || !ranked_ty.hasStaticShape()) {
+    auto ranked_ty = ty.cast<ShapedType>();
+    if (!ranked_ty.hasStaticShape()) {
       op->emitRemark() << "lowering requires static shaped operands";
       return success();
     }

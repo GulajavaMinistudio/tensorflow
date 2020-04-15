@@ -661,11 +661,10 @@ def HLO_SliceOp: HLO_Op<
 }
 
 def HLO_DynamicSliceOp: HLO_Op<"dynamic-slice",
-      [NoSideEffect, AllElementTypesMatch<["operand", "result"]>,
-       AllShapesMatch<["start_indices", "slice_sizes"]>]> {
+      [NoSideEffect, AllElementTypesMatch<["operand", "result"]>]> {
   let arguments = (ins
     HLO_Tensor:$operand,
-    HLO_Tensor:$start_indices,
+    Variadic<HLO_ScalarIntTensor>:$start_indices,
     I64ElementsAttr:$slice_sizes
   );
 
@@ -1051,6 +1050,26 @@ def HLO_ReshapeOp: HLO_Op<"reshape",
   let results = (outs HLO_Tensor);
   let hasFolder = 1;
 
+  let hasCustomHLOConverter = 1;
+}
+
+def HLO_DynamicReshapeOp: HLO_Op<"dynamic_reshape", []> {
+  let summary = "Reshape a tensor to a given, possibly dynamic, shape.";
+  let description = [{
+    Reshapes `operand` to `output_shape`.
+
+    Requires:
+    - The length of `output_shape` is equal to the rank of `result`.
+    - The number of elements in `operand` (that is, the product of extents of
+      its shape) is equal to the number of elements in `output_shape` (that is,
+      the product of values in `output_shape`).
+  }];
+
+  let arguments = (ins HLO_Tensor:$operand, HLO_DimensionTensor:$output_shape);
+  let results = (outs HLO_Tensor:$result);
+
+  let hasCanonicalizer = 1;
+  // Cannot be exported to legacy formats.
   let hasCustomHLOConverter = 1;
 }
 
