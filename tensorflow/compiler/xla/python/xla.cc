@@ -797,6 +797,7 @@ PYBIND11_MODULE(xla_extension, m) {
                              "Integer ID of this device's host.\n\n"
                              "This is always 0 except on multi-host platforms.")
       .def_property_readonly("platform", &Device::platform_name)
+      .def_property_readonly("device_kind", &Device::device_kind)
       .def("__str__", &Device::DebugString)
       .def("TransferToInfeed",
            [](const Device& device, const LiteralSlice& literal) {
@@ -1317,7 +1318,15 @@ PYBIND11_MODULE(xla_extension, m) {
       .def("IsConstant", &XlaBuilder::IsConstant)
       .def("SetOpMetadata", &XlaBuilder::SetOpMetadata)
       .def("SetSharding", &XlaBuilder::SetSharding)
-      .def("ClearSharding", &XlaBuilder::ClearSharding);
+      .def("ClearSharding", &XlaBuilder::ClearSharding)
+      .def("SetUpAlias",
+           [](XlaBuilder& builder, const std::vector<int64>& output_index,
+              int64 param_number, const std::vector<int64>& param_index) {
+             builder.SetUpAlias(
+                 ShapeIndex(output_index.begin(), output_index.end()),
+                 param_number,
+                 ShapeIndex(param_index.begin(), param_index.end()));
+           });
 
   m.def("BufferToDLPackManagedTensor", BufferToDLPackManagedTensor);
   m.def("DLPackManagedTensorToBuffer",

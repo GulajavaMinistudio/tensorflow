@@ -1,4 +1,4 @@
-/* Copyright 2019 The TensorFlow Authors. All Rights Reserved.
+/* Copyright 2020 The TensorFlow Authors. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,25 +12,21 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
-#include "tensorflow/lite/delegates/gpu/common/custom_parsers.h"
+#ifndef TENSORFLOW_LITE_DELEGATES_GPU_COMMON_TFL2MODEL_H_
+#define TENSORFLOW_LITE_DELEGATES_GPU_COMMON_TFL2MODEL_H_
 
-#include <string>
-
-#include "absl/strings/str_cat.h"
-#include "absl/strings/string_view.h"
-#include "absl/types/any.h"
-#include "tensorflow/lite/delegates/gpu/common/shape.h"
+#include "tensorflow/lite/delegates/gpu/common/model.h"
 #include "tensorflow/lite/delegates/gpu/common/status.h"
+#include "tensorflow/lite/model_builder.h"
 
 namespace tflite {
 namespace gpu {
 
-absl::Status ParseCustomAttributes(absl::string_view op_name, const void* data,
-                                   uint32_t data_size, absl::any* attr,
-                                   BHWC* output_shape) {
-  return absl::UnimplementedError(absl::StrCat(
-      "Attributes parsing is not enabled for ", op_name, " operation"));
-}
-
+// Generates GraphFloat32 basing on the FlatBufferModel without specifying a
+// delegate.
+absl::Status BuildFromFlatBuffer(const tflite::FlatBufferModel& flatbuffer,
+                                 GraphFloat32* graph);
 }  // namespace gpu
 }  // namespace tflite
+
+#endif  // TENSORFLOW_LITE_DELEGATES_GPU_COMMON_TFL2MODEL_H_
