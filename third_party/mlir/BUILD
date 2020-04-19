@@ -901,6 +901,8 @@ cc_library(
         ":SideEffects",
         ":Support",
         "@llvm-project//llvm:asm_parser",
+        "@llvm-project//llvm:bit_reader",
+        "@llvm-project//llvm:bit_writer",
         "@llvm-project//llvm:core",
         "@llvm-project//llvm:support",
     ],
@@ -3065,6 +3067,7 @@ cc_library(
     hdrs = [
         "include/mlir/Dialect/Linalg/Analysis/DependenceAnalysis.h",
         "include/mlir/Dialect/Linalg/EDSC/Builders.h",
+        "include/mlir/Dialect/Linalg/EDSC/FoldedIntrinsics.h",
         "include/mlir/Dialect/Linalg/EDSC/Intrinsics.h",
         "include/mlir/Dialect/Linalg/Passes.h",
         "include/mlir/Dialect/Linalg/Transforms/LinalgTransforms.h",

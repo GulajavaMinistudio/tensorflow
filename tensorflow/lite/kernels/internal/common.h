@@ -29,6 +29,8 @@ limitations under the License.
 
 namespace tflite {
 
+constexpr int kReverseShift = -1;
+
 inline void GetActivationMinMax(FusedActivationFunctionType ac,
                                 float* output_activation_min,
                                 float* output_activation_max) {
@@ -222,7 +224,7 @@ inline void gen_lut(const std::function<double(double)>& func, double min,
 }
 
 // int16 func table lookup, e.g., lookup exp() and 1/(1+x) used in softmax
-static int16_t generic_int16_table_lookup(int16_t value, const int16_t* lut) {
+inline int16_t generic_int16_table_lookup(int16_t value, const int16_t* lut) {
   // 512 base value, lut[513] only for calculate slope
   uint16_t index = static_cast<uint16_t>(256 + (value >> 7));
   assert(index < 512 && "LUT index out of range.");

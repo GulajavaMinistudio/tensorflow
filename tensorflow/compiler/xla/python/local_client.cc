@@ -1175,8 +1175,8 @@ StatusOr<TupleHandle> MakeTupleHelper(
       LocalDeviceState::kComputeSynchronized) {
     stream->ThenWaitFor(local_device->compute_stream());
   } else {
-    // In principle we would do a DCHECK for CanShapedBufferBeAccessedNow here
-    // but that call requires a ShapedBuffer which we don't have.
+    DCHECK(transfer_manager->CanBufferBeAccessedNow(
+        local_device->compute_stream()->parent(), root_table_memory.cref()));
   }
 
   ExecutionInput execution_input(on_device_shape);
@@ -1240,12 +1240,12 @@ static Device* LookupDevice(const PyLocalClient& client, int device_id) {
 
 PyLocalExecutable::PyLocalExecutable(
     std::vector<std::unique_ptr<LocalExecutable>> executables,
-    bool tuple_arguments, DeviceAssignment device_assignment,
+    bool parameter_is_tupled_arguments, DeviceAssignment device_assignment,
     std::vector<std::pair<int, int>> local_logical_device_ids,
     std::vector<Device*> local_devices, PyLocalClient* client)
     : client_(client),
       device_assignment_(std::make_shared<DeviceAssignment>(device_assignment)),
-      tuple_arguments_(tuple_arguments),
+      parameter_is_tupled_arguments_(parameter_is_tupled_arguments),
       local_logical_device_ids_(std::move(local_logical_device_ids)),
       local_devices_(std::move(local_devices)) {
   executables_.reserve(executables.size());
@@ -1346,9 +1346,23 @@ StatusOr<ScopedShapedBuffer> PyLocalExecutable::EnqueueExecution(
                           &events);
   }
 
+  if (options.arguments_are_tupled) {
+    if (!parameter_is_tupled_arguments_) {
+      return InvalidArgument(
+          "Arguments may only be supplied as a tuple when the executable was "
+          "compiled with a single tupled parameter");
+    }
+    if (argument_handles.size() != 1) {
+      return InvalidArgument(
+          "Option arguments_are_tupled was true but %d buffers were passed to "
+          "execution",
+          argument_handles.size());
+    }
+  }
+
   LocalDeviceState* device_state = &client_->device_state(device_ordinal);
   TupleHandle tuple_handle;
-  if (tuple_arguments_) {
+  if (parameter_is_tupled_arguments_ && !options.arguments_are_tupled) {
     TF_ASSIGN_OR_RETURN(tuple_handle,
                         MakeTupleHelper(client_, device_state, argument_handles,
                                         *device_buffers, device_ordinal));
@@ -1683,6 +1697,93 @@ PyLocalExecutable::ExecuteOnLocalDevices(
   return wrapped_results;
 }
 
+namespace {
+
+StatusOr<Shape> GetShardedShape(const Shape& shape,
+                                const OpSharding& sharding) {
+  if (sharding.type() == OpSharding::TUPLE) {
+    if (!shape.IsTuple()) {
+      return InvalidArgument(
+          "Got tuple OpSharding (%s) for non-tuple shape (%s)",
+          sharding.DebugString(), shape.ToString());
+    }
+    if (sharding.tuple_shardings_size() != shape.tuple_shapes_size()) {
+      return InvalidArgument(
+          "Got mismatched OpSharding tuple size (%d) and shape tuple size (%d)."
+          " (OpSharding: %s, shape: %s)",
+          sharding.tuple_shardings_size(), shape.tuple_shapes_size(),
+          sharding.DebugString(), shape.ToString());
+    }
+    std::vector<Shape> sharded_subshapes;
+    for (int i = 0; i < shape.tuple_shapes_size(); ++i) {
+      TF_ASSIGN_OR_RETURN(
+          Shape sharded_subshape,
+          GetShardedShape(shape.tuple_shapes(i), sharding.tuple_shardings(i)));
+      sharded_subshapes.emplace_back(std::move(sharded_subshape));
+    }
+    return ShapeUtil::MakeTupleShape(sharded_subshapes);
+  }
+  TF_ASSIGN_OR_RETURN(HloSharding hlo_sharding,
+                      HloSharding::FromProto(sharding));
+  return hlo_sharding.TileShape(shape);
+}
+
+StatusOr<Shape> GetShardedShape(const HloInstructionProto& instr) {
+  const Shape unsharded_shape(instr.shape());
+  Shape sharded_shape;
+  if (instr.has_sharding()) {
+    TF_ASSIGN_OR_RETURN(sharded_shape,
+                        GetShardedShape(unsharded_shape, instr.sharding()));
+  } else {
+    sharded_shape = unsharded_shape;
+  }
+  LayoutUtil::ClearLayout(&sharded_shape);
+  return sharded_shape;
+}
+
+// Returns sharded (argument shapes, result shape) without layouts.
+StatusOr<std::pair<std::vector<Shape>, Shape>> GetShardedProgramShapes(
+    const XlaComputation& computation) {
+  TF_ASSIGN_OR_RETURN(ProgramShape program_shape,
+                      computation.GetProgramShape());
+  std::vector<Shape> arg_shapes;
+  arg_shapes.resize(program_shape.parameters_size());
+  Shape result_shape;
+  for (const HloComputationProto& comp : computation.proto().computations()) {
+    if (comp.id() != computation.proto().entry_computation_id()) {
+      continue;
+    }
+    for (const HloInstructionProto& instr : comp.instructions()) {
+      if (instr.opcode() == HloOpcodeString(HloOpcode::kParameter)) {
+        if (instr.parameter_number() >= program_shape.parameters_size()) {
+          return InvalidArgument(
+              "Got invalid parameter number %d, expected %d parameters",
+              instr.parameter_number(), program_shape.parameters_size());
+        }
+        TF_ASSIGN_OR_RETURN(arg_shapes[instr.parameter_number()],
+                            GetShardedShape(instr));
+      }
+      if (instr.id() == comp.root_id()) {
+        if (result_shape.element_type() != PRIMITIVE_TYPE_INVALID) {
+          return InvalidArgument("Found multiple root instructions");
+        }
+        TF_ASSIGN_OR_RETURN(result_shape, GetShardedShape(instr));
+      }
+    }
+  }
+  for (int i = 0; i < arg_shapes.size(); ++i) {
+    if (arg_shapes[i].element_type() == PRIMITIVE_TYPE_INVALID) {
+      return InvalidArgument("Couldn't find parameter %d", i);
+    }
+  }
+  if (result_shape.element_type() == PRIMITIVE_TYPE_INVALID) {
+    return InvalidArgument("Couldn't find root instruction");
+  }
+  return std::make_pair(arg_shapes, result_shape);
+}
+
+}  // namespace
+
 /*static*/ StatusOr<std::unique_ptr<PyLocalExecutable>>
 PyLocalExecutable::Compile(const XlaComputation& computation,
                            PyLocalClient* client, CompileOptions options) {
@@ -1704,48 +1805,61 @@ PyLocalExecutable::Compile(const XlaComputation& computation,
   VLOG(2) << "PyLocalExecutable::Compile device_assignment:\n"
           << build_options.device_assignment().ToString();
 
+  TF_ASSIGN_OR_RETURN(ProgramShape program_shape,
+                      computation.GetProgramShape());
   if (!options.argument_layouts) {
-    TF_ASSIGN_OR_RETURN(ProgramShape program_shape,
-                        computation.GetProgramShape());
     options.argument_layouts = program_shape.parameters();
     for (Shape& shape : *options.argument_layouts) {
       LayoutUtil::ClearLayout(&shape);
     }
+  } else if (options.argument_layouts->size() !=
+             program_shape.parameters_size()) {
+    return InvalidArgument(
+        "CompileOptions specify %d argument layouts, but computation has %d "
+        "arguments",
+        options.argument_layouts->size(), program_shape.parameters_size());
   }
   std::vector<const Shape*> argument_layout_pointers;
   argument_layout_pointers.reserve(options.argument_layouts->size());
 
-  // Assign a default layout to any array subshapes that are missing layouts.
-  auto assign_layouts = [client](Shape* shape) {
+  // Assign a default layout based on `sharded_shape` to any array subshapes in
+  // `dst_shape` that are missing layouts.
+  auto assign_layouts = [client](const Shape& sharded_shape, Shape* dst_shape) {
     return ShapeUtil::ForEachMutableSubshapeWithStatus(
-        shape, [&](Shape* subshape, const ShapeIndex&) {
+        dst_shape, [&](Shape* subshape, const ShapeIndex& idx) {
           if (subshape->IsArray() && !subshape->has_layout()) {
+            CHECK(ShapeUtil::IndexIsValid(sharded_shape, idx));
+            const Shape& sharded_subshape =
+                ShapeUtil::GetSubshape(sharded_shape, idx);
             LayoutUtil::SetToDefaultLayout(subshape);
-            TF_ASSIGN_OR_RETURN(*subshape,
-                                client->client()
-                                    ->backend()
-                                    .transfer_manager()
-                                    ->ChooseCompactLayoutForShape(*subshape));
+            TF_ASSIGN_OR_RETURN(Shape layout, client->client()
+                                                  ->backend()
+                                                  .transfer_manager()
+                                                  ->ChooseCompactLayoutForShape(
+                                                      sharded_subshape));
+            *subshape->mutable_layout() = layout.layout();
           }
           return Status::OK();
         });
   };
+  TF_ASSIGN_OR_RETURN(auto sharded_shapes,
+                      GetShardedProgramShapes(computation));
 
-  for (Shape& layout : *options.argument_layouts) {
-    argument_layout_pointers.push_back(&layout);
-    TF_RETURN_IF_ERROR(assign_layouts(&layout));
+  CHECK_EQ(sharded_shapes.first.size(), options.argument_layouts->size());
+  for (int i = 0; i < options.argument_layouts->size(); ++i) {
+    Shape* layout = &(*options.argument_layouts)[i];
+    argument_layout_pointers.push_back(layout);
+    TF_RETURN_IF_ERROR(assign_layouts(sharded_shapes.first[i], layout));
   }
 
   Shape result_layout;
   if (build_options.result_layout()) {
     result_layout = *build_options.result_layout();
   } else {
-    TF_ASSIGN_OR_RETURN(ProgramShape program_shape,
-                        computation.GetProgramShape());
     result_layout = program_shape.result();
     LayoutUtil::ClearLayout(&result_layout);
   }
-  TF_RETURN_IF_ERROR(assign_layouts(&result_layout));
+  TF_RETURN_IF_ERROR(assign_layouts(sharded_shapes.second, &result_layout));
   build_options.set_result_layout(result_layout);
 
   const int num_replicas = build_options.device_assignment().replica_count();
@@ -1783,11 +1897,11 @@ PyLocalExecutable::Compile(const XlaComputation& computation,
                                 build_options));
 
   auto py_executable = absl::make_unique<PyLocalExecutable>(
-      std::move(local_executables), options.tuple_arguments,
+      std::move(local_executables), options.parameter_is_tupled_arguments,
       build_options.device_assignment(), std::move(local_logical_device_ids),
       std::move(local_devices), client);
-  TF_RETURN_IF_ERROR(
-      py_executable->SetUpDonation(client, options.tuple_arguments));
+  TF_RETURN_IF_ERROR(py_executable->SetUpDonation(
+      client, options.parameter_is_tupled_arguments));
   return py_executable;
 }
 

@@ -534,6 +534,7 @@ cc_library(
         "ir/mlir_hlo_builder.h",
     ],
     deps = [
+        ":attribute_importer",
         ":hlo",
         ":hlo_utils",
         ":type_to_shape",
@@ -704,6 +705,7 @@ cc_library(
         "hlo_module_importer.h",
     ],
     deps = [
+        ":attribute_importer",
         ":hlo",
         ":hlo_utils",
         "//tensorflow/compiler/mlir/tensorflow:error_util",
@@ -720,6 +722,18 @@ cc_library(
         "@llvm-project//llvm:support",
         "@llvm-project//mlir:IR",
         "@llvm-project//mlir:StandardOps",
+    ],
+)
+
+cc_library(
+    name = "attribute_importer",
+    srcs = ["attribute_importer.cc"],
+    hdrs = ["attribute_importer.h"],
+    deps = [
+        ":hlo",
+        "//tensorflow/compiler/xla:xla_data_proto_cc",
+        "//tensorflow/core/platform:types",
+        "@llvm-project//mlir:IR",
     ],
 )
 
