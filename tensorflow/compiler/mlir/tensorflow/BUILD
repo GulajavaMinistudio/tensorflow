@@ -216,6 +216,17 @@ cc_library(
 )
 
 cc_library(
+    name = "tensorflow_attributes",
+    srcs = [
+        "ir/tf_attributes.cc",
+    ],
+    hdrs = [
+        "ir/tf_attributes.h",
+    ],
+    deps = ["@llvm-project//mlir:IR"],
+)
+
+cc_library(
     name = "tensorflow_types",
     srcs = [
         "ir/tf_types.cc",
@@ -266,6 +277,7 @@ cc_library(
     includes = ["include"],
     deps = [
         ":error_util",
+        ":tensorflow_attributes",
         ":tensorflow_canonicalize_inc_gen",
         ":tensorflow_device_ops_inc_gen",
         ":tensorflow_executor_inc_gen",
@@ -396,6 +408,7 @@ cc_library(
         "transforms/tpu_cluster_formation.cc",
         "transforms/tpu_dynamic_layout_pass.cc",
         "transforms/tpu_dynamic_padding_mapper.cc",
+        "transforms/tpu_extract_outside_compilation.cc",
         "transforms/tpu_merge_variables_with_execute.cc",
         "transforms/tpu_rewrite_pass.cc",
         "transforms/tpu_sharding_identification_pass.cc",
@@ -530,6 +543,7 @@ cc_library(
         ":mangling_util",
         ":mlir_roundtrip_flags",
         ":tensorflow",
+        ":tensorflow_attributes",
         ":tensorflow_passes",
         ":tensorflow_types",
         ":translate_utils",
@@ -602,6 +616,7 @@ cc_library(
         ":convert_type",
         ":mangling_util",
         ":tensorflow",
+        ":tensorflow_attributes",
         ":tensorflow_types",
         "//tensorflow/compiler/xla:status_macros",
         "//tensorflow/core:core_cpu",
@@ -770,6 +785,7 @@ cc_library(
     deps = [
         ":convert_type",
         ":mangling_util",
+        ":tensorflow_attributes",
         ":tensorflow_types",
         "//tensorflow/core:framework",
         "//tensorflow/core:lib",

@@ -500,9 +500,8 @@ cc_library(
     ],
     deps = [
         ":hlo",
-        "@llvm-project//llvm:support",
         "@llvm-project//mlir:IR",
-        "@llvm-project//mlir:StandardOps",
+        "@llvm-project//mlir:Shape",
         "@llvm-project//mlir:Transforms",
     ],
 )
@@ -512,15 +511,18 @@ cc_library(
     srcs = [
         "transforms/chlo_legalize_to_hlo_pass.cc",
         "transforms/materialize_broadcasts_pass.cc",
+        "transforms/test_infer_shaped_type_pass.cc",
         "transforms/unfuse_batch_norm_pass.cc",
     ],
     deps = [
-        ":chlo_legalize_to_hlo",
+        ":chlo_legalize_to_hlo",  # build-cleaner: keep
         ":hlo",
-        ":xla_materialize_broadcasts",
-        ":xla_unfuse_batch_norm",
+        ":xla_materialize_broadcasts",  # build-cleaner: keep
+        ":xla_unfuse_batch_norm",  # build-cleaner: keep
         "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:InferTypeOpInterface",
         "@llvm-project//mlir:Pass",
+        "@llvm-project//mlir:Shape",
         "@llvm-project//mlir:StandardOps",
         "@llvm-project//mlir:Transforms",
     ],
@@ -530,6 +532,7 @@ cc_library(
 cc_library(
     name = "hlo",
     srcs = [
+        "ir/broadcast_utils.cc",
         "ir/chlo_ops.cc",
         "ir/hlo_ops.cc",
         "ir/hlo_ops.cc.inc",
@@ -537,6 +540,7 @@ cc_library(
         "ir/hlo_utils.cc",
     ],
     hdrs = [
+        "ir/broadcast_utils.h",
         "ir/chlo_ops.h",
         "ir/hlo_ops.h",
         "ir/hlo_utils.h",
@@ -556,6 +560,7 @@ cc_library(
         "@llvm-project//mlir:IR",
         "@llvm-project//mlir:InferTypeOpInterface",
         "@llvm-project//mlir:Pass",
+        "@llvm-project//mlir:Shape",
         "@llvm-project//mlir:SideEffects",
         "@llvm-project//mlir:StandardOps",
         "@llvm-project//mlir:Support",
@@ -631,6 +636,7 @@ cc_library(
         ":hlo",
         "//tensorflow/compiler/xla:literal",
         "//tensorflow/compiler/xla/service:hlo",
+        "//tensorflow/core:lib",
         "@llvm-project//mlir:IR",
     ],
     alwayslink = 1,

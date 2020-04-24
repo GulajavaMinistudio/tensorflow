@@ -237,6 +237,14 @@ class TFL_TFTypesWithSameBits<int i, int j, int num> :
     Or<[CPred<"getElementTypeOrSelf($_op.getOperand(" # j # ")).isa<mlir::TF::Quint" # num # "Type>()">,
         CPred<"getElementTypeOrSelf($_op.getOperand(" # j # ")).isUnsignedInteger(" # num # ")">]>]>;
 
+class TFL_OperandIsNoneOrHasRankLessThanOrEqualTo<int n, int m> :
+  PredOpTrait<"operand " # n # " is at most " # m # "-D",
+    Or<[
+      CPred<"$_op.getOperand(" # n # ").getType().isa<NoneType>()">,
+      TFL_OperandIsUnrankedPred<n>,
+      CPred<"$_op.getOperand(" # n #
+      ").getType().cast<ShapedType>().getRank() <= " # m>]>>;
+
 class TFL_OperandHasRankLessThanOrEqualTo<int n, int m> :
   PredOpTrait<"operand " # n # " is at most " # m # "-D",
     Or<[TFL_OperandIsUnrankedPred<n>,
@@ -496,7 +504,7 @@ def TFL_Convolution2DTransposeBiasOp :
     NoSideEffect,
     TFL_OperandHasRank<0, 4>,
     TFL_OperandHasRank<1, 4>,
-    TFL_OperandHasRankLessThanOrEqualTo<2, 1>
+    TFL_OperandIsNoneOrHasRankLessThanOrEqualTo<2, 1>
   ]> {
   let summary = " Transpose convolution with bias operator";
 
@@ -882,6 +890,34 @@ def TFL_GatherNdOp : TFL_Op<"gather_nd", [NoSideEffect]> {
   let results = (outs
     TFL_TensorOf<[F32, I8, I64, I32, TFL_Uint8, TFL_Str]>:$output
   );
+}
+
+def TFL_ScatterNdOp : TFL_Op<"scatter_nd", [
+    NoSideEffect,
+    TFL_OperandHasAtleastRank<0, 1>,
+    TFL_OperandHasAtleastRank<1, 1>,
+    PredOpTrait<"updates and output must have same element type",
+      TFL_TCresVTEtIsSameAsOp<0, 1>>
+  ]> {
+  let summary = "Scatter_nd operator";
+
+  let description = [{
+    Scatter `updates` into a new tensor according to `indices`
+  }];
+
+  let arguments = (ins
+    TFL_TensorOf<[I32]>:$indices,
+    TFL_TensorOf<[F32, I8, I64, I32, TFL_Uint8]>:$updates,
+    TFL_1DTensorOf<[I32]>:$shape
+  );
+
+  let results = (outs
+    TFL_TensorOf<[F32, I8, I64, I32, TFL_Uint8]>:$output
+  );
+
+  let verifier = [{ return Verify(*this); }];
+
+  let hasOptions = 1;
 }
 
 // Same type check of lhs and rhs is handled by the ResultsBroadcastableShape trait.
