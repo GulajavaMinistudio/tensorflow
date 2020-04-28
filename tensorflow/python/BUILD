@@ -1772,6 +1772,7 @@ py_library(
     name = "composite_tensor",
     srcs = ["framework/composite_tensor.py"],
     srcs_version = "PY2AND3",
+    visibility = visibility + ["//tensorflow:composite_tensor_whitelist"],
     deps = [
         ":dtypes",
         ":tensor_util",
@@ -1845,6 +1846,7 @@ py_library(
     name = "type_spec",
     srcs = ["framework/type_spec.py"],
     srcs_version = "PY2AND3",
+    visibility = visibility + ["//tensorflow:composite_tensor_whitelist"],
     deps = [
         ":dtypes",
         ":tensor_shape",
@@ -1967,6 +1969,7 @@ py_library(
 )
 
 # Including this as a dependency will result in tests to use TFRT.
+# TODO(b/153582383): Move tf_ops_alwayslink dependency to c_api_tfrt instead.
 py_library(
     name = "is_tfrt_test_true",
     srcs = ["framework/is_tfrt_test_true.py"],
@@ -2376,6 +2379,7 @@ tf_py_test(
     main = "framework/ops_test.py",
     python_version = "PY3",
     tags = ["no_pip"],  # test_ops_2 is not available in pip.
+    tfrt_enabled = True,
     deps = [
         ":cond_v2",
         ":control_flow_ops",
@@ -5528,6 +5532,7 @@ py_library(
         "//tensorflow:__pkg__",
         "//third_party/py/tensorflow_core:__subpackages__",
         "//third_party/py/tf_agents:__subpackages__",
+        "//tensorflow:composite_tensor_whitelist",
     ],
     deps = [
         ":tf_decorator",
@@ -5951,6 +5956,7 @@ filegroup(
         "//tensorflow/core/common_runtime:core_cpu_rump_impl",  # quantize_training
         "//tensorflow/core/common_runtime:device",  # device_lib, tfe, tf_session
         "//tensorflow/core/common_runtime:device_factory",  # device_lib, tfe, tf_session
+        "//tensorflow/core/common_runtime:graph_constructor",  # tf_session
         "//tensorflow/core/common_runtime:session_options",  # device_lib, tfe, tf_session
         "//tensorflow/core/common_runtime:session_state",  # tf_session
         "//tensorflow/core/data/service:server_lib",  # server_lib
