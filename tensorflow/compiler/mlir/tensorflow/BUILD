@@ -812,8 +812,10 @@ tf_cc_test(
         "//tensorflow/compiler/xla:test",
         "//tensorflow/core:framework",
         "//tensorflow/core:lib",
+        "//tensorflow/core:protos_all_cc",
         "//tensorflow/core:test",
         "//tensorflow/core:test_main",
+        "//tensorflow/core:testlib",
         "//tensorflow/stream_executor/lib",
         "@llvm-project//mlir:IR",
     ],
@@ -1112,6 +1114,7 @@ COMPILE_MLIR_UTIL_DEPS = [
     "//tensorflow/stream_executor/lib",
     "//tensorflow/compiler/xla:xla_data_proto_cc",
     "//tensorflow/compiler/xla/service:hlo",
+    ":convert_tensor",
 ]
 
 # Prefer to link 'compile_mlir_util' library that also links necessary
