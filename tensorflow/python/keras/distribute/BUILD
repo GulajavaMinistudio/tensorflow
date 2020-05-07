@@ -128,6 +128,7 @@ distribute_py_test(
         "multi_and_single_gpu",
         "no_rocm",  # times out on ROCm
         "no_windows_gpu",
+        "notpu",  # TODO(b/155867206) flaky segfault
         "notsan",
     ],
     tpu_tags = [
@@ -444,5 +445,22 @@ py_library(
         "//tensorflow/python/distribute/cluster_resolver:tpu_cluster_resolver_py",
         "//tensorflow/python/eager:remote",
         "//tensorflow/python/tpu:tpu_strategy_util",
+    ],
+)
+
+py_test(
+    name = "multi_worker_tutorial_test",
+    srcs = ["multi_worker_tutorial_test.py"],
+    python_version = "PY3",
+    shard_count = 5,
+    deps = [
+        "//tensorflow/python:platform",
+        "//tensorflow/python/data/ops:dataset_ops",
+        "//tensorflow/python/distribute:collective_all_reduce_strategy",
+        "//tensorflow/python/distribute:combinations",
+        "//tensorflow/python/distribute:multi_process_runner",
+        "//tensorflow/python/distribute:multi_worker_test_base",
+        "//tensorflow/python/keras",
+        "//tensorflow/python/keras/optimizer_v2",
     ],
 )
