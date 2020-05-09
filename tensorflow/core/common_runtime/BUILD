@@ -1212,6 +1212,7 @@ cc_library(
         ":propagator_debug_utils",
         "//tensorflow/core:framework",
         "//tensorflow/core:lib",
+        "//tensorflow/core/platform:hash",
         "//tensorflow/core/profiler/lib:traceme",
     ],
 )
@@ -2510,10 +2511,12 @@ tf_cc_test(
         "//tensorflow/core:framework",
         "//tensorflow/core:framework_internal",
         "//tensorflow/core:lib",
+        "//tensorflow/core:protos_all_cc",
         "//tensorflow/core:test",
         "//tensorflow/core:test_main",
         "//tensorflow/core:testlib",
         "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/strings",
     ],
 )
 
