@@ -3151,7 +3151,8 @@ TfLiteStatus NNAPIDelegateKernel::Init(TfLiteContext* context,
                                     "creating NNAPI model", nnapi_errno);
     nn_model_.reset(model);
 
-    TF_LITE_ENSURE_STATUS(BuildGraph(context, params->input_tensors,
+    TF_LITE_ENSURE_STATUS(BuildGraph(context, delegate_options,
+                                     params->input_tensors,
                                      params->output_tensors, nnapi_errno));
   }
 
@@ -3769,7 +3770,8 @@ TfLiteStatus NNAPIDelegateKernel::AddOpsAndTensors(TfLiteContext* context,
         }
       } else if (reg->builtin_code == kTfLiteBuiltinMaximum ||
                  reg->builtin_code == kTfLiteBuiltinMinimum) {
-        const TfLiteTensor& operand_tensor = context->tensors[input_pos];
+        const TfLiteTensor& operand_tensor =
+            context->tensors[node->inputs->data[input_pos]];
         if (operand_tensor.dims->size == 0) {
           int tensor_index;
 
@@ -3814,7 +3816,8 @@ TfLiteStatus NNAPIDelegateKernel::AddOpsAndTensors(TfLiteContext* context,
                   reg->builtin_code == kTfLiteBuiltinSum) &&
                  (input_pos == 1)) {
         // The axis needs, be converted to a tensor if specified as scalar
-        const TfLiteTensor& axis_tensor = context->tensors[1];
+        const TfLiteTensor& axis_tensor =
+            context->tensors[node->inputs->data[input_pos]];
         if (axis_tensor.dims->size == 0) {
           TF_LITE_ENSURE_STATUS(
               builder.AddVectorInt32Operand(axis_tensor.data.i32, 1));
@@ -3873,8 +3876,10 @@ TfLiteStatus NNAPIDelegateKernel::AddOpsAndTensors(TfLiteContext* context,
 }
 
 TfLiteStatus NNAPIDelegateKernel::BuildGraph(
-    TfLiteContext* context, const TfLiteIntArray* input_tensors,
-    const TfLiteIntArray* output_tensors, int* nnapi_errno) {
+    TfLiteContext* context,
+    const StatefulNnApiDelegate::Options& delegate_options,
+    const TfLiteIntArray* input_tensors, const TfLiteIntArray* output_tensors,
+    int* nnapi_errno) {
   // Build the ops and tensors.
   TF_LITE_ENSURE_STATUS(AddOpsAndTensors(context, nnapi_errno));
   // Map input and output tensor indices to ANN
@@ -3939,11 +3944,13 @@ TfLiteStatus NNAPIDelegateKernel::BuildGraph(
           outputs.data()),
       "identifying model inputs and outputs", nnapi_errno);
 
+  auto allow_fp16 =
+      context->allow_fp32_relax_to_fp16 | delegate_options.allow_fp16;
   if (nnapi_->android_sdk_version >= kMinSdkVersionForNNAPI11) {
     RETURN_TFLITE_ERROR_IF_NN_ERROR(
         context,
         nnapi_->ANeuralNetworksModel_relaxComputationFloat32toFloat16(
-            nn_model_.get(), context->allow_fp32_relax_to_fp16),
+            nn_model_.get(), allow_fp16),
         "set relaxed computation mode for fp32 if possible", nnapi_errno);
   }
 
@@ -4017,6 +4024,7 @@ StatefulNnApiDelegate::StatefulNnApiDelegate(const NnApi* nnapi,
   delegate_data_.disallow_nnapi_cpu = options.disallow_nnapi_cpu;
   delegate_data_.max_number_delegated_partitions =
       options.max_number_delegated_partitions;
+  delegate_data_.allow_fp16 = options.allow_fp16;
   TFLITE_LOG_PROD_ONCE(tflite::TFLITE_LOG_INFO,
                        "Created TensorFlow Lite delegate for NNAPI.");
   Prepare = DoPrepare;
@@ -4046,6 +4054,7 @@ const StatefulNnApiDelegate::Options StatefulNnApiDelegate::GetOptions(
   options.disallow_nnapi_cpu = delegate_data->disallow_nnapi_cpu;
   options.max_number_delegated_partitions =
       delegate_data->max_number_delegated_partitions;
+  options.allow_fp16 = delegate_data->allow_fp16;
   return options;
 }
 
