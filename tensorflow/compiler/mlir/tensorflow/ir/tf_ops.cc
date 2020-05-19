@@ -497,6 +497,12 @@ OpFoldResult IdentityArithmeticOpFolder(OpT arithmetic_op,
       return arithmetic_op.x();
   }
 
+  auto rhs_type = arithmetic_op.y().getType().template cast<ShapedType>();
+  // TODO(chhe): we could fold and add an identity to force the broadcast.
+  if (result_op_type != rhs_type) {
+    return {};
+  }
+
   bool is_symmetric =
       (std::is_same<OpT, AddV2Op>::value || std::is_same<OpT, MulOp>::value);
   if (auto attr = operands[0].dyn_cast_or_null<DenseElementsAttr>()) {
@@ -2603,9 +2609,12 @@ LogicalResult VerifyShapeOperandAndResult(Operation *op, Type operand_type,
              << variadic_idx_str << " to match rank of operand"
              << variadic_idx_str;
   } else if (result_ranked_type.hasStaticShape()) {
-    // The operand is an unranked tensor, verify that the result is dynamic.
-    return op->emitOpError("requires dynamic shape result")
-           << variadic_idx_str << " for unranked operand" << variadic_idx_str;
+    // The operand is an unranked tensor, print a warning if the result
+    // is static.
+    // Note: We do not handle this situation as an error, this would be too
+    // restrictive due to incompleteness of shape inference at this point.
+    op->emitWarning("has static shape result")
+        << variadic_idx_str << " for unranked operand" << variadic_idx_str;
   }
 
   Type element_type = result_ranked_type.getElementType();

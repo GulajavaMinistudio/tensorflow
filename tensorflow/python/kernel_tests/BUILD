@@ -1,7 +1,10 @@
 # Tests of TensorFlow kernels written using the Python API.
 
-load("//tensorflow:tensorflow.bzl", "sycl_py_test", "tf_custom_op_library", "tf_py_test")
+load("//tensorflow:tensorflow.bzl", "sycl_py_test", "tf_custom_op_library")
 load("//tensorflow:tensorflow.bzl", "cuda_py_test")
+
+# buildifier: disable=same-origin-load
+load("//tensorflow:tensorflow.bzl", "tf_py_test")
 
 package(
     default_visibility = ["//tensorflow:internal"],
@@ -861,6 +864,7 @@ cuda_py_test(
     srcs = ["resource_variable_ops_test.py"],
     # TODO(b/128347673): Re-enable.
     tags = ["no_windows"],
+    tfrt_enabled = True,
     deps = [
         "//tensorflow/python:array_ops",
         "//tensorflow/python:client_testlib",
