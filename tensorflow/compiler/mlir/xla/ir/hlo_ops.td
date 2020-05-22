@@ -461,7 +461,7 @@ def HLO_ReplicaIdOp : HLO_Op<"replica_id", [NoSideEffect]>,
 // XLA control flow op definitions.
 //===----------------------------------------------------------------------===//
 
-def HLO_AfterAllOp : HLO_Op<"after_all", []> {
+def HLO_AfterAllOp : HLO_Op<"after_all", [NoSideEffect]> {
 
   string summary = "AfterAll operator";
 
@@ -481,7 +481,7 @@ def HLO_AfterAllOp : HLO_Op<"after_all", []> {
 // Xla Client API has two separate calls for indexed and predicated conditional,
 // although both eventually map to kConditional HLO. IfOp maps to predicated
 // conditional use of kConditional HLO.
-def HLO_IfOp: HLO_Op<"if", []> {
+def HLO_IfOp: HLO_Op<"if", [RecursiveSideEffects]> {
   string summary = "If operator";
 
   string description = [{
@@ -497,7 +497,8 @@ def HLO_IfOp: HLO_Op<"if", []> {
     HLO_TensorOrTuple:$false_arg
   );
 
-  let regions = (region AnyRegion:$true_branch, AnyRegion:$false_branch);
+  let regions = (region AnyRegion:$true_branch,
+                        AnyRegion:$false_branch);
 
   let results = (outs HLO_TensorOrTuple);
 
@@ -505,7 +506,27 @@ def HLO_IfOp: HLO_Op<"if", []> {
   let hasCustomHLOConverter = 1;
 }
 
-def HLO_WhileOp: HLO_Op<"while", [SameOperandsAndResultType]> {
+// Xla Client API has two separate calls for indexed and predicated conditional,
+// although both eventually map to kConditional HLO. CaseOp maps to indexed
+// conditional use of kConditional HLO.
+def HLO_CaseOp: HLO_Op<"case", [RecursiveSideEffects]>,
+      BASE_HLO_CaseOp {
+
+  let arguments = (ins
+    I32Tensor:$index,
+    Variadic<HLO_TensorOrTuple>:$branch_operands
+  );
+
+  let regions = (region VariadicRegion<AnyRegion>:$branches);
+
+  let results = (outs Variadic<HLO_TensorOrTuple>);
+
+  let hasCustomHLOConverter = 1;
+}
+
+
+def HLO_WhileOp: HLO_Op<"while", [RecursiveSideEffects,
+                                  SameOperandsAndResultType]> {
   string summary = "While operator";
 
   string description = [{
@@ -526,7 +547,7 @@ def HLO_WhileOp: HLO_Op<"while", [SameOperandsAndResultType]> {
 }
 
 def HLO_AllReduceOp : HLO_Op<"all_reduce",
-    [NoSideEffect, SameOperandsAndResultType]>, BASE_HLO_AllReduceOp {
+    [SameOperandsAndResultType]>, BASE_HLO_AllReduceOp {
 
   let arguments = (ins
     HLO_Tensor:$operand,
@@ -553,7 +574,7 @@ def HLO_AllToAllOp : HLO_Op<"all_to_all",
 }
 
 def HLO_ReduceOp: HLO_Op<"reduce", [
-      NoSideEffect,
+      RecursiveSideEffects,
       SameVariadicOperandSize,
       SingleBlockImplicitTerminator<"ReturnOp">
     ]>, BASE_HLO_ReduceOp {
@@ -1034,8 +1055,8 @@ def HLO_GetDimensionSizeOp: HLO_Op<"get_dimension_size", [NoSideEffect]>,
 }
 
 def HLO_MapOp: HLO_Op<"map",
-      [NoSideEffect, SameOperandsElementType, SameOperandsAndResultShape,
-        SingleBlockImplicitTerminator<"ReturnOp">]>,
+      [RecursiveSideEffects, SameOperandsElementType,
+       SameOperandsAndResultShape, SingleBlockImplicitTerminator<"ReturnOp">]>,
       BASE_HLO_MapOp {
   let arguments = (ins
     Variadic<HLO_Tensor>:$operands,
@@ -1056,7 +1077,7 @@ def HLO_ReshapeOp: HLO_Op<"reshape",
   let hasCustomHLOConverter = 1;
 }
 
-def HLO_DynamicReshapeOp: HLO_Op<"dynamic_reshape", []> {
+def HLO_DynamicReshapeOp: HLO_Op<"dynamic_reshape", [NoSideEffect]> {
   let summary = "Reshape a tensor to a given, possibly dynamic, shape.";
   let description = [{
     Reshapes `operand` to `output_shape`.
@@ -1084,7 +1105,8 @@ def ScatterDimensionNumbers : StructAttr<"ScatterDimensionNumbers", HLO_Dialect,
   let description = "Structure of dimension information for scatter";
 }
 
-def HLO_ScatterOp: HLO_Op<"scatter", [NoSideEffect]>, BASE_HLO_ScatterOp {
+def HLO_ScatterOp: HLO_Op<"scatter", [RecursiveSideEffects]>,
+      BASE_HLO_ScatterOp {
   let arguments = (ins
     HLO_Tensor:$operand,
     HLO_Tensor:$scatter_indices,
@@ -1113,7 +1135,7 @@ def HLO_SelectOp: HLO_Op<"select", [NoSideEffect, DeclareOpInterfaceMethods<Infe
 }
 
 def HLO_SelectAndScatterOp: HLO_Op<"select_and_scatter",
-      [NoSideEffect]>, BASE_HLO_SelectAndScatterOp {
+      [RecursiveSideEffects]>, BASE_HLO_SelectAndScatterOp {
   let arguments = (ins
     HLO_Tensor:$operand,
     HLO_Tensor:$source,
@@ -1140,7 +1162,7 @@ def HLO_SetDimensionSizeOp: HLO_Op<"set_dimension_size", [NoSideEffect]>,
   let results = (outs HLO_Tensor);
 }
 
-def HLO_SortOp : HLO_Op<"sort", [NoSideEffect]>, BASE_HLO_SortOp {
+def HLO_SortOp : HLO_Op<"sort", [RecursiveSideEffects]>, BASE_HLO_SortOp {
   let arguments = (ins
     Variadic<HLO_Tensor>:$operands,
     DefaultValuedAttr<I64Attr, "-1">:$dimension,
@@ -1192,7 +1214,7 @@ def HLO_PadOp: HLO_Op<"pad",
   let hasCustomHLOConverter = 1;
 }
 
-def HLO_TraceOp: HLO_Op<"trace", [NoSideEffect]>, BASE_HLO_TraceOp {
+def HLO_TraceOp: HLO_Op<"trace", []>, BASE_HLO_TraceOp {
   let arguments = (ins
     HLO_Tensor:$operand,
     StrAttr:$tag
@@ -1226,7 +1248,7 @@ def HLO_TriangularSolveOp: HLO_Op<"triangular_solve",
 }
 
 def HLO_ReduceWindowOp: HLO_Op<"reduce_window", [
-      NoSideEffect,
+      RecursiveSideEffects,
       SingleBlockImplicitTerminator<"ReturnOp">
     ]>, BASE_HLO_ReduceWindowOp {
 
@@ -1257,7 +1279,7 @@ def HLO_ReduceWindowOp: HLO_Op<"reduce_window", [
   // TODO(hinsu): Implement custom printer and parser.
 }
 
-def HLO_ReturnOp : HLO_Op<"return", [Terminator]> {
+def HLO_ReturnOp : HLO_Op<"return", [NoSideEffect, Terminator]> {
   let summary = [{
     The `hlo.return` operation terminates a region and returns values.
   }];

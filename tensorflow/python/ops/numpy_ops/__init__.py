@@ -1,5 +1,4 @@
-#!/bin/bash
-# Copyright 2017 The TensorFlow Authors. All Rights Reserved.
+# Copyright 2020 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+"""Tensorflow numpy API."""
 
-set -e
-
-echo "download_dependencies.sh is no longer needed, just use 'make -f tensorflow/lite/micro/tools/make/Makefile'." >&2
-exit 1
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function

@@ -34,6 +34,7 @@ from tensorflow.python import tf2
 from tensorflow.python.autograph.core import ag_ctx
 from tensorflow.python.autograph.impl import api as autograph
 from tensorflow.python.distribute import distribution_strategy_context as ds_context
+from tensorflow.python.distribute import sharded_variable
 from tensorflow.python.eager import context
 from tensorflow.python.eager import execute
 from tensorflow.python.eager import function
@@ -590,7 +591,9 @@ class Layer(module.Module, version_utils.LayerVersionSelector):
       self._handle_weight_regularization(name_in_scope,
                                          variable,
                                          regularizer)
-    if isinstance(variable, tf_variables.PartitionedVariable):
+    if isinstance(
+        variable,
+        (tf_variables.PartitionedVariable, sharded_variable.ShardedVariable)):
       for v in variable:
         backend.track_variable(v)
         if trainable:
@@ -2305,15 +2308,17 @@ class Layer(module.Module, version_utils.LayerVersionSelector):
     return input_masks
 
   def _call_arg_was_passed(self, arg_name, args, kwargs, inputs_in_args=False):
+    # Performance optimization: do no work in most common case.
+    if not args and not kwargs:
+      return False
+
     if arg_name in kwargs:
       return True
     call_fn_args = self._call_fn_args
     if not inputs_in_args:
       # Ignore `inputs` arg.
       call_fn_args = call_fn_args[1:]
-    if arg_name in dict(zip(call_fn_args, args)):
-      return True
-    return False
+    return arg_name in dict(zip(call_fn_args, args))
 
   def _get_call_arg_value(self, arg_name, args, kwargs, inputs_in_args=False):
     if arg_name in kwargs:
