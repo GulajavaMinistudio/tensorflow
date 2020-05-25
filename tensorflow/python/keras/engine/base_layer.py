@@ -386,6 +386,11 @@ class Layer(module.Module, version_utils.LayerVersionSelector):
     # might want to turn it off, like Sequential model.
     self._auto_track_sub_layers = True
 
+    # Will compute masking if `compute_mask` is overridden or `supports_masking`
+    # is set.
+    self._compute_mask_overridden = (not getattr(self.compute_mask,
+                                                 '_is_default', False))
+
   @trackable.no_automatic_dependency_tracking
   @generic_utils.default
   def build(self, input_shape):
@@ -844,7 +849,7 @@ class Layer(module.Module, version_utils.LayerVersionSelector):
     # setting the `_keras_mask` attribute on the inputs to a Layer. Masks passed
     # explicitly take priority.
     mask_arg_passed_by_framework = False
-    input_masks = self._collect_input_masks(inputs, args, kwargs)
+    input_masks = self._collect_input_masks(inputs, input_list, args, kwargs)
     if (self._expects_mask_arg and input_masks is not None and
         not self._call_arg_was_passed('mask', args, kwargs)):
       mask_arg_passed_by_framework = True
@@ -912,7 +917,7 @@ class Layer(module.Module, version_utils.LayerVersionSelector):
           # Build layer if applicable (if the `build` method has been
           # overridden).
           self._maybe_build(inputs)
-          cast_inputs = self._maybe_cast_inputs(inputs)
+          cast_inputs = self._maybe_cast_inputs(inputs, input_list)
 
           if not self.dynamic:
             # Wrapping `call` function in autograph to allow for dynamic control
@@ -973,7 +978,7 @@ class Layer(module.Module, version_utils.LayerVersionSelector):
             outputs = self._set_connectivity_metadata((inputs,) + args, kwargs,
                                                       outputs)
           self._handle_activity_regularization(inputs, outputs)
-          self._set_mask_metadata(inputs, outputs, input_masks)
+          self._set_mask_metadata(inputs, outputs, input_masks, build_graph)
           if hasattr(self, '_set_inputs') and not self.inputs:
             # Subclassed network: explicitly set metadata normally set by
             # a call to self._set_inputs().
@@ -982,12 +987,12 @@ class Layer(module.Module, version_utils.LayerVersionSelector):
         # Eager execution on data tensors.
         with backend.name_scope(self._name_scope()):
           self._maybe_build(inputs)
-          cast_inputs = self._maybe_cast_inputs(inputs)
+          cast_inputs = self._maybe_cast_inputs(inputs, input_list)
           with base_layer_utils.autocast_context_manager(
               self._compute_dtype):
             outputs = self.call(cast_inputs, *args, **kwargs)
           self._handle_activity_regularization(inputs, outputs)
-          self._set_mask_metadata(inputs, outputs, input_masks)
+          self._set_mask_metadata(inputs, outputs, input_masks, build_graph)
           if hasattr(self, '_set_save_spec'):
             self._set_save_spec(cast_inputs)
 
@@ -2117,7 +2122,7 @@ class Layer(module.Module, version_utils.LayerVersionSelector):
     """
     return self._dtype_policy.compute_dtype
 
-  def _maybe_cast_inputs(self, inputs):
+  def _maybe_cast_inputs(self, inputs, input_list):
     """Maybe casts the inputs to the compute dtype.
 
     If self._compute_dtype is floating-point, and self_autocast is True,
@@ -2125,31 +2130,37 @@ class Layer(module.Module, version_utils.LayerVersionSelector):
 
     Args:
       inputs: Input tensor, or structure of input tensors.
+      input_list: Flat list of input tensors.
 
     Returns:
       `inputs`, but tensors may have been casted to self._compute_dtype
     """
     compute_dtype = self._compute_dtype
-    if (self._autocast and compute_dtype and
-        dtypes.as_dtype(compute_dtype).is_floating):
-      def f(x):
-        """Cast a single Tensor or TensorSpec to the compute dtype."""
-        cast_types = (ops.Tensor, sparse_tensor.SparseTensor,
-                      ragged_tensor.RaggedTensor)
-        if (isinstance(x, cast_types) and x.dtype.is_floating and
-            x.dtype.base_dtype.name != compute_dtype):
-          if self._dtype_defaulted_to_floatx:
-            self._warn_about_input_casting(x.dtype.base_dtype)
-          return math_ops.cast(x, compute_dtype)
-        elif isinstance(x, tensor_spec.TensorSpec) and x.dtype.is_floating:
-          # Inputs may be TensorSpecs when this function is called from
-          # model._set_inputs.
-          return tensor_spec.TensorSpec(x.shape, compute_dtype, x.name)
-        else:
-          return x
-      return nest.map_structure(f, inputs)
+    should_autocast = (
+        self._autocast and compute_dtype and
+        dtypes.as_dtype(compute_dtype).is_floating)
+
+    if (should_autocast and
+        any(self._should_cast_single_input(x) for x in input_list)):
+      # Only perform expensive `nest` operation when needed.
+      return nest.map_structure(self._cast_single_input, inputs)
     else:
       return inputs
+
+  def _should_cast_single_input(self, x):
+    cast_types = (ops.Tensor, sparse_tensor.SparseTensor,
+                  ragged_tensor.RaggedTensor)
+    return (isinstance(x, cast_types) and x.dtype.is_floating and
+            x.dtype.base_dtype.name != self._compute_dtype)
+
+  def _cast_single_input(self, x):
+    """Cast a single Tensor or TensorSpec to the compute dtype."""
+    if self._should_cast_single_input(x):
+      if self._dtype_defaulted_to_floatx:
+        self._warn_about_input_casting(x.dtype.base_dtype)
+      return math_ops.cast(x, self._compute_dtype)
+    else:
+      return x
 
   def _warn_about_input_casting(self, input_dtype):
     # self._already_warned_about_input_casting is only retrieved or set in this
@@ -2253,47 +2264,45 @@ class Layer(module.Module, version_utils.LayerVersionSelector):
           mean_activity_loss = activity_loss / batch_size
           self.add_loss(mean_activity_loss)
 
-  def _set_mask_metadata(self, inputs, outputs, previous_mask):
+  def _set_mask_metadata(self, inputs, outputs, previous_mask, build_graph):
+    # Many `Layer`s don't need to call `compute_mask`.
+    # This method is optimized to do as little work as needed for the common
+    # case.
+    if not self.supports_masking and not self._compute_mask_overridden:
+      return
+
     flat_outputs = nest.flatten(outputs)
 
     mask_already_computed = (
         getattr(self, '_compute_output_and_mask_jointly', False) or
         all(getattr(x, '_keras_mask', None) is not None for x in flat_outputs))
-
-    # Only compute the mask if the Layer explicitly supports masking or has
-    # overridden `compute_mask`.
-    should_compute_mask = (
-        hasattr(self, 'compute_mask') and
-        (self.supports_masking or
-         not getattr(self.compute_mask, '_is_default', False)))
-
     if mask_already_computed:
-      flat_masks = [getattr(x, '_keras_mask', None) for x in flat_outputs]
-    elif not should_compute_mask:
-      flat_masks = [None for _ in flat_outputs]
-    else:
-      output_masks = self.compute_mask(inputs, previous_mask)
-      # `compute_mask` can return a single `None` even when a Layer
-      # has multiple outputs.
-      if output_masks is None:
-        flat_masks = [None for _ in flat_outputs]
-      else:
-        flat_masks = nest.flatten(output_masks)
+      if build_graph:
+        self._set_mask_keras_history_checked(flat_outputs)
+      return
 
-    for output, mask in zip(flat_outputs, flat_masks):
+    output_masks = self.compute_mask(inputs, previous_mask)
+    if output_masks is None:
+      return
+
+    flat_masks = nest.flatten(output_masks)
+    for tensor, mask in zip(flat_outputs, flat_masks):
       try:
-        output._keras_mask = mask
+        tensor._keras_mask = mask
       except AttributeError:
         # C Type such as np.ndarray.
         pass
 
-    if tf_utils.are_all_symbolic_tensors(flat_outputs):
-      for output in flat_outputs:
-        if getattr(output, '_keras_mask', None) is not None:
-          # Do not track masks for `TensorFlowOpLayer` construction.
-          output._keras_mask._keras_history_checked = True
+    if build_graph:
+      self._set_mask_keras_history_checked(flat_outputs)
 
-  def _collect_input_masks(self, inputs, args, kwargs):
+  def _set_mask_keras_history_checked(self, flat_outputs):
+    for output in flat_outputs:
+      if getattr(output, '_keras_mask', None) is not None:
+        # Do not track masks for `TensorFlowOpLayer` construction.
+        output._keras_mask._keras_history_checked = True
+
+  def _collect_input_masks(self, inputs, input_list, args, kwargs):
     """Checks if `mask` argument was passed, else gathers mask from inputs."""
     if self._call_arg_was_passed('mask', args, kwargs):
       return self._get_call_arg_value('mask', args, kwargs)
@@ -2301,11 +2310,12 @@ class Layer(module.Module, version_utils.LayerVersionSelector):
     if not self._should_compute_mask:
       return None
 
-    input_masks = nest.map_structure(lambda t: getattr(t, '_keras_mask', None),
-                                     inputs)
-    if generic_utils.is_all_none(input_masks):
+    input_masks = [getattr(t, '_keras_mask', None) for t in input_list]
+    if all(mask is None for mask in input_masks):
       return None
-    return input_masks
+
+    # Only do expensive `nest` operation when masking is actually being used.
+    return nest.pack_sequence_as(inputs, input_masks)
 
   def _call_arg_was_passed(self, arg_name, args, kwargs, inputs_in_args=False):
     # Performance optimization: do no work in most common case.
