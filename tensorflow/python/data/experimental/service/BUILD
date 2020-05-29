@@ -42,3 +42,13 @@ tf_py_test(
         "//tensorflow/python:platform_test",
     ],
 )
+
+py_library(
+    name = "service",
+    srcs = ["__init__.py"],
+    srcs_version = "PY2AND3",
+    deps = [
+        ":server_lib",
+        "//tensorflow/python/data/experimental/ops:data_service_ops",
+    ],
+)

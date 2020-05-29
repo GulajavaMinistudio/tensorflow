@@ -5122,8 +5122,6 @@ cuda_py_test(
     srcs = ["ops/nn_test.py"],
     python_version = "PY3",
     tags = ["no_windows"],
-    # TODO(b/130689556): Numerical differences due to fast math on CPU.
-    xla_enable_strict_auto_jit = False,
     deps = [
         ":array_ops",
         ":client_testlib",
@@ -5298,6 +5296,7 @@ py_library(
         ":variable_scope",
         ":variables",
         "//tensorflow/core:protos_all_py",
+        "//tensorflow/python/data/experimental/service:server_lib",
         "//tensorflow/python/data/ops:dataset_ops",
         "//tensorflow/python/distribute:distribute_coordinator_context",
         "//tensorflow/python/distribute:distribute_lib",
