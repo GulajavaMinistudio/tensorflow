@@ -2214,6 +2214,21 @@ py_library(
     ],
 )
 
+py_test(
+    name = "ops/functional_ops_test",
+    srcs = ["ops/functional_ops_test.py"],
+    python_version = "PY3",
+    srcs_version = "PY2AND3",
+    deps = [
+        ":client_testlib",
+        ":dtypes",
+        ":function",
+        ":functional_ops",
+        ":tensor_spec",
+        "//tensorflow/python/eager:def_function",
+    ],
+)
+
 cuda_py_test(
     name = "function_test",
     size = "medium",
@@ -5075,6 +5090,21 @@ cuda_py_test(
         ":math_ops",
         ":platform_test",
         ":variables",
+        "//third_party/py/numpy",
+    ],
+)
+
+cuda_py_test(
+    name = "math_ops_linspace_test",
+    size = "medium",
+    srcs = ["ops/math_ops_linspace_test.py"],
+    python_version = "PY3",
+    tags = ["no_windows_gpu"],
+    deps = [
+        ":framework_for_generated_wrappers",
+        ":framework_test_lib",
+        ":math_ops",
+        ":platform_test",
         "//third_party/py/numpy",
     ],
 )

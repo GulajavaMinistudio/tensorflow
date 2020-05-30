@@ -17,6 +17,8 @@ limitations under the License.
 
 #include "absl/strings/ascii.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/str_replace.h"
+#include "absl/strings/str_split.h"
 #include "tensorflow/lite/delegates/gpu/common/status.h"
 
 namespace tflite {
@@ -36,6 +38,62 @@ std::string GetNextWord(const std::string& code, size_t first_position) {
   }
   return code.substr(first_position, pos - first_position);
 }
+
+size_t FindEnclosingBracket(const std::string& text, size_t first_pos,
+                            char bracket) {
+  const std::map<char, char> brackets = {
+      {'(', ')'},
+      {'{', '}'},
+      {'[', ']'},
+  };
+  char b_open = bracket;
+  auto it = brackets.find(b_open);
+  if (it == brackets.end()) {
+    return -1;
+  }
+  char b_close = it->second;
+  size_t pos = first_pos;
+  int opened = 1;
+  int closed = 0;
+  while (opened != closed && pos < text.size()) {
+    if (text[pos] == b_open) {
+      opened++;
+    } else if (text[pos] == b_close) {
+      closed++;
+    }
+    pos++;
+  }
+  if (opened == closed) {
+    return pos;
+  } else {
+    return -1;
+  }
+}
+
+void ReplaceAllWords(const std::string& old_word, const std::string& new_word,
+                     std::string* str) {
+  size_t position = str->find(old_word);
+  while (position != std::string::npos) {
+    char prev = position == 0 ? '.' : (*str)[position - 1];
+    char next = position + old_word.size() < str->size()
+                    ? (*str)[position + old_word.size()]
+                    : '.';
+    if (IsWordSymbol(prev) || IsWordSymbol(next)) {
+      position = str->find(old_word, position + 1);
+      continue;
+    }
+    str->replace(position, old_word.size(), new_word);
+    position = str->find(old_word, position + new_word.size());
+  }
+}
+
+void AppendArgument(const std::string& arg, std::string* args) {
+  if (!args->empty()) {
+    absl::StrAppend(args, ",\n  ");
+  }
+  absl::StrAppend(args, arg);
+}
+
 }  // namespace
 
 Arguments::Arguments(Arguments&& args)
@@ -45,6 +103,10 @@ Arguments::Arguments(Arguments&& args)
       shared_float4s_data_(std::move(args.shared_float4s_data_)),
       buffers_(std::move(args.buffers_)),
       images2d_(std::move(args.images2d_)),
+      image2d_arrays_(std::move(args.image2d_arrays_)),
+      images3d_(std::move(args.images3d_)),
+      image_buffers_(std::move(args.image_buffers_)),
+      object_refs_(std::move(args.object_refs_)),
       objects_(std::move(args.objects_)) {}
 Arguments& Arguments::operator=(Arguments&& args) {
   if (this != &args) {
@@ -54,6 +116,10 @@ Arguments& Arguments::operator=(Arguments&& args) {
     shared_float4s_data_ = std::move(args.shared_float4s_data_);
     buffers_ = std::move(args.buffers_);
     images2d_ = std::move(args.images2d_);
+    image2d_arrays_ = std::move(args.image2d_arrays_);
+    images3d_ = std::move(args.images3d_);
+    image_buffers_ = std::move(args.image_buffers_);
+    object_refs_ = std::move(args.object_refs_);
     objects_ = std::move(args.objects_);
   }
   return *this;
@@ -74,6 +140,26 @@ void Arguments::AddImage2D(const std::string& name,
   images2d_[name] = desc;
 }
 
+void Arguments::AddImage2DArray(const std::string& name,
+                                const GPUImage2DArrayDescriptor& desc) {
+  image2d_arrays_[name] = desc;
+}
+
+void Arguments::AddImage3D(const std::string& name,
+                           const GPUImage3DDescriptor& desc) {
+  images3d_[name] = desc;
+}
+
+void Arguments::AddImageBuffer(const std::string& name,
+                               const GPUImageBufferDescriptor& desc) {
+  image_buffers_[name] = desc;
+}
+
+void Arguments::AddObjectRef(const std::string& name,
+                             GPUObjectDescriptorPtr&& descriptor_ptr) {
+  object_refs_[name] = {AccessType::READ, std::move(descriptor_ptr)};
+}
+
 void Arguments::AddObject(const std::string& name, GPUObjectPtr&& object) {
   objects_[name] = {AccessType::READ, std::move(object)};
 }
@@ -91,6 +177,15 @@ void Arguments::AddGPUResources(const std::string& name,
   }
   for (const auto& r : resources.images2d) {
     AddImage2D(absl::StrCat(name, "_", r.first), r.second);
+  }
+  for (const auto& r : resources.image2d_arrays) {
+    AddImage2DArray(absl::StrCat(name, "_", r.first), r.second);
+  }
+  for (const auto& r : resources.images3d) {
+    AddImage3D(absl::StrCat(name, "_", r.first), r.second);
+  }
+  for (const auto& r : resources.image_buffers) {
+    AddImageBuffer(absl::StrCat(name, "_", r.first), r.second);
   }
 }
 
@@ -121,12 +216,12 @@ absl::Status Arguments::SetFloat(const std::string& name, float value) {
 }
 
 absl::Status Arguments::SetImage2D(const std::string& name, cl_mem memory) {
-  auto ti = images2d_.find(name);
-  if (ti == images2d_.end()) {
+  auto it = images2d_.find(name);
+  if (it == images2d_.end()) {
     return absl::NotFoundError(
         absl::StrCat("No image2D argument with name - ", name));
   }
-  ti->second.memory = memory;
+  it->second.memory = memory;
   return absl::OkStatus();
 }
 
@@ -138,6 +233,47 @@ absl::Status Arguments::SetBuffer(const std::string& name, cl_mem memory) {
   }
   it->second.memory = memory;
   return absl::OkStatus();
+}
+
+absl::Status Arguments::SetImage2DArray(const std::string& name,
+                                        cl_mem memory) {
+  auto it = image2d_arrays_.find(name);
+  if (it == image2d_arrays_.end()) {
+    return absl::NotFoundError(
+        absl::StrCat("No image2D array argument with name - ", name));
+  }
+  it->second.memory = memory;
+  return absl::OkStatus();
+}
+
+absl::Status Arguments::SetImage3D(const std::string& name, cl_mem memory) {
+  auto it = images3d_.find(name);
+  if (it == images3d_.end()) {
+    return absl::NotFoundError(
+        absl::StrCat("No image3D argument with name - ", name));
+  }
+  it->second.memory = memory;
+  return absl::OkStatus();
+}
+
+absl::Status Arguments::SetImageBuffer(const std::string& name, cl_mem memory) {
+  auto it = image_buffers_.find(name);
+  if (it == image_buffers_.end()) {
+    return absl::NotFoundError(
+        absl::StrCat("No image buffer argument with name - ", name));
+  }
+  it->second.memory = memory;
+  return absl::OkStatus();
+}
+
+absl::Status Arguments::SetObjectRef(const std::string& name,
+                                     const GPUObject* object) {
+  auto it = object_refs_.find(name);
+  if (it == object_refs_.end()) {
+    return absl::NotFoundError(
+        absl::StrCat("No object ref with name - ", name));
+  }
+  return SetGPUResources(name, object->GetGPUResources());
 }
 
 absl::Status Arguments::SetGPUResources(
@@ -154,11 +290,22 @@ absl::Status Arguments::SetGPUResources(
   for (const auto& r : resources.images2d) {
     RETURN_IF_ERROR(SetImage2D(absl::StrCat(name, "_", r.first), r.second));
   }
+  for (const auto& r : resources.image2d_arrays) {
+    RETURN_IF_ERROR(
+        SetImage2DArray(absl::StrCat(name, "_", r.first), r.second));
+  }
+  for (const auto& r : resources.images3d) {
+    RETURN_IF_ERROR(SetImage3D(absl::StrCat(name, "_", r.first), r.second));
+  }
+  for (const auto& r : resources.image_buffers) {
+    RETURN_IF_ERROR(SetImageBuffer(absl::StrCat(name, "_", r.first), r.second));
+  }
   return absl::OkStatus();
 }
 
 absl::Status Arguments::TransformToCLCode(std::string* code) {
   RETURN_IF_ERROR(AddObjectArgs());
+  RETURN_IF_ERROR(ResolveSelectorsPass(code));
   ResolveArgsPass(code);
   return absl::OkStatus();
 }
@@ -168,17 +315,29 @@ std::string Arguments::GetListOfArgs() {
   for (auto& t : buffers_) {
     const std::string type_name =
         t.second.data_type == DataType::FLOAT32 ? "float" : "half";
-    absl::StrAppend(&result, ",\n  __global ", type_name, t.second.element_size,
-                    "* ", t.first);
+    AppendArgument(absl::StrCat("__global ", type_name, t.second.element_size,
+                                "* ", t.first),
+                   &result);
+  }
+  for (auto& t : image_buffers_) {
+    AppendArgument(absl::StrCat("__read_only image1d_buffer_t ", t.first),
+                   &result);
   }
   for (auto& t : images2d_) {
-    absl::StrAppend(&result, ",\n  __read_only image2d_t ", t.first);
+    AppendArgument(absl::StrCat("__read_only image2d_t ", t.first), &result);
+  }
+  for (auto& t : image2d_arrays_) {
+    AppendArgument(absl::StrCat("__read_only image2d_array_t ", t.first),
+                   &result);
+  }
+  for (auto& t : images3d_) {
+    AppendArgument(absl::StrCat("__read_only image3d_t ", t.first), &result);
   }
   for (int i = 0; i < shared_int4s_data_.size() / 4; ++i) {
-    absl::StrAppend(&result, ",\n  int4 shared_int4_", i);
+    AppendArgument(absl::StrCat("int4 shared_int4_", i), &result);
   }
   for (int i = 0; i < shared_float4s_data_.size() / 4; ++i) {
-    absl::StrAppend(&result, ",\n  float4 shared_float4_", i);
+    AppendArgument(absl::StrCat("float4 shared_float4_", i), &result);
   }
   return result;
 }
@@ -194,7 +353,37 @@ absl::Status Arguments::Bind(cl_kernel kernel, int offset) {
     }
     offset++;
   }
+  for (auto& t : image_buffers_) {
+    const int error_code =
+        clSetKernelArg(kernel, offset, sizeof(cl_mem), &t.second.memory);
+    if (error_code != CL_SUCCESS) {
+      return absl::UnknownError(absl::StrCat(
+          "Failed to set kernel arguments - ", CLErrorCodeToString(error_code),
+          "(at index - ", offset, ")"));
+    }
+    offset++;
+  }
   for (auto& t : images2d_) {
+    const int error_code =
+        clSetKernelArg(kernel, offset, sizeof(cl_mem), &t.second.memory);
+    if (error_code != CL_SUCCESS) {
+      return absl::UnknownError(absl::StrCat(
+          "Failed to set kernel arguments - ", CLErrorCodeToString(error_code),
+          "(at index - ", offset, ")"));
+    }
+    offset++;
+  }
+  for (auto& t : image2d_arrays_) {
+    const int error_code =
+        clSetKernelArg(kernel, offset, sizeof(cl_mem), &t.second.memory);
+    if (error_code != CL_SUCCESS) {
+      return absl::UnknownError(absl::StrCat(
+          "Failed to set kernel arguments - ", CLErrorCodeToString(error_code),
+          "(at index - ", offset, ")"));
+    }
+    offset++;
+  }
+  for (auto& t : images3d_) {
     const int error_code =
         clSetKernelArg(kernel, offset, sizeof(cl_mem), &t.second.memory);
     if (error_code != CL_SUCCESS) {
@@ -260,18 +449,17 @@ std::string Arguments::AddActiveArgument(const std::string& arg_name) {
 }
 
 void Arguments::ResolveArgsPass(std::string* code) {
-  constexpr char kPrefix[] = "args.";
   std::string result;
   size_t position = 0;
-  size_t next_position = code->find(kPrefix);
+  size_t next_position = code->find(kArgsPrefix);
   while (next_position != std::string::npos) {
     size_t arg_pos = next_position;
-    next_position += strlen(kPrefix);
+    next_position += strlen(kArgsPrefix);
     std::string object_name = GetNextWord(*code, next_position);
     std::string new_name = AddActiveArgument(object_name);
-    code->replace(arg_pos, object_name.size() + strlen(kPrefix), new_name);
+    code->replace(arg_pos, object_name.size() + strlen(kArgsPrefix), new_name);
     position = arg_pos + new_name.size();
-    next_position = code->find(kPrefix, position);
+    next_position = code->find(kArgsPrefix, position);
   }
 
   int shared_int4s_aligned_size = AlignByN(shared_int4s_data_.size(), 4);
@@ -280,12 +468,95 @@ void Arguments::ResolveArgsPass(std::string* code) {
   shared_float4s_data_.resize(shared_float4s_aligned_size);
 }
 
+void Arguments::ResolveObjectNames(const std::string& object_name,
+                                   const std::vector<std::string>& member_names,
+                                   std::string* code) {
+  for (const auto& member_name : member_names) {
+    const std::string new_name = kArgsPrefix + object_name + "_" + member_name;
+    ReplaceAllWords(member_name, new_name, code);
+  }
+}
+
+absl::Status Arguments::ResolveSelector(const std::string& object_name,
+                                        const std::string& selector,
+                                        const std::vector<std::string>& args,
+                                        std::string* result) {
+  const GPUObjectDescriptor* desc_ptr;
+  AccessType access_type;
+  if (auto it = object_refs_.find(object_name); it != object_refs_.end()) {
+    desc_ptr = it->second.descriptor.get();
+    access_type = it->second.access_type;
+  } else if (auto it = objects_.find(object_name); it != objects_.end()) {
+    desc_ptr = it->second.obj_ptr->GetGPUDescriptor();
+    access_type = it->second.access_type;
+  } else {
+    return absl::NotFoundError(
+        absl::StrCat("No object with name - ", object_name));
+  }
+  RETURN_IF_ERROR(desc_ptr->PerformSelector(selector, args, result));
+  auto names = desc_ptr->GetGPUResources().GetNames();
+  ResolveObjectNames(object_name, names, result);
+  return absl::OkStatus();
+}
+
+absl::Status Arguments::ResolveSelectorsPass(std::string* code) {
+  std::string result;
+  size_t position = 0;
+  size_t next_position = code->find(kArgsPrefix);
+  while (next_position != std::string::npos) {
+    size_t arg_pos = next_position;
+    next_position += strlen(kArgsPrefix);
+    std::string object_name = GetNextWord(*code, next_position);
+    char next = (*code)[next_position + object_name.size()];
+    if (next == '.') {
+      next_position += object_name.size() + 1;
+      std::string selector_name = GetNextWord(*code, next_position);
+      next_position += selector_name.size();
+      next = (*code)[next_position];
+      if (next != '(') {
+        return absl::NotFoundError(
+            absl::StrCat("Expected ( after function ", selector_name, " call"));
+      }
+      next_position += 1;
+      size_t bracket_pos = FindEnclosingBracket(*code, next_position, '(');
+      if (bracket_pos == -1) {
+        return absl::NotFoundError(
+            absl::StrCat("Not found enclosing bracket for function ",
+                         selector_name, " call"));
+      }
+      std::string str_args =
+          code->substr(next_position, bracket_pos - next_position - 1);
+      std::vector<absl::string_view> words = absl::StrSplit(str_args, ',');
+      std::vector<std::string> args;
+      args.reserve(words.size());
+      for (const auto& word : words) {
+        absl::string_view arg = absl::StripAsciiWhitespace(word);
+        if (!arg.empty()) {
+          args.push_back(std::string(arg));
+        }
+      }
+      std::string patch;
+      RETURN_IF_ERROR(
+          ResolveSelector(object_name, selector_name, args, &patch));
+      code->replace(arg_pos, bracket_pos - arg_pos, patch);
+      position = arg_pos + patch.size();
+    } else {
+      position = arg_pos + strlen(kArgsPrefix);
+    }
+    next_position = code->find(kArgsPrefix, position);
+  }
+  return absl::OkStatus();
+}
+
 absl::Status Arguments::AddObjectArgs() {
   for (auto& t : objects_) {
     AddGPUResources(t.first,
                     t.second.obj_ptr->GetGPUDescriptor()->GetGPUResources());
     RETURN_IF_ERROR(
         SetGPUResources(t.first, t.second.obj_ptr->GetGPUResources()));
+  }
+  for (auto& t : object_refs_) {
+    AddGPUResources(t.first, t.second.descriptor->GetGPUResources());
   }
   return absl::OkStatus();
 }
