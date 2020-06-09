@@ -13,24 +13,16 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef TENSORFLOW_CORE_PROFILER_UTILS_ERRORS_H_
-#define TENSORFLOW_CORE_PROFILER_UTILS_ERRORS_H_
+#ifndef TENSORFLOW_COMPILER_MLIR_XLA_IR_INFER_FUSIBILITY_OP_INTERFACE_H_
+#define TENSORFLOW_COMPILER_MLIR_XLA_IR_INFER_FUSIBILITY_OP_INTERFACE_H_
 
-#include "absl/strings/string_view.h"
+#include "mlir/IR/OpDefinition.h"
+#include "mlir/IR/StandardTypes.h"
 
-namespace tensorflow {
-namespace profiler {
+namespace mlir {
 
-// Error message that the visualization is based on incomplete step.
-ABSL_CONST_INIT extern const absl::string_view kErrorIncompleteStep;
+#include "tensorflow/compiler/mlir/xla/ir/infer_fusibility_op_interface.h.inc"
 
-// Error message that no step marker is seen and visualization contains no
-// step info.
-ABSL_CONST_INIT extern const absl::string_view kErrorNoStepMarker;
+}  // namespace mlir
 
-ABSL_CONST_INIT extern const absl::string_view kNoDeviceTraceCollected;
-
-}  // namespace profiler
-}  // namespace tensorflow
-
-#endif  // TENSORFLOW_CORE_PROFILER_UTILS_ERRORS_H_
+#endif  // TENSORFLOW_COMPILER_MLIR_XLA_IR_INFER_FUSIBILITY_OP_INTERFACE_H_
