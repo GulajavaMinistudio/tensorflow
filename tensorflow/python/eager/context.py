@@ -427,7 +427,7 @@ class Context(object):
       raise ValueError(
           "execution_mode should be None/SYNC/ASYNC. Got %s" % execution_mode)
     if execution_mode is None:
-      execution_mode = SYNC
+      execution_mode = ASYNC if is_tfrt_enabled() else SYNC
     self._default_is_async = execution_mode == ASYNC
     self._lazy_remote_inputs_copy = None
     self._use_tfrt = is_tfrt_enabled()
@@ -1877,9 +1877,8 @@ def executing_eagerly():
   True
   False
 
-  Inside `tf.function` after
+  Inside `tf.function` after `tf.config.run_functions_eagerly(True)` is called:
 
-  `tf.config.run_functions_eagerly(True)` is called:
   >>> tf.config.run_functions_eagerly(True)
   >>> @tf.function
   ... def fn():

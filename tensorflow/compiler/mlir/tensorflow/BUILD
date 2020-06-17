@@ -398,6 +398,73 @@ cc_library(
 )
 
 cc_library(
+    name = "lift_variables_lib",
+    srcs = [
+        "transforms/lift_variables.cc",
+    ],
+    hdrs = [
+        "transforms/lift_variables.h",
+    ],
+    deps = [
+        ":convert_tensor",
+        ":tensorflow",
+        "//tensorflow/core:core_cpu",
+        "//tensorflow/core:core_cpu_lib",
+        "//tensorflow/core:framework",
+        "//tensorflow/core:framework_internal",
+        "//tensorflow/core:lib",
+        "//tensorflow/core/platform:errors",
+        "//tensorflow/core/platform:threadpool_options",
+        "@llvm-project//llvm:Support",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Pass",
+        "@llvm-project//mlir:Support",
+    ],
+    alwayslink = 1,
+)
+
+cc_library(
+    name = "lift_variables_pass",
+    hdrs = [
+        "transforms/lift_variables_pass.h",
+    ],
+    deps = [
+        ":lift_variables_lib",
+        ":tensorflow",
+        "//tensorflow/core:core_cpu",
+        "//tensorflow/core:framework",
+        "//tensorflow/core:framework_internal",
+        "//tensorflow/core:lib",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Pass",
+        "@llvm-project//mlir:Support",
+    ],
+    alwayslink = 1,
+)
+
+cc_library(
+    name = "lift_variables_test_pass",
+    hdrs = [
+        "transforms/lift_variables_test_pass.h",
+    ],
+    deps = [
+        ":lift_variables_lib",
+        ":tensorflow",
+        "//tensorflow/core:core_cpu",
+        "//tensorflow/core:core_cpu_lib",
+        "//tensorflow/core:framework",
+        "//tensorflow/core:framework_internal",
+        "//tensorflow/core:lib",
+        "//tensorflow/core/platform:errors",
+        "//tensorflow/core/platform:status",
+        "//tensorflow/core/platform:threadpool_options",
+        "@llvm-project//mlir:Pass",
+        "@llvm-project//mlir:Support",
+    ],
+    alwayslink = 1,
+)
+
+cc_library(
     name = "tensorflow_passes",
     srcs = [
         "transforms/annotate_parameter_replication.cc",
@@ -416,6 +483,7 @@ cc_library(
         "transforms/fold_switch.cc",
         "transforms/freeze_global_tensors.cc",
         "transforms/functional_control_flow_to_cfg.cc",
+        "transforms/functional_control_flow_to_regions.cc",
         "transforms/fused_kernel_matcher.cc",
         "transforms/generated_canonicalize.inc",
         "transforms/generated_optimize.inc",
@@ -430,6 +498,7 @@ cc_library(
         "transforms/parallel_execute_to_islands.cc",
         "transforms/promote_resources_to_args.cc",
         "transforms/readonly_references_to_resources.cc",
+        "transforms/region_control_flow_to_functional.cc",
         "transforms/replicate_invariant_op_hoisting.cc",
         "transforms/replicate_to_island.cc",
         "transforms/resource_device_inference.cc",
@@ -487,6 +556,7 @@ cc_library(
         ":translate_utils",
         ":unroll_batch_matmul_pass",
         ":xla_sharding_util",
+        "//tensorflow/compiler/mlir:op_or_arg_name_mapper",
         "//tensorflow/compiler/mlir/lite:validators",
         "//tensorflow/compiler/xla:xla_data_proto_cc",
         "//tensorflow/compiler/xla:xla_proto_cc",
@@ -517,9 +587,11 @@ cc_library(
 cc_library(
     name = "tensorflow_test_passes",
     srcs = [
+        "transforms/lift_variables_test_pass_registration.cc",
         "transforms/lower_tf_pass.cc",
     ],
     deps = [
+        ":lift_variables_test_pass",
         ":lower_tf_lib",
         "@llvm-project//mlir:IR",
         "@llvm-project//mlir:Pass",
