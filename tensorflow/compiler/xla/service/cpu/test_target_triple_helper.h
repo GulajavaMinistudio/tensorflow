@@ -1,4 +1,4 @@
-/* Copyright 2018 The TensorFlow Authors. All Rights Reserved.
+/* Copyright 2020 The TensorFlow Authors. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -13,17 +13,16 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "tensorflow/core/kernels/cwise_ops_common.h"
+#ifndef TENSORFLOW_TEST_TARGET_TRIPLE_HELPER_H_
+#define TENSORFLOW_TEST_TARGET_TRIPLE_HELPER_H_
 
-namespace tensorflow {
-REGISTER3(UnaryOp, CPU, "BesselI0e", functor::bessel_i0e, Eigen::half, float,
-          double);
-REGISTER3(UnaryOp, CPU, "BesselI1e", functor::bessel_i1e, Eigen::half, float,
-          double);
-#if GOOGLE_CUDA || TENSORFLOW_USE_ROCM
-REGISTER3(UnaryOp, GPU, "BesselI0e", functor::bessel_i0e, Eigen::half, float,
-          double);
-REGISTER3(UnaryOp, GPU, "BesselI1e", functor::bessel_i1e, Eigen::half, float,
-          double);
+#if (defined(__powerpc__) || \
+     defined(__ppc__) && (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__))
+static const char kTargetCpuForHost[] = "ppc";
+static const char kTargetTripleForHost[] = "ppc64le-ibm-linux-gnu";
+#else
+static const char kTargetCpuForHost[] = "";
+static const char kTargetTripleForHost[] = "x86_64-pc-linux";
 #endif
-}  // namespace tensorflow
+
+#endif
