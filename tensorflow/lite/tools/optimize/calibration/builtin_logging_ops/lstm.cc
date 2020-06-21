@@ -62,11 +62,16 @@ inline void LstmStepWithAuxInput(
     const float* projection_weights_ptr, const float* projection_bias_ptr,
     const TfLiteLSTMParams* params, int n_batch, int n_cell, int n_input,
     int n_aux_input, int n_output, int output_batch_leading_dim,
-    float* output_state_ptr, float* cell_state_ptr, float* input_gate_scratch,
-    float* forget_gate_scratch, float* cell_gate_scratch,
-    float* output_gate_scratch, float* output_ptr, Logger* logger,
-    const std::vector<int>& intermediate_tensor_indexes,
+    float* output_state_ptr, float* cell_state_ptr, float* scratch0,
+    float* scratch1, float* scratch2, float* scratch3, float* output_ptr,
+    Logger* logger, const std::vector<int>& intermediate_tensor_indexes,
     ErrorReporter* error_reporter) {
+  // Make named scratch buffers for the different gates.
+  float* input_gate_scratch = scratch0;
+  float* forget_gate_scratch = scratch1;
+  float* cell_gate_scratch = scratch2;
+  float* output_gate_scratch = scratch3;
+
   // Since we have already checked that weights are all there or none, we can
   // check the existence of only one to the get the condition.
   const bool use_cifg = (input_to_input_weights_ptr == nullptr);
@@ -299,7 +304,7 @@ TfLiteStatus EvalFloat(
     const TfLiteTensor* aux_input_to_cell_weights,
     const TfLiteTensor* aux_input_to_output_weights,
     const TfLiteTensor* input_gate_bias, const TfLiteTensor* forget_gate_bias,
-    const TfLiteTensor* cell_bias, const TfLiteTensor* output_gate_bias,
+    const TfLiteTensor* cell_gate_bias, const TfLiteTensor* output_gate_bias,
     const TfLiteTensor* projection_weights, const TfLiteTensor* projection_bias,
     const TfLiteLSTMParams* params, bool forward_sequence, bool time_major,
     int output_offset, TfLiteTensor* scratch_buffer, TfLiteTensor* output_state,
@@ -384,7 +389,7 @@ TfLiteStatus EvalFloat(
           GetTensorData<float>(output_layer_norm_coefficients),
           GetTensorData<float>(input_gate_bias),
           GetTensorData<float>(forget_gate_bias),
-          GetTensorData<float>(cell_bias),
+          GetTensorData<float>(cell_gate_bias),
           GetTensorData<float>(output_gate_bias),
           GetTensorData<float>(projection_weights),
           GetTensorData<float>(projection_bias), params, n_batch, n_cell,
@@ -446,7 +451,7 @@ TfLiteStatus EvalFloat(
             GetTensorData<float>(output_layer_norm_coefficients),
             GetTensorData<float>(input_gate_bias),
             GetTensorData<float>(forget_gate_bias),
-            GetTensorData<float>(cell_bias),
+            GetTensorData<float>(cell_gate_bias),
             GetTensorData<float>(output_gate_bias),
             GetTensorData<float>(projection_weights),
             GetTensorData<float>(projection_bias), params, /*n_batch=*/1,
@@ -527,7 +532,7 @@ TfLiteStatus lstm_eval(TfLiteContext* context, TfLiteNode* node, Logger* logger,
       context, node, ops::builtin::lstm::full::kInputGateBiasTensor);
   const TfLiteTensor* forget_gate_bias =
       GetInput(context, node, ops::builtin::lstm::full::kForgetGateBiasTensor);
-  const TfLiteTensor* cell_bias =
+  const TfLiteTensor* cell_gate_bias =
       GetInput(context, node, ops::builtin::lstm::full::kCellGateBiasTensor);
   const TfLiteTensor* output_gate_bias =
       GetInput(context, node, ops::builtin::lstm::full::kOutputGateBiasTensor);
@@ -570,8 +575,9 @@ TfLiteStatus lstm_eval(TfLiteContext* context, TfLiteNode* node, Logger* logger,
           /*aux_input_to_forget_weights=*/nullptr,
           /*aux_input_to_cell_weights=*/nullptr,
           /*aux_input_to_output_weights=*/nullptr, input_gate_bias,
-          forget_gate_bias, cell_bias, output_gate_bias, projection_weights,
-          projection_bias, params, /*forward_sequence=*/true,
+          forget_gate_bias, cell_gate_bias, output_gate_bias,
+          projection_weights, projection_bias, params,
+          /*forward_sequence=*/true,
           /*time_major=*/true,
           /*output_offset=*/0, scratch_buffer, output_state, cell_state, output,
           logger, intermediate_tensor_indexes, error_reporter);

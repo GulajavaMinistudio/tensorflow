@@ -353,7 +353,7 @@ Status TpuCompileOpKernelCommon::CompileTFFunctionToHlo(
     return;
   }
 
-  LogAndExit(42);
+  std::exit(42);
 }
 
 /* static */ Status TpuCompileOpKernelCommon::GetDynamicShapes(

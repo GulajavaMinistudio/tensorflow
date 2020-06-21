@@ -3,6 +3,10 @@ load(
     "//tensorflow/core/platform:build_config.bzl",
     "tf_proto_library_cc",
 )
+load(
+    "//tensorflow:tensorflow.bzl",
+    "tf_kernel_library",
+)
 
 package(
     default_visibility = [
@@ -10,6 +14,12 @@ package(
         "//tensorflow/stream_executor/tpu:__subpackages__",
     ],
     licenses = ["notice"],  # Apache 2.0
+)
+
+tf_kernel_library(
+    name = "kernels",
+    visibility = ["//visibility:public"],
+    deps = [":tpu_configuration_ops"],
 )
 
 cc_library(
@@ -50,7 +60,7 @@ cc_library(
     hdrs = ["tpu_compile_op_options.h"],
 )
 
-cc_library(
+tf_kernel_library(
     name = "tpu_configuration_ops",
     srcs = ["tpu_configuration_ops.cc"],
     hdrs = ["tpu_configuration_ops.h"],
@@ -75,12 +85,13 @@ cc_library(
     name = "tpu_compile_c_api_hdrs",
     hdrs = ["tpu_compile_c_api.h"],
     deps = [
-        ":tpu_mesh_state_c_api",
+        ":tpu_mesh_state_c_api_hdrs",
         ":tpu_ops_common_c_api_hdrs",
         ":tpu_program_c_api_hdrs",
-        "//tensorflow/c:tf_datatype",
+        "//tensorflow/core/tpu:libtftpu_header",
         "//tensorflow/stream_executor/tpu:proto_helper",
     ],
+    alwayslink = True,
 )
 
 tf_proto_library_cc(
@@ -197,8 +208,10 @@ cc_library(
 )
 
 cc_library(
-    name = "tpu_mesh_state_c_api",
+    name = "tpu_mesh_state_c_api_hdrs",
     hdrs = ["tpu_mesh_state_c_api.h"],
+    deps = ["//tensorflow/core/tpu:libtftpu_header"],
+    alwayslink = True,
 )
 
 cc_library(
@@ -207,12 +220,11 @@ cc_library(
     hdrs = ["tpu_mesh_state_interface.h"],
     deps = [
         ":tpu_compile_c_api_hdrs",
-        ":tpu_mesh_state_c_api",
+        ":tpu_mesh_state_c_api_hdrs",
         "//tensorflow/compiler/xla/service",
         "//tensorflow/core:framework",
-        "//tensorflow/core/platform:errors",
         "//tensorflow/core/protobuf/tpu:compile_metadata_proto_cc",
-        "//tensorflow/core/tpu:tpu_config_c_api",
+        "//tensorflow/core/tpu:tpu_library_loader",
     ],
 )
 
@@ -309,6 +321,7 @@ cc_library(
         ":tpu_compile_c_api_hdrs",
         ":tpu_compile_op_support",
         ":tpu_mesh_state_interface",
+        ":tpu_op_consts",
         ":tpu_program_group",
         ":tpu_util",
         ":trace_util_hdrs",
@@ -371,13 +384,16 @@ cc_library(
     name = "tpu_util_c_api_hdrs",
     hdrs = ["tpu_util_c_api.h"],
     deps = [
+        "//tensorflow/core/tpu:libtftpu_header",
         "//tensorflow/stream_executor/tpu:proto_helper",
     ],
+    alwayslink = True,
 )
 
 cc_library(
     name = "tpu_ops_common_c_api_hdrs",
     hdrs = ["tpu_ops_common_c_api.h"],
+    alwayslink = True,
 )
 
 cc_library(
@@ -386,6 +402,23 @@ cc_library(
     deps = [
         ":tpu_ops_common_c_api_hdrs",
         "//tensorflow/stream_executor/tpu:proto_helper",
+    ],
+    alwayslink = True,
+)
+
+cc_library(
+    name = "tpu_op_util",
+    srcs = ["tpu_op_util.cc"],
+    hdrs = ["tpu_op_util.h"],
+    deps = [
+        ":tpu_compilation_cache_key",
+        ":tpu_compile_c_api_hdrs",
+        ":tpu_mesh_state_interface",
+        "//tensorflow/compiler/xla:xla_data_proto_cc",
+        "//tensorflow/core:framework",
+        "//tensorflow/core:lib",
+        "//tensorflow/core/protobuf/tpu:compile_metadata_proto_cc",
+        "@com_google_absl//absl/strings",
     ],
 )
 
@@ -401,7 +434,6 @@ cc_library(
         "//tensorflow/compiler/xla/client:compile_only_client",
         "//tensorflow/core:lib",
         "//tensorflow/core:protos_all_cc",
-        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
     ],
     alwayslink = 1,
@@ -417,4 +449,24 @@ cc_library(
     name = "tpu_compile_op_hdrs",
     hdrs = ["tpu_compile_op.h"],
     deps = ["//tensorflow/core:framework"],
+)
+
+cc_library(
+    name = "tpu_compilation_cache_entry_unloader",
+    hdrs = ["tpu_compilation_cache_entry_unloader.h"],
+    deps = [
+        ":tpu_compilation_cache_interface",
+        "//tensorflow/core:framework",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/synchronization",
+    ],
+)
+
+cc_library(
+    name = "tpu_op_consts",
+    srcs = ["tpu_op_consts.cc"],
+    hdrs = ["tpu_op_consts.h"],
+    deps = [
+        "@com_google_absl//absl/base:core_headers",
+    ],
 )
