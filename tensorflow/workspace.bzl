@@ -710,8 +710,8 @@ def tf_repositories(path_prefix = "", tf_repo_name = ""):
     )
 
     # Check out LLVM and MLIR from llvm-project.
-    LLVM_COMMIT = "7f0d7f32631648acf48bc23047635ab5e2058a1a"
-    LLVM_SHA256 = "2f1dbae231b3b8f9c67d6a4f578c8ce29f3aa2831313b34c40ff2edb4014476a"
+    LLVM_COMMIT = "7e825abd5704ce28b166f9463d4bd304348fd2a9"
+    LLVM_SHA256 = "a21b752ee1866e195f3f72c7931c79f8c4ecc0f14861488284bdc2bdf14d6fe9"
     LLVM_URLS = [
         "https://storage.googleapis.com/mirror.tensorflow.org/github.com/llvm/llvm-project/archive/{commit}.tar.gz".format(commit = LLVM_COMMIT),
         "https://github.com/llvm/llvm-project/archive/{commit}.tar.gz".format(commit = LLVM_COMMIT),
@@ -802,11 +802,11 @@ def tf_repositories(path_prefix = "", tf_repo_name = ""):
         name = "nccl_archive",
         build_file = clean_dep("//third_party:nccl/archive.BUILD"),
         patch_file = clean_dep("//third_party/nccl:archive.patch"),
-        sha256 = "7ff66aca18392b162829612e02c00b123a58ec35869334f72d7e5afaf5ea4a13",
-        strip_prefix = "nccl-3701130b3c1bcdb01c14b3cb70fe52498c1e82b7",
+        sha256 = "67e15ce3d12ba9ea1e0cb239599202b0f61c146149699341043c072de388e90a",
+        strip_prefix = "nccl-5949d96f36d050e59d05872f8bbffd2549318e95",
         urls = [
-            "https://storage.googleapis.com/mirror.tensorflow.org/github.com/nvidia/nccl/archive/3701130b3c1bcdb01c14b3cb70fe52498c1e82b7.tar.gz",
-            "https://github.com/nvidia/nccl/archive/3701130b3c1bcdb01c14b3cb70fe52498c1e82b7.tar.gz",
+            "https://storage.googleapis.com/mirror.tensorflow.org/github.com/nvidia/nccl/archive/5949d96f36d050e59d05872f8bbffd2549318e95.tar.gz",
+            "https://github.com/nvidia/nccl/archive/5949d96f36d050e59d05872f8bbffd2549318e95.tar.gz",
         ],
     )
 
