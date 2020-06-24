@@ -12,9 +12,17 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
-#ifndef TENSORFLOW_CORE_TPU_KERNELS_TPU_OPS_COMMON_C_API_H_
-#define TENSORFLOW_CORE_TPU_KERNELS_TPU_OPS_COMMON_C_API_H_
 
-typedef struct SE_Status SE_Status;
+#if GOOGLE_CUDA
+#define EIGEN_USE_GPU
 
-#endif  // TENSORFLOW_CORE_TPU_KERNELS_TPU_OPS_COMMON_C_API_H_
+#include "tensorflow/core/kernels/topk_op.h"
+#include "tensorflow/core/kernels/topk_op_gpu.h"
+
+namespace tensorflow {
+using Eigen::GpuDevice;
+
+template struct functor::TopKFunctor<GPUDevice, uint32>;
+}  // namespace tensorflow
+
+#endif  // GOOGLE_CUDA

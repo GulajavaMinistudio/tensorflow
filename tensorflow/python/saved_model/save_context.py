@@ -12,21 +12,45 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""An accessor class for numpy_ops contents."""
+"""Context for building SavedModel."""
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from tensorflow.python.ops import numpy_ops
+import contextlib
+import threading
 
 
-class Numpy:
-  """An accessor class that forwards attribute accesses to module `numpy_ops`.
-  """
+class SaveContext(threading.local):
+  """A context for building a graph of SavedModel."""
 
-  def __getattr__(self, attr):
-    return getattr(numpy_ops, attr)
+  def __init__(self):
+    super(SaveContext, self).__init__()
+    self._in_save_context = False
+
+  def enter_save_context(self):
+    self._in_save_context = True
+
+  def exit_save_context(self):
+    self._in_save_context = False
+
+  def in_save_context(self):
+    return self._in_save_context
+
+_save_context = SaveContext()
 
 
-numpy = Numpy()
+@contextlib.contextmanager
+def save_context():
+  _save_context.enter_save_context()
+  try:
+    yield
+  finally:
+    _save_context.exit_save_context()
+
+
+def in_save_context():
+  """Returns whether under a save context."""
+  return _save_context.in_save_context()
+

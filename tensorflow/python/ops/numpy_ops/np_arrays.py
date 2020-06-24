@@ -82,10 +82,10 @@ class NdarraySpec(type_spec.BatchableTypeSpec):
     return (self._data_spec,)
 
   def _batch(self, batch_size):
-    return NdarraySpec(self._data_spec.batch(batch_size))
+    return NdarraySpec(self._data_spec._batch(batch_size))  # pylint: disable=protected-access
 
   def _unbatch(self):
-    return NdarraySpec(self._data_spec.unbatch())
+    return NdarraySpec(self._data_spec._unbatch())  # pylint: disable=protected-access
 
 
 class ndarray(composite_tensor.CompositeTensor):  # pylint: disable=invalid-name
@@ -141,13 +141,12 @@ class ndarray(composite_tensor.CompositeTensor):  # pylint: disable=invalid-name
         raise ValueError('Unexpected type for `buffer` {}. Must be an ndarray,'
                          ' Tensor or np.ndarray.'.format(type(buffer)))
 
-      if shape is not None and tuple(shape) != buffer._shape_tuple():  # pylint: disable=protected-access
-        # TODO(srbs): NumPy allows this. Investigate if/how to support this.
-        raise ValueError('shape arg must match buffer.shape.')
+      if shape is not None:
+        buffer.set_shape(shape)
 
     assert isinstance(buffer, ops.Tensor)
     if dtype and dtype != buffer.dtype:
-      buffer = array_ops.bitcast(buffer, dtype)
+      buffer = math_ops.cast(buffer, dtype)
     self._data = buffer
     self._type_spec_internal = None
 
@@ -295,7 +294,7 @@ class ndarray(composite_tensor.CompositeTensor):  # pylint: disable=invalid-name
     # TODO(wangpeng): Handle graph mode
     if not isinstance(self.data, ops.EagerTensor):
       raise TypeError('Indexing using symbolic tensor is not allowed')
-    return np.asscalar(self.data.numpy())
+    return self.data.numpy().item()
 
   def tolist(self):
     return self.data.numpy().tolist()

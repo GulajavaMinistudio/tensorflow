@@ -1490,6 +1490,7 @@ class ConcreteFunction(object):
     structured_outputs = self._func_graph.structured_outputs
     self._ndarrays_list = (
         isinstance(structured_outputs, (list, tuple)) and
+        structured_outputs and
         all([isinstance(o, np_arrays.ndarray) for o in structured_outputs]))
     self._ndarray_singleton = isinstance(structured_outputs, np_arrays.ndarray)
 

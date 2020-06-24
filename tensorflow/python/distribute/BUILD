@@ -204,6 +204,7 @@ py_test(
         "//tensorflow/python:variables",
         "//tensorflow/python/autograph/core:test_lib",
         "//tensorflow/python/data/ops:dataset_ops",
+        "//tensorflow/python/distribute/cluster_resolver:cluster_resolver_lib",
         "//third_party/py/numpy",
     ],
 )
@@ -750,6 +751,7 @@ py_library(
         "//tensorflow/python:variable_scope",
         "//tensorflow/python:variables",
         "//tensorflow/python/eager:context",
+        "//tensorflow/python/saved_model:save_context",
         "//tensorflow/python/training/saving:saveable_object",
         "//tensorflow/python/training/saving:saveable_object_util",
         "//tensorflow/python/training/tracking:base",
@@ -1170,6 +1172,7 @@ distribute_py_test(
         "//tensorflow/python/eager:context",
         "//tensorflow/python/eager:def_function",
         "//tensorflow/python/eager:test",
+        "//tensorflow/python/saved_model:save_context",
         "//tensorflow/python/saved_model/model_utils:mode_keys",
         "//tensorflow/python/tpu:tpu_lib",
         "//tensorflow/python/types",
@@ -1260,28 +1263,6 @@ distribute_py_test(
     main = "custom_training_loop_metrics_test.py",
     tags = [
         "multi_and_single_gpu",
-    ],
-    deps = [
-        ":combinations",
-        ":strategy_combinations",
-        "//tensorflow/python:errors",
-        "//tensorflow/python:variables",
-        "//tensorflow/python/data/ops:dataset_ops",
-        "//tensorflow/python/eager:test",
-        "//tensorflow/python/keras",
-        "@absl_py//absl/testing:parameterized",
-    ],
-)
-
-distribute_py_test(
-    name = "custom_training_loop_models_test",
-    srcs = ["custom_training_loop_models_test.py"],
-    main = "custom_training_loop_models_test.py",
-    tags = [
-        "multi_and_single_gpu",
-    ],
-    tpu_tags = [
-        "no_oss",  # b/153615544.
     ],
     deps = [
         ":combinations",
@@ -1794,7 +1775,7 @@ py_test(
     name = "multi_process_runner_test",
     srcs = ["multi_process_runner_test.py"],
     python_version = "PY3",
-    tags = ["notsan"],  # TODO(b/158874970)
+    shard_count = 12,
     deps = [
         ":multi_process_runner",
         ":multi_worker_test_base",
@@ -1847,10 +1828,11 @@ py_test(
     ],
 )
 
-cuda_py_test(
+distribute_py_test(
     name = "strategy_common_test",
     srcs = ["strategy_common_test.py"],
     python_version = "PY3",
+    shard_count = 12,
     tags = [
         "multi_and_single_gpu",
         # TODO(b/155301154): Enable this test on multi-gpu guitar once multi process
@@ -1859,6 +1841,7 @@ cuda_py_test(
     ],
     xla_enable_strict_auto_jit = True,
     deps = [
+        ":collective_all_reduce_strategy",
         ":combinations",
         ":multi_worker_test_base",
         ":reduce_util",
