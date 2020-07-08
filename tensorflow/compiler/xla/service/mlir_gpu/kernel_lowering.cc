@@ -52,8 +52,8 @@ limitations under the License.
 #include "mlir/Transforms/Passes.h"  // from @llvm-project
 #include "mlir/Transforms/RegionUtils.h"  // from @llvm-project
 #include "tensorflow/compiler/mlir/hlo/include/mlir-hlo/Dialect/mhlo/IR/lhlo_ops.h"
-#include "tensorflow/compiler/mlir/xla/transforms/passes.h"
-#include "tensorflow/compiler/mlir/xla/transforms/rewriters.h"
+#include "tensorflow/compiler/mlir/hlo/include/mlir-hlo/Dialect/mhlo/transforms/passes.h"
+#include "tensorflow/compiler/mlir/hlo/include/mlir-hlo/Dialect/mhlo/transforms/rewriters.h"
 #include "tensorflow/compiler/xla/util.h"
 
 namespace xla {
@@ -392,7 +392,7 @@ struct RewriteKernelSignature
   }
 };
 
-// Extract_element(xla_hlo_scalars_to_dimension_tensor(v_i), i) -> v_i
+// Extract_element(mhlo_scalars_to_dimension_tensor(v_i), i) -> v_i
 //
 // We need to direct fusion to the inner loops. This cannot be done with
 // a passmanager alone ATM, as nested pass managers require operations to
@@ -457,7 +457,7 @@ Status LowerLHLOToGPU(mlir::ModuleOp module, LowerLHLOToGPUOptions options) {
   }
 
   // Legalize from HLO to LHLO.
-  pm.addPass(::mlir::xla_hlo::createLegalizeToLhloPass());
+  pm.addPass(::mlir::mhlo::createLegalizeToLhloPass());
   // Moving `AllocOp`s and inserting missing `DeallocOp`s
   pm.addPass(::mlir::createBufferPlacementPass());
   // Next, we can strip the outer fusion operation.
