@@ -12,18 +12,19 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
+#ifndef TENSORFLOW_LITE_DELEGATES_FLEX_ALLOWLISTED_FLEX_OPS_INTERNAL_H_
+#define TENSORFLOW_LITE_DELEGATES_FLEX_ALLOWLISTED_FLEX_OPS_INTERNAL_H_
 
-#include "tensorflow/core/common_runtime/optimization_registry.h"
-#include "tensorflow/core/tpu/graph_rewrite/distributed_tpu_configuration_rewrite_pass.h"
+#include <set>
+#include <string>
 
-namespace tensorflow {
-namespace {
+namespace tflite {
+namespace flex {
 
-// This pass removes the TPUEmbeddingConfiguration in ConfigureDistributedTPU.
-REGISTER_OPTIMIZATION(OptimizationPassRegistry::PRE_PLACEMENT, 20,
-                      DistributedTPUConfigurationRewritePass);
-REGISTER_OPTIMIZATION(OptimizationPassRegistry::PRE_PLACEMENT, 20,
-                      DistributedTPUShutdownRewritePass);
+// Return the list of allowlisted flex ops.
+const std::set<std::string>& GetFlexAllowlist();
 
-}  // namespace
-}  // namespace tensorflow
+}  // namespace flex
+}  // namespace tflite
+
+#endif  // TENSORFLOW_LITE_DELEGATES_FLEX_ALLOWLISTED_FLEX_OPS_INTERNAL_H_
