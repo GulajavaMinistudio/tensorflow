@@ -14988,9 +14988,8 @@ func MatrixInverseAdjoint(value bool) MatrixInverseAttr {
 	}
 }
 
-// Computes the inverse of one or more square invertible matrices or their
+// Computes the inverse of one or more square invertible matrices or their adjoints (conjugate transposes).
 //
-// adjoints (conjugate transposes).
 //
 // The input is a tensor of shape `[..., M, M]` whose inner-most 2 dimensions
 // form square matrices. The output is a tensor of the same shape as the input
@@ -32007,7 +32006,7 @@ func VarHandleOp(scope *Scope, dtype tf.DataType, shape tf.Shape, optional ...Va
 	return op.Output(0)
 }
 
-// Returns (x - y)(x - y) element-wise.
+// Returns conj(x - y)(x - y) element-wise.
 //
 // *NOTE*: `SquaredDifference` supports broadcasting. More about broadcasting
 // [here](http://docs.scipy.org/doc/numpy/user/basics.broadcasting.html)
