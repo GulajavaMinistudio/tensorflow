@@ -59,15 +59,15 @@
       the `experimental_optimization.reorder_data_discarding_ops` dataset
       option.
 * `tf.image`:
-    * Added `tf.image.stateless_random_flip_left_right` and
-      `tf.image.stateless_random_flip_up_down` functions that are deterministic.
-      That is, given the same seed, they produce the same results independent of
-      how many times the function is called, and independent of global seed
-      settings.
+    * Added deterministic `tf.image.stateless_random_*` functions for each
+      `tf.image.random_*` function. Given the same seed, the stateless functions
+      produce the same results independent of how many times the function is
+      called, and independent of global seed settings.
 *   `tf.distribute`:
     * <ADD RELEASE NOTES HERE>
 *   `tf.keras`:
-    * <ADD RELEASE NOTES HERE>
+    * `Optimizer.minimize` can now accept a loss `Tensor` and a `GradientTape`
+      as an alternative to accepting a `callable` loss.
 * `tf.function` / AutoGraph:
   * Added `experimental_follow_type_hints` argument for `tf.function`. When
     True, the function may use type annotations to optimize the tracing
