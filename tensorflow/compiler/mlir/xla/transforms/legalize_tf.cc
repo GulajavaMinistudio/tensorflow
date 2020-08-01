@@ -2630,19 +2630,21 @@ class ConvertSizeOp : public OpRewritePattern<TF::SizeOp> {
     if (!input_ty) return failure();
 
     const int64_t rank = input_ty.getRank();
-    auto result_type = op.getResult().getType();
-    Operation *size =
-        GetScalarConstOfType(result_type.cast<TensorType>().getElementType(),
-                             op.getLoc(), 1, &rewriter);
+    auto result_ty = op.getResult().getType();
+    auto element_ty = result_ty.cast<TensorType>().getElementType();
+    Value size = GetScalarConstOfType(element_ty, op.getLoc(), 1, &rewriter);
     for (int64_t i = 0; i < rank; ++i) {
-      auto dim = rewriter.create<GetDimensionSizeOp>(
-          op.getLoc(), result_type, input,
-          rewriter.getIntegerAttr(rewriter.getIntegerType(32), i));
+      auto i32_ty = rewriter.getIntegerType(32);
+      auto size_ty = RankedTensorType::get({}, i32_ty);
+      auto dim_index = rewriter.getIntegerAttr(i32_ty, i);
+      Value dim = rewriter.create<GetDimensionSizeOp>(op.getLoc(), size_ty,
+                                                      input, dim_index);
+      dim = rewriter.create<mhlo::ConvertOp>(op.getLoc(), result_ty, dim);
       size = rewriter.create<chlo::BroadcastMulOp>(
-          op.getLoc(), size->getResult(0), dim.getResult(),
+          op.getLoc(), size, dim,
           /*DenseIntElementsAttr=*/DenseIntElementsAttr());
     }
-    rewriter.replaceOp(op, size->getResult(0));
+    rewriter.replaceOp(op, size);
 
     return success();
   }
@@ -2685,7 +2687,8 @@ static void BroadcastBatchMatMulV2Operands(Value lhs, Value rhs, Location loc,
                                      rhs_type.getShape().drop_back(2),
                                      result_batch_shape_compile_time_extents);
   auto result_batch_shape = rewriter->create<shape::BroadcastOp>(
-      loc, lhs_splitted.head(), rhs_splitted.head(),
+      loc, shape::ShapeType::get(rewriter->getContext()), lhs_splitted.head(),
+      rhs_splitted.head(),
       /*error=*/nullptr);
   // Lambda which handles the broadcasting of one side to the common
   // leading-batch dimensions.
@@ -5729,37 +5732,7 @@ LogicalResult legalizeTF(Operation *op, bool allow_partial_conversion,
 
   // Add lowering patterns to the list.
   OwningRewritePatternList patterns;
-  populateWithGenerated(context, &patterns);
-
-  // Add patterns that lower some of the high level TensorFlow ops to lower
-  // level TensorFlow ops. So, we don't have to target all the TensorFlow ops
-  // here for lowering to HLO.
-  TF::PopulateLoweringTFPatterns(context, &patterns);
-  patterns.insert<
-      ConvertAllOp, ConvertAnyOp, ConvertArgMaxOp, ConvertBatchMatMulV2Op,
-      ConvertBiasAddOp, ConvertBroadcastToOp, ConvertBF16FloorDivOp,
-      ConvertConv2DOp, ConvertConv3DOp, ConvertDepthConv2DOp,
-      ConvertConv2DBackpropFilterOp, ConvertConv3DBackpropFilterOp,
-      ConvertConv2DBackpropInputOp, ConvertConv3DBackpropInputOp,
-      ConvertCumsumOp, ConvertDiagPartOp, ConvertEinsumOp,
-      ConvertFusedBatchNormGradOp, ConvertFusedBatchNormGradV2Op,
-      ConvertFusedBatchNormGradV3Op, ConvertFusedBatchNormV2Op,
-      ConvertFusedBatchNormV3Op, ConvertInfeedDequeueTupleOp,
-      ConvertInplaceUpdateOp, ConvertLinSpaceOp, ConvertMaxOp, ConvertMinOp,
-      ConvertAvgPool2DOp, ConvertAvgPool3DOp, ConvertAvgPool2DGradOp,
-      ConvertAvgPool3DGradOp, ConvertMaxPool2DOp, ConvertMaxPool3DOp,
-      ConvertMaxPool2DGradOp, ConvertMaxPool3DGradOp, ConvertMeanOp,
-      ConvertOneHotOp, ConvertOutfeedEnqueueTupleOp, ConvertProdOp, ConvertQrOp,
-      ConvertMatrixDiagPartV3Op, ConvertDynamicRangeOp, ConvertRangeOp,
-      ConvertSelectV2Op, ConvertSigmoidOp, ConvertShapeOp, ConvertSizeOp,
-      ConvertSoftmaxOp<TF::LogSoftmaxOp, true>,
-      ConvertSoftmaxOp<TF::SoftmaxOp, false>, ConvertSplitOp, ConvertSplitVOp,
-      ConvertStridedSliceOp, ConvertStridedSliceGradOp, ConvertSumOp,
-      ConvertTensorScatterUpdateOp, ConvertTileOp, ConvertTopKV2Op,
-      ConvertUnpackOp, ConvertUnsortedSegmentMaxOp, ConvertUnsortedSegmentMinOp,
-      ConvertUnsortedSegmentProdOp, ConvertUnsortedSegmentSumOp,
-      ConvertRandomShuffleOp, ConvertXlaShardingOp,
-      ConvertXlaDynamicUpdateSliceOp>(op->getContext());
+  PopulateLegalizeTfPatterns(context, &patterns);
 
   // Populate with CHLO->HLO lowerings to account for TF ops legalized to
   // CHLO first.
@@ -5795,6 +5768,41 @@ LogicalResult legalizeTF(Operation *op, bool allow_partial_conversion,
   }
 
   return applyPartialConversion(op, target, patterns);
+}
+
+void PopulateLegalizeTfPatterns(MLIRContext *context,
+                                OwningRewritePatternList *patterns) {
+  populateWithGenerated(context, patterns);
+
+  // Add patterns that lower some of the high level TensorFlow ops to lower
+  // level TensorFlow ops. So, we don't have to target all the TensorFlow ops
+  // here for lowering to HLO.
+  TF::PopulateLoweringTFPatterns(context, patterns);
+  patterns->insert<
+      ConvertAllOp, ConvertAnyOp, ConvertArgMaxOp, ConvertBatchMatMulV2Op,
+      ConvertBiasAddOp, ConvertBroadcastToOp, ConvertBF16FloorDivOp,
+      ConvertConv2DOp, ConvertConv3DOp, ConvertDepthConv2DOp,
+      ConvertConv2DBackpropFilterOp, ConvertConv3DBackpropFilterOp,
+      ConvertConv2DBackpropInputOp, ConvertConv3DBackpropInputOp,
+      ConvertCumsumOp, ConvertDiagPartOp, ConvertEinsumOp,
+      ConvertFusedBatchNormGradOp, ConvertFusedBatchNormGradV2Op,
+      ConvertFusedBatchNormGradV3Op, ConvertFusedBatchNormV2Op,
+      ConvertFusedBatchNormV3Op, ConvertInfeedDequeueTupleOp,
+      ConvertInplaceUpdateOp, ConvertLinSpaceOp, ConvertMaxOp, ConvertMinOp,
+      ConvertAvgPool2DOp, ConvertAvgPool3DOp, ConvertAvgPool2DGradOp,
+      ConvertAvgPool3DGradOp, ConvertMaxPool2DOp, ConvertMaxPool3DOp,
+      ConvertMaxPool2DGradOp, ConvertMaxPool3DGradOp, ConvertMeanOp,
+      ConvertOneHotOp, ConvertOutfeedEnqueueTupleOp, ConvertProdOp, ConvertQrOp,
+      ConvertDynamicRangeOp, ConvertMatrixDiagPartV3Op, ConvertRangeOp,
+      ConvertSelectV2Op, ConvertSigmoidOp, ConvertShapeOp, ConvertSizeOp,
+      ConvertSoftmaxOp<TF::LogSoftmaxOp, true>,
+      ConvertSoftmaxOp<TF::SoftmaxOp, false>, ConvertSplitOp, ConvertSplitVOp,
+      ConvertStridedSliceOp, ConvertStridedSliceGradOp, ConvertSumOp,
+      ConvertTensorScatterUpdateOp, ConvertTileOp, ConvertTopKV2Op,
+      ConvertUnpackOp, ConvertUnsortedSegmentMaxOp, ConvertUnsortedSegmentMinOp,
+      ConvertUnsortedSegmentProdOp, ConvertUnsortedSegmentSumOp,
+      ConvertRandomShuffleOp, ConvertXlaShardingOp,
+      ConvertXlaDynamicUpdateSliceOp>(context);
 }
 
 std::unique_ptr<OperationPass<FuncOp>> createLegalizeTFPass(
