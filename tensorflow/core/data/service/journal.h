@@ -32,7 +32,7 @@ class JournalWriter {
  public:
   virtual ~JournalWriter() = default;
   // Writes and syncs an update to the journal.
-  virtual Status Write(Update update) = 0;
+  virtual Status Write(const Update& update) = 0;
 };
 
 // FileJournalWriter is not thread-safe, requiring external synchronization when
@@ -46,7 +46,7 @@ class FileJournalWriter : public JournalWriter {
   FileJournalWriter(const FileJournalWriter&) = delete;
   FileJournalWriter& operator=(const FileJournalWriter&) = delete;
 
-  Status Write(Update update) override;
+  Status Write(const Update& update) override;
 
  private:
   // Initializes the writer if it is not yet initialized.
@@ -56,18 +56,6 @@ class FileJournalWriter : public JournalWriter {
   const std::string journal_dir_;
   std::unique_ptr<WritableFile> file_;
   std::unique_ptr<io::RecordWriter> writer_;
-};
-
-// NoopJournalWriter implements the JournalWriter interface, but doesn't
-// actually write journal entries anywhere.
-class NoopJournalWriter : public JournalWriter {
- public:
-  // Creates a journal writer which does nothing.
-  explicit NoopJournalWriter();
-  NoopJournalWriter(const NoopJournalWriter&) = delete;
-  NoopJournalWriter& operator=(const NoopJournalWriter&) = delete;
-
-  Status Write(Update update) override;
 };
 
 // Interface for reading from a journal.

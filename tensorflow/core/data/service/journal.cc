@@ -48,7 +48,7 @@ Status FileJournalWriter::EnsureInitialized() {
   return Status::OK();
 }
 
-Status FileJournalWriter::Write(Update update) {
+Status FileJournalWriter::Write(const Update& update) {
   TF_RETURN_IF_ERROR(EnsureInitialized());
   std::string s = update.SerializeAsString();
   if (s.empty()) {
@@ -60,10 +60,6 @@ Status FileJournalWriter::Write(Update update) {
   TF_RETURN_IF_ERROR(file_->Sync());
   return Status::OK();
 }
-
-NoopJournalWriter::NoopJournalWriter() {}
-
-Status NoopJournalWriter::Write(Update update) { return Status::OK(); }
 
 FileJournalReader::FileJournalReader(Env* env, StringPiece journal_dir)
     : env_(env), journal_dir_(journal_dir) {}
