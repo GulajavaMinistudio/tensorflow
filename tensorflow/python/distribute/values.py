@@ -1020,7 +1020,8 @@ class MirroredVariable(DistributedVariable, Mirrored):
     # TODO(b/154017756): Make _dense_var_to_tensor consistent between ON_READ
     # and ON_WRITE.
     # Try to avoid assignments to and other mutations of MirroredVariable
-    # state except through a DistributionStrategy.extended.update() call.
+    # state except through a DistributionStrategy.extended.update() or any of
+    # the `assign*` and `scatter*` calls.
     if as_ref:
       # A TF 1.x case where the variable is a boolean variable and used like:
       # tf.cond(v, true_fn, false_fn).
@@ -1524,23 +1525,6 @@ class OnWritePolicy(AutoPolicy):
 
   def _update_replica(self, var, update_fn, value, **kwargs):
     return _on_write_update_replica(var, update_fn, value, **kwargs)
-
-
-# Utility functions
-# Return True if the Value is Mirrored or the Variable is replicated and kept in
-# sync.
-def _is_mirrored(val):
-  if isinstance(val, DistributedVariable):
-    if val._policy:  # pylint: disable=protected-access
-      return val._policy._is_mirrored()  # pylint: disable=protected-access
-  return isinstance(val, Mirrored)
-
-
-def _is_sync_on_read(val):
-  if isinstance(val, DistributedVariable):
-    if val._policy:  # pylint: disable=protected-access
-      return not val._policy._is_mirrored()  # pylint: disable=protected-access
-  return not isinstance(val, Mirrored)
 
 
 def _in_update_replica():

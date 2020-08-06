@@ -124,6 +124,38 @@ cc_library(
 )
 
 cc_library(
+    name = "CAPIIR",
+    srcs = [
+        "lib/CAPI/IR/IR.cpp",
+    ],
+    hdrs = [
+        "include/mlir-c/IR.h",
+    ],
+    includes = ["include"],
+    deps = [
+        ":IR",
+        ":Parser",
+        ":Support",
+        "@llvm-project//llvm:Support",
+    ],
+)
+
+cc_library(
+    name = "CAPIRegistration",
+    srcs = [
+        "lib/CAPI/Registration/Registration.cpp",
+    ],
+    hdrs = [
+        "include/mlir-c/Registration.h",
+    ],
+    includes = ["include"],
+    deps = [
+        ":AllPassesAndDialectsNoRegistration",
+        ":CAPIIR",
+    ],
+)
+
+cc_library(
     name = "EDSCInterface",
     srcs = [
         "lib/EDSC/CoreAPIs.cpp",
@@ -927,6 +959,7 @@ cc_library(
         ":DialectUtils",
         ":EDSC",
         ":IR",
+        ":LinalgOps",
         ":SCFDialect",
         ":SideEffectInterfaces",
         ":StandardOps",
@@ -2368,6 +2401,7 @@ cc_library(
         ":ConversionPassIncGen",
         ":IR",
         ":LLVMDialect",
+        ":Parser",
         ":Pass",
         ":StandardOps",
         ":Support",
@@ -2596,9 +2630,11 @@ cc_library(
         "lib/Target/LLVMIR/DebugTranslation.cpp",
         "lib/Target/LLVMIR/DebugTranslation.h",
         "lib/Target/LLVMIR/ModuleTranslation.cpp",
+        "lib/Target/LLVMIR/TypeTranslation.cpp",
     ],
     hdrs = [
         "include/mlir/Target/LLVMIR/ModuleTranslation.h",
+        "include/mlir/Target/LLVMIR/TypeTranslation.h",
     ],
     includes = ["include"],
     deps = [
@@ -2801,6 +2837,7 @@ cc_library(
         ":Support",
         ":Translation",
         "@llvm-project//llvm:Support",
+        "@llvm-project//mlir/test:TestLLVMTypeTranslation",
     ],
 )
 
@@ -3655,6 +3692,7 @@ cc_library(
         ":EDSC",
         ":IR",
         ":LLVMDialect",
+        ":LLVMIRModuleTranslation",
         ":Pass",
         ":StandardOps",
         ":StandardToLLVM",

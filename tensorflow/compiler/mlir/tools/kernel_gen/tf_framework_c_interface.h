@@ -13,16 +13,23 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "mlir-hlo/Dialect/mhlo/transforms/register_passes.h"
+#ifndef TENSORFLOW_COMPILER_MLIR_TOOLS_KERNEL_GEN_TESTS_TF_FRAMEWORK_C_INTERFACE_H_
+#define TENSORFLOW_COMPILER_MLIR_TOOLS_KERNEL_GEN_TESTS_TF_FRAMEWORK_C_INTERFACE_H_
+
+#include "mlir/ExecutionEngine/RunnerUtils.h"  // from @llvm-project
 
 namespace mlir {
+namespace kernel_gen {
+namespace tf_framework {
 
-namespace {
+extern "C" MLIR_RUNNERUTILS_EXPORT void* _mlir_ciface_tf_alloc_raw(
+    void* op_kernel_ctx, size_t num_bytes);
 
-bool register_all_passes = ([] {
-    mhlo::registerAllMhloPasses();
-  lmhlo::registerAllLmhloPasses();
-}(), true);
+extern "C" MLIR_RUNNERUTILS_EXPORT void _mlir_ciface_tf_dealloc_raw(
+    void* op_kernel_ctx, void* ptr);
 
-}  // namespace
+}  // namespace tf_framework
+}  // namespace kernel_gen
 }  // namespace mlir
+
+#endif  // TENSORFLOW_COMPILER_MLIR_TOOLS_KERNEL_GEN_TESTS_TF_FRAMEWORK_C_INTERFACE_H_

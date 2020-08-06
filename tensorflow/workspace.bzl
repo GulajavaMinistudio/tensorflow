@@ -336,8 +336,8 @@ def tf_repositories(path_prefix = "", tf_repo_name = ""):
 
     tf_http_archive(
         name = "com_github_googlecloudplatform_google_cloud_cpp",
-        sha256 = "839b2d4dcb36a671734dac6b30ea8c298bbeaafcf7a45ee4a7d7aa5986b16569",
-        strip_prefix = "google-cloud-cpp-1.14.0",
+        sha256 = "d9d1358f464328b8fd6d24a98d4c2876fde0d3fdb06c8b6bd617be7fb9b0fbac",
+        strip_prefix = "google-cloud-cpp-1.16.0",
         repo_mapping = {
             "@com_github_curl_curl": "@curl",
         },
@@ -346,8 +346,8 @@ def tf_repositories(path_prefix = "", tf_repo_name = ""):
             "//third_party/systemlibs:google_cloud_cpp.google.cloud.bigtable.BUILD": "google/cloud/bigtable/BUILD",
         },
         urls = [
-            "https://storage.googleapis.com/mirror.tensorflow.org/github.com/googleapis/google-cloud-cpp/archive/v1.14.0.tar.gz",
-            "https://github.com/googleapis/google-cloud-cpp/archive/v1.14.0.tar.gz",
+            "https://storage.googleapis.com/mirror.tensorflow.org/github.com/googleapis/google-cloud-cpp/archive/v1.16.0.tar.gz",
+            "https://github.com/googleapis/google-cloud-cpp/archive/v1.16.0.tar.gz",
         ],
     )
 
@@ -712,8 +712,8 @@ def tf_repositories(path_prefix = "", tf_repo_name = ""):
     )
 
     # Check out LLVM and MLIR from llvm-project.
-    LLVM_COMMIT = "b5059b7140232559ed123cb94d4e8f75ca9a44dc"
-    LLVM_SHA256 = "3075583f88b572da4afb1340281b0e170d51ef03ba6eb2965e7dc8288cbff153"
+    LLVM_COMMIT = "acb66b9111ba793509b5468a58107108317b7cf5"
+    LLVM_SHA256 = "0a8053f9b75d796b475b038502d80674c02fe89d02eb14da00bd9ec8f39e6c49"
     LLVM_URLS = [
         "https://storage.googleapis.com/mirror.tensorflow.org/github.com/llvm/llvm-project/archive/{commit}.tar.gz".format(commit = LLVM_COMMIT),
         "https://github.com/llvm/llvm-project/archive/{commit}.tar.gz".format(commit = LLVM_COMMIT),
