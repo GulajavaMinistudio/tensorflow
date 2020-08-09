@@ -151,7 +151,7 @@ LogicalResult ReifyBroadcastBinaryOpReturnTypeShapes(
   }
 
   Value computed_shape = hlo::ComputeBinaryElementwiseBroadcastingResultExtents(
-      loc, lhs, rhs, builder);
+      loc, lhs, rhs, builder, /*unsafe_as_extent_tensor=*/false);
   if (!computed_shape) return failure();
   reifiedReturnShapes.push_back(computed_shape);
   return success();
@@ -266,8 +266,7 @@ BROADCAST_BINARY_OP_DEFS(BroadcastXorOp);
 // chlo Dialect Constructor
 //===----------------------------------------------------------------------===//
 
-HloClientDialect::HloClientDialect(MLIRContext* context)
-    : Dialect(getDialectNamespace(), context) {
+void HloClientDialect::initialize() {
   addOperations<
 #define GET_OP_LIST
 #include "mlir-hlo/Dialect/mhlo/IR/chlo_ops.cc.inc"
