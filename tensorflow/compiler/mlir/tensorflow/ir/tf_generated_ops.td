@@ -136,7 +136,7 @@ Inputs must be of same size and shape.
   let hasFolder = 1;
 }
 
-def TF_AddV2Op : TF_Op<"AddV2", [Commutative, NoSideEffect, ResultsBroadcastableShape, TF_LayoutAgnostic, TF_SameOperandsAndResultElementTypeResolveRef, TF_CwiseBinary]>,
+def TF_AddV2Op : TF_Op<"AddV2", [Commutative, NoSideEffect, ResultsBroadcastableShape, TF_CwiseBinary, TF_LayoutAgnostic, TF_SameOperandsAndResultElementTypeResolveRef]>,
                  WithBroadcastableBinOpBuilder {
   let summary = "Returns x + y element-wise.";
 
@@ -859,15 +859,15 @@ about broadcasting
   }];
 
   let arguments = (ins
-    TensorOf<[BF16, F16, F32, F64, I32, I64, TF_Complex128, TF_Complex64]>:$x,
-    TensorOf<[BF16, F16, F32, F64, I32, I64, TF_Complex128, TF_Complex64]>:$y,
+    TensorOf<[BF16, F16, F32, F64, I16, I32, I64, TF_Complex128, TF_Complex64]>:$x,
+    TensorOf<[BF16, F16, F32, F64, I16, I32, I64, TF_Complex128, TF_Complex64]>:$y,
 
     DefaultValuedAttr<BoolAttr, "false">:$adj_x,
     DefaultValuedAttr<BoolAttr, "false">:$adj_y
   );
 
   let results = (outs
-    TensorOf<[BF16, F16, F32, F64, I32, I64, TF_Complex128, TF_Complex64]>:$output
+    TensorOf<[BF16, F16, F32, F64, I16, I32, I64, TF_Complex128, TF_Complex64]>:$output
   );
 
   TF_DerivedOperandTypeAttr T = TF_DerivedOperandTypeAttr<0>;
@@ -963,6 +963,40 @@ reverse of SpaceToBatch.  See below for a precise description.
   TF_DerivedOperandTypeAttr T = TF_DerivedOperandTypeAttr<0>;
   TF_DerivedOperandTypeAttr Tcrops = TF_DerivedOperandTypeAttr<2>;
   TF_DerivedOperandTypeAttr Tblock_shape = TF_DerivedOperandTypeAttr<1>;
+}
+
+def TF_BetaincOp : TF_Op<"Betainc", [NoSideEffect]> {
+  let summary = [{
+Compute the regularized incomplete beta integral \\(I_x(a, b)\\).
+  }];
+
+  let description = [{
+The regularized incomplete beta integral is defined as:
+
+
+\\(I_x(a, b) = \frac{B(x; a, b)}{B(a, b)}\\)
+
+where
+
+
+\\(B(x; a, b) = \int_0^x t^{a-1} (1 - t)^{b-1} dt\\)
+
+
+is the incomplete beta function and \\(B(a, b)\\) is the *complete*
+beta function.
+  }];
+
+  let arguments = (ins
+    TF_F32OrF64Tensor:$a,
+    TF_F32OrF64Tensor:$b,
+    TF_F32OrF64Tensor:$x
+  );
+
+  let results = (outs
+    TF_F32OrF64Tensor:$z
+  );
+
+  TF_DerivedOperandTypeAttr T = TF_DerivedOperandTypeAttr<0>;
 }
 
 def TF_BiasAddOp : TF_Op<"BiasAdd", [NoSideEffect]> {
@@ -1319,6 +1353,7 @@ subsequent operation and then be optimized away, however.)
   let verifier = [{
     return Verify(*this);
   }];
+  let hasFolder = 1;
 }
 
 def TF_BucketizeOp : TF_Op<"Bucketize", [NoSideEffect, SameOperandsAndResultShape]> {
@@ -2057,12 +2092,12 @@ and `B, D, F, H` as group 1. Thus we get the outputs:
   }];
 
   let arguments = (ins
-    TensorOf<[BF16, F32, I32, TF_Uint32]>:$input,
+    TensorOf<[BF16, F16, F32, I32, TF_Uint32]>:$input,
     I32Tensor:$group_assignment
   );
 
   let results = (outs
-    TensorOf<[BF16, F32, I32, TF_Uint32]>:$output
+    TensorOf<[BF16, F16, F32, I32, TF_Uint32]>:$output
   );
 
   TF_DerivedOperandTypeAttr T = TF_DerivedOperandTypeAttr<0>;
@@ -2528,6 +2563,54 @@ horizontal and vertices strides, `strides = [1, stride, stride, 1]`.
   TF_DerivedOperandTypeAttr T = TF_DerivedOperandTypeAttr<0>;
 }
 
+def TF_DepthwiseConv2dNativeBackpropFilterOp : TF_Op<"DepthwiseConv2dNativeBackpropFilter", [NoSideEffect]> {
+  let summary = [{
+Computes the gradients of depthwise convolution with respect to the filter.
+  }];
+
+  let arguments = (ins
+    TF_FpTensor:$input,
+    I32Tensor:$filter_sizes,
+    TF_FpTensor:$out_backprop,
+
+    I64ArrayAttr:$strides,
+    TF_AnyStrAttrOf<["SAME", "VALID", "EXPLICIT"]>:$padding,
+    DefaultValuedAttr<I64ArrayAttr, "{}">:$explicit_paddings,
+    DefaultValuedAttr<TF_ConvnetDataFormatAttr, "NHWC">:$data_format,
+    DefaultValuedAttr<I64ArrayAttr, "{1, 1, 1, 1}">:$dilations
+  );
+
+  let results = (outs
+    TF_FpTensor:$output
+  );
+
+  TF_DerivedOperandTypeAttr T = TF_DerivedOperandTypeAttr<0>;
+}
+
+def TF_DepthwiseConv2dNativeBackpropInputOp : TF_Op<"DepthwiseConv2dNativeBackpropInput", [NoSideEffect]> {
+  let summary = [{
+Computes the gradients of depthwise convolution with respect to the input.
+  }];
+
+  let arguments = (ins
+    I32Tensor:$input_sizes,
+    TF_FpTensor:$filter,
+    TF_FpTensor:$out_backprop,
+
+    I64ArrayAttr:$strides,
+    TF_AnyStrAttrOf<["SAME", "VALID", "EXPLICIT"]>:$padding,
+    DefaultValuedAttr<I64ArrayAttr, "{}">:$explicit_paddings,
+    DefaultValuedAttr<TF_ConvnetDataFormatAttr, "NHWC">:$data_format,
+    DefaultValuedAttr<I64ArrayAttr, "{1, 1, 1, 1}">:$dilations
+  );
+
+  let results = (outs
+    TF_FpTensor:$output
+  );
+
+  TF_DerivedOperandTypeAttr T = TF_DerivedOperandTypeAttr<1>;
+}
+
 def TF_DeviceIndexOp : TF_Op<"DeviceIndex", [NoSideEffect]> {
   let summary = "Return the index of device the op runs.";
 
@@ -2547,7 +2630,7 @@ this op runs. The length of the list is returned in two cases:
   );
 }
 
-def TF_DiagOp : TF_Op<"Diag", [NoSideEffect]> {
+def TF_DiagOp : TF_Op<"Diag", [NoSideEffect, SameOperandsAndResultElementType]> {
   let summary = "Returns a diagonal tensor with a given diagonal values.";
 
   let description = [{
@@ -3230,6 +3313,27 @@ i.e. `exp(x) - 1` or `e^(x) - 1`, where `x` is the input tensor.
 
   let results = (outs
     TF_FpOrComplexTensor:$y
+  );
+
+  TF_DerivedOperandTypeAttr T = TF_DerivedOperandTypeAttr<0>;
+}
+
+def TF_ExtractImagePatchesOp : TF_Op<"ExtractImagePatches", [NoSideEffect]> {
+  let summary = [{
+Extract `patches` from `images` and put them in the "depth" output dimension.
+  }];
+
+  let arguments = (ins
+    TensorOf<[BF16, F16, F32, F64, I1, I16, I32, I64, I8, TF_Complex128, TF_Complex64, TF_Uint16, TF_Uint32, TF_Uint64, TF_Uint8]>:$images,
+
+    Confined<I64ArrayAttr, [ArrayMinCount<4>]>:$ksizes,
+    Confined<I64ArrayAttr, [ArrayMinCount<4>]>:$strides,
+    Confined<I64ArrayAttr, [ArrayMinCount<4>]>:$rates,
+    TF_AnyStrAttrOf<["SAME", "VALID"]>:$padding
+  );
+
+  let results = (outs
+    TensorOf<[BF16, F16, F32, F64, I1, I16, I32, I64, I8, TF_Complex128, TF_Complex64, TF_Uint16, TF_Uint32, TF_Uint64, TF_Uint8]>:$patches
   );
 
   TF_DerivedOperandTypeAttr T = TF_DerivedOperandTypeAttr<0>;
@@ -4906,6 +5010,49 @@ tf.linspace(10.0, 12.0, 3, name="linspace") => [ 10.0  11.0  12.0]
   TF_DerivedOperandTypeAttr Tidx = TF_DerivedOperandTypeAttr<2>;
 }
 
+def TF_ListDiffOp : TF_Op<"ListDiff", [NoSideEffect]> {
+  let summary = [{
+Computes the difference between two lists of numbers or strings.
+  }];
+
+  let description = [{
+Given a list `x` and a list `y`, this operation returns a list `out` that
+represents all values that are in `x` but not in `y`. The returned list `out`
+is sorted in the same order that the numbers appear in `x` (duplicates are
+preserved). This operation also returns a list `idx` that represents the
+position of each `out` element in `x`. In other words:
+
+`out[i] = x[idx[i]] for i in [0, 1, ..., len(out) - 1]`
+
+For example, given this input:
+
+```
+x = [1, 2, 3, 4, 5, 6]
+y = [1, 3, 5]
+```
+
+This operation would return:
+
+```
+out ==> [2, 4, 6]
+idx ==> [1, 3, 5]
+```
+  }];
+
+  let arguments = (ins
+    TF_Tensor:$x,
+    TF_Tensor:$y
+  );
+
+  let results = (outs
+    TF_Tensor:$out,
+    TF_I32OrI64Tensor:$idx
+  );
+
+  TF_DerivedOperandTypeAttr T = TF_DerivedOperandTypeAttr<0>;
+  TF_DerivedResultTypeAttr out_idx = TF_DerivedResultTypeAttr<1>;
+}
+
 def TF_LogOp : TF_Op<"Log", [NoSideEffect, SameOperandsAndResultType]> {
   let summary = "Computes natural logarithm of x element-wise.";
 
@@ -5087,6 +5234,44 @@ def TF_LookupTableSizeV2Op : TF_Op<"LookupTableSizeV2", []> {
   let results = (outs
     I64Tensor:$size
   );
+}
+
+def TF_LowerBoundOp : TF_Op<"LowerBound", [NoSideEffect]> {
+  let summary = [{
+Applies lower_bound(sorted_search_values, values) along each row.
+  }];
+
+  let description = [{
+Each set of rows with the same index in (sorted_inputs, values) is treated
+independently.  The resulting row is the equivalent of calling
+`np.searchsorted(sorted_inputs, values, side='left')`.
+
+The result is not a global index to the entire
+`Tensor`, but rather just the index in the last dimension.
+
+A 2-D example:
+  sorted_sequence = [[0, 3, 9, 9, 10],
+                     [1, 2, 3, 4, 5]]
+  values = [[2, 4, 9],
+            [0, 2, 6]]
+
+  result = LowerBound(sorted_sequence, values)
+
+  result == [[1, 2, 2],
+             [0, 1, 5]]
+  }];
+
+  let arguments = (ins
+    TF_Tensor:$sorted_inputs,
+    TF_Tensor:$values
+  );
+
+  let results = (outs
+    TF_I32OrI64Tensor:$output
+  );
+
+  TF_DerivedOperandTypeAttr T = TF_DerivedOperandTypeAttr<0>;
+  TF_DerivedResultTypeAttr out_type = TF_DerivedResultTypeAttr<0>;
 }
 
 def TF_MatMulOp : TF_Op<"MatMul", [NoSideEffect, TF_SameOperandsAndResultElementTypeResolveRef]> {
@@ -5598,6 +5783,36 @@ tf.matrix_diag(diagonal, k = -1, num_rows = 3, padding_value = 9)
   TF_DerivedOperandTypeAttr T = TF_DerivedOperandTypeAttr<0>;
 }
 
+def TF_MatrixInverseOp : TF_Op<"MatrixInverse", [NoSideEffect]> {
+  let summary = [{
+Computes the inverse of one or more square invertible matrices or their adjoints (conjugate transposes).
+  }];
+
+  let description = [{
+The input is a tensor of shape `[..., M, M]` whose inner-most 2 dimensions
+form square matrices. The output is a tensor of the same shape as the input
+containing the inverse for all input submatrices `[..., :, :]`.
+
+The op uses LU decomposition with partial pivoting to compute the inverses.
+
+If a matrix is not invertible there is no guarantee what the op does. It
+may detect the condition and raise an exception or it may simply return a
+garbage result.
+  }];
+
+  let arguments = (ins
+    TensorOf<[F16, F32, F64, TF_Complex128, TF_Complex64]>:$input,
+
+    DefaultValuedAttr<BoolAttr, "false">:$adjoint
+  );
+
+  let results = (outs
+    TensorOf<[F16, F32, F64, TF_Complex128, TF_Complex64]>:$output
+  );
+
+  TF_DerivedOperandTypeAttr T = TF_DerivedOperandTypeAttr<0>;
+}
+
 def TF_MatrixSetDiagOp : TF_Op<"MatrixSetDiag", [NoSideEffect]> {
   let summary = [{
 Returns a batched matrix tensor with new batched diagonal values.
@@ -5849,6 +6064,32 @@ tf.matrix_set_diag(input, diagonals, k = (-1, 2), align="LEFT_RIGHT")
   TF_DerivedOperandTypeAttr T = TF_DerivedOperandTypeAttr<0>;
 }
 
+def TF_MatrixSolveOp : TF_Op<"MatrixSolve", [NoSideEffect]> {
+  let summary = "Solves systems of linear equations.";
+
+  let description = [{
+`Matrix` is a tensor of shape `[..., M, M]` whose inner-most 2 dimensions
+form square matrices. `Rhs` is a tensor of shape `[..., M, K]`. The `output` is
+a tensor shape `[..., M, K]`.  If `adjoint` is `False` then each output matrix
+satisfies `matrix[..., :, :] * output[..., :, :] = rhs[..., :, :]`.
+If `adjoint` is `True` then each output matrix satisfies
+`adjoint(matrix[..., :, :]) * output[..., :, :] = rhs[..., :, :]`.
+  }];
+
+  let arguments = (ins
+    TensorOf<[F16, F32, F64, TF_Complex128, TF_Complex64]>:$matrix,
+    TensorOf<[F16, F32, F64, TF_Complex128, TF_Complex64]>:$rhs,
+
+    DefaultValuedAttr<BoolAttr, "false">:$adjoint
+  );
+
+  let results = (outs
+    TensorOf<[F16, F32, F64, TF_Complex128, TF_Complex64]>:$output
+  );
+
+  TF_DerivedOperandTypeAttr T = TF_DerivedOperandTypeAttr<0>;
+}
+
 def TF_MatrixTriangularSolveOp : TF_Op<"MatrixTriangularSolve", [NoSideEffect]> {
   let summary = [{
 Solves systems of linear equations with upper or lower triangular matrices by backsubstitution.
@@ -6067,7 +6308,7 @@ def TF_MergeSummaryOp : TF_Op<"MergeSummary", [NoSideEffect, SameOperandsAndResu
 
   let description = [{
 This op creates a
-[`Summary`](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/core/framework/summary.proto)
+[`Summary`](https://www.tensorflow.org/code/tensorflow/core/framework/summary.proto)
 protocol buffer that contains the union of all the values in the input
 summaries.
 
@@ -6298,7 +6539,7 @@ the result here is consistent with a truncating divide. E.g.
   TF_DerivedOperandTypeAttr T = TF_DerivedOperandTypeAttr<0>;
 }
 
-def TF_MulOp : TF_Op<"Mul", [Commutative, NoSideEffect, ResultsBroadcastableShape, TF_SameOperandsAndResultElementTypeResolveRef, TF_CwiseBinary]>,
+def TF_MulOp : TF_Op<"Mul", [Commutative, NoSideEffect, ResultsBroadcastableShape, TF_CwiseBinary, TF_SameOperandsAndResultElementTypeResolveRef]>,
                WithBroadcastableBinOpBuilder {
   let summary = "Returns x * y element-wise.";
 
@@ -7459,9 +7700,6 @@ def TF_RangeDatasetOp : TF_Op<"RangeDataset", []> {
 Creates a dataset with a range of values. Corresponds to python's xrange.
   }];
 
-  let description = [{
-  }];
-
   let arguments = (ins
     I64Tensor:$start,
     I64Tensor:$stop,
@@ -8355,6 +8593,47 @@ rint([-1.7, -1.5, -0.2, 0.2, 1.5, 1.7, 2.0]) ==> [-2., -2., -0., 0., 2., 2., 2.]
   TF_DerivedOperandTypeAttr T = TF_DerivedOperandTypeAttr<0>;
 }
 
+def TF_RollOp : TF_Op<"Roll", [NoSideEffect]> {
+  let summary = "Rolls the elements of a tensor along an axis.";
+
+  let description = [{
+The elements are shifted positively (towards larger indices) by the offset of
+`shift` along the dimension of `axis`. Negative `shift` values will shift
+elements in the opposite direction. Elements that roll passed the last position
+will wrap around to the first and vice versa. Multiple shifts along multiple
+axes may be specified.
+
+For example:
+
+```
+# 't' is [0, 1, 2, 3, 4]
+roll(t, shift=2, axis=0) ==> [3, 4, 0, 1, 2]
+
+# shifting along multiple dimensions
+# 't' is [[0, 1, 2, 3, 4], [5, 6, 7, 8, 9]]
+roll(t, shift=[1, -2], axis=[0, 1]) ==> [[7, 8, 9, 5, 6], [2, 3, 4, 0, 1]]
+
+# shifting along the same axis multiple times
+# 't' is [[0, 1, 2, 3, 4], [5, 6, 7, 8, 9]]
+roll(t, shift=[2, -3], axis=[1, 1]) ==> [[1, 2, 3, 4, 0], [6, 7, 8, 9, 5]]
+```
+  }];
+
+  let arguments = (ins
+    TF_Tensor:$input,
+    TF_I32OrI64Tensor:$shift,
+    TF_I32OrI64Tensor:$axis
+  );
+
+  let results = (outs
+    TF_Tensor:$output
+  );
+
+  TF_DerivedOperandTypeAttr Tshift = TF_DerivedOperandTypeAttr<1>;
+  TF_DerivedOperandTypeAttr T = TF_DerivedOperandTypeAttr<0>;
+  TF_DerivedOperandTypeAttr Taxis = TF_DerivedOperandTypeAttr<2>;
+}
+
 def TF_RoundOp : TF_Op<"Round", [NoSideEffect, SameOperandsAndResultType]> {
   let summary = [{
 Rounds the values of a tensor to the nearest integer, element-wise.
@@ -9102,6 +9381,8 @@ size(t) ==> 12
   let verifier = [{
     return Verify(*this);
   }];
+
+  let hasFolder = 1;
 }
 
 def TF_SliceOp : TF_Op<"Slice", [NoSideEffect]> {
@@ -9708,7 +9989,7 @@ I.e., \\(y = x * x = x^2\\).
 
 def TF_SquaredDifferenceOp : TF_Op<"SquaredDifference", [Commutative, NoSideEffect, ResultsBroadcastableShape]>,
                              WithBroadcastableBinOpBuilder {
-  let summary = "Returns (x - y)(x - y) element-wise.";
+  let summary = "Returns conj(x - y)(x - y) element-wise.";
 
   let description = [{
 *NOTE*: `SquaredDifference` supports broadcasting. More about broadcasting
@@ -10185,7 +10466,7 @@ Examples:
   TF_DerivedOperandSizeAttr N = TF_DerivedOperandSizeAttr<0>;
 }
 
-def TF_SubOp : TF_Op<"Sub", [NoSideEffect, ResultsBroadcastableShape, TF_SameOperandsAndResultElementTypeResolveRef, TF_CwiseBinary]>,
+def TF_SubOp : TF_Op<"Sub", [NoSideEffect, ResultsBroadcastableShape, TF_CwiseBinary, TF_SameOperandsAndResultElementTypeResolveRef]>,
                WithBroadcastableBinOpBuilder {
   let summary = "Returns x - y element-wise.";
 
@@ -11703,6 +11984,44 @@ tf.unsorted_segment_sum(c, tf.constant([0, 1, 0]), num_segments=2)
   let verifier = [{ return VerifyUnsortedSegmentReduction(*this); }];
 }
 
+def TF_UpperBoundOp : TF_Op<"UpperBound", [NoSideEffect]> {
+  let summary = [{
+Applies upper_bound(sorted_search_values, values) along each row.
+  }];
+
+  let description = [{
+Each set of rows with the same index in (sorted_inputs, values) is treated
+independently.  The resulting row is the equivalent of calling
+`np.searchsorted(sorted_inputs, values, side='right')`.
+
+The result is not a global index to the entire
+`Tensor`, but rather just the index in the last dimension.
+
+A 2-D example:
+  sorted_sequence = [[0, 3, 9, 9, 10],
+                     [1, 2, 3, 4, 5]]
+  values = [[2, 4, 9],
+            [0, 2, 6]]
+
+  result = UpperBound(sorted_sequence, values)
+
+  result == [[1, 2, 4],
+             [0, 2, 5]]
+  }];
+
+  let arguments = (ins
+    TF_Tensor:$sorted_inputs,
+    TF_Tensor:$values
+  );
+
+  let results = (outs
+    TF_I32OrI64Tensor:$output
+  );
+
+  TF_DerivedOperandTypeAttr T = TF_DerivedOperandTypeAttr<0>;
+  TF_DerivedResultTypeAttr out_type = TF_DerivedResultTypeAttr<0>;
+}
+
 def TF_VarIsInitializedOp : TF_Op<"VarIsInitializedOp", []> {
   let summary = [{
 Checks whether a resource handle-based variable has been initialized.
@@ -12234,6 +12553,13 @@ https://www.tensorflow.org/performance/xla/operation_semantics#pad
 def TF_XlaRecvFromHostOp : TF_Op<"XlaRecvFromHost", []> {
   let summary = "An op to receive a tensor from the host.";
 
+  let description = [{
+output: the tensor that will be received from the host.
+Toutput: element type for output.
+shape: shape for output.
+key: A unique identifier for this region used to match up host transfers.
+  }];
+
   let arguments = (ins
     TF_ShapeAttr:$shape,
     StrAttr:$key
@@ -12334,6 +12660,12 @@ i=0...N-1.
 
 def TF_XlaSendToHostOp : TF_Op<"XlaSendToHost", []> {
   let summary = "An op to send a tensor to the host.";
+
+  let description = [{
+input: the tensor that will be sent to the host.
+Tinput: element type for input.
+key: A unique identifier for this region used to match up host transfers.
+  }];
 
   let arguments = (ins
     TF_Tensor:$input,
@@ -12541,18 +12873,17 @@ Compiles a computations for execution on one or more TPU devices.
   }];
 
   let description = [{
-For the internal use of the distributed TPU compiler. Note that currently only
-single TPU device is supported.
+For the internal use of the distributed TPU compiler.
 
 'mlir_module' is a serialized MLIR module with a `main` function that contains
 target computation.
 'dynamic_shapes' contains dynamic shapes of arguments whose shapes were not
 known statically at TPUReplication rewrite time.
-'metadata' is a serialized TPUCompileMetadataProto describing
-the shapes and types of the inputs to the computation, as well as a mapping onto
-the TPU pod topology.
-'program' output is a string key that is passed to the _TPUExecute op and
-used to look up the program in the compilation cache.
+'metadata' is a serialized TPUCompileMetadataProto describing the shapes and
+types of the inputs to the computation, as well as a mapping onto the TPU pod
+topology.
+'program' output is a string key that is passed to the TPUExecute op and used to
+look up the program in the compilation cache.
   }];
 
   let arguments = (ins

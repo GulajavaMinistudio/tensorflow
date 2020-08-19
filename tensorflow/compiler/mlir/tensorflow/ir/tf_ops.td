@@ -112,6 +112,10 @@ An n-way switch statement, implementing the following:
   TF_DerivedResultShapeListAttr output_shapes = TF_DerivedResultShapeListAttr<0>;
 
   let hasCanonicalizer = 1;
+
+  let verifier = [{
+    return Verify(*this);
+  }];
 }
 
 def TF_CaseRegionOp : TF_Op<"CaseRegion",
@@ -373,7 +377,7 @@ else_branch: A region that computes the outputs of the op if cond = false.
   }];
 
   let arguments = (ins
-    TF_Tensor:$cond,
+    0DTensorOf<[I1]>:$cond,
 
     // Used to map StatelessIf and If op defined in TensorFlow to a common op.
     BoolAttr:$is_stateless

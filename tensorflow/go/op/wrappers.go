@@ -13634,6 +13634,33 @@ func QueueDequeueV2(scope *Scope, handle tf.Output, component_types []tf.DataTyp
 	return components
 }
 
+// Returns the next record (key, value pair) produced by a Reader.
+//
+// Will dequeue from the input queue if necessary (e.g. when the
+// Reader needs to start reading from a new file since it has finished
+// with the previous file).
+//
+// Arguments:
+//	reader_handle: Handle to a Reader.
+//	queue_handle: Handle to a Queue, with string work items.
+//
+// Returns:
+//	key: A scalar.
+//	value: A scalar.
+func ReaderReadV2(scope *Scope, reader_handle tf.Output, queue_handle tf.Output) (key tf.Output, value tf.Output) {
+	if scope.Err() != nil {
+		return
+	}
+	opspec := tf.OpSpec{
+		Type: "ReaderReadV2",
+		Input: []tf.Input{
+			reader_handle, queue_handle,
+		},
+	}
+	op := scope.AddOperation(opspec)
+	return op.Output(0), op.Output(1)
+}
+
 // Return a slice from 'input'.
 //
 // The output tensor is a tensor with dimensions described by 'size'
@@ -15925,6 +15952,46 @@ func Dilation2D(scope *Scope, input tf.Output, filter tf.Output, strides []int64
 	}
 	op := scope.AddOperation(opspec)
 	return op.Output(0)
+}
+
+// IsotonicRegressionAttr is an optional argument to IsotonicRegression.
+type IsotonicRegressionAttr func(optionalAttr)
+
+// IsotonicRegressionOutputDtype sets the optional output_dtype attribute to value.
+//
+// value: Dtype of output.
+// If not specified, defaults to DT_FLOAT
+func IsotonicRegressionOutputDtype(value tf.DataType) IsotonicRegressionAttr {
+	return func(m optionalAttr) {
+		m["output_dtype"] = value
+	}
+}
+
+// Solves a batch of isotonic regression problems.
+//
+// Arguments:
+//	input: A (batch_size, dim)-tensor holding a batch of inputs.
+//
+// Returns:
+//	output: A (batch_size, dim)-tensor holding the per-batch element solutions.
+//	segments: An int32 (batch_size, dim)-tensor with the segments.
+func IsotonicRegression(scope *Scope, input tf.Output, optional ...IsotonicRegressionAttr) (output tf.Output, segments tf.Output) {
+	if scope.Err() != nil {
+		return
+	}
+	attrs := map[string]interface{}{}
+	for _, a := range optional {
+		a(attrs)
+	}
+	opspec := tf.OpSpec{
+		Type: "IsotonicRegression",
+		Input: []tf.Input{
+			input,
+		},
+		Attrs: attrs,
+	}
+	op := scope.AddOperation(opspec)
+	return op.Output(0), op.Output(1)
 }
 
 // Computes softplus: `log(exp(features) + 1)`.
@@ -22998,6 +23065,26 @@ func NcclReduce(scope *Scope, input []tf.Output, reduction string) (data tf.Outp
 		Input: []tf.Input{
 			tf.OutputList(input),
 		},
+		Attrs: attrs,
+	}
+	op := scope.AddOperation(opspec)
+	return op.Output(0)
+}
+
+// An op to receive a tensor from the host.
+//
+// output: the tensor that will be received from the host.
+// Toutput: element type for output.
+// shape: shape for output.
+// key: A unique identifier for this region used to match up host transfers.
+func XlaRecvFromHost(scope *Scope, Toutput tf.DataType, shape tf.Shape, key string) (output tf.Output) {
+	if scope.Err() != nil {
+		return
+	}
+	attrs := map[string]interface{}{"Toutput": Toutput, "shape": shape, "key": key}
+	opspec := tf.OpSpec{
+		Type: "XlaRecvFromHost",
+
 		Attrs: attrs,
 	}
 	op := scope.AddOperation(opspec)
@@ -46025,6 +46112,28 @@ func MaxPoolGradGradV2(scope *Scope, orig_input tf.Output, orig_output tf.Output
 	return op.Output(0)
 }
 
+// An op to send a tensor to the host.
+//
+// input: the tensor that will be sent to the host.
+// Tinput: element type for input.
+// key: A unique identifier for this region used to match up host transfers.
+//
+// Returns the created operation.
+func XlaSendToHost(scope *Scope, input tf.Output, key string) (o *tf.Operation) {
+	if scope.Err() != nil {
+		return
+	}
+	attrs := map[string]interface{}{"key": key}
+	opspec := tf.OpSpec{
+		Type: "XlaSendToHost",
+		Input: []tf.Input{
+			input,
+		},
+		Attrs: attrs,
+	}
+	return scope.AddOperation(opspec)
+}
+
 // ResourceSparseApplyRMSPropAttr is an optional argument to ResourceSparseApplyRMSProp.
 type ResourceSparseApplyRMSPropAttr func(optionalAttr)
 
@@ -49644,33 +49753,6 @@ func LoadTPUEmbeddingMDLAdagradLightParameters(scope *Scope, parameters tf.Outpu
 		Attrs: attrs,
 	}
 	return scope.AddOperation(opspec)
-}
-
-// Returns the next record (key, value pair) produced by a Reader.
-//
-// Will dequeue from the input queue if necessary (e.g. when the
-// Reader needs to start reading from a new file since it has finished
-// with the previous file).
-//
-// Arguments:
-//	reader_handle: Handle to a Reader.
-//	queue_handle: Handle to a Queue, with string work items.
-//
-// Returns:
-//	key: A scalar.
-//	value: A scalar.
-func ReaderReadV2(scope *Scope, reader_handle tf.Output, queue_handle tf.Output) (key tf.Output, value tf.Output) {
-	if scope.Err() != nil {
-		return
-	}
-	opspec := tf.OpSpec{
-		Type: "ReaderReadV2",
-		Input: []tf.Input{
-			reader_handle, queue_handle,
-		},
-	}
-	op := scope.AddOperation(opspec)
-	return op.Output(0), op.Output(1)
 }
 
 // CumprodAttr is an optional argument to Cumprod.
