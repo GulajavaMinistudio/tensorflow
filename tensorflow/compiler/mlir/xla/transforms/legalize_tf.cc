@@ -72,7 +72,8 @@ constexpr char kShardingAttr[] = "mhlo.sharding";
 
 class LegalizeTF : public PassWrapper<LegalizeTF, FunctionPass> {
   void getDependentDialects(DialectRegistry &registry) const override {
-    registry.insert<chlo::HloClientDialect, mhlo::MhloDialect>();
+    registry.insert<chlo::HloClientDialect, mhlo::MhloDialect,
+                    shape::ShapeDialect, StandardOpsDialect>();
   }
 
  public:
@@ -2473,6 +2474,12 @@ class ConvertMaxPoolOp : public OpRewritePattern<OpTy> {
     Type element_type =
         op.input().getType().template cast<TensorType>().getElementType();
     if (!element_type.isSignlessIntOrFloat()) return failure();
+    tensorflow::Padding padding;
+    if (!GetPaddingFromString(op.padding().str(), &padding).ok())
+      return failure();
+    if (padding == tensorflow::Padding::EXPLICIT) {
+      return failure();
+    }
     Location loc = op.getLoc();
     ConstOp init = GetScalarLimitConstOfType(element_type, loc,
                                              hlo::kInfinityLowest, &rewriter);
