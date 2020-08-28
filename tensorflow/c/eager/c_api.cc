@@ -51,9 +51,6 @@ limitations under the License.
 #include "tensorflow/core/protobuf/device_filters.pb.h"
 #include "tensorflow/core/protobuf/error_codes.pb.h"
 #include "tensorflow/core/util/device_name_utils.h"
-#ifdef TENSORFLOW_EAGER_USE_XLA
-#include "tensorflow/compiler/tf2xla/xla_op_registry.h"
-#endif  // TENSORFLOW_EAGER_USE_XLA
 #include "tensorflow/core/common_runtime/copy_tensor.h"
 #include "tensorflow/core/common_runtime/device_factory.h"
 #include "tensorflow/core/common_runtime/device_mgr.h"
@@ -1165,18 +1162,6 @@ const char* TFE_OpGetDevice(const TFE_Op* op, TF_Status* status) {
   return tensorflow::unwrap(op)->DeviceName().c_str();
 }
 
-void TFE_OpSetXLACompilation(TFE_Op* op, unsigned char enable) {
-#ifdef TENSORFLOW_EAGER_USE_XLA
-  tensorflow::Status s = tensorflow::unwrap(op)->SetUseXla(enable);
-  if (!s.ok()) {
-    LOG(ERROR) << "Could not enable XLA compilation for op: " << s;
-  }
-#else
-  LOG(WARNING) << "This call is a no-op, as the TensorFlow library is not "
-                  "built with XLA support.";
-#endif  // TENSORFLOW_EAGER_USE_XLA
-}
-
 void TFE_OpAddInput(TFE_Op* op, TFE_TensorHandle* input, TF_Status* status) {
   status->status = tensorflow::unwrap(op)->AddInput(tensorflow::unwrap(input));
 }
@@ -1629,19 +1614,12 @@ class CustomDeviceAPI : public tensorflow::CustomDevice {
     return status.status;
   }
 
-  tensorflow::Status Execute(tensorflow::EagerOperation* op,
+  tensorflow::Status Execute(const tensorflow::EagerOperation* op,
                              tensorflow::TensorHandle** retvals,
                              int* num_retvals) override {
-    std::vector<TFE_TensorHandle*> inputs;
-    inputs.reserve(op->Inputs().size());
-    for (int i = 0; i < op->Inputs().size(); ++i) {
-      op->Inputs()[i]->Ref();
-      inputs.push_back(tensorflow::wrap(op->Inputs()[i]));
-    }
     std::vector<TFE_TensorHandle*> outputs(*num_retvals);
     TF_Status status;
-    device_.execute(context_, inputs.size(), inputs.data(), op->Name().c_str(),
-                    wrap(&op->Attrs()), num_retvals, outputs.data(), &status,
+    device_.execute(tensorflow::wrap(op), num_retvals, outputs.data(), &status,
                     info_);
     if (status.status.ok()) {
       for (int i = 0; i < *num_retvals; ++i) {
@@ -1650,10 +1628,6 @@ class CustomDeviceAPI : public tensorflow::CustomDevice {
         retvals[i]->Ref();
         TFE_DeleteTensorHandle(outputs[i]);
       }
-    }
-
-    for (auto inp : inputs) {
-      TFE_DeleteTensorHandle(inp);
     }
     return status.status;
   }
