@@ -71,6 +71,23 @@ def make_per_replica_value(value_fn, devices):
   return value_lib.PerReplica(values)
 
 
+def enable_collective_ops():
+  """Enable collectives in the current process."""
+  cluster_resolver = cluster_resolver_lib.TFConfigClusterResolver()
+  context.context().configure_collective_ops(
+      collective_leader="'/job:worker/replica:0/task:0'")
+  config_proto = config_pb2.ConfigProto()
+  config_proto.experimental.collective_group_leader = (
+      "/job:worker/replica:0/task:0")
+  server_def = tensorflow_server_pb2.ServerDef(
+      cluster=cluster_resolver.cluster_spec().as_cluster_def(),
+      default_session_config=config_proto,
+      job_name=cluster_resolver.task_type,
+      task_index=cluster_resolver.task_id,
+      protocol=cluster_resolver.rpc_layer)
+  context.context().enable_collective_ops(server_def)
+
+
 class MultiProcessPoolRunner():
 
   def __init__(self, num_processes):
@@ -113,8 +130,17 @@ atexit.register(_shutdown_at_exit)
 
 class CollectiveOpsTest(test.TestCase, parameterized.TestCase):
 
-  def enable_collectives(self, num_processes, gpu_per_process, communication):
-    """Enable collectives in the current process.
+  def setUp(self):
+    super().setUp()
+    # Enabling collectives can be done in "setUpClass", but requires using
+    # different collective_keys in different tests as collectives are reused
+    # across tests. Always resetting collective ops before each test offers
+    # better test isolation.
+    global_mpr_1p.runner.run(enable_collective_ops)
+    global_mpr_2p.runner.run(enable_collective_ops)
+
+  def make_collective(self, num_processes, gpu_per_process, communication):
+    """Returns collectives and other info to be used in tests.
 
     Args:
       num_processes: an integer indicating the number of processes that
@@ -128,20 +154,8 @@ class CollectiveOpsTest(test.TestCase, parameterized.TestCase):
      attached to the current process, and group_size is the group_size of
      collective.
     """
-    cluster_resolver = cluster_resolver_lib.TFConfigClusterResolver()
-    context.context().configure_collective_ops(
-        collective_leader="'/job:worker/replica:0/task:0'")
-    config_proto = config_pb2.ConfigProto()
-    config_proto.experimental.collective_group_leader = (
-        "/job:worker/replica:0/task:0")
-    server_def = tensorflow_server_pb2.ServerDef(
-        cluster=cluster_resolver.cluster_spec().as_cluster_def(),
-        default_session_config=config_proto,
-        job_name=cluster_resolver.task_type,
-        task_index=cluster_resolver.task_id,
-        protocol=cluster_resolver.rpc_layer)
-    context.context().enable_collective_ops(server_def)
 
+    cluster_resolver = cluster_resolver_lib.TFConfigClusterResolver()
     devices = [
         "/job:worker/replica:0/task:%d/device:CPU:0" % cluster_resolver.task_id
     ]
@@ -204,9 +218,9 @@ class CollectiveOpsTest(test.TestCase, parameterized.TestCase):
     """
 
     def replica_fn():
-      collective, devices, pid = self.enable_collectives(
-          options.num_processes, options.gpus_per_process,
-          options.communication)
+      collective, devices, pid = self.make_collective(options.num_processes,
+                                                      options.gpus_per_process,
+                                                      options.communication)
 
       def reduce_fn():
         value_fn = lambda device_idx: inputs[pid * len(devices) + device_idx]
@@ -241,9 +255,9 @@ class CollectiveOpsTest(test.TestCase, parameterized.TestCase):
     """
 
     def replica_fn():
-      collective, devices, pid = self.enable_collectives(
-          options.num_processes, options.gpus_per_process,
-          options.communication)
+      collective, devices, pid = self.make_collective(options.num_processes,
+                                                      options.gpus_per_process,
+                                                      options.communication)
 
       def batch_reduce_fn():
         batch_size = len(inputs[0])

@@ -1993,29 +1993,18 @@ class TransposeOperationParser : public TFLiteOperationParser {
     if (perm.data.size() == 4) {
       attr.perm = BHWC(perm.data[0], perm.data[1], perm.data[2], perm.data[3]);
     } else if (perm.data.size() == 3) {
-      std::vector<Axis> index_to_axis = {Axis::CHANNELS, Axis::WIDTH,
-                                         Axis::BATCH};
-      std::map<Axis, Axis> remap = {
-          {Axis::HEIGHT, Axis::HEIGHT},
-          {index_to_axis[perm.data[2]], Axis::BATCH},
-          {index_to_axis[perm.data[1]], Axis::WIDTH},
-          {index_to_axis[perm.data[0]], Axis::CHANNELS}};
-      attr.perm.b = axis_to_index[remap[Axis::BATCH]];
-      attr.perm.h = axis_to_index[remap[Axis::HEIGHT]];
-      attr.perm.w = axis_to_index[remap[Axis::WIDTH]];
-      attr.perm.c = axis_to_index[remap[Axis::CHANNELS]];
-
+      std::vector<Axis> index_to_axis = {Axis::BATCH, Axis::WIDTH,
+                                         Axis::CHANNELS};
+      attr.perm.b = axis_to_index[index_to_axis[perm.data[0]]];
+      attr.perm.h = 1;
+      attr.perm.w = axis_to_index[index_to_axis[perm.data[1]]];
+      attr.perm.c = axis_to_index[index_to_axis[perm.data[2]]];
     } else if (perm.data.size() == 2) {
-      std::vector<Axis> index_to_axis = {Axis::CHANNELS, Axis::BATCH};
-      std::map<Axis, Axis> remap = {
-          {Axis::HEIGHT, Axis::HEIGHT},
-          {Axis::WIDTH, Axis::WIDTH},
-          {index_to_axis[perm.data[1]], Axis::BATCH},
-          {index_to_axis[perm.data[0]], Axis::CHANNELS}};
-      attr.perm.b = axis_to_index[remap[Axis::BATCH]];
-      attr.perm.h = axis_to_index[remap[Axis::HEIGHT]];
-      attr.perm.w = axis_to_index[remap[Axis::WIDTH]];
-      attr.perm.c = axis_to_index[remap[Axis::CHANNELS]];
+      std::vector<Axis> index_to_axis = {Axis::BATCH, Axis::CHANNELS};
+      attr.perm.b = axis_to_index[index_to_axis[perm.data[0]]];
+      attr.perm.h = 1;
+      attr.perm.w = 2;
+      attr.perm.c = axis_to_index[index_to_axis[perm.data[1]]];
     } else {
       return absl::InvalidArgumentError(
           "Permutation for transpose is invalid.");
@@ -2265,6 +2254,7 @@ class TransformLandmarksOperationParser : public TFLiteOperationParser {
   absl::Status IsSupported(const TfLiteContext* context,
                            const TfLiteNode* tflite_node,
                            const TfLiteRegistration* registration) final {
+    RETURN_IF_ERROR(CheckMaxSupportedOpVersion(registration, 2));
     RETURN_IF_ERROR(CheckInputsOutputs(context, tflite_node,
                                        /*runtime_inputs=*/2, /*outputs=*/1));
     return absl::OkStatus();
@@ -2290,42 +2280,6 @@ class TransformLandmarksOperationParser : public TFLiteOperationParser {
     output_value->tensor.shape = graph->FindInputs(node->id)[0]->tensor.shape;
     return absl::OkStatus();
   }
-
- private:
-};
-
-class TransformLandmarksV2OperationParser : public TFLiteOperationParser {
- public:
-  absl::Status IsSupported(const TfLiteContext* context,
-                           const TfLiteNode* tflite_node,
-                           const TfLiteRegistration* registration) final {
-    RETURN_IF_ERROR(CheckInputsOutputs(context, tflite_node,
-                                       /*runtime_inputs=*/2, /*outputs=*/1));
-    return absl::OkStatus();
-  }
-
-  absl::Status Parse(const TfLiteNode* tflite_node,
-                     const TfLiteRegistration* registration,
-                     GraphFloat32* graph, ObjectReader* reader) final {
-    Node* node = graph->NewNode();
-    RETURN_IF_ERROR(reader->AddInput(node, 0));  // data
-    RETURN_IF_ERROR(reader->AddInput(node, 1));  // bbox
-    RETURN_IF_ERROR(reader->AddOutputs(node));
-    std::string op_name = "transform_landmarks_v2";
-    node->operation.type = op_name;
-
-    auto output_value = graph->FindOutputs(node->id)[0];
-    output_value->tensor.shape = graph->FindInputs(node->id)[0]->tensor.shape;
-    BHWC output_shape = output_value->tensor.shape;
-    RETURN_IF_ERROR(ParseCustomAttributes(
-        op_name, registration->version, tflite_node->custom_initial_data,
-        tflite_node->custom_initial_data_size, &(node->operation.attributes),
-        &output_shape));
-
-    return absl::OkStatus();
-  }
-
- private:
 };
 
 class Landmarks2TransformMatrixOperationParser : public TFLiteOperationParser {
@@ -2595,9 +2549,6 @@ std::unique_ptr<TFLiteOperationParser> NewOperationParser(
       }
       if (custom_name == "TransformLandmarks") {
         return std::make_unique<TransformLandmarksOperationParser>();
-      }
-      if (custom_name == "TransformLandmarksV2") {
-        return std::make_unique<TransformLandmarksV2OperationParser>();
       }
       if (custom_name == "Landmarks2TransformMatrix" ||
           custom_name == "Landmarks2TransformMatrixV2") {

@@ -13,8 +13,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "tensorflow/compiler/xla/service/gpu/ir/xla_thunks_ops.h"
+#include "tensorflow/lite/micro/debug_log.h"
 
-// Static initialization for GPU thunks op registration.
-static mlir::DialectRegistration<mlir::xla_thunks::XLAThunksDialect>
-    xla_thunks_ops;
+#ifdef DEBUG
+#include <cstdio>
+#endif
+
+extern "C" void DebugLog(const char* s) {
+#ifdef DEBUG
+  fprintf(stderr, "%s", s);
+#endif
+}
