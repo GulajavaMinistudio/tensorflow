@@ -772,6 +772,8 @@ cc_library(
         "transforms/replicate_to_island.cc",
         "transforms/resource_device_inference.cc",
         "transforms/resource_op_lifting.cc",
+        "transforms/resource_op_lifting_cleanup.cc",
+        "transforms/resource_op_lifting_cleanup.h",
         "transforms/rewrite_tpu_embedding_ops.cc",
         "transforms/shape_inference.cc",
         "transforms/shape_inference_pass.cc",
@@ -785,6 +787,7 @@ cc_library(
         "transforms/test_visitor_util.cc",
         "transforms/tf_data_optimization_pass.cc",
         "transforms/tf_device_assignment.cc",
+        "transforms/tpu_cluster_cleanup_attributes.cc",
         "transforms/tpu_cluster_formation.cc",
         "transforms/tpu_colocate_composite_resource_ops.cc",
         "transforms/tpu_dynamic_layout_pass.cc",
@@ -922,16 +925,6 @@ cc_library(
         "//tensorflow/compiler/mlir:mlir_graph_optimization_pass_registration",
     ],
     alwayslink = 1,
-)
-
-# Library with TensorFlow dialect static initialization.
-# TODO(aminim): OBSOLETE ; remove all users and delete this.
-cc_library(
-    name = "tensorflow_dialect_registration",
-    deps = [
-        ":tensorflow",
-        "@llvm-project//mlir:Shape",
-    ],
 )
 
 cc_library(
@@ -1562,6 +1555,16 @@ cc_library(
 )
 
 cc_library(
+    name = "compile_mlir_util_pass",
+    srcs = ["utils/compile_mlir_util_pass.cc"],
+    deps = [
+        ":compile_mlir_util",
+        "@llvm-project//mlir:Pass",
+    ],
+    alwayslink = 1,
+)
+
+cc_library(
     name = "tf_xla_mlir_translate",
     srcs = ["utils/tf_xla_mlir_translate.cc"],
     deps = [
@@ -1583,6 +1586,7 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Pass",
         "@llvm-project//mlir:StandardOps",
         "@llvm-project//mlir:Support",
         "@llvm-project//mlir:Translation",
