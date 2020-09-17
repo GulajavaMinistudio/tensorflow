@@ -148,8 +148,9 @@ COMMON_PIP_DEPS = [
     "//tensorflow/python:while_v2",
     "//tensorflow/tools/common:public_api",
     "//tensorflow/tools/common:test_module1",
+    "//tensorflow/tools/common:traverse",
+    "//tensorflow/python/distribute:parameter_server_strategy_v2",
     "//tensorflow/python/distribute/client:client",
-    "//tensorflow/python/distribute/client:parameter_server_client",
     "//tensorflow/python/distribute/client:remote_eager_lib",
     "//tensorflow/python/distribute/client:metric_utils",
 ]
@@ -202,7 +203,6 @@ filegroup(
         "@llvm-project//llvm:LICENSE.TXT",
         "@llvm-project//mlir:LICENSE.TXT",
         "@lmdb//:LICENSE",
-        "@local_config_sycl//sycl:LICENSE.text",
         "@local_config_tensorrt//:LICENSE",
         "@nasm//:LICENSE",
         "@nsync//:LICENSE",
