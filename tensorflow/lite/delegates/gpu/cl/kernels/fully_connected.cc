@@ -83,13 +83,14 @@ std::string FullyConnected::GetFullyConnectedKernelCode(
   int2 tid = (int2)(get_local_id(0), get_local_id(1));
   ACCUM_FLT4 s = (ACCUM_FLT4)(0.0f);
   if (gid < args.dst_tensor.Slices()) {
-    for (uint c = tid.y; c < args.src_tensor.Slices(); c += WG_Y) {
+    for (int c = tid.y; c < args.src_tensor.Slices(); c += WG_Y) {
       FLT4 v = args.src_tensor.Read(0, 0, c);
-      FLT16 w = args.weights.Read(c*args.dst_tensor.Slices() + gid);
-      s.x += dot(v, w.s0123);
-      s.y += dot(v, w.s4567);
-      s.z += dot(v, w.s89ab);
-      s.w += dot(v, w.scdef);
+      FLT16 w = args.weights.Read(c * args.dst_tensor.Slices() + gid);
+      FLT4 partial = v.s0 * w.s0123;
+      partial = mad(v.s1, w.s4567, partial);
+      partial = mad(v.s2, w.s89ab, partial);
+      partial = mad(v.s3, w.scdef, partial);
+      s += TO_ACCUM_TYPE(partial);
     }
   }
   __local ACCUM_FLT4 temp[WG_X][WG_Y];
