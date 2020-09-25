@@ -8,16 +8,19 @@ load(
 load(
     "//tensorflow:tensorflow.bzl",
     "if_cuda_or_rocm",
-    "tf_kernel_library",
 )
-load("//tensorflow:tensorflow.bzl", "tf_cuda_cc_test")
+load("//tensorflow:tensorflow.bzl", "tf_cuda_cc_test")  # buildifier: disable=same-origin-load
+load("//tensorflow:tensorflow.bzl", "tf_kernel_library")  # buildifier: disable=same-origin-load
 load(
     "//tensorflow/core/platform:build_config_root.bzl",
     "tf_cuda_tests_tags",
 )
 
 package(
-    default_visibility = ["//tensorflow/core/kernels:__subpackages__"],
+    default_visibility = [
+        "//tensorflow/compiler/mlir/tools/kernel_gen:__subpackages__",
+        "//tensorflow/core/kernels:__subpackages__",
+    ],
     licenses = ["notice"],  # Apache 2.0
 )
 
@@ -38,6 +41,9 @@ tf_kernel_library(
         "cwise_op_gpu_base.h",
         "cwise_op_gpu_tanh.cc",
     ]),
+    # Building abs_kernels and tanh_kernels requires hexdump on the ROCM
+    # platform, which might not be available.
+    tags = ["no_rocm"],
     deps = if_cuda_or_rocm([
         ":abs_kernels",
         ":tanh_kernels",
