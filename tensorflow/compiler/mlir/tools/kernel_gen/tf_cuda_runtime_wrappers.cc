@@ -20,13 +20,12 @@ limitations under the License.
 #include <cassert>
 #include <numeric>
 
-#include "third_party/llvm/llvm-project/llvm/include/llvm/ADT/ArrayRef.h"
-#include "third_party/llvm/llvm-project/llvm/include/llvm/Support/raw_ostream.h"
-#include "third_party/llvm/llvm-project/mlir/include/mlir/ExecutionEngine/CRunnerUtils.h"
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/Support/raw_ostream.h"
+#include "mlir/ExecutionEngine/CRunnerUtils.h"  // from @llvm-project
 
 #if GOOGLE_CUDA
 #include "third_party/gpus/cuda/include/cuda.h"
-#endif
 
 #define CUDA_REPORT_IF_ERROR(expr)                                             \
   [](CUresult result) {                                                        \
@@ -105,3 +104,5 @@ mgpuMemHostRegisterMemRef(int64_t rank, StridedMemRefType<char, 1> *descriptor,
   auto ptr = descriptor->data + descriptor->offset * elementSizeBytes;
   mgpuMemHostRegister(ptr, sizeBytes);
 }
+
+#endif
