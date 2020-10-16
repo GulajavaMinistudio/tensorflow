@@ -54,6 +54,13 @@
   tf.grad_pass_through(tf.quantization.quantize_and_dequantize_v2)(...).
 * `tf.distribute.Strategy.experimental_make_numpy_dataset` is removed. Please
   use `tf.data.Dataset.from_tensor_slices` instead.
+* `experimental_hints` in `tf.distribute.StrategyExtended.reduce_to`,
+  `tf.distribute.StrategyExtended.batch_reduce_to`,
+  `tf.distribute.ReplicaContext.all_reduce` are renamed to `options`.
+  `tf.distribute.experimental.CollectiveHints` is renamed
+  `tf.distribute.experimental.CommunicationOptions`.
+  `tf.distribute.experimental.CollectiveCommunication` is renamed
+  `tf.distribute.experimental.CommunicationImplementation`.
 
 ## Known Caveats
 
@@ -138,6 +145,7 @@
         stateful ops.
     *   Added `tf.config.experimental.get_memory_usage` to return total memory
         usage of the device.
+    * Added gradients for `RaggedTensorToVariant` and `RaggedTensorFromVariant`.
 *   `tf.data`:
     *   tf.data service:
     *   Added new `tf.data.experimental.service.register_dataset` and
@@ -224,6 +232,9 @@
         argument.
     *   Added `tf.metrics.log_cosh` and `tf.metrics.logcosh` API entrypoints
         with the same implementation as their `tf.losses` equivalent.
+    *   For Keras model, the individual call of `Model.evaluate` uses no cached
+        data for evaluation, while `Model.fit` uses cached data when
+        `validation_data` arg is provided for better performance.
 *   `tf.function` / AutoGraph:
     *   Added `experimental_follow_type_hints` argument for `tf.function`. When
         True, the function may use type annotations to optimize the tracing
@@ -277,7 +288,7 @@
 
 *   Math and Linear Algebra:
 
-    *   <ADD RELEASE NOTES HERE>
+    * Add `tf.math.erfcinv`, the inverse to `tf.math.erfc`.
 
 *   TPU Enhancements:
 
@@ -322,6 +333,12 @@
     *   Bug fix in `tf.print()` with `OrderedDict` where if an `OrderedDict`
         didn't have the keys sorted, the keys and values were not being printed
         in accordance with their correct mapping.
+
+*    `TensorRT`
+
+    *   We now issue a warning when the `session_config` parameter for the TF1
+        converter is used or the `rewrite_config_template` field in the TF2
+        converter parameter object is used.
 
 *   Other:
 
