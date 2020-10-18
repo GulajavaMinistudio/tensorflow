@@ -1066,7 +1066,7 @@ cc_library(
         "-parse_headers",
     ],
     visibility = tf_external_workspace_visible(visibility + [
-        "//learning/deepmind/courier:__subpackages__",
+        "//tensorflow:ndarray_tensor_allow_list",
     ]),
     deps = [
         ":numpy_lib",
@@ -6053,7 +6053,10 @@ pywrap_tensorflow_macro(
         ":tf_session_helper",
         "//third_party/python_runtime:headers",
         "//tensorflow/c:c_api",
+        "//tensorflow/c:kernels",
+        "//tensorflow/c:ops",
         "//tensorflow/c:c_api_experimental",
+        "//tensorflow/c/experimental/stream_executor:stream_executor",
         "//tensorflow/c:checkpoint_reader",
         "//tensorflow/c:python_api",
         "//tensorflow/c:tf_status_helper",
@@ -6125,8 +6128,6 @@ filegroup(
         "//tensorflow/compiler/jit:get_compiler_ir",  #tfe
         "//tensorflow/compiler/jit:flags",  #tfe
         "//tensorflow/compiler/mlir/python:mlir",  # mlir
-        "//tensorflow/core/common_runtime:device",  # device_lib, tfe, tf_session
-        "//tensorflow/core/common_runtime:device_factory",  # device_lib, tfe, tf_session
         "//tensorflow/core/common_runtime:graph_constructor",  # tf_session
         "//tensorflow/core/common_runtime:quantize_training",  # quantize_training
         "//tensorflow/core/common_runtime:session_options",  # device_lib, tfe, tf_session
