@@ -13,28 +13,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "tensorflow/core/platform/default/test_benchmark.h"
+#ifndef TENSORFLOW_CORE_FRAMEWORK_REGISTRATION_OPTIONS_TMPL_H_
+#define TENSORFLOW_CORE_FRAMEWORK_REGISTRATION_OPTIONS_TMPL_H_
 
-// Test the new interface: BM_benchmark(benchmark::State& state)
-namespace tensorflow {
-namespace testing {
-namespace {
+// This header is generated from a template; see the tf_gen_options_header()
+// build rule. Template placeholders of the form '#define_option X' result in
+// macros of the form 'TF_OPTION_X()'.
 
-void BM_TestIterState(::testing::benchmark::State& state) {
-  int i = 0;
-  for (auto s : state) {
-    ++i;
-    DoNotOptimize(i);
-  }
-}
+#define_option REGISTRATION_V2
 
-BENCHMARK(BM_TestIterState);
-
-}  // namespace
-}  // namespace testing
-}  // namespace tensorflow
-
-int main() {
-  ::testing::benchmark::RunSpecifiedBenchmarks();
-  return 0;
-}
+#endif  // TENSORFLOW_CORE_FRAMEWORK_REGISTRATION_OPTIONS_TMPL_H_

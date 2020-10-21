@@ -341,7 +341,7 @@ distribute_py_test(
     full_precision = True,
     main = "distribute_strategy_test.py",
     python_version = "PY3",
-    shard_count = 10,
+    shard_count = 20,
     tags = [
         "multi_and_single_gpu",
         "no_rocm",  # times out on ROCm
@@ -870,8 +870,8 @@ py_test(
         "//tensorflow/python/distribute:multi_worker_test_base",
         "//tensorflow/python/distribute:parameter_server_strategy_v2",
         "//tensorflow/python/distribute:sharded_variable",
-        "//tensorflow/python/distribute/client",
         "//tensorflow/python/distribute/cluster_resolver:cluster_resolver_lib",
+        "//tensorflow/python/distribute/coordinator:cluster_coordinator",
         "//tensorflow/python/eager:backprop",
         "//tensorflow/python/eager:def_function",
         "//tensorflow/python/eager:test",
