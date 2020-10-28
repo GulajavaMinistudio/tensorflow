@@ -365,7 +365,7 @@ class TFL_TCopVTEtAreSameAt<int i, int j> : Or<[
 
 // This is a constraint for most of the binary ops, e.g., add, mul, div, etc.
 // Binary ops lhs & rhs should have the same value type, and is capable to
-// compare quantiziation types as well.
+// compare quantization types as well.
 def BinaryOpSameElementTypeConstraint :
   PredOpTrait<"operands have same element type",
     Or<[
@@ -2584,6 +2584,8 @@ def TFL_ReshapeOp: TFL_Op<"reshape", [
   let results = (outs AnyTensor:$output);
   let hasCanonicalizer = 0b1;
   let hasFolder = 1;
+
+  let verifier = [{ return Verify(*this); }];
 }
 
 def TFL_ReverseSequenceOp : TFL_Op<"reverse_sequence", [

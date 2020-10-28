@@ -27,9 +27,9 @@ from tensorflow.python.data.ops import dataset_ops
 from tensorflow.python.data.ops import iterator_ops
 from tensorflow.python.distribute import distribution_strategy_context
 from tensorflow.python.distribute import parameter_server_strategy
+from tensorflow.python.distribute import parameter_server_strategy_v2
 from tensorflow.python.eager import context
 from tensorflow.python.eager import def_function
-from tensorflow.python.framework import composite_tensor_utils
 from tensorflow.python.framework import constant_op
 from tensorflow.python.framework import ops
 from tensorflow.python.framework import sparse_tensor
@@ -361,9 +361,15 @@ class Model(training_lib.Model):
 
     if isinstance(self._distribution_strategy,
                   parameter_server_strategy.ParameterServerStrategyV1):
-      raise NotImplementedError('`tf.compat.v1.distribute.experimental.Paramet'
-                                'erServerStrategy` currently only works '
-                                'with the tf.Estimator API')
+      raise NotImplementedError(
+          '`tf.compat.v1.distribute.experimental.ParameterServerStrategy` '
+          'currently only works with the tf.Estimator API')
+
+    if isinstance(self._distribution_strategy,
+                  parameter_server_strategy_v2.ParameterServerStrategyV2):
+      raise NotImplementedError(
+          '`tf.distribute.experimental.ParameterServerStrategy` is only '
+          'supported in TF2.')
 
     if not self._experimental_run_tf_function:
       self._validate_compile_param_for_distribution_strategy(self.run_eagerly,
@@ -2495,7 +2501,7 @@ class Model(training_lib.Model):
     # users should explicitly add composite tensor inputs to their subclassed
     # models.
     for input_tensor in processed_inputs:
-      if composite_tensor_utils.is_composite_or_composite_value(input_tensor):
+      if training_utils_v1.is_composite_or_composite_value(input_tensor):
         # TODO(b/132691975): Document subclass-model CT input handling.
         raise ValueError(
             'All SparseTensor and RaggedTensor inputs must be explicitly '

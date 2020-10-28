@@ -54,6 +54,7 @@ py_library(
         "//tensorflow/python/distribute:distribute_lib",
         "//tensorflow/python/distribute:input_lib",
         "//tensorflow/python/distribute:parameter_server_strategy",
+        "//tensorflow/python/distribute:parameter_server_strategy_v2",
         "//tensorflow/python/distribute:reduce_util",
         "//tensorflow/python/eager:monitoring",
         "//tensorflow/python/keras:activations",
@@ -301,6 +302,9 @@ cuda_py_test(
     python_version = "PY3",
     tags = [
         "nomac",  # TODO(mihaimaruseac): b/127695564
+    ],
+    xla_tags = [
+        "no_cuda_asan",  # times out
     ],
     deps = [
         ":engine",
