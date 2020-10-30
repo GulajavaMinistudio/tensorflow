@@ -28,6 +28,9 @@
 *   <SIMILAR TO ABOVE SECTION, BUT FOR OTHER IMPORTANT CHANGES / BUG FIXES>
 *   <IF A CHANGE CLOSES A GITHUB ISSUE, IT SHOULD BE DOCUMENTED HERE>
 *   <NOTES SHOULD BE GROUPED PER AREA>
+*   `tf.keras`:
+    *   Improvements to Keras preprocessing layers:
+        *   Discretization combiner implemented, with additional arg `epsilon`.
 
 *   `tf.data`:
     *   Exposing `tf.data.experimental.ExternalStatePolicy`, which can be used
@@ -39,6 +42,10 @@
         *   Removed deprecated `Interpreter::UseNNAPI(bool)` C++ API.
             *   Use `NnApiDelegate()` and related delegate configuration methods
                 directly.
+*   TF Core:
+    *   Corrected higher-order gradients of control flow constructs (`tf.cond`,
+        `tf.while_loop`, and compositions like `tf.foldl`) computed with
+        `tf.GradientTape` inside a `tf.function`.
 
 ## Thanks to our Contributors
 

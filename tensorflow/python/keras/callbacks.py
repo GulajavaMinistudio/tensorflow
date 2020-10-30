@@ -21,6 +21,7 @@ from __future__ import division
 from __future__ import print_function
 
 import collections
+import collections.abc as collections_abc
 import copy
 import csv
 import io
@@ -61,7 +62,6 @@ from tensorflow.python.saved_model import save_options as save_options_lib
 from tensorflow.python.training import checkpoint_management
 from tensorflow.python.training.saving import checkpoint_options as checkpoint_options_lib
 from tensorflow.python.util import nest
-from tensorflow.python.util.compat import collections_abc
 from tensorflow.python.util.tf_export import keras_export
 from tensorflow.tools.docs import doc_controls
 

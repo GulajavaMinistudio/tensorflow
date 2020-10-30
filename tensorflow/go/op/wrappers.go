@@ -12339,7 +12339,7 @@ func ExtractGlimpseV2UniformNoise(value bool) ExtractGlimpseV2Attr {
 // ExtractGlimpseV2Noise sets the optional noise attribute to value.
 //
 // value: indicates if the noise should `uniform`, `gaussian`, or
-// `zero`. The default is `uniform` which means the the noise type
+// `zero`. The default is `uniform` which means the noise type
 // will be decided by `uniform_noise`.
 // If not specified, defaults to "uniform"
 func ExtractGlimpseV2Noise(value string) ExtractGlimpseV2Attr {
@@ -12441,7 +12441,7 @@ func ExtractGlimpseUniformNoise(value bool) ExtractGlimpseAttr {
 // ExtractGlimpseNoise sets the optional noise attribute to value.
 //
 // value: indicates if the noise should `uniform`, `gaussian`, or
-// `zero`. The default is `uniform` which means the the noise type
+// `zero`. The default is `uniform` which means the noise type
 // will be decided by `uniform_noise`.
 // If not specified, defaults to "uniform"
 func ExtractGlimpseNoise(value string) ExtractGlimpseAttr {
@@ -19370,7 +19370,7 @@ func CollectiveReduceV2TimeoutSeconds(value float32) CollectiveReduceV2Attr {
 }
 
 // Mutually reduces multiple tensors of identical type and shape.
-func CollectiveReduceV2(scope *Scope, input tf.Output, group_size tf.Output, group_key tf.Output, instance_key tf.Output, merge_op string, final_op string, optional ...CollectiveReduceV2Attr) (data tf.Output) {
+func CollectiveReduceV2(scope *Scope, input tf.Output, group_size tf.Output, group_key tf.Output, instance_key tf.Output, ordering_token []tf.Output, merge_op string, final_op string, optional ...CollectiveReduceV2Attr) (data tf.Output) {
 	if scope.Err() != nil {
 		return
 	}
@@ -19381,7 +19381,7 @@ func CollectiveReduceV2(scope *Scope, input tf.Output, group_size tf.Output, gro
 	opspec := tf.OpSpec{
 		Type: "CollectiveReduceV2",
 		Input: []tf.Input{
-			input, group_size, group_key, instance_key,
+			input, group_size, group_key, instance_key, tf.OutputList(ordering_token),
 		},
 		Attrs: attrs,
 	}
@@ -38729,7 +38729,7 @@ func InfeedEnqueuePrelinearizedBuffer(scope *Scope, input tf.Output, optional ..
 //   is preceded by "FIRST_DIM_SIZE".
 //
 // Arguments:
-//	shape: The desired shape of the the output tensor. If left unspecified (empty),
+//	shape: The desired shape of the output tensor. If left unspecified (empty),
 // the minimal shape required to contain all the elements in the ragged tensor
 // (the natural shape) will be used. If some dimensions are left unspecified, then
 // the size of the natural shape is used in that dimension.
@@ -50170,7 +50170,7 @@ func CollectiveGatherV2TimeoutSeconds(value float32) CollectiveGatherV2Attr {
 }
 
 // Mutually accumulates multiple tensors of identical type and shape.
-func CollectiveGatherV2(scope *Scope, input tf.Output, group_size tf.Output, group_key tf.Output, instance_key tf.Output, optional ...CollectiveGatherV2Attr) (data tf.Output) {
+func CollectiveGatherV2(scope *Scope, input tf.Output, group_size tf.Output, group_key tf.Output, instance_key tf.Output, ordering_token []tf.Output, optional ...CollectiveGatherV2Attr) (data tf.Output) {
 	if scope.Err() != nil {
 		return
 	}
@@ -50181,7 +50181,7 @@ func CollectiveGatherV2(scope *Scope, input tf.Output, group_size tf.Output, gro
 	opspec := tf.OpSpec{
 		Type: "CollectiveGatherV2",
 		Input: []tf.Input{
-			input, group_size, group_key, instance_key,
+			input, group_size, group_key, instance_key, tf.OutputList(ordering_token),
 		},
 		Attrs: attrs,
 	}

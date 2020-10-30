@@ -18,6 +18,7 @@ from __future__ import division
 from __future__ import print_function
 
 import collections
+import collections.abc as collections_abc
 import warnings
 
 import numpy as np
@@ -68,7 +69,6 @@ from tensorflow.python.platform import tf_logging as logging
 from tensorflow.python.training.tracking import base as trackable
 from tensorflow.python.types import core
 from tensorflow.python.util import nest
-from tensorflow.python.util.compat import collections_abc
 
 try:
   from scipy.sparse import issparse  # pylint: disable=g-import-not-at-top
@@ -746,7 +746,7 @@ class Model(training_lib.Model):
             the dataset at each epoch. This ensures that the same validation
             samples are used every time.
         validation_freq: Only relevant if validation data is provided. Integer
-            or `collections_abc.Container` instance (e.g. list, tuple, etc.).
+            or `collections.abc.Container` instance (e.g. list, tuple, etc.).
             If an integer, specifies how many training epochs to run before a
             new validation run is performed, e.g. `validation_freq=2` runs
             validation every 2 epochs. If a Container, specifies the epochs on
