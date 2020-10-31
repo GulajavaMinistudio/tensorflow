@@ -81,4 +81,16 @@ def PropagateTensorFlowABIKnowledgePass
   let constructor = "transforms::CreatePropagateTensorFlowABIKnowledgePass()";
 }
 
+def PropagateTfAbiKnowledgeToKernels
+    : FunctionPass<"propagate-tf-abi-knowledge-to-kernels"> {
+  let summary = "Pass to propagate tensorflow ABI knowledge to kernels";
+  let constructor = "transforms::CreatePropagateTfAbiKnowledgeToKernels()";
+}
+
+def PropagateShapeKnowledgeToKernels
+    : FunctionPass<"propagate-shape-knowledge-to-kernels"> {
+  let summary = "Pass to propagate shape information into kernels";
+  let constructor = "transforms::CreatePropagateShapeKnowledgeToKernels()";
+}
+
 #endif // TF_KERNEL_GEN_PASSES
