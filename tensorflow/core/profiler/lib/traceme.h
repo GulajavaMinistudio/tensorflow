@@ -20,15 +20,16 @@ limitations under the License.
 #include <utility>
 
 #include "absl/strings/string_view.h"
-#include "tensorflow/core/platform/env_time.h"
 #include "tensorflow/core/platform/logging.h"
 #include "tensorflow/core/platform/macros.h"
 #include "tensorflow/core/platform/platform.h"
 #include "tensorflow/core/platform/types.h"
+#include "tensorflow/core/profiler/lib/traceme_encode.h"  // IWYU pragma: export
+
 #if !defined(IS_MOBILE_PLATFORM)
 #include "tensorflow/core/profiler/internal/cpu/traceme_recorder.h"
+#include "tensorflow/core/profiler/utils/time_utils.h"
 #endif
-#include "tensorflow/core/profiler/lib/traceme_encode.h"  // IWYU pragma: export
 
 namespace tensorflow {
 namespace profiler {
@@ -92,7 +93,7 @@ class TraceMe {
 #if !defined(IS_MOBILE_PLATFORM)
     if (TF_PREDICT_FALSE(TraceMeRecorder::Active(level))) {
       new (&no_init_.name) std::string(name);
-      start_time_ = EnvTime::NowNanos();
+      start_time_ = GetCurrentTimeNanos();
     }
 #endif
   }
@@ -138,9 +139,22 @@ class TraceMe {
 #if !defined(IS_MOBILE_PLATFORM)
     if (TF_PREDICT_FALSE(TraceMeRecorder::Active(level))) {
       new (&no_init_.name) std::string(name_generator());
-      start_time_ = EnvTime::NowNanos();
+      start_time_ = GetCurrentTimeNanos();
     }
 #endif
+  }
+
+  // Movable.
+  TraceMe(TraceMe&& other) { *this = std::move(other); }
+  TraceMe& operator=(TraceMe&& other) {
+#if !defined(IS_MOBILE_PLATFORM)
+    if (TF_PREDICT_FALSE(other.start_time_ != kUntracedActivity)) {
+      new (&no_init_.name) std::string(std::move(other.no_init_.name));
+      other.no_init_.name.~string();
+      start_time_ = std::exchange(other.start_time_, kUntracedActivity);
+    }
+#endif
+    return *this;
   }
 
   ~TraceMe() { Stop(); }
@@ -161,7 +175,7 @@ class TraceMe {
     if (TF_PREDICT_FALSE(start_time_ != kUntracedActivity)) {
       if (TF_PREDICT_TRUE(TraceMeRecorder::Active())) {
         TraceMeRecorder::Record({kCompleteActivity, std::move(no_init_.name),
-                                 start_time_, EnvTime::NowNanos()});
+                                 start_time_, GetCurrentTimeNanos()});
       }
       no_init_.name.~string();
       start_time_ = kUntracedActivity;
@@ -201,8 +215,7 @@ class TraceMe {
     if (TF_PREDICT_FALSE(TraceMeRecorder::Active(level))) {
       uint64 activity_id = TraceMeRecorder::NewActivityId();
       TraceMeRecorder::Record({activity_id, name_generator(),
-                               /*start_time=*/EnvTime::NowNanos(),
-                               /*end_time=*/0});
+                               GetCurrentTimeNanos(), /*end_time=*/0});
       return activity_id;
     }
 #endif
@@ -216,8 +229,7 @@ class TraceMe {
     if (TF_PREDICT_FALSE(TraceMeRecorder::Active(level))) {
       uint64 activity_id = TraceMeRecorder::NewActivityId();
       TraceMeRecorder::Record({activity_id, std::string(name),
-                               /*start_time=*/EnvTime::NowNanos(),
-                               /*end_time=*/0});
+                               GetCurrentTimeNanos(), /*end_time=*/0});
       return activity_id;
     }
 #endif
@@ -241,8 +253,7 @@ class TraceMe {
     if (TF_PREDICT_FALSE(activity_id != kUntracedActivity)) {
       if (TF_PREDICT_TRUE(TraceMeRecorder::Active())) {
         TraceMeRecorder::Record({activity_id, /*name=*/std::string(),
-                                 /*start_time=*/0,
-                                 /*end_time=*/EnvTime::NowNanos()});
+                                 /*start_time=*/0, GetCurrentTimeNanos()});
       }
     }
 #endif
@@ -253,7 +264,7 @@ class TraceMe {
   static void InstantActivity(NameGeneratorT name_generator, int level = 1) {
 #if !defined(IS_MOBILE_PLATFORM)
     if (TF_PREDICT_FALSE(TraceMeRecorder::Active(level))) {
-      uint64 now = EnvTime::NowNanos();
+      uint64 now = GetCurrentTimeNanos();
       TraceMeRecorder::Record({kCompleteActivity, name_generator(),
                                /*start_time=*/now, /*end_time=*/now});
     }
