@@ -13,19 +13,23 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "tensorflow/core/profiler/utils/time_utils.h"
+#include "tensorflow/compiler/mlir/tensorflow/utils/verification_utils.h"
 
-#include "absl/time/clock.h"
+#include "mlir/IR/StandardTypes.h"  // from @llvm-project
+#include "mlir/IR/Types.h"  // from @llvm-project
 
-namespace tensorflow {
-namespace profiler {
+namespace mlir {
+namespace TF {
 
-int64 GetCurrentTimeNanos() {
-  // absl::GetCurrentTimeNanos() is much faster than EnvTime::NowNanos().
-  // It is wrapped under tensorflow::profiler::GetCurrentTimeNanos to avoid ODR
-  // violation and to allow switching to yet another implementation if required.
-  return absl::GetCurrentTimeNanos();
+LogicalResult VerifyShapeOfReshapeOp(ArrayRef<int64_t> shape) {
+  bool has_dynamic_dim = false;
+  for (int64_t dim : shape) {
+    if (dim != ShapedType::kDynamicSize) continue;
+    if (has_dynamic_dim) return failure();
+    has_dynamic_dim = true;
+  }
+  return success();
 }
 
-}  // namespace profiler
-}  // namespace tensorflow
+}  // namespace TF
+}  // namespace mlir
