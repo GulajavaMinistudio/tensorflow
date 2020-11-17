@@ -64,6 +64,7 @@ limitations under the License.
 #include "tensorflow/compiler/mlir/tensorflow/transforms/einsum.h"
 #include "tensorflow/compiler/mlir/tensorflow/transforms/passes.h"
 #include "tensorflow/compiler/mlir/tensorflow/transforms/unroll_batch_matmul.h"
+#include "tensorflow/compiler/mlir/tensorflow/utils/verification_utils.h"
 #include "tensorflow/compiler/mlir/xla/transforms/passes.h"
 
 #define DEBUG_TYPE "tf-tfl-legalization"
@@ -540,6 +541,8 @@ struct ConvertTFStridedSlice : public RewritePattern {
       new_axis_mask >>= 1;
     }
 
+    if (failed(TF::VerifyShapeOfReshapeOp(new_shape))) return failure();
+
     const int dim_size = new_shape.size();
     Location loc = strided_slice_op.getLoc();
     auto shape_type =
@@ -549,6 +552,7 @@ struct ConvertTFStridedSlice : public RewritePattern {
       result_shape_data[i] =
           rewriter.getI32IntegerAttr(static_cast<int32_t>(new_shape[i]));
     }
+
     auto shape_attr = DenseElementsAttr::get(shape_type, result_shape_data);
     auto shape = rewriter.create<ConstantOp>(loc, shape_type, shape_attr);
     auto new_output_type =
@@ -581,6 +585,11 @@ struct ConvertTFStridedSlice : public RewritePattern {
   LogicalResult RewriteEllipsisMask(Operation *op, uint64_t ellipsis_mask,
                                     PatternRewriter &rewriter) const {
     TF::StridedSliceOp strided_slice_op = llvm::cast<TF::StridedSliceOp>(op);
+
+    uint64_t shrink_axis_mask = strided_slice_op.shrink_axis_mask();
+
+    // Enforce operator precedence.
+    shrink_axis_mask &= ~ellipsis_mask;
 
     DenseIntElementsAttr begin_dense_elem_attr;
     Value begin = strided_slice_op.begin();
@@ -625,6 +634,7 @@ struct ConvertTFStridedSlice : public RewritePattern {
     int64_t end_mask = strided_slice_op.end_mask();
     int64_t new_begin_mask = 0;
     int64_t new_end_mask = 0;
+    int64_t revised_shrink_axis_mask = 0;
 
     SmallVector<int32_t, 4> padded_begin;
     SmallVector<int32_t, 4> padded_end;
@@ -639,6 +649,8 @@ struct ConvertTFStridedSlice : public RewritePattern {
       padded_stride.push_back(stride_dense_elem_attr.getValue<int32_t>(index));
       if ((begin_mask >> index) & 1) new_begin_mask |= (1 << new_index);
       if ((end_mask >> index) & 1) new_end_mask |= (1 << new_index);
+      if ((shrink_axis_mask >> index) & 1)
+        revised_shrink_axis_mask |= (1 << new_index);
       ++index;
       ++new_index;
     }
@@ -665,6 +677,8 @@ struct ConvertTFStridedSlice : public RewritePattern {
 
       if ((begin_mask >> index) & 1) new_begin_mask |= (1 << new_index);
       if ((end_mask >> index) & 1) new_end_mask |= (1 << new_index);
+      if ((shrink_axis_mask >> index) & 1)
+        revised_shrink_axis_mask |= (1 << new_index);
 
       ++index;
       ++new_index;
@@ -692,8 +706,7 @@ struct ConvertTFStridedSlice : public RewritePattern {
         /*ellipsis_maks=*/rewriter.getI64IntegerAttr(0),
         rewriter.getIntegerAttr(attribute_type,
                                 strided_slice_op.new_axis_mask()),
-        rewriter.getIntegerAttr(attribute_type,
-                                strided_slice_op.shrink_axis_mask()));
+        rewriter.getIntegerAttr(attribute_type, revised_shrink_axis_mask));
     return success();
   }
 
@@ -701,13 +714,13 @@ struct ConvertTFStridedSlice : public RewritePattern {
                                 PatternRewriter &rewriter) const override {
     TF::StridedSliceOp strided_slice_op = llvm::cast<TF::StridedSliceOp>(op);
 
-    // TODO(renjieliu): Consider expand the transformation for shrink mask as
-    // well.
-    if (strided_slice_op.shrink_axis_mask()) return failure();
-
     // Handle new axis mask.
     uint64_t new_axis_mask = strided_slice_op.new_axis_mask();
     if (new_axis_mask != 0) {
+      // We currently don't handle simultaneous shrink_ and new_axis masks.
+      if (strided_slice_op.shrink_axis_mask()) {
+        return failure();
+      }
       return RewriteNewAxisMask(strided_slice_op, new_axis_mask, rewriter);
     }
 
