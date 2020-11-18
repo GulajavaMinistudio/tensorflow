@@ -733,6 +733,7 @@ cc_library(
         ":work_group_picking",
         "//tensorflow/lite/delegates/gpu/cl:cl_kernel",
         "//tensorflow/lite/delegates/gpu/cl:tensor",
+        "//tensorflow/lite/delegates/gpu/common:operations",
         "//tensorflow/lite/delegates/gpu/common:status",
         "//tensorflow/lite/delegates/gpu/common:types",
         "//tensorflow/lite/delegates/gpu/common:util",
@@ -1299,6 +1300,7 @@ cc_library(
     deps = [
         "//tensorflow/lite/delegates/gpu/cl:cl_kernel",
         "//tensorflow/lite/delegates/gpu/cl:device_info",
+        "//tensorflow/lite/delegates/gpu/common:kernel_info",
         "//tensorflow/lite/delegates/gpu/common:types",
         "//tensorflow/lite/delegates/gpu/common:util",
         "//tensorflow/lite/delegates/gpu/common:workgroup_selection",
