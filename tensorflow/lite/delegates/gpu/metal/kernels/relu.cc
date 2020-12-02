@@ -30,10 +30,9 @@ namespace tflite {
 namespace gpu {
 namespace metal {
 
-ComputeTaskDescriptor ReLU(int id, ValueId input_id, ValueId output_id,
+ComputeTaskDescriptor ReLU(ValueId input_id, ValueId output_id,
                            const ReLUAttributes& attr) {
   ComputeTaskDescriptor desc;
-  desc.id = id;
   desc.is_linkable = true;
   const std::string min_func =
       attr.alpha == 0 ? "FLT4(0.0f)" : "min(value * params.x, 0.0f)";
@@ -51,7 +50,8 @@ ComputeTaskDescriptor ReLU(int id, ValueId input_id, ValueId output_id,
   desc.output_buffer = {output_id};
   desc.uniform_buffers = {
       {"constant float2&",
-       [attr](const std::map<ValueId, BHWC>& buffers) {
+       [attr](const std::vector<BHWC>& src_shapes,
+              const std::vector<BHWC>& dst_shapes) {
          return GetByteBuffer(std::vector<float>{attr.alpha, attr.clip});
        }},
   };

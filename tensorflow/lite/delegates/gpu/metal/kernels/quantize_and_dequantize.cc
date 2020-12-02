@@ -24,10 +24,9 @@ namespace tflite {
 namespace gpu {
 namespace metal {
 ComputeTaskDescriptor QuantizeAndDequantize(
-    int id, ValueId input_id, ValueId output_id,
+    ValueId input_id, ValueId output_id,
     const QuantizeAndDequantizeAttributes& attr) {
   ComputeTaskDescriptor desc;
-  desc.id = id;
   desc.is_linkable = true;
   desc.shader_source = R"(
     FLT4 linkable$0(FLT4 value, int linear_index, uint3 gid, float3 params) {
@@ -41,7 +40,8 @@ ComputeTaskDescriptor QuantizeAndDequantize(
   desc.output_buffer = {output_id};
   desc.uniform_buffers = {
       {"constant float3&",
-       [attr](const std::map<ValueId, BHWC>& buffers) {
+       [attr](const std::vector<BHWC>& src_shapes,
+              const std::vector<BHWC>& dst_shapes) {
          return GetByteBuffer(
              std::vector<float>{attr.min, attr.max, attr.scale});
        }},

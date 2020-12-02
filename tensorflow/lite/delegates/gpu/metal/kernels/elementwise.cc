@@ -83,13 +83,11 @@ std::string TwoInputFunctor(OperationType op_type, const std::string& value0,
 
 }  // namespace
 
-ComputeTaskDescriptor ElementwiseWithTwoInputs(int id,
-                                               std::vector<ValueId> input_ids,
+ComputeTaskDescriptor ElementwiseWithTwoInputs(std::vector<ValueId> input_ids,
                                                ValueId output_id,
                                                const BHWC& second_shape,
                                                OperationType op_type) {
   ComputeTaskDescriptor desc;
-  desc.id = id;
   desc.is_linkable = true;
   const std::string x_coord = second_shape.w == 1 ? "0" : "int(gid.x)";
   const std::string y_coord = second_shape.h == 1 ? "0" : "int(gid.y)";
@@ -118,11 +116,11 @@ ComputeTaskDescriptor ElementwiseWithTwoInputs(int id,
 
   desc.uniform_buffers = {
       {"constant int2&",
-       [input_ids](const std::map<ValueId, BHWC>& buffers) {
-         const auto& input_dim_1 = buffers.find(input_ids[1])->second;
+       [](const std::vector<BHWC>& src_shapes,
+          const std::vector<BHWC>& dst_shapes) {
          std::vector<int> uniform_params{
-             input_dim_1.w,
-             input_dim_1.h,
+             src_shapes[1].w,
+             src_shapes[1].h,
          };
          return GetByteBuffer(uniform_params);
        }},
@@ -130,11 +128,10 @@ ComputeTaskDescriptor ElementwiseWithTwoInputs(int id,
   return desc;
 }
 
-ComputeTaskDescriptor ElementwiseWithOneInput(int id, ValueId input_id,
+ComputeTaskDescriptor ElementwiseWithOneInput(ValueId input_id,
                                               ValueId output_id,
                                               OperationType op_type) {
   ComputeTaskDescriptor desc;
-  desc.id = id;
   desc.is_linkable = true;
   desc.shader_source =
       "FLT4 linkable$0(FLT4 value, int linear_index, uint3 gid) {\n";
@@ -148,10 +145,9 @@ ComputeTaskDescriptor ElementwiseWithOneInput(int id, ValueId input_id,
 }
 
 ComputeTaskDescriptor ElementwiseWithOneInputAndConstantArguent(
-    int id, ValueId input_id, ValueId output_id, const RuntimeOptions& options,
+    ValueId input_id, ValueId output_id, const RuntimeOptions& options,
     OperationType op_type, const TensorOrScalar& attr) {
   ComputeTaskDescriptor desc;
-  desc.id = id;
   desc.is_linkable = true;
   auto scalar = absl::get_if<float>(&attr);
   auto linear_buf = absl::get_if<Tensor<Linear, DataType::FLOAT32>>(&attr);
@@ -197,7 +193,8 @@ ComputeTaskDescriptor ElementwiseWithOneInputAndConstantArguent(
         GetByteBuffer(std::vector<float>{*scalar});
     desc.uniform_buffers = {
         {"constant float&",
-         [scalar_bits](const std::map<ValueId, BHWC>& buffers) {
+         [scalar_bits](const std::vector<BHWC>& src_shapes,
+                       const std::vector<BHWC>& dst_shapes) {
            return scalar_bits;
          }},
     };
@@ -211,7 +208,8 @@ ComputeTaskDescriptor ElementwiseWithOneInputAndConstantArguent(
         GetByteBuffer(std::vector<int>{hwc_buf->shape.w, hwc_buf->shape.h});
     desc.uniform_buffers = {
         {"constant int2&",
-         [size_bits](const std::map<ValueId, BHWC>& buffers) {
+         [size_bits](const std::vector<BHWC>& src_shapes,
+                     const std::vector<BHWC>& dst_shapes) {
            return size_bits;
          }},
     };

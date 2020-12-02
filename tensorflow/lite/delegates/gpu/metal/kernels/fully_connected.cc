@@ -115,14 +115,11 @@ std::string GetFullyConnectedCode(const GpuInfo& gpu_info, int src_channels,
 }
 }  // namespace
 
-ComputeTaskDescriptor FullyConnected(int id, ValueId input_id,
-                                     ValueId output_id,
+ComputeTaskDescriptor FullyConnected(ValueId input_id, ValueId output_id,
                                      const FullyConnectedAttributes& attr,
                                      const GpuInfo& gpu_info,
                                      const RuntimeOptions& options) {
   ComputeTaskDescriptor desc;
-  desc.id = id;
-  desc.is_linkable = false;
   desc.shader_source = GetFullyConnectedCode(gpu_info, attr.weights.shape.i,
                                              attr.weights.shape.o);
 
@@ -185,7 +182,8 @@ ComputeTaskDescriptor FullyConnected(int id, ValueId input_id,
   desc.args.AddObject(
       "bias", absl::make_unique<BufferDescriptor>(std::move(bias_desc)));
 
-  desc.resize_function = [attr](const std::map<ValueId, BHWC>& buffers) {
+  desc.resize_function = [attr](const std::vector<BHWC>& src_shapes,
+                                const std::vector<BHWC>& dst_shapes) {
     const uint3 groups_size{8, 4, 1};
     const int dst_channels_aligned = AlignByN(attr.weights.shape.o, 8);
     int groups_x = DivideRoundUp(dst_channels_aligned, groups_size.x);

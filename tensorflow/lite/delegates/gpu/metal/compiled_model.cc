@@ -152,7 +152,6 @@ void BuildFusableChains(const std::vector<ValueId>& input_ids,
   // Proxy tasks for inputs - only output is valid on this elements.
   for (auto input_id : input_ids) {
     auto desc = std::make_shared<ComputeTaskDescriptor>();
-    desc->id = 0;
     desc->is_linkable = true;
     desc->output_buffer = {input_id};
     NodeDescriptor node;
@@ -213,7 +212,7 @@ void BuildFusableChains(const std::vector<ValueId>& input_ids,
 
   unused_ids->reserve(descriptors->size());
   for (const auto& desc : *descriptors) {
-    unused_ids->push_back(desc.task->id);
+    unused_ids->push_back(desc.id);
   }
 }
 
@@ -375,7 +374,7 @@ std::vector<int> DeleteUnusedTasks(const std::vector<ValueId>& output_ids,
       continue;
     }
     // Delete if not used.
-    unused_operations.push_back(it1->back().task->id);
+    unused_operations.push_back(it1->back().id);
     it1 = decltype(it1){chains->erase(std::next(it1).base())};
   }
   return unused_operations;
@@ -403,7 +402,6 @@ void RemoveInputProxies(std::list<FusionSequence>* chains) {
 NodeDescriptor NonLinkableStub(int operation_id, ValueId input_id,
                                ValueId output_id) {
   auto desc = std::make_shared<ComputeTaskDescriptor>();
-  desc->id = operation_id;
   desc->is_linkable = false;
   desc->shader_source = R"(
     #include <metal_stdlib>
@@ -430,30 +428,30 @@ NodeDescriptor NonLinkableStub(int operation_id, ValueId input_id,
 
   desc->uniform_buffers = {
       {"constant int2& size",
-       [input_id](const std::map<ValueId, BHWC>& buffers) {
-         const auto& dimension = buffers.find(input_id)->second;
-         return GetByteBuffer(std::vector<int>{dimension.w, dimension.h});
+       [](const std::vector<BHWC>& src_shapes,
+          const std::vector<BHWC>& dst_shapes) {
+         return GetByteBuffer(
+             std::vector<int>{src_shapes[0].w, src_shapes[0].h});
        }},
   };
 
-  desc->resize_function = [input_id](const std::map<ValueId, BHWC>& buffers) {
-    const auto& dimension = buffers.find(input_id)->second;
+  desc->resize_function = [](const std::vector<BHWC>& src_shapes,
+                             const std::vector<BHWC>& dst_shapes) {
     uint3 groups_size{16, 16, 1};
-    uint3 groups_count{DivideRoundUp(dimension.w, groups_size.x),
-                       DivideRoundUp(dimension.h, groups_size.y),
-                       DivideRoundUp(dimension.c, 4)};
+    uint3 groups_count{DivideRoundUp(dst_shapes[0].w, groups_size.x),
+                       DivideRoundUp(dst_shapes[0].h, groups_size.y),
+                       DivideRoundUp(dst_shapes[0].c, 4)};
     return std::make_pair(groups_size, groups_count);
   };
 
   NodeDescriptor node_desc;
   node_desc.task = desc;
+  node_desc.id = operation_id;
   return node_desc;
 }
 
 NodeDescriptor FuseChain(const FusionSequence& chain) {
   auto fused_descriptor = std::make_shared<ComputeTaskDescriptor>();
-  // The id of fused descriptor is the id of the first descriptor in the list.
-  fused_descriptor->id = chain.front().task->id;
   FusionSequence sequence;
   if (chain.front().task->is_linkable) {
     // The first task is linkable so it contains only linkable code. Insert
@@ -553,12 +551,14 @@ NodeDescriptor FuseChain(const FusionSequence& chain) {
                        buffer_declarations + "$1", call_code);
   fused_descriptor->output_buffer = {fused_id, ""};
   fused_descriptor->resize_function = non_linkable.task->resize_function;
-  for (const auto& desc : sequence) {
-    fused_descriptor->description += desc.task->description + "_";
-  }
-
   NodeDescriptor node_desc;
   node_desc.task = fused_descriptor;
+  // The id of fused descriptor is the id of the first descriptor in the list.
+  node_desc.id = chain.front().id;
+  for (const auto& desc : sequence) {
+    node_desc.description += desc.description + "_";
+  }
+
   return node_desc;
 }
 
