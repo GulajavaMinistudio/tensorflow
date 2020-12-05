@@ -1946,6 +1946,18 @@ void ReshapeOp::getCanonicalizationPatterns(OwningRewritePatternList& results,
 }
 
 //===----------------------------------------------------------------------===//
+// ReplicaId Op
+//===----------------------------------------------------------------------===//
+
+LogicalResult ReplicaIdOp::inferReturnTypes(
+    MLIRContext* context, Optional<Location>, ValueRange operands,
+    DictionaryAttr, RegionRange, SmallVectorImpl<Type>& inferredReturnTypes) {
+  inferredReturnTypes.push_back(RankedTensorType::get(
+      /*shape=*/{}, IntegerType::get(32, IntegerType::Unsigned, context)));
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // Case Op
 //===----------------------------------------------------------------------===//
 
@@ -2770,11 +2782,10 @@ OpFoldResult CompareOp::fold(ArrayRef<Attribute> operands) {
   if (!result_ty.hasStaticShape()) return {};
 
   auto direction = comparison_direction();
-  if (lhs() == rhs()) {
+  if (lhs() == rhs() && !getElementTypeOrSelf(lhs()).isa<FloatType>()) {
     if (direction == "LE" || direction == "EQ" || direction == "GE") {
       return DenseIntElementsAttr::get(result_ty, {true});
     }
-
     return DenseIntElementsAttr::get(result_ty, {false});
   }
 
