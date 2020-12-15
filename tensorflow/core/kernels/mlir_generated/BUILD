@@ -78,20 +78,6 @@ filegroup(
     compatible_with = get_compatible_with_cloud(),
 )
 
-filegroup(
-    name = "unary_kernel_srcs",
-    srcs = if_mlir_unranked_kernels_enabled(
-        if_false = [
-            "cwise_op_gpu_abs.cc",
-            "cwise_op_gpu_base.cc",
-            "cwise_op_gpu_base.h",
-            "cwise_op_gpu_tanh.cc",
-        ],
-        if_true = [":unary_unranked_kernel_srcs"],
-    ),
-    compatible_with = get_compatible_with_cloud(),
-)
-
 cc_library(
     name = "unranked_op_gpu_base",
     srcs = ["unranked_op_gpu_base.cc"],
@@ -111,49 +97,36 @@ cc_library(
 
 tf_kernel_library(
     name = "cwise_unary_op",
-    srcs = [":unary_kernel_srcs"],
+    srcs = [":unary_unranked_kernel_srcs"],
     tags = [
         "manual",
     ],
-    deps = if_mlir_unranked_kernels_enabled(
-        if_false = [
-            ":abs_kernels",
-            ":tanh_kernels",
-            "@com_google_absl//absl/strings",
-            "@com_google_absl//absl/synchronization",
-            "@com_google_absl//absl/types:span",
-            "//third_party/eigen3",
-            "//tensorflow/core:framework",
-            "//tensorflow/core:lib",
-            "//tensorflow/core/platform:stream_executor",
-        ],
-        if_true = [
-            # Technically we only need to depend on the kernel libraries for the
-            # unranked kernels which are enabled by default. But this would
-            # make our BUILD target structure uglier. We already need to make
-            # sure that those targets can be built, so it should not hurt to
-            # link them in even if they are currently not needed yet.
-            ":abs_unranked_kernels",
-            ":ceil_unranked_kernels",
-            ":conj_unranked_kernels",
-            ":cos_unranked_kernels",
-            ":exp_unranked_kernels",
-            ":floor_unranked_kernels",
-            ":imag_unranked_kernels",
-            ":is_inf_unranked_kernels",
-            ":log_unranked_kernels",
-            ":logical_not_unranked_kernels",
-            ":neg_unranked_kernels",
-            ":real_unranked_kernels",
-            ":rsqrt_unranked_kernels",
-            ":sign_unranked_kernels",
-            ":sin_unranked_kernels",
-            ":sqrt_unranked_kernels",
-            ":tanh_unranked_kernels",
-            ":unranked_op_gpu_base",
-            "//third_party/eigen3",
-        ],
-    ),
+    deps = [
+        # Technically we only need to depend on the kernel libraries for the
+        # unranked kernels which are enabled by default. But this would
+        # make our BUILD target structure uglier. We already need to make
+        # sure that those targets can be built, so it should not hurt to
+        # link them in even if they are currently not needed yet.
+        ":abs_unranked_kernels",
+        ":ceil_unranked_kernels",
+        ":conj_unranked_kernels",
+        ":cos_unranked_kernels",
+        ":exp_unranked_kernels",
+        ":floor_unranked_kernels",
+        ":imag_unranked_kernels",
+        ":is_inf_unranked_kernels",
+        ":log_unranked_kernels",
+        ":logical_not_unranked_kernels",
+        ":neg_unranked_kernels",
+        ":real_unranked_kernels",
+        ":rsqrt_unranked_kernels",
+        ":sign_unranked_kernels",
+        ":sin_unranked_kernels",
+        ":sqrt_unranked_kernels",
+        ":tanh_unranked_kernels",
+        ":unranked_op_gpu_base",
+        "//third_party/eigen3",
+    ],
 )
 
 tf_kernel_library(
@@ -171,6 +144,7 @@ tf_kernel_library(
         "unranked_op_gpu_less_equal.cc",
         "unranked_op_gpu_logical_and.cc",
         "unranked_op_gpu_logical_or.cc",
+        "unranked_op_gpu_mul.cc",
         "unranked_op_gpu_not_equal.cc",
         "unranked_op_gpu_right_shift.cc",
     ],
@@ -192,6 +166,7 @@ tf_kernel_library(
         ":logical_or_unranked_kernels",
         ":maximum_unranked_kernels",
         ":minimum_unranked_kernels",
+        ":mul_unranked_kernels",
         ":not_equal_unranked_kernels",
         ":right_shift_unranked_kernels",
         ":unranked_op_gpu_base",
@@ -288,7 +263,6 @@ tf_cuda_cc_test(
 
 gen_kernel_library(
     name = "abs",
-    generate_unranked = True,
     tile_size = "256",
     types = [
         "f16",
@@ -302,7 +276,6 @@ gen_kernel_library(
 
 gen_kernel_library(
     name = "conj",
-    generate_unranked = True,
     tile_size = "256",
     types = [
         "f32",
@@ -313,7 +286,6 @@ gen_kernel_library(
 
 gen_kernel_library(
     name = "imag",
-    generate_unranked = True,
     tile_size = "256",
     types = [
         "f32",
@@ -323,7 +295,6 @@ gen_kernel_library(
 
 gen_kernel_library(
     name = "invert",
-    generate_unranked = True,
     tile_size = "256",
     types = [
         "i8",
@@ -336,8 +307,6 @@ gen_kernel_library(
 
 gen_kernel_library(
     name = "is_inf",
-    generate_ranked = False,
-    generate_unranked = True,
     tile_size = "256",
     types = [
         "f16",
@@ -349,14 +318,12 @@ gen_kernel_library(
 
 gen_kernel_library(
     name = "logical_not",
-    generate_unranked = True,
     tile_size = "256",
     types = ["i1"],
 )
 
 gen_kernel_library(
     name = "real",
-    generate_unranked = True,
     tile_size = "256",
     types = [
         "f32",
@@ -366,7 +333,6 @@ gen_kernel_library(
 
 gen_kernel_library(
     name = "sign",
-    generate_unranked = True,
     tile_size = "256",
     types = [
         # TODO(b/162577610): Add bf16, c64 and c128.
@@ -381,8 +347,6 @@ gen_kernel_library(
 
 gen_kernel_library(
     name = "add_v2",
-    generate_ranked = False,
-    generate_unranked = True,
     tile_size = "256,1,1",
     types = [
         "f16",
@@ -394,12 +358,25 @@ gen_kernel_library(
     # unroll_factors = "4",
 )
 
+gen_kernel_library(
+    name = "mul",
+    tile_size = "256,1,1",
+    types = [
+        "f16",
+        "f32",
+        "f64",
+        "i8",
+        "i16",
+        "i64",
+    ],
+    # TODO(b/174543802): Enable once fusion heuristics is better.
+    # unroll_factors = "4",
+)
+
 # Bitwise operations.
 [
     gen_kernel_library(
         name = name,
-        generate_ranked = False,
-        generate_unranked = True,
         tile_size = "256,1,1",
         types = [
             "i8",
@@ -428,8 +405,6 @@ gen_kernel_library(
 [
     gen_kernel_library(
         name = name,
-        generate_ranked = False,
-        generate_unranked = True,
         tile_size = "256,1,1",
         types = [
             "i1",
@@ -446,8 +421,6 @@ gen_kernel_library(
 [
     gen_kernel_library(
         name = name,
-        generate_ranked = False,
-        generate_unranked = True,
         tile_size = "256,1,1",
         types = [
             "f16",
@@ -471,8 +444,6 @@ gen_kernel_library(
 [
     gen_kernel_library(
         name = name,
-        generate_ranked = False,
-        generate_unranked = True,
         tile_size = "256,1,1",
         types = [
             "f16",
@@ -497,8 +468,6 @@ gen_kernel_library(
 [
     gen_kernel_library(
         name = name,
-        generate_ranked = False,
-        generate_unranked = True,
         tile_size = "256,1,1",
         types = [
             "f16",
@@ -521,7 +490,6 @@ gen_kernel_library(
 [
     gen_kernel_library(
         name = name,
-        generate_unranked = True,
         tile_size = "256",
         types = [
             "f16",
@@ -543,7 +511,6 @@ gen_kernel_library(
 [
     gen_kernel_library(
         name = name,
-        generate_unranked = True,
         tile_size = "256",
         types = [
             "f16",
@@ -568,7 +535,6 @@ gen_kernel_library(
 [
     gen_kernel_library(
         name = name,
-        generate_unranked = True,
         tile_size = "256",
         types = [
             "f16",

@@ -632,6 +632,7 @@ cc_library(
     srcs = ["batch_kernels.cc"],
     deps = [
         ":ops_util_hdrs",
+        "//tensorflow/core:core_cpu_internal",
         "//tensorflow/core:framework",
         "//tensorflow/core:lib",
         "//tensorflow/core:lib_internal",
@@ -4457,6 +4458,16 @@ tf_kernel_library(
         "//tensorflow/core/framework:bounds_check",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:variant",
+    ],
+)
+
+tf_kernel_library(
+    name = "stateless_random_gamma_op",
+    prefix = "stateless_random_gamma_op",
+    deps = [
+        ":stateless_random_ops",
+        "//tensorflow/core:framework",
+        "//tensorflow/core:lib",
     ],
 )
 

@@ -13,24 +13,17 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include <string>
-#include <vector>
-
-#include "absl/types/span.h"
-#include "tensorflow/core/framework/op.h"
-#include "tensorflow/core/framework/op_kernel.h"
-#include "tensorflow/core/framework/tensor_types.h"
-#include "tensorflow/core/kernels/mlir_generated/cwise_op_gpu_base.h"
-#include "tensorflow/core/kernels/mlir_generated/tanh_f16_kernel.h"
-#include "tensorflow/core/kernels/mlir_generated/tanh_f32_kernel.h"
-#include "tensorflow/core/kernels/mlir_generated/tanh_f64_kernel.h"
+#include "third_party/eigen3/unsupported/Eigen/CXX11/Tensor"
+#include "tensorflow/core/kernels/mlir_generated/unranked_op_gpu_base.h"
 
 namespace tensorflow {
-namespace {
-GENERATE_OP_KERNEL_BASE(Tanh);
-}  // namespace
 
-GENERATE_AND_REGISTER_UNARY_KERNEL(Tanh, F16, Eigen::half)
-GENERATE_AND_REGISTER_UNARY_KERNEL(Tanh, F32, float)
-GENERATE_AND_REGISTER_UNARY_KERNEL(Tanh, F64, double)
+GENERATE_AND_REGISTER_BINARY_KERNEL(Mul, f16, DT_HALF, Eigen::half);
+GENERATE_AND_REGISTER_BINARY_KERNEL(Mul, f32, DT_FLOAT, float);
+GENERATE_AND_REGISTER_BINARY_KERNEL(Mul, f64, DT_DOUBLE, double);
+GENERATE_AND_REGISTER_BINARY_KERNEL(Mul, i8, DT_INT8, int8);
+// TODO(b/25387198): We cannot use a regular GPU kernel for int32.
+GENERATE_AND_REGISTER_BINARY_KERNEL(Mul, i16, DT_INT16, int16);
+GENERATE_AND_REGISTER_BINARY_KERNEL(Mul, i64, DT_INT64, int64);
+
 }  // namespace tensorflow
