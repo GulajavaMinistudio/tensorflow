@@ -223,9 +223,7 @@ class PjRtStreamExecutorClient : public PjRtClient {
     return gpu_run_options_.get();
   }
 
-  tensorflow::thread::ThreadPool* h2d_transfer_pool() {
-    return &h2d_transfer_pool_;
-  }
+  tensorflow::thread::ThreadPool* thread_pool() { return &thread_pool_; }
 
  protected:
   friend class PjRtStreamExecutorBuffer;
@@ -268,7 +266,7 @@ class PjRtStreamExecutorClient : public PjRtClient {
 
   std::unique_ptr<gpu::GpuExecutableRunOptions> gpu_run_options_;
 
-  tensorflow::thread::ThreadPool h2d_transfer_pool_;
+  tensorflow::thread::ThreadPool thread_pool_;
 };
 
 // Converts a 2D set of Device objects indexed by [replica][partition] into an
@@ -688,15 +686,15 @@ class PjRtStreamExecutorExecutable : public PjRtExecutable {
 
   StatusOr<std::vector<std::vector<std::unique_ptr<PjRtBuffer>>>> Execute(
       absl::Span<const std::vector<PjRtBuffer*>> argument_handles,
-      const ExecuteOptions& options) const override;
+      const ExecuteOptions& options) override;
 
   StatusOr<std::vector<std::unique_ptr<PjRtBuffer>>> ExecuteSharded(
       absl::Span<PjRtBuffer* const> argument_handles, PjRtDevice* device,
-      const ExecuteOptions& options) const override;
+      const ExecuteOptions& options) override;
 
   StatusOr<std::vector<std::unique_ptr<PjRtBuffer>>> ExecutePortable(
       absl::Span<PjRtBuffer* const> argument_handles, PjRtDevice* device,
-      const ExecuteOptions& options) const override;
+      const ExecuteOptions& options) override;
 
   void Delete() override { executables_.clear(); }
 

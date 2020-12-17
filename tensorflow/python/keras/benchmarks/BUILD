@@ -104,6 +104,7 @@ py_test(
     name = "benchmark_util_test",
     srcs = ["benchmark_util_test.py"],
     python_version = "PY3",
+    tags = COMMON_TAGS,
     deps = [
         ":benchmark_util",
         "//tensorflow:tensorflow_py",

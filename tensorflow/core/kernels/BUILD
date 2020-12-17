@@ -3230,6 +3230,7 @@ MATH_DEPS = [
     "//tensorflow/core:lib_internal",
     "//tensorflow/core:math_grad",
     "//tensorflow/core/framework:bounds_check",
+    "//tensorflow/core/framework:op_requires",
     "//third_party/eigen3",
 ]
 
@@ -3279,23 +3280,6 @@ tf_kernel_library(
     name = "aggregate_ops",
     prefix = "aggregate_ops",
     deps = MATH_DEPS,
-)
-
-cc_library(
-    name = "aggregate_ops_headers",
-    hdrs = [
-        "aggregate_ops.h",
-        "aggregate_ops_cpu.h",
-    ],
-    deps = select({
-        "//tensorflow:android": [
-            "//tensorflow/core:portable_tensorflow_lib_lite",  # TODO(annarev): exclude runtime srcs
-        ],
-        "//conditions:default": [
-            "//third_party/eigen3",
-            "//tensorflow/core:framework",
-        ],
-    }),
 )
 
 tf_kernel_library(
@@ -4458,16 +4442,6 @@ tf_kernel_library(
         "//tensorflow/core/framework:bounds_check",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:variant",
-    ],
-)
-
-tf_kernel_library(
-    name = "stateless_random_gamma_op",
-    prefix = "stateless_random_gamma_op",
-    deps = [
-        ":stateless_random_ops",
-        "//tensorflow/core:framework",
-        "//tensorflow/core:lib",
     ],
 )
 

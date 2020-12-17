@@ -109,10 +109,11 @@ Status LowerTFtoGPU(mlir::ModuleOp module, llvm::ArrayRef<uint32_t> tile_sizes,
   // We have to anticipate later unrolling in tiling to make sure that we get
   // the requested tiling after unrolling. Compute the new tiling here if
   // needed.
-  llvm::SmallVector<int64_t, 4> tiling_for_unrolling;
+  llvm::SmallVector<int64_t, 4> tiling_for_unrolling, inner_tile;
   tiling_for_unrolling.reserve(tile_sizes.size());
   for (auto pair : llvm::zip(tile_sizes, unroll_factors)) {
     tiling_for_unrolling.push_back(std::get<0>(pair) * std::get<1>(pair));
+    inner_tile.push_back(std::get<1>(pair));
   }
   tiling_for_unrolling.append(
       tile_sizes.drop_front(unroll_factors.size()).begin(), tile_sizes.end());
@@ -150,7 +151,7 @@ Status LowerTFtoGPU(mlir::ModuleOp module, llvm::ArrayRef<uint32_t> tile_sizes,
   pm.addNestedPass<::mlir::FuncOp>(::mlir::createCSEPass());
   if (!unroll_factors.empty()) {
     pm.addNestedPass<mlir::FuncOp>(
-        ::mlir::createParallelLoopTilingPass(tiling_for_unrolling));
+        ::mlir::createParallelLoopTilingPass(inner_tile));
   }
   // Some basic cleanup.
   pm.addNestedPass<::mlir::FuncOp>(::mlir::createCanonicalizerPass());
