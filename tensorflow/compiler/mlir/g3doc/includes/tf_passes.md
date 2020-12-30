@@ -350,6 +350,48 @@ func @outside_compilation() -> tensor<f32> {
   return %0 : tensor<f32>
 }
 ```
+### `-tf-tpu-resource-partition`: Partitions unpartitioned resource read/write to partitioned resource variables.
+This pass creates individual resource reads/writes from the unpartitioned
+resource variable (from `tf.TPUPartitionedInput`) to individual partitioned
+resource variables (`tf.TPUPartitionedInput` operands). As resource op
+decomposition/lifting occurs with the unpartitioned resource variables,
+transforming the IR in such a manner will allow for subsequent passes to operate
+on individual resource variable handles per core/device.
+
+For example, the following:
+
+```mlir
+func @cluster(%arg0: tensor<!tf.resource<tensor<i32>>>, %arg1: tensor<!tf.resource<tensor<i32>>>) {
+  %partitioned_variable = "tf.TPUPartitionedInput"(%arg0, %arg1) {N = 2 : i64, _XlaSharding = "", partition_dim = -1 : i64} : (tensor<!tf.resource<tensor<i32>>>, tensor<!tf.resource<tensor<i32>>>) -> tensor<!tf.resource<tensor<i32>>>
+  %read = "tf.ReadVariableOp"(%partitioned_variable) : (tensor<!tf.resource<tensor<i32>>>) -> tensor<i32>
+  %computation = "tf_device.cluster_func"(%read) {func = @computation, use_spmd_for_xla_partitioning = true} : (tensor<i32>) -> tensor<i32>
+  "tf.AssignVariableOp"(%partitioned_variable, %computation) : (tensor<!tf.resource<tensor<i32>>>, tensor<i32>) -> ()
+  return
+}
+
+func @computation(%arg0: tensor<i32>) -> tensor<i32> {
+  return %arg0: tensor<i32>
+}
+```
+
+will be transformed into:
+
+```mlir
+func @cluster(%arg0: tensor<!tf.resource<tensor<i32>>>, %arg1: tensor<!tf.resource<tensor<i32>>>) {
+  %read0 = "tf.ReadVariableOp"(%arg0) : (tensor<!tf.resource<tensor<i32>>>) -> tensor<i32>
+  %read1 = "tf.ReadVariableOp"(%arg1) : (tensor<!tf.resource<tensor<i32>>>) -> tensor<i32>
+  %partitioned_input = "tf.TPUPartitionedInput"(%read0, %read1) {N = 2 : i64, _XlaSharding = "", partition_dim = -1 : i64} : (tensor<i32>, tensor<i32>) -> tensor<i32>
+  %computation = "tf_device.cluster_func"(%partitioned_input) {func = @computation, use_spmd_for_xla_partitioning = true} : (tensor<i32>) -> tensor<i32>
+  %partitioned_output:2 = "tf.TPUPartitionedOutput"(%computation) {N = 2 : i64, _XlaSharding = "", partition_dim = -1 : i64} : (tensor<i32>) -> (tensor<i32>, tensor<i32>)
+  "tf.AssignVariableOp"(%arg0, %partitioned_output#0) : (tensor<!tf.resource<tensor<i32>>>, tensor<i32>) -> ()
+  "tf.AssignVariableOp"(%arg1, %partitioned_output#1) : (tensor<!tf.resource<tensor<i32>>>, tensor<i32>) -> ()
+  return
+}
+
+func @computation(%arg0: tensor<i32>) -> tensor<i32> {
+  return %arg0: tensor<i32>
+}
+```
 ### `-tf-tpu-resource-read-for-write`: Inserts tf.ReadVariableOp inputs to a TPU cluster for resource writes with no reads
 This pass materializes `tf.ReadVariableOp` inputs to an outlined TPU computation
 for resource variables where only writes are present so later in the pipeline
@@ -386,5 +428,115 @@ func @write_only_resource(%value: tensor<i32>, %resource: tensor<*x!tf.resource<
 func @cluster(%arg0: tensor<i32>, %arg1: tensor<i32>) -> tensor<i32> {
   %identity = "tf.Identity"(%arg0) : (tensor<i32>) -> tensor<i32>
   return %identity : tensor<i32>
+}
+```
+### `-tf-tpu-rewrite`: Rewrites a `tf_device.cluster_func` on TPUs into TPU runtime operations.
+This pass rewrites a `tf_device.cluster_func` operation into a sequence of `tf._TPUCompileMlir`
+and `tf.TPUExecute` operations. `tf._TPUCompileMlir` contains a MLIR module that is
+functionally equivalent to the function referenced by `tf_device.cluster_func`.
+This makes the module to be jit-compiled and executed on TPU.
+If it is not possible to rewrite the operation or device assignment fails,
+a failure will be returned.
+
+Note, many parameters to the `tf_device.cluster_func` are ommited in this
+and following examples.
+For example, a non replicated `tf_device.cluster_func`:
+
+```mlir
+func @tf_tpu_rewrite(%arg0: tensor<i8>) {
+  %0 = "tf_device.cluster_func"(%arg0) {_tpu_replicate = "cluster0", func = @func} : (tensor<i8>) -> tensor<i8>
+  return
+}
+```
+
+will be rewritten as:
+
+```mlir
+func @tf_tpu_rewrite(%arg0: tensor<i8>) {
+  %0:2 = "tf_device.launch"() ( {
+    %compilation_status, %program = "tf._TPUCompileMlir"() {mlir_module = "<serialized func>"} : () -> (tensor<!tf.string>, tensor<3x!tf.string>)
+    tf_device.return %compilation_status, %program : tensor<!tf.string>, tensor<3x!tf.string>
+  }) {device = "/job:worker/replica:0/task:0/device:CPU:0"} : () -> (tensor<!tf.string>, tensor<3x!tf.string>)
+  "tf_device.launch"() ( {
+    "tf.TPUCompileSucceededAssert"(%0#0) : (tensor<!tf.string>) -> ()
+    tf_device.return
+  }) {device = "/job:worker/replica:0/task:0/device:CPU:0"} : () -> ()
+  %1 = "tf_device.launch"() ( {
+    %2 = "tf.TPUExecute"(%arg0, %0#1) : (tensor<i8>, tensor<3x!tf.string>) -> tensor<i8>
+    tf_device.return %2 : tensor<i8>
+  }) {device = "/job:worker/replica:0/task:0/device:TPU:0"} : () -> tensor<i8>
+  return
+}
+```
+
+A replicated `tf_device.cluster_func`:
+
+```mlir
+func @tf_tpu_rewrite(%arg0: tensor<i8>, %arg1: tensor<i8>) {
+  %0:2 = tf_device.replicate([%arg0, %arg1] as %ri: tensor<i8>) {n = 2 : i32} {
+    %1 = "tf_device.cluster_func"(%ri) {_tpu_replicate = "cluster0", func = @func} : (tensor<i8>) -> tensor<i8>
+    tf_device.return %1 : tensor<i8>
+  }
+  return
+}
+```
+
+will be rewritten as:
+
+```mlir
+func @tf_tpu_rewrite(%arg0: tensor<i8>, %arg1: tensor<i8>) {
+  %0:2 = tf_device.replicate([%arg0, %arg1] as %arg2: tensor<i8>) {devices = {TPU_REPLICATED_CORE_0 = ["/job:worker/replica:0/task:0/device:TPU:0", "/job:worker/replica:0/task:0/device:TPU:1"], TPU_REPLICATED_HOST = ["/job:worker/replica:0/task:0/device:CPU:0", "/job:worker/replica:0/task:0/device:CPU:0"]}, n = 2 : i32} {
+    %1:2 = "tf_device.launch"() ( {
+      %compilation_status, %program = "tf._TPUCompileMlir"() {mlir_module = "<serialized func>"} : () -> (tensor<!tf.string>, tensor<3x!tf.string>)
+      tf_device.return %compilation_status, %program : tensor<!tf.string>, tensor<3x!tf.string>
+    }) {device = "/job:worker/replica:0/task:0/device:CPU:0"} : () -> (tensor<!tf.string>, tensor<3x!tf.string>)
+    "tf_device.launch"() ( {
+      "tf.TPUCompileSucceededAssert"(%1#0) : (tensor<!tf.string>) -> ()
+      tf_device.return
+    }) {device = "/job:worker/replica:0/task:0/device:CPU:0"} : () -> ()
+    %2 = "tf_device.launch"() ( {
+      %3 = "tf.TPUExecute"(%arg2, %1#1) : (tensor<i8>, tensor<3x!tf.string>) -> tensor<i8>
+      tf_device.return %3 : tensor<i8>
+    }) {device = "TPU_REPLICATED_CORE_0"} : () -> tensor<i8>
+    tf_device.return %2 : tensor<i8>
+  }
+  return
+}
+
+A non replicated `tf_device.cluster_func` with the model parallelism:
+
+```mlir
+func @tf_tpu_rewrite(%arg0: tensor<8xi32>) -> tensor<8xi32> {
+  %0 = "tf_device.cluster_func"(%arg0) {_tpu_replicate = "cluster0", func = @func, num_cores_per_replica = 2, input_sharding_configuration = ["\08\01\1A\01\01\22\01\00"], output_sharding_configuration = ["\08\01\1A\01\01\22\01\00"]} : (tensor<8xi32>) -> tensor<8xi32>
+  return %0 : tensor<8xi32>
+}
+```
+
+will be rewritten as:
+
+```mlir
+func @tf_tpu_rewrite(%arg0: tensor<8xi32>) -> tensor<8xi32> {
+  %0:3 = "tf_device.launch"() ( {
+    %compilation_status, %program:2 = "tf._TPUCompileMlir"() {mlir_module = "<serialized func>"} : () -> (tensor<!tf.string>, tensor<3x!tf.string>, tensor<3x!tf.string>)
+    tf_device.return %compilation_status, %program#0, %program#1 : tensor<!tf.string>, tensor<3x!tf.string>, tensor<3x!tf.string>
+  }) {device = "/job:localhost/replica:0/task:0/device:CPU:0"} : () -> (tensor<!tf.string>, tensor<3x!tf.string>, tensor<3x!tf.string>)
+  "tf_device.launch"() ( {
+    "tf.TPUCompileSucceededAssert"(%0#0) : (tensor<!tf.string>) -> ()
+    tf_device.return
+  }) {device = "/job:localhost/replica:0/task:0/device:CPU:0"} : () -> ()
+  %1 = "tf_device.parallel_execute"() ( {
+    %2 = "tf_device.launch"() ( {
+      %3 = "tf.TPUExecute"(%arg0, %0#1) : (tensor<8xi32>, tensor<3x!tf.string>) -> tensor<8xi32>
+      tf_device.return %3 : tensor<8xi32>
+    }) {device = "/job:localhost/replica:0/task:0/device:TPU:0"} : () -> tensor<8xi32>
+    tf_device.return %2 : tensor<8xi32>
+  },  {
+    "tf_device.launch"() ( {
+      "tf.TPUExecute"(%0#2) : (tensor<3x!tf.string>) -> ()
+      tf_device.return
+    }) {device = "/job:localhost/replica:0/task:0/device:TPU:1"} : () -> ()
+    tf_device.return
+  }) : () -> tensor<8xi32>
+  return %1 : tensor<8xi32>
 }
 ```
