@@ -81,7 +81,8 @@ MovableAllReduceContext IsAllReduceMovable(HloInstruction* all_reduce,
   if (!absl::c_linear_search(kSupportedTypes,
                              all_reduce->shape().element_type()) ||
       !all_reduce_is_summation(all_reduce)) {
-    return {.is_movable = false, .accumulation_contexts = {}};
+    return MovableAllReduceContext{/*is_movable=*/false,
+                                   /*accumulation_contexts=*/{}};
   }
 
   struct BufferTupleIndex {
@@ -306,23 +307,23 @@ MovableAllReduceContext IsAllReduceMovable(HloInstruction* all_reduce,
             HloInstruction* accumulation_buffer =
                 user->mutable_operand(buffer_index);
 
-            auto [unsupported_operation, input_tuple_index,
-                  returned_from_computation] =
+            auto origin_buffer_tuple_index =
                 get_origin_tuple_index(accumulation_buffer);
-            if (unsupported_operation) {
+            if (origin_buffer_tuple_index.unsupported_operation) {
               is_all_reduce_movable = false;
               break;
             }
 
-            auto [output_unsupported_operation, output_tuple_index,
-                  output_returned_from_computation] =
+            auto output_buffer_tuple_index =
                 get_output_tuple_index(user, while_body);
-            unsupported_operation |= output_unsupported_operation;
-            if (!unsupported_operation && output_returned_from_computation &&
-                !input_tuple_index.empty() &&
-                ContainersEqual(input_tuple_index, output_tuple_index)) {
+            if (!output_buffer_tuple_index.unsupported_operation &&
+                output_buffer_tuple_index.returned_from_computation &&
+                !origin_buffer_tuple_index.tuple_index.empty() &&
+                ContainersEqual(origin_buffer_tuple_index.tuple_index,
+                                output_buffer_tuple_index.tuple_index)) {
               accumulation_contexts.push_back(AccumulationContext{
-                  user, accumulation_buffer, std::move(output_tuple_index)});
+                  user, accumulation_buffer,
+                  std::move(output_buffer_tuple_index.tuple_index)});
             } else {
               is_all_reduce_movable = false;
             }
@@ -339,9 +340,7 @@ MovableAllReduceContext IsAllReduceMovable(HloInstruction* all_reduce,
     return MovableAllReduceContext{is_all_reduce_movable,
                                    accumulation_contexts};
   };
-  auto [is_all_reduce_movable, accumulation_contexts] =
-      get_accumulation_contexts(all_reduce, while_body);
-  return MovableAllReduceContext{is_all_reduce_movable, accumulation_contexts};
+  return get_accumulation_contexts(all_reduce, while_body);
 }
 
 struct WhileInitContext {
@@ -493,17 +492,18 @@ Status AddSinkedAllReducesAndReplaceWhile(
 
   // Step 1) create the new while init instruction, which uses zero-initialized
   // tensors as the accumulation buffers for the all-reduce.
-  auto [new_while_init, tuple_index_to_old_buffer] =
+  auto new_while_init_context =
       CreateNewWhileInit(while_instruction, all_reduce_to_accumulations);
   // Step 2) create the new while instruction.
   HloInstruction* new_while_instruction =
       while_instruction->parent()->AddInstruction(HloInstruction::CreateWhile(
-          new_while_init->shape(), while_instruction->while_condition(),
-          while_instruction->while_body(), new_while_init));
+          new_while_init_context.while_init->shape(),
+          while_instruction->while_condition(), while_instruction->while_body(),
+          new_while_init_context.while_init));
   // Step 3) create the new all-reduce instructions after the while loop.
   absl::flat_hash_map<int, HloInstruction*> tuple_index_to_new_buffer =
       CreateSinkedAllReduces(new_while_instruction, all_reduce_to_accumulations,
-                             tuple_index_to_old_buffer);
+                             new_while_init_context.tuple_index_to_old_buffer);
   // Step 4) create the tuple and replace the old while instruction for all of
   // its uses.
   HloInstruction* new_while_result =
@@ -567,10 +567,11 @@ StatusOr<bool> WhileLoopAllReduceCodeMotion::Run(HloModule* module) {
       HloInstructionMap<std::vector<AccumulationContext>>
           all_reduce_to_accumulations;
       for (HloInstruction* all_reduce : while_body_all_reduces) {
-        auto [is_movable, accumulations] =
+        auto movable_all_reduce_context =
             IsAllReduceMovable(all_reduce, computation);
-        if (is_movable) {
-          all_reduce_to_accumulations[all_reduce] = std::move(accumulations);
+        if (movable_all_reduce_context.is_movable) {
+          all_reduce_to_accumulations[all_reduce] =
+              std::move(movable_all_reduce_context.accumulation_contexts);
         }
       }
       if (all_reduce_to_accumulations.empty()) {
