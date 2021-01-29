@@ -12,18 +12,15 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
-#ifndef TENSORFLOW_LITE_DELEGATES_FLEX_ALLOWLISTED_FLEX_OPS_INTERNAL_H_
-#define TENSORFLOW_LITE_DELEGATES_FLEX_ALLOWLISTED_FLEX_OPS_INTERNAL_H_
+#include "third_party/eigen3/unsupported/Eigen/CXX11/Tensor"
+#include "tensorflow/core/kernels/mlir_generated/gpu_ops_base.h"
 
-#include <string>
+namespace tensorflow {
 
-namespace tflite {
-namespace flex {
+GENERATE_AND_REGISTER_BINARY_KERNEL(SquaredDifference, f16, DT_HALF,
+                                    Eigen::half);
+GENERATE_AND_REGISTER_BINARY_KERNEL(SquaredDifference, f32, DT_FLOAT, float);
+GENERATE_AND_REGISTER_BINARY_KERNEL(SquaredDifference, f64, DT_DOUBLE, double);
+GENERATE_AND_REGISTER_BINARY_KERNEL(SquaredDifference, i64, DT_INT64, int64);
 
-// Return true if op_name is a tf.text op need to be supported by flex delegate.
-bool IsAllowedTFTextOpForFlex(const std::string& op_name);
-
-}  // namespace flex
-}  // namespace tflite
-
-#endif  // TENSORFLOW_LITE_DELEGATES_FLEX_ALLOWLISTED_FLEX_OPS_INTERNAL_H_
+}  // namespace tensorflow
