@@ -66,12 +66,50 @@ namespace tensorflow {
 namespace kernel_gen {
 namespace {
 
+using mlir::Value;
 using mlir::scf::ParallelOp;
 using tensorflow::Status;
 using xla::InternalError;
 using xla::StatusOr;
 
 constexpr llvm::StringRef kGpuBinaryAttrName = "gpu.binary";
+
+/// Check if the size of the allocation is less than the given size. The
+/// transformation is only applied to small buffers since large buffers could
+/// exceed the stack space.
+bool IsSmallAlloc(Value alloc) {
+  constexpr unsigned kMaximumSizeInBytes = 64;
+  constexpr unsigned kBitwidthOfIndexType = 64;
+  constexpr unsigned kMaxRankOfAllocatedMemRef = 1;
+
+  auto type = alloc.getType().dyn_cast<mlir::ShapedType>();
+  if (!type || !alloc.getDefiningOp<mlir::AllocOp>()) return false;
+  if (!type.hasStaticShape()) {
+    // Check if the dynamic shape dimension of the alloc is produced by RankOp
+    // or SelectOp(_, RankOp, RankOp).
+    // If this is the case, it is likely to be small. Furthermore, the dimension
+    // is limited to the maximum rank of the allocated memref to avoid large
+    // values by multiplying several small values.
+    if (type.getRank() <= kMaxRankOfAllocatedMemRef) {
+      for (Value alloc_arg : alloc.getDefiningOp()->getOperands()) {
+        if (auto select = alloc_arg.getDefiningOp<mlir::SelectOp>()) {
+          if (!select.true_value().getDefiningOp<mlir::RankOp>() ||
+              !select.false_value().getDefiningOp<mlir::RankOp>())
+            return false;
+        } else if (!alloc_arg.getDefiningOp<mlir::RankOp>()) {
+          return false;
+        }
+      }
+      return true;
+    }
+    return false;
+  }
+  // For index types, use the provided size, as the type does not know.
+  unsigned int bitwidth = type.getElementType().isIndex()
+                              ? kBitwidthOfIndexType
+                              : type.getElementTypeBitWidth();
+  return type.getNumElements() * bitwidth <= kMaximumSizeInBytes * 8;
+}
 
 // TODO(herhut): Remove this once leftover tensor_to_memref are handled in core.
 struct RemoveUnusedTensorToMemrefOperations
@@ -152,7 +190,8 @@ class TileLoops : public mlir::PassWrapper<TileLoops, mlir::FunctionPass> {
 };
 
 Status LowerTFtoLoops(mlir::ModuleOp module, llvm::ArrayRef<int64_t> tile_sizes,
-                      llvm::ArrayRef<int64_t> unroll_factors) {
+                      llvm::ArrayRef<int64_t> unroll_factors,
+                      bool cpu_codegen) {
   mlir::PassManager pm(module.getContext());
   applyTensorflowAndCLOptions(pm);
 
@@ -197,10 +236,14 @@ Status LowerTFtoLoops(mlir::ModuleOp module, llvm::ArrayRef<int64_t> tile_sizes,
   // recognized as such.
   pm.addNestedPass<::mlir::FuncOp>(::mlir::createCSEPass());
 
-  // Collapse and tile parallel loops.
-  pm.addNestedPass<mlir::FuncOp>(std::make_unique<CollapseParallelLoopsTo1D>());
-  pm.addNestedPass<mlir::FuncOp>(
-      std::make_unique<TileLoops>(tile_sizes, unroll_factors));
+  if (!cpu_codegen) {
+    // Collapse and tile parallel loops. Collapsing shouldn't provide benefits
+    // to CPU and tiling is handled by vectorization.
+    pm.addNestedPass<mlir::FuncOp>(
+        std::make_unique<CollapseParallelLoopsTo1D>());
+    pm.addNestedPass<mlir::FuncOp>(
+        std::make_unique<TileLoops>(tile_sizes, unroll_factors));
+  }
   pm.addNestedPass<::mlir::FuncOp>(::mlir::createCanonicalizerPass());
   pm.addNestedPass<::mlir::FuncOp>(::mlir::createCSEPass());
   if (failed(pm.run(module))) {
@@ -247,7 +290,8 @@ Status LowerLoopsToGPUorCPU(mlir::ModuleOp module, bool embed_memref_prints,
   // TODO(herhut): Enable once no-longer broken.
   // This depends on https://bugs.llvm.org/show_bug.cgi?id=49142 being fixed.
   // pm.addNestedPass<mlir::FuncOp>(::mlir::createBufferHoistingPass());
-  pm.addNestedPass<mlir::FuncOp>(mlir::createPromoteBuffersToStackPass(64));
+  pm.addNestedPass<mlir::FuncOp>(mlir::createPromoteBuffersToStackPass(
+      [](Value alloc) { return IsSmallAlloc(alloc); }));
   // TODO(herhut): Depends on https://bugs.llvm.org/show_bug.cgi?id=48385.
   // We also cannot properly free temporaries until
   // https://llvm.discourse.group/t/remove-tight-coupling-of-the-bufferdeallocation-pass-to-std-and-linalg-operations/2162
@@ -383,12 +427,14 @@ StatusOr<mlir::OwningModuleRef> GenerateKernelForTfCode(
     llvm::ArrayRef<int64_t> tile_sizes, llvm::ArrayRef<int64_t> unroll_factors,
     bool embed_memref_prints, bool generate_fatbin, bool print_ptx,
     bool enable_ftz, bool cpu_codegen) {
-  auto& registry = context.getDialectRegistry();
+  mlir::DialectRegistry registry;
   mlir::RegisterAllTensorFlowDialects(registry);
   registry.insert<mlir::chlo::HloClientDialect, mlir::mhlo::MhloDialect>();
+  context.appendDialectRegistry(registry);
   mlir::OwningModuleRef module = mlir::parseSourceString(tf_code, &context);
 
-  TF_RETURN_IF_ERROR(LowerTFtoLoops(module.get(), tile_sizes, unroll_factors));
+  TF_RETURN_IF_ERROR(
+      LowerTFtoLoops(module.get(), tile_sizes, unroll_factors, cpu_codegen));
   TF_RETURN_IF_ERROR(
       LowerLoopsToGPUorCPU(module.get(), embed_memref_prints, cpu_codegen));
   if (!cpu_codegen) {
