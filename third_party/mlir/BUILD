@@ -55,6 +55,7 @@ td_library(
     name = "BuiltinDialectTdFiles",
     srcs = [
         "include/mlir/IR/BuiltinDialect.td",
+        "include/mlir/IR/BuiltinLocationAttributes.td",
         "include/mlir/IR/BuiltinOps.td",
         "include/mlir/IR/BuiltinTypes.td",
     ],
@@ -114,11 +115,7 @@ gentbl(
     ],
     tblgen = ":mlir-tblgen",
     td_file = "include/mlir/IR/BuiltinLocationAttributes.td",
-    td_srcs = [
-        "include/mlir/IR/BuiltinLocationAttributes.td",
-        "include/mlir/IR/BuiltinDialect.td",
-        ":OpBaseTdFiles",
-    ],
+    deps = [":BuiltinDialectTdFiles"],
 )
 
 gentbl(
@@ -345,6 +342,7 @@ td_library(
     srcs = [
         "include/mlir/IR/OpAsmInterface.td",
         "include/mlir/IR/OpBase.td",
+        "include/mlir/IR/RegionKindInterface.td",
         "include/mlir/IR/SymbolInterfaces.td",
     ],
     includes = ["include"],
@@ -3114,7 +3112,7 @@ gentbl(
     ],
     tblgen = ":mlir-tblgen",
     td_file = "include/mlir/Interfaces/DataLayoutInterfaces.td",
-    td_srcs = [":OpBaseTdFiles"],
+    deps = [":OpBaseTdFiles"],
 )
 
 gentbl(
@@ -5480,9 +5478,7 @@ gentbl(
     ],
     tblgen = ":mlir-tblgen",
     td_file = "include/mlir/Dialect/DLTI/DLTIBase.td",
-    td_srcs = [
-        ":OpBaseTdFiles",
-    ],
+    deps = [":OpBaseTdFiles"],
 )
 
 cc_library(
