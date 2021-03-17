@@ -91,5 +91,8 @@ cc_library(
     srcs = ["stream_executor_test_util.cc"],
     hdrs = ["stream_executor_test_util.h"],
     visibility = ["//tensorflow:internal"],
-    deps = [":stream_executor_hdrs"],
+    deps = [
+        ":stream_executor_hdrs",
+        "//tensorflow/c:tf_status",
+    ],
 )
