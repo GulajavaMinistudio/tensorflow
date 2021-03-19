@@ -258,9 +258,8 @@ int64 MinAlignmentOf(Args... args) {
 // Calls Functor<vec_size>()(args...) with vec_size set to the optimal GPU
 // vector instruction size for type T that is <= max_vec_size. The max_vec_size
 // argument should be set to the minimum alignment of all relevant parameters.
-template <typename T, template <int vec_size> typename Functor,
-          typename... Args>
-auto DispatchToVectorized(int64 max_vec_size, Args&&... args) {
+template <typename T, template <int vec_size> class Functor, typename... Args>
+Status DispatchToVectorized(int64 max_vec_size, Args&&... args) {
   constexpr const int kOptimalVecSizeBytes = 16;
   // The optimal number of (aligned) elements of T to load/store in a
   // single instruction inside a kernel.
