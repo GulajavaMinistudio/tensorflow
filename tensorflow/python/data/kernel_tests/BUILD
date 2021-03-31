@@ -4,7 +4,7 @@ load("//tensorflow:tensorflow.bzl", "tf_py_test")  # buildifier: disable=same-or
 
 package(
     default_visibility = ["//tensorflow:internal"],
-    licenses = ["notice"],  # Apache 2.0
+    licenses = ["notice"],
 )
 
 tf_py_test(
@@ -475,6 +475,7 @@ tf_py_test(
     size = "small",
     srcs = ["map_test.py"],
     shard_count = 16,
+    tags = ["notsan"],  # TODO(b/183962015)
     deps = [
         ":checkpoint_test_base",
         ":test_base",
