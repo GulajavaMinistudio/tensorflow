@@ -45,6 +45,8 @@ py_test(
     ],
     python_version = "PY3",
     srcs_version = "PY3",
+    # TODO(b/187847053): Enable test in pip.
+    tags = ["no_pip"],
     deps = [
         ":interpreter",
         "//tensorflow/lite/python/testdata:_pywrap_test_registerer",
@@ -474,6 +476,14 @@ pytype_strict_library(
     compatible_with = get_compatible_with_portable(),
     srcs_version = "PY3",
     visibility = ["//visibility:private"],
+)
+
+pytype_strict_library(
+    name = "convert_phase",
+    srcs = ["convert_phase.py"],
+    compatible_with = get_compatible_with_portable(),
+    srcs_version = "PY3",
+    visibility = ["//visibility:public"],
 )
 
 pytype_strict_library(
