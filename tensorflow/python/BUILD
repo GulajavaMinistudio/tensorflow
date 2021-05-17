@@ -430,6 +430,7 @@ tf_python_pybind_extension(
     ],
     module_name = "_pywrap_tf_session",
     deps = [
+        "//third_party/eigen3",
         "//tensorflow/python/lib/core:pybind11_lib",
         "//tensorflow/python/lib/core:pybind11_status",
         "//tensorflow/python/lib/core:safe_pyobject_ptr",
@@ -2925,6 +2926,7 @@ py_library(
     srcs_version = "PY3",
     deps = [
         ":client_testlib",
+        ":errors",
         ":gradients",
         ":image_ops",
         "//tensorflow/python/framework:for_generated_wrappers",

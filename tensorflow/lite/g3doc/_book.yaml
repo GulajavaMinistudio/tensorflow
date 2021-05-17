@@ -32,6 +32,8 @@ upper_tabs:
       - title: "Image classification on Raspberry Pi"
         path: https://github.com/tensorflow/examples/blob/master/lite/examples/image_classification/raspberry_pi/
         status: external
+      - title: "Transfer learning for object detection"
+        path: /lite/tutorials/model_maker_object_detection
       - title: "Object Detection on Raspberry Pi"
         path: https://github.com/tensorflow/examples/blob/master/lite/examples/object_detection/raspberry_pi/
         status: external
@@ -127,6 +129,8 @@ upper_tabs:
           path: /lite/inference_with_metadata/task_library/bert_nl_classifier
         - title: "BertQuestionAnswerer"
           path: /lite/inference_with_metadata/task_library/bert_question_answerer
+        - title: "AudioClassifier"
+          path: /lite/inference_with_metadata/task_library/audio_classifier
         - title: "Customized API"
           path: /lite/inference_with_metadata/task_library/customized_task_api
       - title: "Customize input and output data processing"
