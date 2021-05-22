@@ -26,19 +26,20 @@ py_library(
     name = "keras",
     srcs = [
         "__init__.py",
-        "estimator/__init__.py",
         "keras_parameterized.py",
     ],
     srcs_version = "PY3",
     deps = [
         ":backend",
         ":engine",
-        ":testing_utils",  # TODO(scottzhu): Stop exporting the test_utils after removing all the callers.
+        # TODO(scottzhu): Stop exporting the test_utils after removing all
+        # callers that using it.
+        ":testing_utils",
         "//tensorflow/python:training",
-        "//tensorflow/python/eager:monitoring",
         "//tensorflow/python/keras/applications",
         "//tensorflow/python/keras/datasets",
         "//tensorflow/python/keras/distribute",
+        "//tensorflow/python/keras/estimator",
         "//tensorflow/python/keras/feature_column",
         "//tensorflow/python/keras/layers",
         "//tensorflow/python/keras/mixed_precision:mixed_precision_experimental",
