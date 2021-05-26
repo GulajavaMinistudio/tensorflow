@@ -135,6 +135,7 @@ py_library(
         ":client_testlib",
         ":clustering_ops",
         ":collective_ops",
+        ":composite_tensor_ops",
         ":cond_v2",
         ":confusion_matrix",
         ":control_flow_ops",
@@ -908,6 +909,11 @@ tf_gen_op_wrapper_private_py(
     visibility = [
         "//tensorflow/python/training:__pkg__",
     ],
+)
+
+tf_gen_op_wrapper_private_py(
+    name = "composite_tensor_ops_gen",
+    visibility = [],
 )
 
 tf_gen_op_wrapper_private_py(
@@ -2589,6 +2595,13 @@ py_library(
 )
 
 py_library(
+    name = "composite_tensor_ops",
+    srcs = ["ops/composite_tensor_ops.py"],
+    srcs_version = "PY2AND3",
+    deps = ["composite_tensor_ops_gen"],
+)
+
+py_library(
     name = "variable_scope",
     srcs = ["ops/variable_scope.py"],
     srcs_version = "PY3",
@@ -3816,51 +3829,6 @@ py_tests(
     ],
 )
 
-# TODO(scottzhu): Move all the tf.layer related targets.
-py_library(
-    name = "layers_base",
-    srcs = [
-        "layers/__init__.py",
-        "layers/base.py",
-    ],
-    srcs_version = "PY3",
-    deps = [
-        "//tensorflow/python/keras/legacy_tf_layers:layers_base",
-    ],
-)
-
-py_library(
-    name = "layers_util",
-    srcs = [
-        "layers/utils.py",
-    ],
-    srcs_version = "PY3",
-    deps = [
-        ":control_flow_ops",
-        ":variables",
-        "//tensorflow/python/framework:smart_cond",
-    ],
-)
-
-py_library(
-    name = "layers",
-    srcs = [
-        "layers/convolutional.py",
-        "layers/core.py",
-        "layers/layers.py",
-        "layers/normalization.py",
-        "layers/pooling.py",
-    ],
-    srcs_version = "PY3",
-    deps = [
-        ":layers_base",
-        "//tensorflow/python/keras/legacy_tf_layers:convolutional",
-        "//tensorflow/python/keras/legacy_tf_layers:core",
-        "//tensorflow/python/keras/legacy_tf_layers:normalization",
-        "//tensorflow/python/keras/legacy_tf_layers:pooling",
-    ],
-)
-
 # -----------------------------------------------------------------------------
 # Quantization
 
@@ -4866,6 +4834,21 @@ alias(
     name = "tf_optimizer",
     actual = "//tensorflow/python/grappler:tf_optimizer",
     visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "layers_base",
+    actual = "//tensorflow/python/layers:layers_base",
+)
+
+alias(
+    name = "layers_util",
+    actual = "//tensorflow/python/layers:layers_util",
+)
+
+alias(
+    name = "layers",
+    actual = "//tensorflow/python/layers:layers",
 )
 
 py_library(

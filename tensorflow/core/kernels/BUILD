@@ -6,6 +6,7 @@ load(
     "if_cuda_or_rocm",
     "if_mobile",
     "if_not_windows",
+    "if_oss",
     "tf_cc_binary",
     "tf_cc_shared_object",
     "tf_cc_test",
@@ -19,6 +20,10 @@ load(
     "if_mlir_generated_cpu_kernels_enabled",
     "if_mlir_generated_experimental_kernels_enabled",
     "if_mlir_generated_gpu_kernels_enabled",
+)
+load(
+    "//tensorflow/core/platform:build_config.bzl",
+    "tf_fingerprint_deps",
 )
 
 # buildifier: disable=same-origin-load
@@ -1320,6 +1325,43 @@ tf_kernel_library(
                "//tensorflow/core/util:cuda_solvers",
            ]) + [":gpu_prim_hdrs"] +
            ARRAY_DEPS,
+)
+
+cc_library(
+    name = "composite_tensor_variant",
+    srcs = ["composite_tensor_variant.cc"],
+    hdrs = ["composite_tensor_variant.h"],
+    deps = [
+        "//tensorflow/core:framework",
+        "//tensorflow/core:lib",
+        "//tensorflow/core:protos_all_cc",
+        "@com_google_absl//absl/types:span",
+    ],
+)
+
+tf_cc_test(
+    name = "composite_tensor_variant_test",
+    size = "small",
+    srcs = ["composite_tensor_variant_test.cc"],
+    deps = [
+        ":composite_tensor_variant",
+        "//tensorflow/core:framework",
+        "//tensorflow/core:protos_all_cc",
+        "//tensorflow/core:test",
+        "//tensorflow/core:test_main",
+        "//tensorflow/core:testlib",
+    ],
+)
+
+tf_kernel_library(
+    name = "composite_tensor_ops",
+    srcs = ["composite_tensor_ops.cc"],
+    deps = [
+        ":composite_tensor_variant",
+        "//tensorflow/core:framework",
+        "//tensorflow/core:lib",
+        "//tensorflow/core:protos_all_cc",
+    ],
 )
 
 cc_library(
@@ -5030,6 +5072,7 @@ cc_library(
         ":string_to_hash_bucket_op",
         ":string_upper_op",
         ":substr_op",
+        ":tensor_to_hash_bucket_op",
         ":unicode_ops",
         ":unicode_script_op",
         ":unsorted_segment_join_op",
@@ -5068,6 +5111,15 @@ tf_kernel_library(
         "string_to_hash_bucket_op.h",
     ],
     deps = STRING_DEPS,
+)
+
+tf_kernel_library(
+    name = "tensor_to_hash_bucket_op",
+    prefix = "tensor_to_hash_bucket_op",
+    deps = STRING_DEPS + if_oss(
+        if_cuda(["@farmhash_gpu_archive//:farmhash_gpu"]),
+        tf_fingerprint_deps(),
+    ),
 )
 
 tf_kernel_library(
