@@ -493,6 +493,7 @@ cc_library(
     hdrs = [
         "include/mlir-hlo/Dialect/mhlo/IR/chlo_ops.h",
         "include/mlir-hlo/Dialect/mhlo/IR/hlo_ops.h",
+        "include/mlir-hlo/Dialect/mhlo/IR/hlo_ops_base.h",
         "include/mlir-hlo/utils/broadcast_utils.h",
         "include/mlir-hlo/utils/hlo_utils.h",
     ],
@@ -1200,6 +1201,42 @@ cc_library(
 )
 
 cc_library(
+    name = "fusion_utils",
+    srcs = ["lib/Dialect/mhlo/transforms/fusion_utils.cc"],
+    hdrs = ["include/mlir-hlo/Dialect/mhlo/transforms/fusion_utils.h"],
+    deps = [
+        ":lhlo",
+        "@llvm-project//llvm:Core",
+        "@llvm-project//llvm:Support",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Shape",
+        "@llvm-project//mlir:StandardOps",
+        "@llvm-project//mlir:Support",
+    ],
+    alwayslink = 1,
+)
+
+cc_library(
+    name = "lhlo_fusion",
+    srcs = ["lib/Dialect/mhlo/transforms/lhlo_fusion.cc"],
+    deps = [
+        ":cycle_detector",
+        ":fusion_utils",
+        ":lhlo",
+        ":pass_details",
+        "@llvm-project//llvm:Core",
+        "@llvm-project//llvm:Support",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Pass",
+        "@llvm-project//mlir:Shape",
+        "@llvm-project//mlir:StandardOps",
+        "@llvm-project//mlir:Support",
+        "@llvm-project//mlir:TransformUtils",
+    ],
+    alwayslink = 1,
+)
+
+cc_library(
     name = "chlo_legalize_to_hlo",
     srcs = ["lib/Dialect/mhlo/transforms/chlo_legalize_to_hlo.cc"],
     hdrs = ["include/mlir-hlo/Dialect/mhlo/transforms/rewriters.h"],
@@ -1242,6 +1279,7 @@ cc_library(
     ],
     deps = [
         ":DiscRalPassIncGen",
+        ":LmhloPassIncGen",
         ":MhloPassIncGen",
         "@llvm-project//mlir:Pass",
     ],
@@ -1302,6 +1340,7 @@ cc_library(
         ":legalize_trigonometric_to_approximation",
         ":lhlo",
         ":lhlo_fuse_linalg",
+        ":lhlo_fusion",
         ":lhlo_legalize_to_affine",
         ":lhlo_legalize_to_gpu",
         ":lhlo_legalize_to_parallel_loops",
