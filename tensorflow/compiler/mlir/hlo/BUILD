@@ -514,6 +514,7 @@ cc_library(
         "@llvm-project//mlir:ControlFlowInterfaces",
         "@llvm-project//mlir:IR",
         "@llvm-project//mlir:InferTypeOpInterface",
+        "@llvm-project//mlir:MemRefDialect",
         "@llvm-project//mlir:Pass",
         "@llvm-project//mlir:Shape",
         "@llvm-project//mlir:SideEffects",
@@ -661,6 +662,7 @@ cc_library(
         "@llvm-project//mlir:IR",
         "@llvm-project//mlir:InferTypeOpInterface",
         "@llvm-project//mlir:LoopLikeInterface",
+        "@llvm-project//mlir:MemRefDialect",
         "@llvm-project//mlir:Pass",
         "@llvm-project//mlir:SideEffects",
         "@llvm-project//mlir:StandardOps",
@@ -1053,6 +1055,26 @@ cc_library(
 )
 
 cc_library(
+    name = "legalize_einsum_to_dot_general",
+    srcs = ["lib/Dialect/mhlo/transforms/legalize_einsum_to_dot_general.cc"],
+    hdrs = [
+        "include/mlir-hlo/Dialect/mhlo/transforms/passes.h",
+        "include/mlir-hlo/Dialect/mhlo/transforms/rewriters.h",
+    ],
+    deps = [
+        ":hlo",
+        ":pass_details",
+        "@llvm-project//llvm:Support",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Pass",
+        "@llvm-project//mlir:StandardOps",
+        "@llvm-project//mlir:Support",
+        "@llvm-project//mlir:Transforms",
+    ],
+    alwayslink = 1,
+)
+
+cc_library(
     name = "legalize_gather_to_torch_index_select",
     srcs = ["lib/Dialect/mhlo/transforms/legalize_gather_to_torch_index_select.cc"],
     hdrs = [
@@ -1325,6 +1347,7 @@ cc_library(
         ":chlo_legalize_to_hlo",
         ":hlo_legalize_to_lhlo",
         ":legalize_control_flow",
+        ":legalize_einsum_to_dot_general",
         ":legalize_gather_to_torch_index_select",
         ":legalize_tensor_load_op",
         ":legalize_to_linalg",
