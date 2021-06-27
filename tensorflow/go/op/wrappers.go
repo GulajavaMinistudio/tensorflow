@@ -8379,53 +8379,6 @@ func ParseExample(scope *Scope, serialized tf.Output, names tf.Output, sparse_ke
 	return sparse_indices, sparse_values, sparse_shapes, dense_values
 }
 
-// DecodeCompressedAttr is an optional argument to DecodeCompressed.
-type DecodeCompressedAttr func(optionalAttr)
-
-// DecodeCompressedCompressionType sets the optional compression_type attribute to value.
-//
-// value: A scalar containing either (i) the empty string (no
-// compression), (ii) "ZLIB", or (iii) "GZIP".
-// If not specified, defaults to ""
-func DecodeCompressedCompressionType(value string) DecodeCompressedAttr {
-	return func(m optionalAttr) {
-		m["compression_type"] = value
-	}
-}
-
-// Decompress strings.
-//
-// This op decompresses each element of the `bytes` input `Tensor`, which
-// is assumed to be compressed using the given `compression_type`.
-//
-// The `output` is a string `Tensor` of the same shape as `bytes`,
-// each element containing the decompressed data from the corresponding
-// element in `bytes`.
-//
-// Arguments:
-//	bytes: A Tensor of string which is compressed.
-//
-// Returns A Tensor with the same shape as input `bytes`, uncompressed
-// from bytes.
-func DecodeCompressed(scope *Scope, bytes tf.Output, optional ...DecodeCompressedAttr) (output tf.Output) {
-	if scope.Err() != nil {
-		return
-	}
-	attrs := map[string]interface{}{}
-	for _, a := range optional {
-		a(attrs)
-	}
-	opspec := tf.OpSpec{
-		Type: "DecodeCompressed",
-		Input: []tf.Input{
-			bytes,
-		},
-		Attrs: attrs,
-	}
-	op := scope.AddOperation(opspec)
-	return op.Output(0)
-}
-
 // QuantizedDepthwiseConv2DWithBiasAndReluAndRequantizeAttr is an optional argument to QuantizedDepthwiseConv2DWithBiasAndReluAndRequantize.
 type QuantizedDepthwiseConv2DWithBiasAndReluAndRequantizeAttr func(optionalAttr)
 
@@ -15336,6 +15289,74 @@ func SparseMatrixOrderingAMD(scope *Scope, input tf.Output) (output tf.Output) {
 	return op.Output(0)
 }
 
+// RandomStandardNormalAttr is an optional argument to RandomStandardNormal.
+type RandomStandardNormalAttr func(optionalAttr)
+
+// RandomStandardNormalSeed sets the optional seed attribute to value.
+//
+// value: If either `seed` or `seed2` are set to be non-zero, the random number
+// generator is seeded by the given seed.  Otherwise, it is seeded by a
+// random seed.
+// If not specified, defaults to 0
+func RandomStandardNormalSeed(value int64) RandomStandardNormalAttr {
+	return func(m optionalAttr) {
+		m["seed"] = value
+	}
+}
+
+// RandomStandardNormalSeed2 sets the optional seed2 attribute to value.
+//
+// value: A second seed to avoid seed collision.
+// If not specified, defaults to 0
+func RandomStandardNormalSeed2(value int64) RandomStandardNormalAttr {
+	return func(m optionalAttr) {
+		m["seed2"] = value
+	}
+}
+
+// Outputs random values from a normal distribution.
+//
+// The generated values will have mean 0 and standard deviation 1.
+//
+// Arguments:
+//	shape: The shape of the output tensor.
+//	dtype: The type of the output.
+//
+// Returns A tensor of the specified shape filled with random normal values.
+func RandomStandardNormal(scope *Scope, shape tf.Output, dtype tf.DataType, optional ...RandomStandardNormalAttr) (output tf.Output) {
+	if scope.Err() != nil {
+		return
+	}
+	attrs := map[string]interface{}{"dtype": dtype}
+	for _, a := range optional {
+		a(attrs)
+	}
+	opspec := tf.OpSpec{
+		Type: "RandomStandardNormal",
+		Input: []tf.Input{
+			shape,
+		},
+		Attrs: attrs,
+	}
+	op := scope.AddOperation(opspec)
+	return op.Output(0)
+}
+
+// Computes the [Gauss error function](https://en.wikipedia.org/wiki/Error_function) of `x` element-wise. In statistics, for non-negative values of $x$, the error function has the following interpretation: for a random variable $Y$ that is normally distributed with mean 0 and variance $1/\sqrt{2}$, $erf(x)$ is the probability that $Y$ falls in the range $[−x, x]$.
+func Erf(scope *Scope, x tf.Output) (y tf.Output) {
+	if scope.Err() != nil {
+		return
+	}
+	opspec := tf.OpSpec{
+		Type: "Erf",
+		Input: []tf.Input{
+			x,
+		},
+	}
+	op := scope.AddOperation(opspec)
+	return op.Output(0)
+}
+
 // Computes Psi, the derivative of Lgamma (the log of the absolute value of
 //
 // `Gamma(x)`), element-wise.
@@ -17510,74 +17531,6 @@ func TensorListLength(scope *Scope, input_handle tf.Output) (length tf.Output) {
 		Type: "TensorListLength",
 		Input: []tf.Input{
 			input_handle,
-		},
-	}
-	op := scope.AddOperation(opspec)
-	return op.Output(0)
-}
-
-// RandomStandardNormalAttr is an optional argument to RandomStandardNormal.
-type RandomStandardNormalAttr func(optionalAttr)
-
-// RandomStandardNormalSeed sets the optional seed attribute to value.
-//
-// value: If either `seed` or `seed2` are set to be non-zero, the random number
-// generator is seeded by the given seed.  Otherwise, it is seeded by a
-// random seed.
-// If not specified, defaults to 0
-func RandomStandardNormalSeed(value int64) RandomStandardNormalAttr {
-	return func(m optionalAttr) {
-		m["seed"] = value
-	}
-}
-
-// RandomStandardNormalSeed2 sets the optional seed2 attribute to value.
-//
-// value: A second seed to avoid seed collision.
-// If not specified, defaults to 0
-func RandomStandardNormalSeed2(value int64) RandomStandardNormalAttr {
-	return func(m optionalAttr) {
-		m["seed2"] = value
-	}
-}
-
-// Outputs random values from a normal distribution.
-//
-// The generated values will have mean 0 and standard deviation 1.
-//
-// Arguments:
-//	shape: The shape of the output tensor.
-//	dtype: The type of the output.
-//
-// Returns A tensor of the specified shape filled with random normal values.
-func RandomStandardNormal(scope *Scope, shape tf.Output, dtype tf.DataType, optional ...RandomStandardNormalAttr) (output tf.Output) {
-	if scope.Err() != nil {
-		return
-	}
-	attrs := map[string]interface{}{"dtype": dtype}
-	for _, a := range optional {
-		a(attrs)
-	}
-	opspec := tf.OpSpec{
-		Type: "RandomStandardNormal",
-		Input: []tf.Input{
-			shape,
-		},
-		Attrs: attrs,
-	}
-	op := scope.AddOperation(opspec)
-	return op.Output(0)
-}
-
-// Computes the [Gauss error function](https://en.wikipedia.org/wiki/Error_function) of `x` element-wise. In statistics, for non-negative values of $x$, the error function has the following interpretation: for a random variable $Y$ that is normally distributed with mean 0 and variance $1/\sqrt{2}$, $erf(x)$ is the probability that $Y$ falls in the range $[−x, x]$.
-func Erf(scope *Scope, x tf.Output) (y tf.Output) {
-	if scope.Err() != nil {
-		return
-	}
-	opspec := tf.OpSpec{
-		Type: "Erf",
-		Input: []tf.Input{
-			x,
 		},
 	}
 	op := scope.AddOperation(opspec)
@@ -23246,48 +23199,6 @@ func RebatchDataset(scope *Scope, input_dataset tf.Output, num_replicas tf.Outpu
 	return op.Output(0)
 }
 
-// ExperimentalRebatchDatasetAttr is an optional argument to ExperimentalRebatchDataset.
-type ExperimentalRebatchDatasetAttr func(optionalAttr)
-
-// ExperimentalRebatchDatasetUseFallback sets the optional use_fallback attribute to value.
-// If not specified, defaults to true
-func ExperimentalRebatchDatasetUseFallback(value bool) ExperimentalRebatchDatasetAttr {
-	return func(m optionalAttr) {
-		m["use_fallback"] = value
-	}
-}
-
-// Creates a dataset that changes the batch size.
-//
-// Creates a dataset that changes the batch size of the dataset to current batch
-// size // num_replicas.
-//
-// Arguments:
-//	input_dataset: A variant tensor representing the input dataset.
-//	num_replicas: A scalar representing the number of replicas to distribute this batch across. As
-// a result of this transformation the current batch size would end up being
-// divided  by this parameter.
-//
-//
-func ExperimentalRebatchDataset(scope *Scope, input_dataset tf.Output, num_replicas tf.Output, output_types []tf.DataType, output_shapes []tf.Shape, optional ...ExperimentalRebatchDatasetAttr) (handle tf.Output) {
-	if scope.Err() != nil {
-		return
-	}
-	attrs := map[string]interface{}{"output_types": output_types, "output_shapes": output_shapes}
-	for _, a := range optional {
-		a(attrs)
-	}
-	opspec := tf.OpSpec{
-		Type: "ExperimentalRebatchDataset",
-		Input: []tf.Input{
-			input_dataset, num_replicas,
-		},
-		Attrs: attrs,
-	}
-	op := scope.AddOperation(opspec)
-	return op.Output(0)
-}
-
 // Creates a dataset that contains the unique elements of `input_dataset`.
 func UniqueDataset(scope *Scope, input_dataset tf.Output, output_types []tf.DataType, output_shapes []tf.Shape) (handle tf.Output) {
 	if scope.Err() != nil {
@@ -28312,6 +28223,200 @@ func SparseCrossV2(scope *Scope, indices []tf.Output, values []tf.Output, shapes
 	return op.Output(0), op.Output(1), op.Output(2)
 }
 
+// BlockLSTMV2Attr is an optional argument to BlockLSTMV2.
+type BlockLSTMV2Attr func(optionalAttr)
+
+// BlockLSTMV2CellClip sets the optional cell_clip attribute to value.
+//
+// value: Value to clip the 'cs' value to.
+// If not specified, defaults to 0
+func BlockLSTMV2CellClip(value float32) BlockLSTMV2Attr {
+	return func(m optionalAttr) {
+		m["cell_clip"] = value
+	}
+}
+
+// BlockLSTMV2UsePeephole sets the optional use_peephole attribute to value.
+//
+// value: Whether to use peephole weights.
+// If not specified, defaults to false
+func BlockLSTMV2UsePeephole(value bool) BlockLSTMV2Attr {
+	return func(m optionalAttr) {
+		m["use_peephole"] = value
+	}
+}
+
+// Computes the LSTM cell forward propagation for all the time steps.
+//
+// This is equivalent to applying LSTMBlockCell in a loop, like so:
+//
+// ```python
+// for x1 in unpack(x):
+//   i1, cs1, f1, o1, ci1, co1, h1 = LSTMBlock(
+//     x1, cs_prev, h_prev, w, wci, wcf, wco, b)
+//   cs_prev = cs1
+//   h_prev = h1
+//   i.append(i1)
+//   cs.append(cs1)
+//   f.append(f1)
+//   o.append(o1)
+//   ci.append(ci1)
+//   co.append(co1)
+//   h.append(h1)
+// return pack(i), pack(cs), pack(f), pack(o), pack(ci), pack(ch), pack(h)
+//
+// Note that unlike LSTMBlockCell (and BlockLSTM) which uses ICFO gate layout,
+// this op uses IFCO. So in order for the following snippet to be equivalent
+// all gate-related outputs should be reordered.
+// ```
+//
+// Arguments:
+//	seq_len_max: Maximum time length actually used by this input. Outputs are padded
+// with zeros beyond this length.
+//	x: The sequence input to the LSTM, shape (timelen, batch_size, num_inputs).
+//	cs_prev: Value of the initial cell state.
+//	h_prev: Initial output of cell (to be used for peephole).
+//	w: The weight matrix.
+//	wci: The weight matrix for input gate peephole connection.
+//	wcf: The weight matrix for forget gate peephole connection.
+//	wco: The weight matrix for output gate peephole connection.
+//	b: The bias vector.
+//
+// Returns:
+//	i: The input gate over the whole time sequence.
+//	cs: The cell state before the tanh over the whole time sequence.
+//	f: The forget gate over the whole time sequence.
+//	o: The output gate over the whole time sequence.
+//	ci: The cell input over the whole time sequence.
+//	co: The cell after the tanh over the whole time sequence.
+//	h: The output h vector over the whole time sequence.
+func BlockLSTMV2(scope *Scope, seq_len_max tf.Output, x tf.Output, cs_prev tf.Output, h_prev tf.Output, w tf.Output, wci tf.Output, wcf tf.Output, wco tf.Output, b tf.Output, optional ...BlockLSTMV2Attr) (i tf.Output, cs tf.Output, f tf.Output, o tf.Output, ci tf.Output, co tf.Output, h tf.Output) {
+	if scope.Err() != nil {
+		return
+	}
+	attrs := map[string]interface{}{}
+	for _, a := range optional {
+		a(attrs)
+	}
+	opspec := tf.OpSpec{
+		Type: "BlockLSTMV2",
+		Input: []tf.Input{
+			seq_len_max, x, cs_prev, h_prev, w, wci, wcf, wco, b,
+		},
+		Attrs: attrs,
+	}
+	op := scope.AddOperation(opspec)
+	return op.Output(0), op.Output(1), op.Output(2), op.Output(3), op.Output(4), op.Output(5), op.Output(6)
+}
+
+// Extract `patches` from `images` and put them in the "depth" output dimension.
+//
+// Arguments:
+//	images: 4-D Tensor with shape `[batch, in_rows, in_cols, depth]`.
+//	ksizes: The size of the sliding window for each dimension of `images`.
+//	strides: How far the centers of two consecutive patches are in
+// the images. Must be: `[1, stride_rows, stride_cols, 1]`.
+//	rates: Must be: `[1, rate_rows, rate_cols, 1]`. This is the
+// input stride, specifying how far two consecutive patch samples are in the
+// input. Equivalent to extracting patches with
+// `patch_sizes_eff = patch_sizes + (patch_sizes - 1) * (rates - 1)`, followed by
+// subsampling them spatially by a factor of `rates`. This is equivalent to
+// `rate` in dilated (a.k.a. Atrous) convolutions.
+//	padding: The type of padding algorithm to use.
+//
+// Returns 4-D Tensor with shape `[batch, out_rows, out_cols, ksize_rows *
+// ksize_cols * depth]` containing image patches with size
+// `ksize_rows x ksize_cols x depth` vectorized in the "depth" dimension. Note
+// `out_rows` and `out_cols` are the dimensions of the output patches.
+func ExtractImagePatches(scope *Scope, images tf.Output, ksizes []int64, strides []int64, rates []int64, padding string) (patches tf.Output) {
+	if scope.Err() != nil {
+		return
+	}
+	attrs := map[string]interface{}{"ksizes": ksizes, "strides": strides, "rates": rates, "padding": padding}
+	opspec := tf.OpSpec{
+		Type: "ExtractImagePatches",
+		Input: []tf.Input{
+			images,
+		},
+		Attrs: attrs,
+	}
+	op := scope.AddOperation(opspec)
+	return op.Output(0)
+}
+
+// Forwards the value of an available tensor from `inputs` to `output`.
+//
+// `Merge` waits for at least one of the tensors in `inputs` to become available.
+// It is usually combined with `Switch` to implement branching.
+//
+// `Merge` forwards the first tensor to become available to `output`, and sets
+// `value_index` to its index in `inputs`.
+//
+// Arguments:
+//	inputs: The input tensors, exactly one of which will become available.
+//
+// Returns:
+//	output: Will be set to the available input tensor.
+//	value_index: The index of the chosen input tensor in `inputs`.
+func Merge(scope *Scope, inputs []tf.Output) (output tf.Output, value_index tf.Output) {
+	if scope.Err() != nil {
+		return
+	}
+	opspec := tf.OpSpec{
+		Type: "Merge",
+		Input: []tf.Input{
+			tf.OutputList(inputs),
+		},
+	}
+	op := scope.AddOperation(opspec)
+	return op.Output(0), op.Output(1)
+}
+
+// PaddedBatchDatasetV2Attr is an optional argument to PaddedBatchDatasetV2.
+type PaddedBatchDatasetV2Attr func(optionalAttr)
+
+// PaddedBatchDatasetV2ParallelCopy sets the optional parallel_copy attribute to value.
+// If not specified, defaults to false
+func PaddedBatchDatasetV2ParallelCopy(value bool) PaddedBatchDatasetV2Attr {
+	return func(m optionalAttr) {
+		m["parallel_copy"] = value
+	}
+}
+
+// Creates a dataset that batches and pads `batch_size` elements from the input.
+//
+// Arguments:
+//
+//	batch_size: A scalar representing the number of elements to accumulate in a
+// batch.
+//	padded_shapes: A list of int64 tensors representing the desired padded shapes
+// of the corresponding output components. These shapes may be partially
+// specified, using `-1` to indicate that a particular dimension should be
+// padded to the maximum size of all batch elements.
+//	padding_values: A list of scalars containing the padding value to use for
+// each of the outputs.
+//	drop_remainder: A scalar representing whether the last batch should be dropped in case its size
+// is smaller than desired.
+//
+func PaddedBatchDatasetV2(scope *Scope, input_dataset tf.Output, batch_size tf.Output, padded_shapes []tf.Output, padding_values []tf.Output, drop_remainder tf.Output, output_shapes []tf.Shape, optional ...PaddedBatchDatasetV2Attr) (handle tf.Output) {
+	if scope.Err() != nil {
+		return
+	}
+	attrs := map[string]interface{}{"output_shapes": output_shapes}
+	for _, a := range optional {
+		a(attrs)
+	}
+	opspec := tf.OpSpec{
+		Type: "PaddedBatchDatasetV2",
+		Input: []tf.Input{
+			input_dataset, batch_size, tf.OutputList(padded_shapes), tf.OutputList(padding_values), drop_remainder,
+		},
+		Attrs: attrs,
+	}
+	op := scope.AddOperation(opspec)
+	return op.Output(0)
+}
+
 // CudnnRNNAttr is an optional argument to CudnnRNN.
 type CudnnRNNAttr func(optionalAttr)
 
@@ -28439,6 +28544,95 @@ func BatchDataset(scope *Scope, input_dataset tf.Output, batch_size tf.Output, o
 		Type: "BatchDataset",
 		Input: []tf.Input{
 			input_dataset, batch_size,
+		},
+		Attrs: attrs,
+	}
+	op := scope.AddOperation(opspec)
+	return op.Output(0)
+}
+
+// ExperimentalRebatchDatasetAttr is an optional argument to ExperimentalRebatchDataset.
+type ExperimentalRebatchDatasetAttr func(optionalAttr)
+
+// ExperimentalRebatchDatasetUseFallback sets the optional use_fallback attribute to value.
+// If not specified, defaults to true
+func ExperimentalRebatchDatasetUseFallback(value bool) ExperimentalRebatchDatasetAttr {
+	return func(m optionalAttr) {
+		m["use_fallback"] = value
+	}
+}
+
+// Creates a dataset that changes the batch size.
+//
+// Creates a dataset that changes the batch size of the dataset to current batch
+// size // num_replicas.
+//
+// Arguments:
+//	input_dataset: A variant tensor representing the input dataset.
+//	num_replicas: A scalar representing the number of replicas to distribute this batch across. As
+// a result of this transformation the current batch size would end up being
+// divided  by this parameter.
+//
+//
+func ExperimentalRebatchDataset(scope *Scope, input_dataset tf.Output, num_replicas tf.Output, output_types []tf.DataType, output_shapes []tf.Shape, optional ...ExperimentalRebatchDatasetAttr) (handle tf.Output) {
+	if scope.Err() != nil {
+		return
+	}
+	attrs := map[string]interface{}{"output_types": output_types, "output_shapes": output_shapes}
+	for _, a := range optional {
+		a(attrs)
+	}
+	opspec := tf.OpSpec{
+		Type: "ExperimentalRebatchDataset",
+		Input: []tf.Input{
+			input_dataset, num_replicas,
+		},
+		Attrs: attrs,
+	}
+	op := scope.AddOperation(opspec)
+	return op.Output(0)
+}
+
+// DecodeCompressedAttr is an optional argument to DecodeCompressed.
+type DecodeCompressedAttr func(optionalAttr)
+
+// DecodeCompressedCompressionType sets the optional compression_type attribute to value.
+//
+// value: A scalar containing either (i) the empty string (no
+// compression), (ii) "ZLIB", or (iii) "GZIP".
+// If not specified, defaults to ""
+func DecodeCompressedCompressionType(value string) DecodeCompressedAttr {
+	return func(m optionalAttr) {
+		m["compression_type"] = value
+	}
+}
+
+// Decompress strings.
+//
+// This op decompresses each element of the `bytes` input `Tensor`, which
+// is assumed to be compressed using the given `compression_type`.
+//
+// The `output` is a string `Tensor` of the same shape as `bytes`,
+// each element containing the decompressed data from the corresponding
+// element in `bytes`.
+//
+// Arguments:
+//	bytes: A Tensor of string which is compressed.
+//
+// Returns A Tensor with the same shape as input `bytes`, uncompressed
+// from bytes.
+func DecodeCompressed(scope *Scope, bytes tf.Output, optional ...DecodeCompressedAttr) (output tf.Output) {
+	if scope.Err() != nil {
+		return
+	}
+	attrs := map[string]interface{}{}
+	for _, a := range optional {
+		a(attrs)
+	}
+	opspec := tf.OpSpec{
+		Type: "DecodeCompressed",
+		Input: []tf.Input{
+			bytes,
 		},
 		Attrs: attrs,
 	}
@@ -32787,6 +32981,80 @@ func StackV2(scope *Scope, max_size tf.Output, elem_type tf.DataType, optional .
 	return op.Output(0)
 }
 
+// Picks the best counter-based RNG algorithm based on device.
+//
+// This op picks the best counter-based RNG algorithm based on device.
+//
+// Returns The RNG algorithm (shape int32[]).
+func StatelessRandomGetAlg(scope *Scope) (alg tf.Output) {
+	if scope.Err() != nil {
+		return
+	}
+	opspec := tf.OpSpec{
+		Type: "StatelessRandomGetAlg",
+	}
+	op := scope.AddOperation(opspec)
+	return op.Output(0)
+}
+
+// BoostedTreesUpdateEnsembleV2Attr is an optional argument to BoostedTreesUpdateEnsembleV2.
+type BoostedTreesUpdateEnsembleV2Attr func(optionalAttr)
+
+// BoostedTreesUpdateEnsembleV2LogitsDimension sets the optional logits_dimension attribute to value.
+//
+// value: scalar, dimension of the logits
+// If not specified, defaults to 1
+func BoostedTreesUpdateEnsembleV2LogitsDimension(value int64) BoostedTreesUpdateEnsembleV2Attr {
+	return func(m optionalAttr) {
+		m["logits_dimension"] = value
+	}
+}
+
+// Updates the tree ensemble by adding a layer to the last tree being grown
+//
+// or by starting a new tree.
+//
+// Arguments:
+//	tree_ensemble_handle: Handle to the ensemble variable.
+//	feature_ids: Rank 1 tensor with ids for each feature. This is the real id of
+// the feature that will be used in the split.
+//	dimension_ids: List of rank 1 tensors representing the dimension in each feature.
+//	node_ids: List of rank 1 tensors representing the nodes for which this feature
+// has a split.
+//	gains: List of rank 1 tensors representing the gains for each of the feature's
+// split.
+//	thresholds: List of rank 1 tensors representing the thesholds for each of the
+// feature's split.
+//	left_node_contribs: List of rank 2 tensors with left leaf contribs for each of
+// the feature's splits. Will be added to the previous node values to constitute
+// the values of the left nodes.
+//	right_node_contribs: List of rank 2 tensors with right leaf contribs for each
+// of the feature's splits. Will be added to the previous node values to constitute
+// the values of the right nodes.
+//	split_types: List of rank 1 tensors representing the split type for each feature.
+//	max_depth: Max depth of the tree to build.
+//	learning_rate: shrinkage const for each new tree.
+//	pruning_mode: 0-No pruning, 1-Pre-pruning, 2-Post-pruning.
+//
+// Returns the created operation.
+func BoostedTreesUpdateEnsembleV2(scope *Scope, tree_ensemble_handle tf.Output, feature_ids []tf.Output, dimension_ids []tf.Output, node_ids []tf.Output, gains []tf.Output, thresholds []tf.Output, left_node_contribs []tf.Output, right_node_contribs []tf.Output, split_types []tf.Output, max_depth tf.Output, learning_rate tf.Output, pruning_mode tf.Output, optional ...BoostedTreesUpdateEnsembleV2Attr) (o *tf.Operation) {
+	if scope.Err() != nil {
+		return
+	}
+	attrs := map[string]interface{}{}
+	for _, a := range optional {
+		a(attrs)
+	}
+	opspec := tf.OpSpec{
+		Type: "BoostedTreesUpdateEnsembleV2",
+		Input: []tf.Input{
+			tree_ensemble_handle, tf.OutputList(feature_ids), tf.OutputList(dimension_ids), tf.OutputList(node_ids), tf.OutputList(gains), tf.OutputList(thresholds), tf.OutputList(left_node_contribs), tf.OutputList(right_node_contribs), tf.OutputList(split_types), max_depth, learning_rate, pruning_mode,
+		},
+		Attrs: attrs,
+	}
+	return scope.AddOperation(opspec)
+}
+
 // SpaceToBatch for N-D tensors of type T.
 //
 // This operation divides "spatial" dimensions `[1, ..., M]` of the input into a
@@ -36362,200 +36630,6 @@ func PriorityQueueV2(scope *Scope, shapes []tf.Shape, optional ...PriorityQueueV
 	}
 	op := scope.AddOperation(opspec)
 	return op.Output(0)
-}
-
-// BlockLSTMV2Attr is an optional argument to BlockLSTMV2.
-type BlockLSTMV2Attr func(optionalAttr)
-
-// BlockLSTMV2CellClip sets the optional cell_clip attribute to value.
-//
-// value: Value to clip the 'cs' value to.
-// If not specified, defaults to 0
-func BlockLSTMV2CellClip(value float32) BlockLSTMV2Attr {
-	return func(m optionalAttr) {
-		m["cell_clip"] = value
-	}
-}
-
-// BlockLSTMV2UsePeephole sets the optional use_peephole attribute to value.
-//
-// value: Whether to use peephole weights.
-// If not specified, defaults to false
-func BlockLSTMV2UsePeephole(value bool) BlockLSTMV2Attr {
-	return func(m optionalAttr) {
-		m["use_peephole"] = value
-	}
-}
-
-// Computes the LSTM cell forward propagation for all the time steps.
-//
-// This is equivalent to applying LSTMBlockCell in a loop, like so:
-//
-// ```python
-// for x1 in unpack(x):
-//   i1, cs1, f1, o1, ci1, co1, h1 = LSTMBlock(
-//     x1, cs_prev, h_prev, w, wci, wcf, wco, b)
-//   cs_prev = cs1
-//   h_prev = h1
-//   i.append(i1)
-//   cs.append(cs1)
-//   f.append(f1)
-//   o.append(o1)
-//   ci.append(ci1)
-//   co.append(co1)
-//   h.append(h1)
-// return pack(i), pack(cs), pack(f), pack(o), pack(ci), pack(ch), pack(h)
-//
-// Note that unlike LSTMBlockCell (and BlockLSTM) which uses ICFO gate layout,
-// this op uses IFCO. So in order for the following snippet to be equivalent
-// all gate-related outputs should be reordered.
-// ```
-//
-// Arguments:
-//	seq_len_max: Maximum time length actually used by this input. Outputs are padded
-// with zeros beyond this length.
-//	x: The sequence input to the LSTM, shape (timelen, batch_size, num_inputs).
-//	cs_prev: Value of the initial cell state.
-//	h_prev: Initial output of cell (to be used for peephole).
-//	w: The weight matrix.
-//	wci: The weight matrix for input gate peephole connection.
-//	wcf: The weight matrix for forget gate peephole connection.
-//	wco: The weight matrix for output gate peephole connection.
-//	b: The bias vector.
-//
-// Returns:
-//	i: The input gate over the whole time sequence.
-//	cs: The cell state before the tanh over the whole time sequence.
-//	f: The forget gate over the whole time sequence.
-//	o: The output gate over the whole time sequence.
-//	ci: The cell input over the whole time sequence.
-//	co: The cell after the tanh over the whole time sequence.
-//	h: The output h vector over the whole time sequence.
-func BlockLSTMV2(scope *Scope, seq_len_max tf.Output, x tf.Output, cs_prev tf.Output, h_prev tf.Output, w tf.Output, wci tf.Output, wcf tf.Output, wco tf.Output, b tf.Output, optional ...BlockLSTMV2Attr) (i tf.Output, cs tf.Output, f tf.Output, o tf.Output, ci tf.Output, co tf.Output, h tf.Output) {
-	if scope.Err() != nil {
-		return
-	}
-	attrs := map[string]interface{}{}
-	for _, a := range optional {
-		a(attrs)
-	}
-	opspec := tf.OpSpec{
-		Type: "BlockLSTMV2",
-		Input: []tf.Input{
-			seq_len_max, x, cs_prev, h_prev, w, wci, wcf, wco, b,
-		},
-		Attrs: attrs,
-	}
-	op := scope.AddOperation(opspec)
-	return op.Output(0), op.Output(1), op.Output(2), op.Output(3), op.Output(4), op.Output(5), op.Output(6)
-}
-
-// PaddedBatchDatasetV2Attr is an optional argument to PaddedBatchDatasetV2.
-type PaddedBatchDatasetV2Attr func(optionalAttr)
-
-// PaddedBatchDatasetV2ParallelCopy sets the optional parallel_copy attribute to value.
-// If not specified, defaults to false
-func PaddedBatchDatasetV2ParallelCopy(value bool) PaddedBatchDatasetV2Attr {
-	return func(m optionalAttr) {
-		m["parallel_copy"] = value
-	}
-}
-
-// Creates a dataset that batches and pads `batch_size` elements from the input.
-//
-// Arguments:
-//
-//	batch_size: A scalar representing the number of elements to accumulate in a
-// batch.
-//	padded_shapes: A list of int64 tensors representing the desired padded shapes
-// of the corresponding output components. These shapes may be partially
-// specified, using `-1` to indicate that a particular dimension should be
-// padded to the maximum size of all batch elements.
-//	padding_values: A list of scalars containing the padding value to use for
-// each of the outputs.
-//	drop_remainder: A scalar representing whether the last batch should be dropped in case its size
-// is smaller than desired.
-//
-func PaddedBatchDatasetV2(scope *Scope, input_dataset tf.Output, batch_size tf.Output, padded_shapes []tf.Output, padding_values []tf.Output, drop_remainder tf.Output, output_shapes []tf.Shape, optional ...PaddedBatchDatasetV2Attr) (handle tf.Output) {
-	if scope.Err() != nil {
-		return
-	}
-	attrs := map[string]interface{}{"output_shapes": output_shapes}
-	for _, a := range optional {
-		a(attrs)
-	}
-	opspec := tf.OpSpec{
-		Type: "PaddedBatchDatasetV2",
-		Input: []tf.Input{
-			input_dataset, batch_size, tf.OutputList(padded_shapes), tf.OutputList(padding_values), drop_remainder,
-		},
-		Attrs: attrs,
-	}
-	op := scope.AddOperation(opspec)
-	return op.Output(0)
-}
-
-// Extract `patches` from `images` and put them in the "depth" output dimension.
-//
-// Arguments:
-//	images: 4-D Tensor with shape `[batch, in_rows, in_cols, depth]`.
-//	ksizes: The size of the sliding window for each dimension of `images`.
-//	strides: How far the centers of two consecutive patches are in
-// the images. Must be: `[1, stride_rows, stride_cols, 1]`.
-//	rates: Must be: `[1, rate_rows, rate_cols, 1]`. This is the
-// input stride, specifying how far two consecutive patch samples are in the
-// input. Equivalent to extracting patches with
-// `patch_sizes_eff = patch_sizes + (patch_sizes - 1) * (rates - 1)`, followed by
-// subsampling them spatially by a factor of `rates`. This is equivalent to
-// `rate` in dilated (a.k.a. Atrous) convolutions.
-//	padding: The type of padding algorithm to use.
-//
-// Returns 4-D Tensor with shape `[batch, out_rows, out_cols, ksize_rows *
-// ksize_cols * depth]` containing image patches with size
-// `ksize_rows x ksize_cols x depth` vectorized in the "depth" dimension. Note
-// `out_rows` and `out_cols` are the dimensions of the output patches.
-func ExtractImagePatches(scope *Scope, images tf.Output, ksizes []int64, strides []int64, rates []int64, padding string) (patches tf.Output) {
-	if scope.Err() != nil {
-		return
-	}
-	attrs := map[string]interface{}{"ksizes": ksizes, "strides": strides, "rates": rates, "padding": padding}
-	opspec := tf.OpSpec{
-		Type: "ExtractImagePatches",
-		Input: []tf.Input{
-			images,
-		},
-		Attrs: attrs,
-	}
-	op := scope.AddOperation(opspec)
-	return op.Output(0)
-}
-
-// Forwards the value of an available tensor from `inputs` to `output`.
-//
-// `Merge` waits for at least one of the tensors in `inputs` to become available.
-// It is usually combined with `Switch` to implement branching.
-//
-// `Merge` forwards the first tensor to become available to `output`, and sets
-// `value_index` to its index in `inputs`.
-//
-// Arguments:
-//	inputs: The input tensors, exactly one of which will become available.
-//
-// Returns:
-//	output: Will be set to the available input tensor.
-//	value_index: The index of the chosen input tensor in `inputs`.
-func Merge(scope *Scope, inputs []tf.Output) (output tf.Output, value_index tf.Output) {
-	if scope.Err() != nil {
-		return
-	}
-	opspec := tf.OpSpec{
-		Type: "Merge",
-		Input: []tf.Input{
-			tf.OutputList(inputs),
-		},
-	}
-	op := scope.AddOperation(opspec)
-	return op.Output(0), op.Output(1)
 }
 
 // Strip leading and trailing whitespaces from the Tensor.
@@ -43366,6 +43440,54 @@ func DepthToSpace(scope *Scope, input tf.Output, block_size int64, optional ...D
 	return op.Output(0)
 }
 
+// Table initializer that takes two tensors for keys and values respectively.
+//
+// Arguments:
+//	table_handle: Handle to a table which will be initialized.
+//	keys: Keys of type Tkey.
+//	values: Values of type Tval.
+//
+// Returns the created operation.
+func InitializeTableV2(scope *Scope, table_handle tf.Output, keys tf.Output, values tf.Output) (o *tf.Operation) {
+	if scope.Err() != nil {
+		return
+	}
+	opspec := tf.OpSpec{
+		Type: "InitializeTableV2",
+		Input: []tf.Input{
+			table_handle, keys, values,
+		},
+	}
+	return scope.AddOperation(opspec)
+}
+
+// Updates specified rows 'i' with values 'v'.
+//
+// Computes `x[i, :] = v; return x`.
+//
+// Originally this function is mutative however for compilation we make this
+// operation create / operate on a copy of `x`.
+//
+// Arguments:
+//	x: A tensor of type `T`.
+//	i: A vector. Indices into the left-most dimension of `x`.
+//	v: A `Tensor` of type T. Same dimension sizes as x except the first dimension, which must be the same as i's size.
+//
+// Returns A `Tensor` of type T. An alias of `x`. The content of `y` is undefined if there are duplicates in `i`.
+func InplaceUpdate(scope *Scope, x tf.Output, i tf.Output, v tf.Output) (y tf.Output) {
+	if scope.Err() != nil {
+		return
+	}
+	opspec := tf.OpSpec{
+		Type: "InplaceUpdate",
+		Input: []tf.Input{
+			x, i, v,
+		},
+	}
+	op := scope.AddOperation(opspec)
+	return op.Output(0)
+}
+
 // SpaceToDepthAttr is an optional argument to SpaceToDepth.
 type SpaceToDepthAttr func(optionalAttr)
 
@@ -45160,54 +45282,6 @@ func ResourceSparseApplyAdagrad(scope *Scope, var_ tf.Output, accum tf.Output, l
 		Attrs: attrs,
 	}
 	return scope.AddOperation(opspec)
-}
-
-// Table initializer that takes two tensors for keys and values respectively.
-//
-// Arguments:
-//	table_handle: Handle to a table which will be initialized.
-//	keys: Keys of type Tkey.
-//	values: Values of type Tval.
-//
-// Returns the created operation.
-func InitializeTableV2(scope *Scope, table_handle tf.Output, keys tf.Output, values tf.Output) (o *tf.Operation) {
-	if scope.Err() != nil {
-		return
-	}
-	opspec := tf.OpSpec{
-		Type: "InitializeTableV2",
-		Input: []tf.Input{
-			table_handle, keys, values,
-		},
-	}
-	return scope.AddOperation(opspec)
-}
-
-// Updates specified rows 'i' with values 'v'.
-//
-// Computes `x[i, :] = v; return x`.
-//
-// Originally this function is mutative however for compilation we make this
-// operation create / operate on a copy of `x`.
-//
-// Arguments:
-//	x: A tensor of type `T`.
-//	i: A vector. Indices into the left-most dimension of `x`.
-//	v: A `Tensor` of type T. Same dimension sizes as x except the first dimension, which must be the same as i's size.
-//
-// Returns A `Tensor` of type T. An alias of `x`. The content of `y` is undefined if there are duplicates in `i`.
-func InplaceUpdate(scope *Scope, x tf.Output, i tf.Output, v tf.Output) (y tf.Output) {
-	if scope.Err() != nil {
-		return
-	}
-	opspec := tf.OpSpec{
-		Type: "InplaceUpdate",
-		Input: []tf.Input{
-			x, i, v,
-		},
-	}
-	op := scope.AddOperation(opspec)
-	return op.Output(0)
 }
 
 // SpaceToBatch for 4-D tensors of type T.
@@ -48429,80 +48503,6 @@ func MatrixSetDiagV3(scope *Scope, input tf.Output, diagonal tf.Output, k tf.Out
 	}
 	op := scope.AddOperation(opspec)
 	return op.Output(0)
-}
-
-// Picks the best counter-based RNG algorithm based on device.
-//
-// This op picks the best counter-based RNG algorithm based on device.
-//
-// Returns The RNG algorithm (shape int32[]).
-func StatelessRandomGetAlg(scope *Scope) (alg tf.Output) {
-	if scope.Err() != nil {
-		return
-	}
-	opspec := tf.OpSpec{
-		Type: "StatelessRandomGetAlg",
-	}
-	op := scope.AddOperation(opspec)
-	return op.Output(0)
-}
-
-// BoostedTreesUpdateEnsembleV2Attr is an optional argument to BoostedTreesUpdateEnsembleV2.
-type BoostedTreesUpdateEnsembleV2Attr func(optionalAttr)
-
-// BoostedTreesUpdateEnsembleV2LogitsDimension sets the optional logits_dimension attribute to value.
-//
-// value: scalar, dimension of the logits
-// If not specified, defaults to 1
-func BoostedTreesUpdateEnsembleV2LogitsDimension(value int64) BoostedTreesUpdateEnsembleV2Attr {
-	return func(m optionalAttr) {
-		m["logits_dimension"] = value
-	}
-}
-
-// Updates the tree ensemble by adding a layer to the last tree being grown
-//
-// or by starting a new tree.
-//
-// Arguments:
-//	tree_ensemble_handle: Handle to the ensemble variable.
-//	feature_ids: Rank 1 tensor with ids for each feature. This is the real id of
-// the feature that will be used in the split.
-//	dimension_ids: List of rank 1 tensors representing the dimension in each feature.
-//	node_ids: List of rank 1 tensors representing the nodes for which this feature
-// has a split.
-//	gains: List of rank 1 tensors representing the gains for each of the feature's
-// split.
-//	thresholds: List of rank 1 tensors representing the thesholds for each of the
-// feature's split.
-//	left_node_contribs: List of rank 2 tensors with left leaf contribs for each of
-// the feature's splits. Will be added to the previous node values to constitute
-// the values of the left nodes.
-//	right_node_contribs: List of rank 2 tensors with right leaf contribs for each
-// of the feature's splits. Will be added to the previous node values to constitute
-// the values of the right nodes.
-//	split_types: List of rank 1 tensors representing the split type for each feature.
-//	max_depth: Max depth of the tree to build.
-//	learning_rate: shrinkage const for each new tree.
-//	pruning_mode: 0-No pruning, 1-Pre-pruning, 2-Post-pruning.
-//
-// Returns the created operation.
-func BoostedTreesUpdateEnsembleV2(scope *Scope, tree_ensemble_handle tf.Output, feature_ids []tf.Output, dimension_ids []tf.Output, node_ids []tf.Output, gains []tf.Output, thresholds []tf.Output, left_node_contribs []tf.Output, right_node_contribs []tf.Output, split_types []tf.Output, max_depth tf.Output, learning_rate tf.Output, pruning_mode tf.Output, optional ...BoostedTreesUpdateEnsembleV2Attr) (o *tf.Operation) {
-	if scope.Err() != nil {
-		return
-	}
-	attrs := map[string]interface{}{}
-	for _, a := range optional {
-		a(attrs)
-	}
-	opspec := tf.OpSpec{
-		Type: "BoostedTreesUpdateEnsembleV2",
-		Input: []tf.Input{
-			tree_ensemble_handle, tf.OutputList(feature_ids), tf.OutputList(dimension_ids), tf.OutputList(node_ids), tf.OutputList(gains), tf.OutputList(thresholds), tf.OutputList(left_node_contribs), tf.OutputList(right_node_contribs), tf.OutputList(split_types), max_depth, learning_rate, pruning_mode,
-		},
-		Attrs: attrs,
-	}
-	return scope.AddOperation(opspec)
 }
 
 // RecordInputAttr is an optional argument to RecordInput.

@@ -2338,11 +2338,11 @@ def TFL_MulOp : TFL_Op<"mul", [
   }];
 
   let arguments = (
-    ins TFL_TensorOf<[F32, I32, QI8, QUI8, QI16]>:$lhs,
-    TFL_TensorOf<[F32, I32, QI8, QUI8, QI16]>:$rhs,
+    ins TFL_TensorOf<[F32, I32, I64, QI8, QUI8, QI16]>:$lhs,
+    TFL_TensorOf<[F32, I32, I64, QI8, QUI8, QI16]>:$rhs,
     TFL_AFAttr:$fused_activation_function);
 
-  let results = (outs TFL_TensorOf<[F32, I32, QI8, QUI8, QI16]>:$output);
+  let results = (outs TFL_TensorOf<[F32, I32, I64, QI8, QUI8, QI16]>:$output);
 
   let hasFolder = 1;
 
@@ -3036,8 +3036,7 @@ def TFL_SquaredDifferenceOp : TFL_Op<"squared_difference", [
     BinaryOpSameElementTypeConstraint,
     TFL_SameFirstOperandAndFirstResultElementType,
     ResultsBroadcastableShape,
-    NoSideEffect,
-    NoQuantizableResult]> {
+    NoSideEffect]> {
   let summary = "Squared difference operator";
 
   let description = [{
@@ -3183,6 +3182,11 @@ def TFL_TransposeOp : TFL_Op<"transpose", [
   let verifier = [{ return Verify(*this); }];
 
   let hasFolder = 1;
+
+  let builders = [
+    OpBuilder<(ins "Value":$input, "Value":$perm),
+    [{ BuildTransposeOp(&$_builder, $_state, input, perm); }]>
+  ];
 }
 
 def TFL_UnpackOp : TFL_Op<"unpack", [
@@ -3369,12 +3373,12 @@ def TFL_SplitOp : TFL_Op<"split", [
 
   let arguments = (ins
     TFL_TensorOf<[I32]>:$split_dim,
-    TFL_TensorOf<[F32, I16, I32, I64, I8, UI8, QI8, QUI8, QI16]>:$value,
+    TFL_TensorOf<[F32, I16, I32, I8, UI8, QI8, QUI8, QI16]>:$value,
     Confined<I32Attr, [IntPositive]>:$num_splits
   );
 
   let results = (outs
-    TFL_VariadicTensorOf<[F32, I16, I32, I64, I8, UI8, QI8, QUI8, QI16]>:$outputs
+    TFL_VariadicTensorOf<[F32, I16, I32, I8, UI8, QI8, QUI8, QI16]>:$outputs
   );
 
   let verifier = [{ return Verify(*this); }];

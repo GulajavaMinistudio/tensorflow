@@ -141,6 +141,7 @@ add_mlir_library(LmhloPasses
   legalize_tensor_load_op.cc
   lhlo_fuse_linalg.cc
   lhlo_fusion.cc
+  lhlo_fusion_inliner.cc
   lhlo_legalize_to_affine.cc
   lhlo_legalize_to_gpu.cc
   lhlo_legalize_to_parallel_loops.cc
@@ -159,6 +160,7 @@ add_mlir_library(LmhloPasses
 
 add_mlir_library(DiscRalPasses
   ral_inject_execution_context.cc
+  ral_lower_to_library_call.cc
 
   DEPENDS
   MLIRdisc_ral_opsIncGen

@@ -683,8 +683,43 @@ class FromConcreteFunctionTest(lite_v2_test_util.ModelTest):
     self.assertEqual(output_details[0]['dtype'], expected_ceil_dtype)
     self.assertEqual(output_details[1]['dtype'], expected_dtype)
 
+  @parameterized.named_parameters(
+      ('_BlocklistedNone', None, None),
+      ('_BlocklistedOps', {'CONV_2D'}, None),
+      ('_BlocklistedNodes', None, {'Identity'}))
   @test_util.run_v2_only
-  def testNewQuantizerNumericVerificationDebugMode(self):
+  def testNewQuantizerBlocklistingArgs(self, blocklisted_ops,
+                                       blocklisted_nodes):
+    """Test the model quantized by the new converter and blocklisted options."""
+    func, calibration_gen = self._getIntegerQuantizeModel()
+    quantized_converter = lite.TFLiteConverterV2.from_concrete_functions([func])
+    quantized_converter.target_spec.supported_ops = [
+        lite.OpsSet.TFLITE_BUILTINS_INT8
+    ]
+    quantized_converter.representative_dataset = calibration_gen
+    quantized_converter.optimizations = [lite.Optimize.DEFAULT]
+    quantized_converter.experimental_new_quantizer = True
+    quantized_converter._experimental_calibrate_only = True
+    calibrated = quantized_converter.convert()
+    quantized_tflite_model = mlir_quantize(calibrated,
+                                           blocklisted_ops=blocklisted_ops,
+                                           blocklisted_nodes=blocklisted_nodes)
+    interpreter = Interpreter(model_content=quantized_tflite_model)
+    details = interpreter.get_tensor_details()
+    num_quantized_tensors = sum(
+        [1 for detail in details
+         if len(detail['quantization_parameters']['scales'])])
+    if blocklisted_nodes or blocklisted_ops:
+      self.assertEqual(num_quantized_tensors, 0)
+      return
+    self.assertEqual(num_quantized_tensors, 4)  # quant, filter, bias, dequant
+
+  @parameterized.named_parameters(
+      ('_SingleLayer', False),
+      ('_WholeModel', True),
+  )
+  @test_util.run_v2_only
+  def testNewQuantizerNumericVerificationDebugMode(self, whole_model_verify):
     """Test the model quantized by the new converter with numeric verify ops."""
     func, calibration_gen = self._getIntegerQuantizeModel()
 
@@ -701,7 +736,10 @@ class FromConcreteFunctionTest(lite_v2_test_util.ModelTest):
     # Create a TFLite model with new quantizer and numeric verify ops.
     quantized_converter._experimental_calibrate_only = True
     calibrated = quantized_converter.convert()
-    debug_mode_tflite = mlir_quantize(calibrated, enable_numeric_verify=True)
+    debug_mode_tflite = mlir_quantize(
+        calibrated,
+        enable_numeric_verify=True,
+        enable_whole_model_verify=whole_model_verify)
 
     # Check if adding debug mode should output a different flatbuffer.
     self.assertNotEqual(production_tflite, debug_mode_tflite)

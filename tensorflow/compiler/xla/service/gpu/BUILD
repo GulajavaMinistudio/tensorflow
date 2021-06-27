@@ -1416,6 +1416,7 @@ cc_library(
         "//tensorflow/compiler/xla/service:all_to_all_decomposer",
         "//tensorflow/compiler/xla/service:async_all_reduce_creator",
         "//tensorflow/compiler/xla/service:batchnorm_expander",
+        "//tensorflow/compiler/xla/service:bfloat16_normalization",
         "//tensorflow/compiler/xla/service:buffer_assignment",
         "//tensorflow/compiler/xla/service:call_inliner",
         "//tensorflow/compiler/xla/service:collectives_schedule_linearizer",
@@ -1436,7 +1437,6 @@ cc_library(
         "//tensorflow/compiler/xla/service:hlo_cse",
         "//tensorflow/compiler/xla/service:hlo_dataflow_analysis",
         "//tensorflow/compiler/xla/service:hlo_dce",
-        "//tensorflow/compiler/xla/service:hlo_element_type_converter",
         "//tensorflow/compiler/xla/service:hlo_parser",
         "//tensorflow/compiler/xla/service:hlo_pass",
         "//tensorflow/compiler/xla/service:hlo_pass_pipeline",
@@ -1575,12 +1575,12 @@ tf_cc_test(
 
 cc_library(
     name = "amdgpu_compiler",
-    srcs = [
+    srcs = if_rocm_is_configured([
         "amdgpu_compiler_registration.cc",
-    ],
-    deps = [
+    ]),
+    deps = if_rocm_is_configured([
         ":amdgpu_compiler_impl",
-    ],
+    ]),
     alwayslink = True,  # Contains compiler registration
 )
 
