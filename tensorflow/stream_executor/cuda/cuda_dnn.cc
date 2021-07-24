@@ -3521,7 +3521,7 @@ GetCudnnFusedOperationGraph(
     dnn::ConvolutionKind kind, dnn::DataType element_type, double alpha,
     double alpha2, Stream* stream, const dnn::BatchDescriptor& input_descriptor,
     const dnn::FilterDescriptor& filter_descriptor,
-    const dnn::BatchDescriptor& bias_descriptor,
+    dnn::BatchDescriptor bias_descriptor,
     const dnn::BatchDescriptor& output_descriptor,
     const dnn::ConvolutionDescriptor& convolution_descriptor,
     const dnn::ActivationMode activation_mode, CudnnHandle& cudnn) {
@@ -3600,6 +3600,12 @@ GetCudnnFusedOperationGraph(
                       .setVectorCountAndDimension(vector_size, vector_dim)
                       .build();
   RETURN_MSG_IF_CUDNN_ERROR(tensor_w);
+
+  // For the purposes of the cudnn graph, say that the bias tensor has the same
+  // layout as the output tensor.  It doesn't actually matter, because bias is a
+  // 1D array.  But we need to get the correct vectorization, otherwise the
+  // cudnn graph API rejects this tensor.
+  bias_descriptor.set_layout(output_descriptor.layout());
 
   std::tie(vector_size, vector_dim) =
       GetTensorVectorSizeAndDim(bias_descriptor, element_type);
@@ -4331,7 +4337,7 @@ port::Status CudnnSupport::DoFusedConvolveWithExecutionPlanImpl(
     SE_ASSIGN_OR_RETURN(
         std::unique_ptr<cudnn_frontend::OperationGraph> op_graph,
         GetCudnnFusedOperationGraph(
-            dnn::ConvolutionKind::FORWARD, accumulator_type, conv_input_scale,
+            dnn::ConvolutionKind::FORWARD, element_type, conv_input_scale,
             side_input_scale, stream, conv_input_descriptor, filter_descriptor,
             bias_descriptor, output_descriptor, convolution_descriptor,
             activation_mode, cudnn));
@@ -4375,9 +4381,9 @@ port::Status CudnnSupport::DoFusedConvolveWithExecutionPlanImpl(
   }
 
   void* data_ptrs[] = {
-      const_cast<void*>(conv_input_data.opaque()), output_data.opaque(),
-      const_cast<void*>(filter_data.opaque()), output_data.opaque(),
-      const_cast<void*>(biases.opaque())};
+      conv_input_data.opaque(), output_data.opaque(), filter_data.opaque(),
+      side_input_data.opaque(), biases.opaque(),
+  };
   int64_t uids[] = {'x', 'y', 'w', 'z', 'b'};
   auto variantPack = cudnn_frontend::VariantPackBuilder()
                          .setWorkspacePointer(scratch_memory.opaque())

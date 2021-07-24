@@ -326,7 +326,6 @@ py_library(
     srcs_version = "PY3",
     deps = [
         ":c_api_util",
-        ":error_interpolation",
         "//tensorflow/python:_pywrap_py_exception_registry",
         "//tensorflow/python:pywrap_tf_session",
         "//tensorflow/python/util",
@@ -1603,7 +1602,7 @@ cc_library(
         "//tensorflow/core:framework",
         "//tensorflow/core:lib",
         "//tensorflow/core:protos_all_cc",
-    ],
+    ] + if_static(["//tensorflow/core/platform:tensor_float_32_utils"]),
     alwayslink = 1,
 )
 
