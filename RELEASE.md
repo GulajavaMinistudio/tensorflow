@@ -36,7 +36,9 @@
     `tf.debugging.disable_traceback_filtering()`, and can be re-enabled via
     `tf.debugging.enable_traceback_filtering()`. If you are debugging a
     TensorFlow-internal issue (e.g. to prepare a TensorFlow PR), make sure
-    to disable traceback filtering.
+    to disable traceback filtering. You can check whether this feature is
+    currently enabled by calling
+    `tf.debugging.is_traceback_filtering_enabled()`.
 
     Note that this feature is only available with Python 3.7 or higher.
 
@@ -114,6 +116,10 @@ This release contains contributions from many people at Google, as well as:
       Users who experience unwanted regressions should reset their
       `while_loop`'s `parallel_iterations` value to 1, which is consistent with
       prior behavior.
+
+* `tf.keras`:
+  * The `trainable` argument when creating a Keras Layer must now be a boolean
+    (previously there was no validation and `None` values were allowed).
 
 ## Major Features and Improvements
 
