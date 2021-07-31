@@ -12,23 +12,24 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
-#include "tensorflow/cc/experimental/libexport/util.h"
 
-#include <string>
+#include "tensorflow/lite/tools/verifier_internal.h"
 
-#include "tensorflow/core/platform/errors.h"
-#include "tensorflow/core/protobuf/meta_graph.pb.h"
+#include "tensorflow/lite/schema/schema_generated.h"
 
-namespace tensorflow {
-namespace libexport {
+namespace tflite {
+namespace internal {
 
-std::string GetWriteVersion(const SavedModel& saved_model) {
-  if (saved_model.meta_graphs_size() == 1 &&
-      saved_model.meta_graphs()[0].has_object_graph_def()) {
-    return "2";
+// Verifies flatbuffer format of the model contents and returns the in-memory
+// model.
+const Model* VerifyFlatBufferAndGetModel(const void* buf, size_t len) {
+  ::flatbuffers::Verifier verifier(static_cast<const uint8_t*>(buf), len);
+  if (VerifyModelBuffer(verifier)) {
+    return ::tflite::GetModel(buf);
+  } else {
+    return nullptr;
   }
-  return "1";
 }
 
-}  // namespace libexport
-}  // namespace tensorflow
+}  // namespace internal
+}  // namespace tflite
