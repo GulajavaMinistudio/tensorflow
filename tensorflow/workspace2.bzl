@@ -131,11 +131,11 @@ def _tf_repositories():
     # LINT.IfChange
     tf_http_archive(
         name = "XNNPACK",
-        sha256 = "b23e9d9fac5105e556fa0a76ea4eb11b334a74919a048ca5a83e91ad87d62be9",
-        strip_prefix = "XNNPACK-28407b24f04694a1353ffca91248e89bc250eb5b",
+        sha256 = "b57f7a0197a6cfa5f817feab774dc1d8726feb7302f2e1405b0e0f0c754b294d",
+        strip_prefix = "XNNPACK-599d3db83fbe6dc5a553d53991f8b73e5c823757",
         urls = [
-            "https://storage.googleapis.com/mirror.tensorflow.org/github.com/google/XNNPACK/archive/28407b24f04694a1353ffca91248e89bc250eb5b.zip",
-            "https://github.com/google/XNNPACK/archive/28407b24f04694a1353ffca91248e89bc250eb5b.zip",
+            "https://storage.googleapis.com/mirror.tensorflow.org/github.com/google/XNNPACK/archive/599d3db83fbe6dc5a553d53991f8b73e5c823757.zip",
+            "https://github.com/google/XNNPACK/archive/599d3db83fbe6dc5a553d53991f8b73e5c823757.zip",
         ],
     )
     # LINT.ThenChange(//tensorflow/lite/tools/cmake/modules/xnnpack.cmake)
@@ -352,12 +352,12 @@ def _tf_repositories():
     tf_http_archive(
         name = "org_sqlite",
         build_file = "//third_party:sqlite.BUILD",
-        sha256 = "b49409ef123e193e719e2536f9b795482a69e61a9cc728933739b9024f035061",
-        strip_prefix = "sqlite-amalgamation-3350500",
+        sha256 = "999826fe4c871f18919fdb8ed7ec9dd8217180854dd1fe21eea96aed36186729",
+        strip_prefix = "sqlite-amalgamation-3360000",
         system_build_file = "//third_party/systemlibs:sqlite.BUILD",
         urls = [
-            "https://storage.googleapis.com/mirror.tensorflow.org/sqlite.org/2021/sqlite-amalgamation-3350500.zip",
-            "https://sqlite.org/2021/sqlite-amalgamation-3350500.zip",
+            "https://storage.googleapis.com/mirror.tensorflow.org/sqlite.org/2021/sqlite-amalgamation-3360000.zip",
+            "https://www.sqlite.org/2021/sqlite-amalgamation-3360000.zip",
         ],
     )
 

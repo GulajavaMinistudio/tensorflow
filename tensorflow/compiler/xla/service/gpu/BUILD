@@ -130,6 +130,7 @@ tf_cc_test(
         "//tensorflow/compiler/xla:test_helpers",
         "//tensorflow/compiler/xla/client:xla_builder",
         "//tensorflow/compiler/xla/client/lib:constants",
+        "//tensorflow/compiler/xla/service:custom_call_status",
         "//tensorflow/compiler/xla/service:custom_call_target_registry",
         "//tensorflow/compiler/xla/service:gpu_plugin",
         "//tensorflow/compiler/xla/tests:client_library_test_base",
@@ -274,6 +275,7 @@ cc_library(
         "//tensorflow/compiler/xla:xla_data_proto_cc",
         "//tensorflow/compiler/xla/service:buffer_assignment",
         "//tensorflow/compiler/xla/service:collective_ops_utils",
+        "//tensorflow/compiler/xla/service:custom_call_status",
         "//tensorflow/compiler/xla/service:custom_call_target_registry",
         "//tensorflow/compiler/xla/service:elemental_ir_emitter",
         "//tensorflow/compiler/xla/service:hlo",
@@ -633,6 +635,7 @@ cc_library(
         "//tensorflow/compiler/xla:util",
         "//tensorflow/compiler/xla:xla_data_proto_cc",
         "//tensorflow/compiler/xla/service:buffer_assignment",
+        "//tensorflow/compiler/xla/service:custom_call_status_internal",
         "//tensorflow/compiler/xla/service:executable",
         "//tensorflow/compiler/xla/service:hlo",
         "//tensorflow/compiler/xla/service:hlo_casting_utils",
@@ -1388,7 +1391,6 @@ cc_library(
         ":nccl_collective_thunks",
         ":reduction_degenerate_dim_remover",
         ":reduction_dimension_grouper",
-        ":reduction_joiner",
         ":reduction_layout_normalizer",
         ":reduction_splitter",
         ":stream_assignment",
@@ -2076,29 +2078,6 @@ cc_library(
     ],
 )
 
-cc_library(
-    name = "reduction_joiner",
-    srcs = ["reduction_joiner.cc"],
-    hdrs = ["reduction_joiner.h"],
-    deps = [
-        ":gpu_fusible",
-        ":ir_emission_utils",
-        "//tensorflow/compiler/xla:shape_util",
-        "//tensorflow/compiler/xla:status_macros",
-        "//tensorflow/compiler/xla:statusor",
-        "//tensorflow/compiler/xla/service:hlo",
-        "//tensorflow/compiler/xla/service:hlo_creation_utils",
-        "//tensorflow/compiler/xla/service:hlo_pass",
-        "//tensorflow/compiler/xla/service:pattern_matcher",
-        "//tensorflow/compiler/xla/service:shape_inference",
-        "//tensorflow/core:lib",
-        "//tensorflow/core:lib_internal",
-        "@com_google_absl//absl/container:flat_hash_set",
-        "@com_google_absl//absl/strings",
-        "@com_google_absl//absl/types:span",
-    ],
-)
-
 tf_cc_test(
     name = "horizontal_input_fusion_test",
     srcs = ["horizontal_input_fusion_test.cc"],
@@ -2241,51 +2220,6 @@ cc_library(
         "@com_google_absl//absl/types:span",
     ],
 )
-
-# gentbl_cc_library(
-#    name = "xla_thunks_ops_inc_gen",
-#    tbl_outs = [
-#        (
-#            ["-gen-op-decls"],
-#            "ir/xla_thunks_ops.h.inc",
-#        ),
-#        (
-#            ["-gen-op-defs"],
-#            "ir/xla_thunks_ops.cc.inc",
-#        ),
-#        (
-#            ["-gen-struct-attr-decls"],
-#            "ir/xla_thunks_structs.h.inc",
-#        ),
-#        (
-#            ["-gen-struct-attr-defs"],
-#            "ir/xla_thunks_structs.cc.inc",
-#        ),
-#    ],
-#    tblgen = "@llvm-project//mlir:mlir-tblgen",
-#    td_file = "ir/xla_thunks_ops.td",
-#    deps = [
-#        "@llvm-project//mlir:LLVMOpsTdFiles",
-#    ],
-#)
-
-# cc_library(
-#     name = "xla_thunks_ops",
-#     srcs = [
-#         "ir/xla_thunks_ops.cc",
-#         "ir/xla_thunks_ops.cc.inc",
-#         "ir/xla_thunks_ops.h.inc",
-#     ],
-#     hdrs = [
-#         "ir/xla_thunks_ops.h",
-#     ],
-#     deps = [
-#         ":xla_thunks_ops_inc_gen",
-#         "@llvm-project//mlir:IR",
-#         "@llvm-project//mlir:LLVMDialect",
-#         "//tensorflow/compiler/mlir/hlo",
-#     ],
-# )
 
 cc_library(
     name = "gemm_broadcast_folding_rewriter",

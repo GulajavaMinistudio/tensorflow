@@ -15,6 +15,10 @@
     `if x.shape.rank == 1: x = tf.expand_dims(x, axis=-1)`.
     Functional models as well as Sequential models built with an explicit
     input shape are not affected.
+  * The methods `Model.to_yaml()` and `keras.models.model_from_yaml` have been
+    replaced to raise a `RuntimeError` as they can be abused to cause arbitrary
+    code execution. It is recommended to use JSON serialization instead of YAML,
+    or, a better alternative, serialize to H5.
 
 * `tf.lite`:
   * Rename fields `SignatureDef` table in schema to maximize the parity with
@@ -27,6 +31,9 @@
     *   `tensorflow/core/ir/` contains a new MLIR-based Graph dialect that is
         isomorphic to GraphDef and will be used to replace GraphDef-based (e.g.,
         Grappler) optimizations.
+    *   Deprecated and removed attrs() function in shape inference. All
+        attributes should be queried by name now (rather than range returned)
+        to enable changing the underlying storage there.
 
 ## Known Caveats
 
@@ -108,6 +115,10 @@
     *   Promoting `tf.data.Options.experimental_deterministic` API to
         `tf.data.Options.deterministic` and deprecating the experimental
         endpoint.
+*   XLA:
+    * Added a new API that allows custom call functions to signal errors. The
+      old API will be deprecated in a future release. See
+      https://www.tensorflow.org/xla/custom_call for details.
 
 ## Thanks to our Contributors
 
@@ -121,25 +132,36 @@ This release contains contributions from many people at Google, as well as:
 
 ## Breaking Changes
 
-* `tf.train.experimental.enable_mixed_precision_graph_rewrite` is removed, as
-  the API only works in graph mode and is not customizable. The function is
-  still accessible under
-  `tf.compat.v1.mixed_precision.enable_mixed_precision_graph_rewrite`, but it is
-  recommended to use the
-  [Keras mixed precision API](https://www.tensorflow.org/guide/mixed_precision)
-  instead.
+*   `tf.train.experimental.enable_mixed_precision_graph_rewrite` is removed, as
+    the API only works in graph mode and is not customizable. The function is
+    still accessible under
+    `tf.compat.v1.mixed_precision.enable_mixed_precision_graph_rewrite`, but it
+    is recommended to use the
+    [Keras mixed precision API](https://www.tensorflow.org/guide/mixed_precision)
+    instead.
 
-* `tf.lite`:
-  * Remove `experimental.nn.dynamic_rnn`, `experimental.nn.TfLiteRNNCell` and
-  `experimental.nn.TfLiteLSTMCell` since they're no longer supported. It's
-  recommended to just use [keras lstm](https://www.tensorflow.org/api_docs/python/tf/keras/layers/LSTM) instead.
+*   `tf.lite`:
 
-* Keras been split into a separate PIP package (`keras`), and its code has been
-  moved to the GitHub repository[keras-team/keras](http://github.com/keras-team/keras).
-  The API endpoints for `tf.keras` stay unchanged, but are now backed by the
-  `keras` PIP package. The existing code in tensorflow/python/keras is a staled
-  copy and will be removed in future release (2.7). Please remove any imports
-  to `tensorflow.python.keras` and replace them with public tf.keras API instead.
+    *   Remove `experimental.nn.dynamic_rnn`, `experimental.nn.TfLiteRNNCell`
+        and `experimental.nn.TfLiteLSTMCell` since they're no longer supported.
+        It's recommended to just use
+        [keras lstm](https://www.tensorflow.org/api_docs/python/tf/keras/layers/LSTM)
+        instead.
+
+*   Keras been split into a separate PIP package (`keras`), and its code has
+    been moved to the GitHub
+    repository[keras-team/keras](http://github.com/keras-team/keras). The API
+    endpoints for `tf.keras` stay unchanged, but are now backed by the `keras`
+    PIP package. The existing code in tensorflow/python/keras is a staled copy
+    and will be removed in future release (2.7). Please remove any imports to
+    `tensorflow.python.keras` and replace them with public tf.keras API instead.
+
+*   Modular File System Migration
+
+    *   S3 and HDFS file system supports have been migrated to modular file
+        systems and is now available in https://github.com/tensorflow/io. The
+        tensorflow-io python package should be installed for S3 and HDFS support
+        with tensorflow.
 
 *<DOCUMENT BREAKING CHANGES HERE>
 *<THIS SECTION SHOULD CONTAIN API, ABI AND BEHAVIORAL BREAKING CHANGES>

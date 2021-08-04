@@ -41,6 +41,7 @@ limitations under the License.
 #include "absl/strings/str_format.h"
 #include "absl/synchronization/notification.h"
 #include "absl/types/optional.h"
+#include "absl/types/span.h"
 #include "pybind11/cast.h"
 #include "pybind11/numpy.h"
 #include "pybind11/pybind11.h"
@@ -70,44 +71,8 @@ namespace py = pybind11;
 
 namespace {
 
-// Flags, such as JIT disable and the x64 mode, are controlled by:
-// - a global flag value, e.g., associated to --jax_enable_x64
-// - possibly a thread-local value, which initially is absl::nullopt and
-//   overrides the global value if set. The thread-local state is
-//   used to implement context managers that locally override the global state.
-// TODO(phawkins): consider changing the global state to optional types to
-// catch cases where we fail to set it.
-struct GlobalJitState {
-  bool disable_jit = false;
-  bool enable_x64 = false;
-
-  // Extra context that should be included in the JIT cache key. Must be
-  // hashable and have an equality defined.
-  py::object extra_jit_context = py::none();
-
-  // A callback that, if present, is called when a JITted function is executed
-  // from cache.
-  absl::optional<py::function> post_hook;
-};
-
 // Protected by the GIL.
 GlobalJitState& global_state = *new GlobalJitState();
-
-struct ThreadLocalJitState {
-  ~ThreadLocalJitState() {
-    if (extra_jit_context) {
-      // We likely do not hold the GIL, so we hand the Python object to the
-      // global reference manager to destroy.
-      py::object o = std::move(*extra_jit_context);
-      xla::GlobalPyRefManager()->AddGarbage(absl::MakeSpan(&o, 1));
-      extra_jit_context = absl::nullopt;
-    }
-  }
-  absl::optional<bool> disable_jit;
-  absl::optional<bool> enable_x64;
-  absl::optional<py::object> extra_jit_context;
-  absl::optional<py::function> post_hook;
-};
 
 // TODO(phawkins): Google style guide forbids thread-local values with
 // non-trivial destructors.
@@ -118,6 +83,9 @@ bool JitIsDisabled() {
 }
 
 }  // namespace
+
+GlobalJitState& GetGlobalState() { return global_state; }
+ThreadLocalJitState& GetLocalState() { return thread_local_state; }
 
 bool GetEnableX64() {
   return thread_local_state.enable_x64.value_or(global_state.enable_x64);
@@ -235,13 +203,8 @@ xla::Status ParseArguments(py::handle args,
   tensorflow::profiler::TraceMe traceme("ParseArguments");
   int num_args = PyTuple_GET_SIZE(args.ptr());
   int num_kwargs = py_kwargs ? py_kwargs->size() : 0;
-  if (static_argnums.size() > num_args) {
-    return xla::InvalidArgument(
-        "%s", "[jaxjit] Error with static argnums, executing the Python path.");
-  }
 
-  arguments.flat_dynamic_args.reserve(num_args + num_kwargs -
-                                      static_argnums.size());
+  arguments.flat_dynamic_args.reserve(num_args + num_kwargs);
   if (static_argnums.empty()) {
     arguments.signature.dynamic_arg_treedefs.resize(num_args);
 
@@ -252,8 +215,7 @@ xla::Status ParseArguments(py::handle args,
                              arguments.flat_dynamic_args);
     }
   } else {
-    arguments.signature.dynamic_arg_treedefs.reserve(num_args -
-                                                     static_argnums.size());
+    arguments.signature.dynamic_arg_treedefs.reserve(num_args);
 
     // Positional arguments.
     for (int i = 0; i < num_args; ++i) {
@@ -492,6 +454,7 @@ class CompiledFunction {
   }
 
   py::handle AsPyHandle();
+  const std::string& function_name() const { return function_name_; }
 
  private:
   // Attempts to populate default_device_. May release the GIL; is
@@ -503,6 +466,8 @@ class CompiledFunction {
   bool always_fallback_to_python_ = false;
 
   py::function fun_;  // The Python function to jit.
+  std::string function_name_;
+
   // See JAX _cpp_jit in api.py for documentation.
   py::function cache_miss_;
 
@@ -552,6 +517,7 @@ CompiledFunction::CompiledFunction(py::function fun, py::function cache_miss,
     PyUnicode_InternInPlace(&s.ptr());
   }
   executables_ = cache_->Lookup(fun_, donate_argnums);
+  function_name_ = py::str(py::getattr(fun_, "__name__", fun));
 }
 
 CompiledFunction::~CompiledFunction() = default;
@@ -803,9 +769,10 @@ xla::StatusOr<py::object> CompiledFunction::Call(
   }
 
   ParsedArgumentsAsBuffers arguments;
-  if (!ParseArguments(args, kwargs, static_argnums_, static_argnames_,
-                      arguments)
-           .ok()) {
+  xla::Status status = ParseArguments(args, kwargs, static_argnums_,
+                                      static_argnames_, arguments);
+  if (!status.ok()) {
+    VLOG(2) << "ParseArguments failed: " << status;
     return py::object(
         py::cast<py::tuple>(cache_miss_(*py::reinterpret_borrow<py::args>(args),
                                         **kwargs.value_or(py::kwargs())))[0]);
@@ -815,9 +782,10 @@ xla::StatusOr<py::object> CompiledFunction::Call(
   arguments.signature.jax_enable_x64 = jax_enable_x64;
   // The C++ jit do not support Tracers arguments inputs yet. The Python-based
   // jit function will be called if any of the dynamic arguments is unsupported.
-  if (!ComputeSignature(jax_enable_x64, *default_pyclient_, default_device_,
-                        is_committed_, arguments)
-           .ok()) {
+  status = ComputeSignature(jax_enable_x64, *default_pyclient_, default_device_,
+                            is_committed_, arguments);
+  if (!status.ok()) {
+    VLOG(2) << "ComputeSignature failed: " << status;
     return py::object(
         py::cast<py::tuple>(cache_miss_(*py::reinterpret_borrow<py::args>(args),
                                         **kwargs.value_or(py::kwargs())))[0]);
@@ -838,6 +806,7 @@ xla::StatusOr<py::object> CompiledFunction::Call(
     if (inserted) {
       py::object out_and_fastpath_data;
       py::tuple out_tuple;
+      VLOG(2) << "Cache miss for " << arguments.signature.DebugString();
       try {
         // Calls Python and may release the GIL. May also throw if
         // compilation/tracing fails.
@@ -873,9 +842,10 @@ xla::StatusOr<py::object> CompiledFunction::Call(
                                         **kwargs.value_or(py::kwargs())))[0]);
   }
 
-  if (!CopyBuffersToDevice(jax_enable_x64, cache_entry->kept_var_bitvec,
-                           arguments)
-           .ok()) {
+  status = CopyBuffersToDevice(jax_enable_x64, cache_entry->kept_var_bitvec,
+                               arguments);
+  if (!status.ok()) {
+    VLOG(2) << "CopyBuffersToDevice failed: " << status;
     return py::object(
         py::cast<py::tuple>(cache_miss_(*py::reinterpret_borrow<py::args>(args),
                                         **kwargs.value_or(py::kwargs())))[0]);
@@ -1051,9 +1021,11 @@ static PyGetSetDef JaxCompiledFunction_tp_getset[] = {
 
 PyObject* JaxCompiledFunction_tp_call(PyObject* self, PyObject* args,
                                       PyObject* kwargs) {
-  tensorflow::profiler::TraceMe traceme("JaxCompiledFunction::tp_call");
   JaxCompiledFunctionObject* o =
       reinterpret_cast<JaxCompiledFunctionObject*>(self);
+  tensorflow::profiler::TraceMe traceme([&] {
+    return absl::StrCat("JaxCompiledFunction(", o->fun.function_name(), ")");
+  });
   absl::optional<py::kwargs> py_kwargs;
   if (kwargs) {
     py_kwargs = py::reinterpret_borrow<py::kwargs>(kwargs);
@@ -1286,10 +1258,11 @@ void BuildJaxjitSubmodule(py::module& m) {
                              [](const xla::PyArgSignature& sig) {
                                return PrimitiveTypeToDtype(sig.dtype);
                              })
-      .def_property_readonly("shape",
-                             [](const xla::PyArgSignature& sig) {
-                               return xla::IntSpanToTuple(sig.shape);
-                             })
+      .def_property_readonly(
+          "shape",
+          [](const xla::PyArgSignature& sig) {
+            return xla::SpanToTuple(absl::MakeConstSpan(sig.shape));
+          })
       .def_readonly("weak_type", &xla::PyArgSignature::weak_type);
   jitlib.def("_ArgSignatureOfValue", &xla::PyArgSignatureOfValue);
 
