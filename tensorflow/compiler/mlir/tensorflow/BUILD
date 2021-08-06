@@ -1620,7 +1620,6 @@ cc_library(
         ":mangling_util",
         ":tensorflow_attributes",
         ":tensorflow_types",
-        "//tensorflow/compiler/xla:util",
         "//tensorflow/core:framework",
         "//tensorflow/core:lib",
         "//tensorflow/core:protos_all_cc",
@@ -2149,6 +2148,7 @@ cc_library(
     hdrs = ["utils/dump_mlir_util.h"],
     deps = [
         "//tensorflow/core:lib",
+        "//tensorflow/core/platform:crash_analysis",
         "//tensorflow/core/platform:logging",
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:IR",
