@@ -623,7 +623,9 @@ distribute_py_test(
     shard_count = 10,
     tags = [
         "multi_and_single_gpu",
+        "no_cuda_asan",  #TODO(b/195770530)
         "no_rocm",
+        "noasan",  #TODO(b/195770530)
     ],
     tpu_tags = [
         "no_oss",
@@ -641,7 +643,6 @@ tpu_py_test(
     name = "tpu_strategy_test",
     srcs = ["tpu_strategy_test.py"],
     disable_experimental = True,
-    disable_tfrt = False,
     python_version = "PY3",
     tags = ["no_oss"],
     deps = [
@@ -659,7 +660,6 @@ tpu_py_test(
     srcs = ["tpu_strategy_compilation_test.py"],
     disable_experimental = True,
     disable_mlir_bridge = False,
-    disable_tfrt = False,
     python_version = "PY3",
     tags = ["no_oss"],
     deps = [
@@ -1460,7 +1460,6 @@ distribute_py_test(
 distribute_py_test(
     name = "custom_training_loop_input_test",
     srcs = ["custom_training_loop_input_test.py"],
-    disable_tfrt = False,
     main = "custom_training_loop_input_test.py",
     shard_count = 5,
     tags = [
