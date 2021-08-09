@@ -130,13 +130,10 @@ llvm::orc::SymbolMap TFFrameworkSymbolMap(llvm::orc::MangleAndInterner mangle) {
 }
 
 llvm::Expected<std::unique_ptr<ExecutionEngine>> Compile(
-    const std::string code, llvm::SmallVectorImpl<int64_t>& tile_sizes,
+    const std::string code, llvm::SmallVectorImpl<std::string>& architectures,
+    llvm::SmallVectorImpl<int64_t>& tile_sizes,
     llvm::SmallVectorImpl<int64_t>& unroll_factors, int64_t max_supported_rank,
     bool enable_ftz, bool cpu_codegen) {
-  // For now, use some default parameters.
-  // TODO(frgossen): Propagate these parameters through the JIT invocation.
-  llvm::SmallVector<std::string, 4> architectures = {"sm_60", "sm_70", "sm_75"};
-
   // Create the kernel.
   mlir::MLIRContext context;
   xla::StatusOr<mlir::OwningModuleRef> status_or_module =
@@ -165,13 +162,22 @@ llvm::Expected<std::unique_ptr<ExecutionEngine>> Compile(
   return engine;
 }
 
+template <typename T, typename U = T>
+llvm::SmallVector<T> SmallVectorFromCArray(int64_t num_elements,
+                                           U* elements_ptr) {
+  llvm::SmallVector<T> result;
+  result.reserve(num_elements);
+  for (int i = 0; i < num_elements; ++i) result.push_back(elements_ptr[i]);
+  return result;
+}
+
 }  // namespace
 
 extern "C" void* _mlir_ciface_tf_jit_compile(
-    void* op_kernel_ctx, char* code, int64_t num_tile_sizes,
-    int64_t* tile_sizes_ptr, int64_t num_unroll_factors,
-    int64_t* unroll_factors_ptr, int64_t max_supported_rank, bool enable_ftz,
-    bool cpu_codegen) {
+    void* op_kernel_ctx, char* code, int64_t num_architectures,
+    char** architectures_ptr, int64_t num_tile_sizes, int64_t* tile_sizes_ptr,
+    int64_t num_unroll_factors, int64_t* unroll_factors_ptr,
+    int64_t max_supported_rank, bool enable_ftz, bool cpu_codegen) {
   // Get the resource manager.
   auto* ctx = static_cast<tensorflow::OpKernelContext*>(op_kernel_ctx);
   tensorflow::ResourceMgr* rm = ctx->resource_manager();
@@ -193,17 +199,18 @@ extern "C" void* _mlir_ciface_tf_jit_compile(
   }
 
   // Construct `SmallVector`s from arguments.
-  llvm::SmallVector<int64_t, 4> tile_sizes;
-  for (int i = 0; i < num_tile_sizes; ++i)
-    tile_sizes.push_back(tile_sizes_ptr[i]);
-  llvm::SmallVector<int64_t, 4> unroll_factors;
-  for (int i = 0; i < num_unroll_factors; ++i)
-    unroll_factors.push_back(unroll_factors_ptr[i]);
+  llvm::SmallVector<std::string> architectures =
+      SmallVectorFromCArray<std::string, char*>(num_architectures,
+                                                architectures_ptr);
+  llvm::SmallVector<int64_t> tile_sizes =
+      SmallVectorFromCArray<int64_t>(num_tile_sizes, tile_sizes_ptr);
+  llvm::SmallVector<int64_t> unroll_factors =
+      SmallVectorFromCArray<int64_t>(num_unroll_factors, unroll_factors_ptr);
 
   // Lookup or compile the execution module.
   ExecutionEngine* engine = jit_cache->LookupOrCompile(code, [&]() {
-    return Compile(code, tile_sizes, unroll_factors, max_supported_rank,
-                   enable_ftz, cpu_codegen);
+    return Compile(code, architectures, tile_sizes, unroll_factors,
+                   max_supported_rank, enable_ftz, cpu_codegen);
   });
   if (engine == nullptr) {
     ReportError(op_kernel_ctx, ErrorCode::UNKNOWN, "JIT compilation failed.");
@@ -213,12 +220,23 @@ extern "C" void* _mlir_ciface_tf_jit_compile(
 }
 
 extern "C" void _mlir_ciface_tf_jit_execute(void* op_kernel_ctx, void* callable,
-                                            void* result, int64_t arg_rank,
-                                            void* arg_descr) {
-  ::UnrankedMemRefType<void> arg = {arg_rank, arg_descr};
+                                            void* result, int64_t num_args,
+                                            void* args_ptr) {
+  // The ExecutionEngine expects pointers for each of the arguments. In most
+  // cases, we can simply create these on the fly. However, as the buffer
+  // arguments are an array of pointers themselves, we must first initialize all
+  // of the first-level pointers individually to then be able to point to them.
+  llvm::SmallVector<void*> packed_operands = {&result, &op_kernel_ctx};
+  llvm::SmallVector<::UnrankedMemRefType<void>*> individual_arg_ptrs;
+  auto* typed_args_ptr = static_cast<::UnrankedMemRefType<void>*>(args_ptr);
+  for (int i = 0; i < num_args; ++i) {
+    individual_arg_ptrs.push_back(&typed_args_ptr[i]);
+    packed_operands.push_back(&individual_arg_ptrs[i]);
+  }
+
   llvm::Error invocation_result =
-      static_cast<ExecutionEngine*>(callable)->invoke("main", result,
-                                                      op_kernel_ctx, &arg);
+      static_cast<ExecutionEngine*>(callable)->invokePacked("_mlir_ciface_main",
+                                                            packed_operands);
   if (invocation_result)
     ReportError(op_kernel_ctx, ErrorCode::UNKNOWN, "JIT invocation failed.");
 }
