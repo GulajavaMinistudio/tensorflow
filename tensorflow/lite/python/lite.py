@@ -463,7 +463,10 @@ class TFLiteConverterBase(object):
     self._collected_converter_params = {}
     self._experimental_disable_batchmatmul_unfold = False
     self._experimental_lower_tensor_list_ops = True
+    self._experimental_default_to_single_batch_in_tensor_list_ops = True
     self._experimental_unfold_large_splat_constant = False
+    # TODO(b/195611245): Use tf.lite.TargetSpec.supported_backends instead.
+    self._experimental_supported_backends = []
 
   def _grappler_config(self, optimizers=None):
     """Creates a tf.compat.v1.ConfigProto for configuring Grappler.
@@ -555,12 +558,16 @@ class TFLiteConverterBase(object):
             self.experimental_new_converter,
         "select_user_tf_ops":
             self.target_spec.experimental_select_user_tf_ops,
+        "supported_backends":
+            self._experimental_supported_backends,
         "unfold_batchmatmul":
             not self._experimental_disable_batchmatmul_unfold,
         "lower_tensor_list_ops":
             self._experimental_lower_tensor_list_ops,
         "unfold_large_splat_constant":
             self._experimental_unfold_large_splat_constant,
+        "default_to_single_batch_in_tensor_list_ops":
+            self._experimental_default_to_single_batch_in_tensor_list_ops,
     }
 
     if self.saved_model_dir:

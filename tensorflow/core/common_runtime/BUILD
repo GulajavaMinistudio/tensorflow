@@ -1923,6 +1923,18 @@ cc_library(
     alwayslink = 1,
 )
 
+cc_library(
+    name = "request_cost",
+    srcs = ["request_cost.cc"],
+    hdrs = ["request_cost.h"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/time",
+    ],
+)
+
 # -----------------------------------------------------------------------------
 # Tests
 
@@ -2947,5 +2959,15 @@ tf_cc_test(
         ":no_op_cost_measurement",
         "//tensorflow/core:test",
         "//tensorflow/core:test_main",
+    ],
+)
+
+tf_cc_test(
+    name = "request_cost_test",
+    srcs = ["request_cost_test.cc"],
+    deps = [
+        ":request_cost",
+        "//tensorflow/core:test_main",
+        "@com_google_absl//absl/time",
     ],
 )

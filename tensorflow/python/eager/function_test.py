@@ -667,7 +667,7 @@ class FunctionTest(test.TestCase, parameterized.TestCase):
     def f(_):
       return 1.0
 
-    with self.assertRaisesRegex(ValueError, r'Got type: set'):
+    with self.assertRaisesRegex(ValueError, r'got.*set'):
       f(set([]))
 
   def testFuncName(self):
@@ -1136,12 +1136,10 @@ class FunctionTest(test.TestCase, parameterized.TestCase):
 
   @test_util.run_in_graph_and_eager_modes
   def testTensorInitializationInFunctionRaisesError(self):
-    error_msg = ('Tensor-typed variable initializers must either be '
-                 'wrapped in an init_scope or callable.*')
 
     @def_function.function
     def tensor_init():
-      with self.assertRaisesRegex(ValueError, error_msg):
+      with self.assertRaisesRegex(ValueError, 'could not be lifted out'):
         resource_variable_ops.ResourceVariable(constant_op.constant(2.0))
 
     tensor_init()
@@ -2270,7 +2268,7 @@ class FunctionTest(test.TestCase, parameterized.TestCase):
 
     # Signatures must consist exclusively of `TensorSpec` objects.
     signature = [(2, 3), tensor_spec.TensorSpec([2, 3], dtypes.float32)]
-    with self.assertRaisesRegex(TypeError, 'Invalid input_signature.*'):
+    with self.assertRaisesRegex(TypeError, 'input_signature.*nested sequence'):
       def_function.function(foo, input_signature=signature)
 
     # Signatures must be either lists or tuples on their outermost levels.
@@ -2297,9 +2295,7 @@ class FunctionTest(test.TestCase, parameterized.TestCase):
       defined(array_ops.ones([2, 1]))
 
     # Wrong number of arguments.
-    with self.assertRaisesRegex(
-        TypeError, r'takes 1 positional arguments \(as specified by the '
-        r'input_signature\) but 2 were given'):
+    with self.assertRaisesRegex(TypeError, 'specifies 1 .* got 2'):
       defined(array_ops.ones([2]), array_ops.ones([2]))
     with self.assertRaisesRegex(ValueError,
                                 'Structure of Python function inputs.*'):
@@ -2660,7 +2656,8 @@ class FunctionTest(test.TestCase, parameterized.TestCase):
     def add(x, y):
       return math_ops.add(x, y)
 
-    with self.assertRaisesRegex(ValueError, '.*Unsupported attribute type.*'):
+    with self.assertRaisesRegex(ValueError,
+                                'Attribute experimental_1 must be .* Got .*'):
       with context.graph_mode(), self.cached_session():
         with ops.get_default_graph().as_default():
           t = constant_op.constant([[1.0, 2.0], [3.0, 4.0]])
@@ -3006,9 +3003,27 @@ class FunctionTest(test.TestCase, parameterized.TestCase):
 
     defined(array_ops.zeros([12, 1]))
     self.assertLen(total_function_cache(defined), 1)
-
     defined(array_ops.zeros([1, 21]))
     self.assertLen(total_function_cache(defined), 2)
+
+    @function.defun
+    def defined_again(t):
+      return defined(t)
+
+    defined_again.get_concrete_function(array_ops.zeros([12, 1]))
+    self.assertLen(total_function_cache(defined_again), 1)
+    defined_again.get_concrete_function(array_ops.zeros([1, 21]))
+    self.assertLen(total_function_cache(defined_again), 2)
+
+  def testCacheTensorSpecIdenticalToTensor(self):
+    @function.defun
+    def defined(t):
+      return t
+
+    z = array_ops.zeros([2, 2])
+    z_spec = tensor_spec.TensorSpec.from_tensor(z)
+    self.assertIs(
+        defined.get_concrete_function(z_spec), defined.get_concrete_function(z))
 
   def testCacheKeyNestedLists(self):
     @function.defun
@@ -3055,7 +3070,7 @@ class FunctionTest(test.TestCase, parameterized.TestCase):
                    constant_op.constant(2.)], constant_op.constant(3.)))
     self.assertLen(total_function_cache(defined), 2)
 
-  def testCacheKeyVariables(self):
+  def testVariableRetracingResourceCombinations(self):
     @function.defun
     def defined(a, b, c):
       return a + b + c
@@ -3064,62 +3079,80 @@ class FunctionTest(test.TestCase, parameterized.TestCase):
     y = resource_variable_ops.ResourceVariable(0.0)
     z = resource_variable_ops.ResourceVariable(0.0)
 
-    # If tensor equality is not enabled, we always get a cache miss if the
-    # function is called with different variables. With equality enabled we
-    # should only get a miss if the aliasing changed.
+    # We generate cache keys based on unique combinations of resource ids.
     defined(x, y, z)
     self.assertLen(total_function_cache(defined), 1)
     defined(x, y, z)
     self.assertLen(total_function_cache(defined), 1)
 
-    # Re-arranging arguments causes cache miss
+    # Re-arranging arguments should not cause cache miss
+    # because the three inputs are still distinct
     defined(z, y, x)
+    self.assertLen(total_function_cache(defined), 1)
+    defined(z, y, x)
+    self.assertLen(total_function_cache(defined), 1)
+
+    # Aliasing causes cache miss because the first two arguments are the same
+    defined(x, x, z)
     self.assertLen(total_function_cache(defined), 2)
-    defined(z, y, x)
+    defined(x, x, z)
     self.assertLen(total_function_cache(defined), 2)
 
-    # Aliasing causes cache miss
-    defined(x, x, z)
-    self.assertLen(total_function_cache(defined), 3)
-    defined(x, x, z)
-    self.assertLen(total_function_cache(defined), 3)
-
-    # Re-arranging arguments causes cache miss
+    # Replacing x with y does not cause cache miss
+    # because the combination stays the same as (x, x, z)
     defined(y, y, z)
-    self.assertLen(total_function_cache(defined), 4)
+    self.assertLen(total_function_cache(defined), 2)
     defined(y, y, z)
-    self.assertLen(total_function_cache(defined), 4)
+    self.assertLen(total_function_cache(defined), 2)
 
     # Different alias positions causes cache miss
     defined(z, y, y)
-    self.assertLen(total_function_cache(defined), 5)
+    self.assertLen(total_function_cache(defined), 3)
     defined(z, y, y)
-    self.assertLen(total_function_cache(defined), 5)
+    self.assertLen(total_function_cache(defined), 3)
 
     x_copy = copy.deepcopy(x)
 
-    # Deep copy causes cache miss
+    # Deep copy does not cause cache miss
     defined(x_copy, y, z)
-    self.assertLen(total_function_cache(defined), 6)
+    self.assertLen(total_function_cache(defined), 3)
     defined(x_copy, y, z)
-    self.assertLen(total_function_cache(defined), 6)
+    self.assertLen(total_function_cache(defined), 3)
 
-  def testVariableRetracing(self):
-    v1 = variables.Variable(1.)
-    v2 = variables.Variable(1.)
-    v3 = copy.deepcopy(variables.Variable(1.))
+  def testVariableRetracingDtypeShape(self):
+    def total_function_cache_def_func(defined):
+      # pylint: disable=protected-access
+      return (set(defined._stateful_fn._function_cache.primary)
+              | set(defined._stateful_fn._function_cache.arg_relaxed))
+      # pylint: enable=protected-access
 
-    var_dict = {id(v1): constant_op.constant(1),
-                id(v2): constant_op.constant(2),
-                id(v3): constant_op.constant(3)}
+    @def_function.function
+    def defined(a, b):
+      return a + b
 
-    @function.defun
-    def lookup_tensor(v):
-      return var_dict[id(v)]
+    x1 = resource_variable_ops.ResourceVariable(0.0)
+    x2 = resource_variable_ops.ResourceVariable(0.0)
 
-    self.assertEqual(1, lookup_tensor(v1).numpy())
-    self.assertEqual(2, lookup_tensor(v2).numpy())
-    self.assertEqual(3, lookup_tensor(v3).numpy())
+    defined(x1, x2)
+    self.assertLen(total_function_cache_def_func(defined), 1)
+
+    # Should expect retracing for new dtypes
+    z1 = resource_variable_ops.ResourceVariable(0)
+    z2 = resource_variable_ops.ResourceVariable(1)
+    defined(z1, z2)
+    self.assertLen(total_function_cache_def_func(defined), 2)
+
+    # Should expect retracing for new shapes
+    y1 = resource_variable_ops.ResourceVariable([0.0, 1.0])
+    y2 = resource_variable_ops.ResourceVariable([0.0, 1.0])
+    defined(y1, y2)
+    self.assertLen(total_function_cache_def_func(defined), 3)
+
+    # Should expect retracing for new shapes
+    y1 = resource_variable_ops.ResourceVariable([[0.0, 1.0]])
+    y2 = resource_variable_ops.ResourceVariable([[0.0, 1.0]])
+    defined(y1, y2)
+    self.assertLen(total_function_cache_def_func(defined), 4)
 
   def testDecoratedMethodInspect(self):
 
@@ -3786,7 +3819,7 @@ class FunctionTest(test.TestCase, parameterized.TestCase):
           testcase_name='ExtraPositionalArg',
           conc_args=lambda: (1, 2),
           call_args=lambda: (1, 2, 3),
-          error=r'func\(x, y\) takes 2 positional arguments but 3 were given'),
+          error=r'func\(x, y\) takes 2 .* got 3'),
       dict(
           testcase_name='MissingKeywordOnlyArg',
           conc_args=lambda: (1, 2),
@@ -3861,7 +3894,7 @@ class FunctionTest(test.TestCase, parameterized.TestCase):
           conc_args=lambda: (1, 2),
           call_args=lambda: (1, 2),
           call_kwargs=lambda: {'x': 3},
-          error=r"func\(x, y\) got two values for argument 'x'"),
+          error=r"func\(x, y\) got two values for 'x'"),
   ])
   # pylint: enable=g-long-lambda
   @test_util.run_in_graph_and_eager_modes
@@ -3915,13 +3948,13 @@ class FunctionTest(test.TestCase, parameterized.TestCase):
               'x': constant_op.constant(1),
               'y': constant_op.constant(1)
           },
-          error=r"func\(x, y\) got two values for argument 'x'"),
+          error=r"func\(x, y\) got two values for 'x'"),
       dict(
           testcase_name='ExtraPositionalArg',
           conc_args=lambda: (constant_op.constant(1), constant_op.constant(2)),
           call_args=lambda: (constant_op.constant(1), constant_op.constant(2),
                              constant_op.constant(3)),
-          error=r'func\(x, y\) takes 2 positional arguments but 3 were given'),
+          error=r'func\(x, y\) takes 2 .* got 3'),
       dict(
           testcase_name='UnexpectedKeywordArg',
           conc_args=lambda: (constant_op.constant(1),),
@@ -4514,7 +4547,7 @@ class FunctionTest(test.TestCase, parameterized.TestCase):
           return x + y
 
     foo = Foo()
-    with self.assertRaisesRegex(TypeError, 'got two values for argument'):
+    with self.assertRaisesRegex(TypeError, 'got two values'):
       foo.add1(2, x=3)  # pylint: disable=redundant-keyword-arg,no-value-for-parameter
 
   def testWithExtraWrapperMissingArgs(self):

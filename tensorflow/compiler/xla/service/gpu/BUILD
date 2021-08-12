@@ -40,6 +40,7 @@ load("//tensorflow:tensorflow.bzl", "get_compatible_with_cloud")
 
 # buildifier: disable=same-origin-load
 load("//tensorflow:tensorflow.bzl", "if_nccl")
+load("@llvm-project//mlir:tblgen.bzl", "gentbl_cc_library")
 
 package(
     default_visibility = [":friends"],
@@ -527,10 +528,16 @@ tf_cuda_library(
         "//tensorflow/core:lib",
         "//tensorflow/stream_executor/gpu:gpu_types_header",
         "//tensorflow/stream_executor/lib",
+        "@tf_runtime//:hostcontext",
     ]) + if_nccl([
         ":virtual_nccl",
         ":virtual_rccl",
-    ]),
+    ]) + select({
+        ":is_bef_thunk_enabled": [
+            "@tf_runtime//backends/gpu:gpu_types",
+        ],
+        "//conditions:default": [],
+    }),
 )
 
 alias(
@@ -556,6 +563,75 @@ bool_flag(
 config_setting(
     name = "is_bef_executable_enabled",
     flag_values = {":enable_bef_executable": "True"},
+)
+
+gentbl_cc_library(
+    name = "xlir_opdefs_inc_gen",
+    tbl_outs = [
+        (
+            ["-gen-op-decls"],
+            "xlir_opdefs.h.inc",
+        ),
+        (
+            ["-gen-op-defs"],
+            "xlir_opdefs.cpp.inc",
+        ),
+    ],
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "xlir_ops.td",
+    deps = [
+        "@llvm-project//mlir:InferTypeOpInterfaceTdFiles",
+        "@llvm-project//mlir:SideEffectTdFiles",
+        "@tf_runtime//:OpBaseTdFiles",
+        "@tf_runtime//backends/gpu:GpuOpBaseTdFile",
+    ],
+)
+
+cc_library(
+    name = "xlir_opdefs",
+    srcs = ["xlir_ops.cc"],
+    hdrs = ["xlir_ops.h"],
+    deps = [
+        ":xlir_opdefs_inc_gen",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:InferTypeOpInterface",
+        "@llvm-project//mlir:SideEffectInterfaces",
+        "@tf_runtime//:basic_kernels_opdefs",
+        "@tf_runtime//:tensor_opdefs",
+        "@tf_runtime//backends/gpu:gpu_opdefs",
+    ],
+)
+
+cc_library(
+    name = "xlir_kernels",
+    srcs = select({
+        ":is_bef_thunk_enabled": ["xlir_kernels.cc"],
+        "//conditions:default": [],
+    }),
+    local_defines = if_cuda_is_configured([
+        "GOOGLE_CUDA=1",
+    ]) + if_nccl([
+        "GOOGLE_XCCL=1",
+    ]) + select({
+        ":is_bef_thunk_enabled": ["BEF_THUNKS=1"],
+        "//conditions:default": [],
+    }),
+    deps = [
+        "@llvm-project//llvm:Support",
+        "@tf_runtime//:hostcontext",
+        "@tf_runtime//:support",
+    ] + if_nccl([
+        ":virtual_nccl",
+        ":virtual_nccl_utils",
+        ":virtual_rccl",
+    ]) + select({
+        ":is_bef_thunk_enabled": [
+            "@tf_runtime//backends/gpu:gpu_wrapper",
+            "@tf_runtime//backends/gpu:gpu_types",
+        ],
+        "//conditions:default": [],
+    }),
+    alwayslink = True,  # Contains TFRT kernel registration
 )
 
 cc_library(
@@ -698,6 +774,7 @@ cc_library(
             ":virtual_nccl",
             ":virtual_nccl_utils",
             ":virtual_rccl",
+            ":xlir_kernels",
             "@llvm-project//llvm:Support",
             "@llvm-project//mlir:GPUTransforms",
             "@llvm-project//mlir:Pass",
@@ -705,7 +782,6 @@ cc_library(
             "//tensorflow/compiler/mlir/tfrt/transforms/lhlo_gpu_to_tfrt_gpu:pass",
             "//tensorflow/compiler/mlir/xla:attribute_exporter",
             "//tensorflow/compiler/xla/service:collective_ops_utils",
-            "//tensorflow/core/tfrt/gpu:gpu_shared_context",
             "//tensorflow/core/tfrt/runtime:work_queue_interface",
             "//tensorflow/stream_executor/cuda:cublas_plugin",
             "//tensorflow/stream_executor/cuda:cuda_driver",

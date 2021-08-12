@@ -1000,6 +1000,7 @@ py_library(
     srcs = ["config.py"],
     srcs_version = "PY3",
     deps = [
+        ":errors",
         ":ops",
         "//tensorflow/python/util",
     ],
@@ -1044,6 +1045,7 @@ py_library(
     srcs = ["random_seed.py"],
     srcs_version = "PY3",
     deps = [
+        ":config",
         ":ops",
     ],
 )

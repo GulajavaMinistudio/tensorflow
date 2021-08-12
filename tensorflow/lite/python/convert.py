@@ -445,9 +445,11 @@ def build_toco_flags(inference_type=dtypes.float32,
                      enable_tflite_resource_variables=False,
                      unfold_batchmatmul=True,
                      lower_tensor_list_ops=True,
+                     default_to_single_batch_in_tensor_list_ops=True,
                      accumulation_type=None,
                      allow_bfloat16=False,
                      unfold_large_splat_constant=False,
+                     supported_backends=None,
                      **_):
   """Build the TOCO flags object from params."""
   toco = _toco_flags_pb2.TocoFlags()
@@ -484,11 +486,14 @@ def build_toco_flags(inference_type=dtypes.float32,
   toco.enable_tflite_resource_variables = enable_tflite_resource_variables
   toco.unfold_batchmatmul = unfold_batchmatmul
   toco.lower_tensor_list_ops = lower_tensor_list_ops
+  toco.default_to_single_batch_in_tensor_list_ops = default_to_single_batch_in_tensor_list_ops
   toco.unfold_large_splat_constant = unfold_large_splat_constant
   if accumulation_type:
     toco.accumulation_type = convert_tensor_tf_type_to_tflite_type(
         accumulation_type, usage="accumulation_type flag")
   toco.allow_bfloat16 = allow_bfloat16
+  if supported_backends:
+    toco.supported_backends.extend(supported_backends)
 
   return toco
 
@@ -522,9 +527,11 @@ def build_toco_convert_protos(input_tensors,
                               allow_all_select_tf_ops=False,
                               unfold_batchmatmul=True,
                               lower_tensor_list_ops=True,
+                              default_to_single_batch_in_tensor_list_ops=True,
                               accumulation_type=None,
                               allow_bfloat16=False,
-                              unfold_large_splat_constant=False):
+                              unfold_large_splat_constant=False,
+                              supported_backends=None):
   """Builds protocol buffers describing a conversion of a model using TOCO.
 
   Typically this is to convert from TensorFlow GraphDef to TFLite, in which
@@ -540,12 +547,12 @@ def build_toco_convert_protos(input_tensors,
       `inference_input_type` is in {tf.int8, tf.uint8}, then
       `quantized_input_stats` must be provided. (default is the value assigned
       to `inference_type`, must be in {tf.float32, tf.int8, tf.uint8})
-    input_format: Type of data to read.
-      (default TENSORFLOW_GRAPHDEF, must be in {TENSORFLOW_GRAPHDEF})
+    input_format: Type of data to read. (default TENSORFLOW_GRAPHDEF, must be in
+      {TENSORFLOW_GRAPHDEF})
     input_shapes: Input array shape. (default None, must be None or a list of
       the same length as `input_tensors`.)
-    output_format: Output file format. (default TFLITE, must be in
-    {TFLITE, GRAPHVIZ_DOT})
+    output_format: Output file format. (default TFLITE, must be in {TFLITE,
+      GRAPHVIZ_DOT})
     quantized_input_stats: Map of input tensor names to a tuple of floats
       representing the mean and standard deviation of the training data.
       (e.g., {"foo" : (0., 1.)}). Required if `inference_input_type` is tf.int8
@@ -608,12 +615,16 @@ def build_toco_convert_protos(input_tensors,
       tfl.fully_connected ops. If not, translate to tfl.batch_matmul.
     lower_tensor_list_ops: Whether to lower tensor list ops to builtin ops. If
       not, use Flex tensor list ops.
+    default_to_single_batch_in_tensor_list_ops: Whether to force to use batch
+      size one when the tensor list ops has the unspecified batch size.
     accumulation_type: Data type of the accumulators in quantized inference.
       Typically used for float16 quantization and is either fp16 or fp32.
     allow_bfloat16: Whether the converted model supports reduced precision
       inference with the bfloat16 type.
     unfold_large_splat_constant: Whether to unfold large splat constant tensors
       in the flatbuffer model to reduce size.
+    supported_backends: List of TFLite backends which needs to check
+      compatibility.
 
   Returns:
     model_flags, toco_flags, debug_info: three protocol buffers describing the
@@ -645,9 +656,11 @@ def build_toco_convert_protos(input_tensors,
       allow_all_select_tf_ops=allow_all_select_tf_ops,
       unfold_batchmatmul=unfold_batchmatmul,
       lower_tensor_list_ops=lower_tensor_list_ops,
+      default_to_single_batch_in_tensor_list_ops=default_to_single_batch_in_tensor_list_ops,
       accumulation_type=accumulation_type,
       allow_bfloat16=allow_bfloat16,
-      unfold_large_splat_constant=unfold_large_splat_constant)
+      unfold_large_splat_constant=unfold_large_splat_constant,
+      supported_backends=supported_backends)
   model = _model_flags_pb2.ModelFlags()
   model.change_concat_input_ranges = change_concat_input_ranges
   for idx, input_tensor in enumerate(input_tensors):
