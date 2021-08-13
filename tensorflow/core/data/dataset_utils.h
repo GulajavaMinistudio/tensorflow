@@ -205,6 +205,10 @@ class DummyResourceOp : public OpKernel {
 // MatchesAnyVersion("PaddedBatchDataset", "BatchDataset") == false
 bool MatchesAnyVersion(StringPiece op_prefix, StringPiece op_to_match);
 
+// Returns the index-th slice of a given tensor. If the index-th slice of
+// the tensor is not aligned, returns a deep copy of the tensor.
+Tensor MaybeCopySubSlice(const Tensor& tensor, int64 index);
+
 // Removes device placements from the ops of all functions in `library`.
 void StripDevicePlacement(FunctionDefLibrary* library);
 
@@ -292,6 +296,12 @@ bool ShouldApplyOptimizations(
     const Options& options,
     const absl::flat_hash_set<tstring>& optimizations_enabled,
     const absl::flat_hash_set<tstring>& optimizations_default);
+
+// Returns the default CPU budget.
+inline int GetCpuBudget() {
+  static bool in_experiment = GetExperiments().contains("tune_cpu_budget");
+  return (in_experiment ? 1.2 : 1.0) * port::NumSchedulableCPUs();
+}
 
 // Registry of tf.data experiments.
 class DatasetExperimentRegistry {

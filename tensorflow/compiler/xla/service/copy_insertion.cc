@@ -1312,7 +1312,7 @@ class CopyRemover {
   // live range interference is introduced by the copy's elimination. If
   // elision is possible, then the internal state (value lists) are updated,
   // and true is returned. Returns false otherwise.
-  bool TryElideCopy(const HloInstruction* copy, bool use_region_analysis) {
+  bool TryElideCopy(const HloInstruction* copy, int64_t region_analysis_limit) {
     VLOG(2) << "Trying to remove " << copy->name();
 
     if (!ContainsKey(copy_map_, copy)) {
@@ -1327,6 +1327,21 @@ class CopyRemover {
     DCHECK(copy_node.src != nullptr);
     DCHECK(copy_node.dest != nullptr);
 
+    int64_t live_range_size1 = 0, live_range_size2 = 0;
+    ForEachValueInRange(copy_node.src, [&](const ValueNode* node) {
+      live_range_size1 += 1 + node->uses.size();
+    });
+    ForEachValueInRange(copy_node.dest, [&](const ValueNode* node) {
+      live_range_size2 += 1 + node->uses.size();
+    });
+    // Use the more accurate region-based live range interference analysis if
+    // the live range size is within a given limit (or if no limit is given).
+    // Also don't use the new analysis for copies of broadcasts as these copies
+    // are cheap and are later removed by replicating the broadcasts.
+    bool use_region_analysis =
+        copy->operand(0)->opcode() != HloOpcode::kBroadcast &&
+        (region_analysis_limit < 0 ||
+         live_range_size1 * live_range_size2 <= region_analysis_limit);
     VLOG(3) << copy->name() << " copies value "
             << copy_node.src->value->ToShortString();
     VLOG(3) << "Source buffer values: " << ValueListToString(copy_node.src);
@@ -1851,10 +1866,10 @@ Status CopyInsertion::AddSpecialCaseCopies(const CallGraph& call_graph,
   // Identify copies which must be added at root instructions
   for (HloComputation* computation : module->computations()) {
     const CallGraphNode& node = call_graph.GetNode(computation);
-    if (node.context() == CallContext::kParallel) {
+    if (node.context() == CallContext::kEmbedded) {
       continue;
     }
-    TF_RET_CHECK(node.context() == CallContext::kSequential);
+    TF_RET_CHECK(node.context() == CallContext::kControlFlow);
 
     SpecialCaseCopyPolicy policy =
         GetSpecialCaseCopyPolicy(node, module, computation);
