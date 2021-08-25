@@ -1,4 +1,4 @@
-/* Copyright 2015 The TensorFlow Authors. All Rights Reserved.
+/* Copyright 2021 The TensorFlow Authors. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -13,18 +13,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef TENSORFLOW_STREAM_EXECUTOR_PLATFORM_LOGGING_H_
-#define TENSORFLOW_STREAM_EXECUTOR_PLATFORM_LOGGING_H_
+#include "pybind11/pybind11.h"
+#include "tensorflow/python/util/stack_trace.h"
 
-#include "tensorflow/core/platform/logging.h"
-#include "tensorflow/stream_executor/platform/port.h"
+namespace tensorflow {
 
-#if !(defined(PLATFORM_GOOGLE) || defined(PLATFORM_GOOGLE_ANDROID) || \
-      defined(PLATFORM_GOOGLE_IOS) || defined(GOOGLE_LOGGING) ||      \
-      defined(__EMSCRIPTEN__) || defined(PLATFORM_CHROMIUMOS))
+PYBIND11_MODULE(_stack_trace_test_lib, m) {
+  m.def("GetStackTraceString", []() { return GetPythonStackTraceString(); });
+}
 
-#define PCHECK(invocation) CHECK(invocation)
-
-#endif
-
-#endif  // TENSORFLOW_STREAM_EXECUTOR_PLATFORM_LOGGING_H_
+}  // namespace tensorflow
