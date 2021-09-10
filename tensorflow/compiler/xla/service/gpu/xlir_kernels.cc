@@ -17,6 +17,7 @@
 #include "llvm/Support/Error.h"
 #include "tensorflow/compiler/xla/service/gpu/custom_call_thunk.h"
 #include "tfrt/gpu/gpu_types.h"  // from @tf_runtime
+#include "tfrt/gpu/kernels/kernels_detail.h"  // from @tf_runtime
 #include "tfrt/gpu/wrapper/ccl_wrapper.h"  // from @tf_runtime
 #include "tfrt/host_context/kernel_utils.h"  // from @tf_runtime
 #include "tfrt/support/error_util.h"  // from @tf_runtime
@@ -47,6 +48,34 @@
 namespace xla {
 namespace gpu {
 
+namespace {
+
+// TODO(hanbinyoon): Expose this in ccl_wrapper.h.
+llvm::Expected<int> ToWidthInBytes(ncclDataType_t data_type) {
+  switch (data_type) {
+    case ncclInt8:
+    case ncclUint8:
+      return 1;
+    case ncclFloat16:
+#if defined(__CUDA_BF16_TYPES_EXIST__)
+    case ncclBfloat16:
+#endif
+      return 2;
+    case ncclInt32:
+    case ncclUint32:
+    case ncclFloat32:
+      return 4;
+    case ncclInt64:
+    case ncclUint64:
+    case ncclFloat64:
+      return 8;
+    default:
+      return tfrt::MakeStringError("Unknown ncclDataType_t: ", data_type);
+  }
+}
+
+}  // namespace
+
 tfrt::AsyncValueRef<tfrt::gpu::GpuCclHandle> CclCreate(
     tfrt::Argument<tfrt::gpu::GpuContext> context,
     const tfrt::ExecutionContext& exec_ctx) {
@@ -75,9 +104,65 @@ tfrt::AsyncValueRef<tfrt::gpu::GpuCclHandle> CclCreate(
   return xccl_ctx->ccl_handle.CopyRef();
 }
 
-// TODO(hanbinyoon): Consider using the TFRT_KERNEL_WITH_CHAIN_RESULT macro.
-// This needs visibility to tf_runtime/backends/gpu/lib/kernels/kernels_detail.h
-static tfrt::AsyncValueRef<tfrt::Chain> CustomCall(
+static tfrt::AsyncValueRef<tfrt::Chain> CclCollectivePermute(
+    tfrt::Argument<tfrt::gpu::GpuCclHandle> handle,
+    tfrt::Argument<tfrt::gpu::GpuBuffer> input,
+    tfrt::Argument<tfrt::gpu::GpuBuffer> output,
+    // Needs to be sorted alphabetically by attribute name!
+    tfrt::Attribute<int32_t> data_type,
+    const tfrt::ExecutionContext& exec_ctx) {
+  auto* xccl_ctx = exec_ctx.request_ctx()->GetDataIfExists<XcclContext>();
+  if (!xccl_ctx) {
+    return tfrt::MakeErrorAsyncValueRef("Failed to get XcclContext");
+  }
+  const absl::optional<int64_t>& source_peer =
+      xccl_ctx->collective_permute_source_target.source_peer;
+  const absl::optional<int64_t>& target_peer =
+      xccl_ctx->collective_permute_source_target.target_peer;
+
+  auto type = static_cast<ncclDataType_t>(*data_type);
+  auto width = ToWidthInBytes(type);
+  if (!width)
+    return tfrt::MakeErrorAsyncValueRef(llvm::toString(width.takeError()));
+  assert(*width != 0);
+
+  if (target_peer) {
+    handle->AddCallback(
+        [input = input.ValueRef(), count = input->size() / *width, type,
+         peer = *target_peer](tfrt::gpu::wrapper::CurrentContext current,
+                              tfrt::gpu::wrapper::Stream stream,
+                              tfrt::gpu::wrapper::CclComm comm) -> llvm::Error {
+          return tfrt::gpu::wrapper::CclSend(current, input->pointer(), count,
+                                             type, peer, comm, stream);
+        });
+  }
+
+  if (source_peer) {
+    handle->AddCallback(
+        [output = output.ValueRef(), count = output->size() / *width, type,
+         peer = *source_peer](tfrt::gpu::wrapper::CurrentContext current,
+                              tfrt::gpu::wrapper::Stream stream,
+                              tfrt::gpu::wrapper::CclComm comm) -> llvm::Error {
+          return tfrt::gpu::wrapper::CclRecv(current, output->pointer(), count,
+                                             type, peer, comm, stream);
+        });
+  } else {
+    // If there is no source peer, i.e. no one send us any data, zero out dest
+    // buffer.
+    handle->AddCallback(
+        [output = output.ValueRef(), count = output->size() / *width, type,
+         peer = *source_peer](tfrt::gpu::wrapper::CurrentContext current,
+                              tfrt::gpu::wrapper::Stream stream,
+                              tfrt::gpu::wrapper::CclComm comm) -> llvm::Error {
+          return tfrt::gpu::wrapper::MemsetD8Async(current, output->pointer(),
+                                                   0, output->size(), stream);
+        });
+  }
+
+  return tfrt::MakeAvailableAsyncValueRef<tfrt::Chain>();
+}
+
+static llvm::Error CustomCall(
     const tfrt::gpu::GpuStream& stream, tfrt::Chain chain,
     tfrt::RemainingArguments buffers,
     // Needs to be sorted alphabetically by attribute name!
@@ -89,12 +174,12 @@ static tfrt::AsyncValueRef<tfrt::Chain> CustomCall(
   auto* custom_call_ctx =
       exec_ctx.request_ctx()->GetDataIfExists<CustomCallContext>();
   if (!custom_call_ctx) {
-    return tfrt::MakeErrorAsyncValueRef("Failed to get CustomCallContext.");
+    return tfrt::MakeStringError("Failed to get CustomCallContext.");
   }
 
   auto current = tfrt::gpu::wrapper::CtxSetCurrent(stream.context());
   if (!current) {
-    return tfrt::MakeErrorAsyncValueRef(llvm::toString(current.takeError()));
+    return tfrt::MakeStringError(llvm::toString(current.takeError()));
   }
 
   const int64_t total_target_params_count =
@@ -126,16 +211,17 @@ static tfrt::AsyncValueRef<tfrt::Chain> CustomCall(
                                &custom_call_status);
   auto message = CustomCallStatusGetMessage(&custom_call_status);
   if (message) {
-    return tfrt::MakeErrorAsyncValueRef(
-        absl::StrCat("CustomCall failed: ", *message));
+    return tfrt::MakeStringError(absl::StrCat("CustomCall failed: ", *message));
   }
-
-  return tfrt::MakeAvailableAsyncValueRef<tfrt::Chain>();
+  return llvm::Error::success();
 }
 
 void RegisterXlirKernels(tfrt::KernelRegistry* kernel_reg) {
   kernel_reg->AddKernel("xlir.ccl.create", TFRT_KERNEL(CclCreate));
-  kernel_reg->AddKernel("xlir.custom_call", TFRT_KERNEL(CustomCall));
+  kernel_reg->AddKernel("xlir.ccl.collective_permute",
+                        TFRT_KERNEL(CclCollectivePermute));
+  kernel_reg->AddKernel("xlir.custom_call",
+                        TFRT_KERNEL_WITH_CHAIN_RESULT(CustomCall));
 }
 
 namespace kernels {

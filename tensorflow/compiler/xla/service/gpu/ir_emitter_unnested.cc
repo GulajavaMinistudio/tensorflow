@@ -2958,13 +2958,22 @@ Status IrEmitterUnnested::EmitCollectivePermute(mlir::Operation* op) {
         /*destination_buffer=*/result_slice,
         /*mem_size=*/ShapeUtil::ByteSizeOf(shape)));
   } else {
-    const NcclCollectivePermuteThunk::Buffer buffer = {
-        /*element_count=*/ShapeUtil::ElementsIn(shape),
-        /*source_buffer=*/source_slice,
-        /*destination_buffer=*/result_slice};
-    AddThunkToThunkSequence(absl::make_unique<NcclCollectivePermuteThunk>(
-        GetThunkInfo(op), collective_permute_op, replica_count, partition_count,
-        buffer));
+    std::unique_ptr<Thunk> thunk;
+    if (IsBefThunkEnabled()) {
+      TF_ASSIGN_OR_RETURN(
+          thunk, CreateBefCollectivePermuteThunk(
+                     GetThunkInfo(op), op, {source_slice}, {result_slice},
+                     replica_count, partition_count));
+    } else {
+      const NcclCollectivePermuteThunk::Buffer buffer = {
+          /*element_count=*/ShapeUtil::ElementsIn(shape),
+          /*source_buffer=*/source_slice,
+          /*destination_buffer=*/result_slice};
+      thunk = absl::make_unique<NcclCollectivePermuteThunk>(
+          GetThunkInfo(op), collective_permute_op, replica_count,
+          partition_count, buffer);
+    }
+    AddThunkToThunkSequence(std::move(thunk));
   }
   return Status::OK();
 }
@@ -3244,7 +3253,10 @@ StatusOr<std::unique_ptr<Thunk>> IrEmitterUnnested::BuildKernelThunkImpl(
                                 std::string(kernel->getName()),
                                 ir_emitter_context_->llvm_module());
 
-  if (IsBefThunkEnabled()) {
+  // TODO(b/189180718): Temporarily disable Kernel BefThunk, since
+  // tensorflow/compiler/xla/tests:dot_operation_test_gpu fails with the current
+  // implementation (constants are not resolved).
+  if (false /*IsBefThunkEnabled()*/) {
     return CreateBefKernelThunk(thunk_info, non_constant_buffers,
                                 std::string(kernel->getName()),
                                 launch_dimensions);
@@ -3861,23 +3873,12 @@ ReductionCodegenState IrEmitterUnnested::GenerateReductionCodegenState(
   return reduction_codegen_state;
 }
 
-void IrEmitterUnnested::EmitFullWarpShuffleDownLoopForAllReduces(
-    absl::Span<HloComputation* const> reducers,
-    absl::Span<llvm::AllocaInst* const> partial_result_addresses,
-    int threads_per_block) {
-  CHECK_EQ(reducers.size(), partial_result_addresses.size());
-  for (int i = 0; i != reducers.size(); i++) {
-    EmitFullWarpShuffleDownLoopForReduce(
-        reducers[i], partial_result_addresses[i]->getType()->getElementType(),
-        partial_result_addresses[i], threads_per_block);
-  }
-}
-
 void IrEmitterUnnested::EmitFullWarpShuffleDownLoopForReduce(
-    HloComputation* reducer, llvm::Type* element_type,
-    llvm::Value* partial_result_address, int threads_per_block) {
+    HloComputation* reducer, llvm::Value* partial_result_address) {
   // This only works when the block size is a multiple of 32 threads.
-  CHECK_EQ(threads_per_block % 32, 0);
+  llvm::Type* element_type =
+      llvm::cast<llvm::PointerType>(partial_result_address->getType())
+          ->getElementType();
   for (int distance = 16; distance >= 1; distance /= 2) {
     int bit_width = llvm_ir::GetSizeInBits(element_type);
     llvm::Value* result_from_other_lane = llvm_ir::EmitAllocaAtFunctionEntry(
@@ -4071,8 +4072,7 @@ void IrEmitterUnnested::EmitReductionOutputForRowReduction(
   const KernelMappingScheme& mapping_scheme =
       reduction_info.GetKernelMappingScheme();
 
-  EmitFullWarpShuffleDownLoopForReduce(reducer, element_type, current_output,
-                                       mapping_scheme.GetThreadsPerBlock());
+  EmitFullWarpShuffleDownLoopForReduce(reducer, current_output);
   llvm::Value* warp_id =
       b_.CreateUDiv(thread_id_info.thread_id_x, constant(kWarpSize));
   ksl.If("intra_warp_reduce_write", is_zero(thread_id_info.lane_id), [&] {
@@ -4102,9 +4102,8 @@ void IrEmitterUnnested::EmitReductionOutputForRowReduction(
     llvm::Value* selected_value =
         b_.CreateSelect(warp_exists, block_accum_addr, initial_value_addr);
 
-    EmitFullWarpShuffleDownLoopForReduce(reducer, element_type,
-                                         /*block_accum_addr*/ selected_value,
-                                         mapping_scheme.GetThreadsPerBlock());
+    EmitFullWarpShuffleDownLoopForReduce(reducer,
+                                         /*block_accum_addr*/ selected_value);
     ksl.If("reduction_write_output", is_zero(thread_id_info.thread_id_x), [&] {
       if (reduction_info.IsRaceFree()) {
         VLOG(10) << "Using deterministic reductions: writing out "
@@ -4155,9 +4154,7 @@ void IrEmitterUnnested::EmitReductionOutputForColumnReduction(
        thread_id_info.thread_id_x},
       "shmem_transposed_addr"));
 
-  EmitFullWarpShuffleDownLoopForReduce(reducer, element_type,
-                                       shmem_transposed_addr,
-                                       mapping_scheme.GetThreadsPerBlock());
+  EmitFullWarpShuffleDownLoopForReduce(reducer, shmem_transposed_addr);
 
   // Some warps in the block are completely outside of the bound of the
   // tensor, so they should not write any output at all.
@@ -4908,6 +4905,7 @@ void IrEmitterUnnested::EmitIRForReduction(
   CHECK(!reducers.empty()) << " expect at least one reduce instructions.";
   const KernelMappingScheme& mapping_scheme =
       reduction_info.GetKernelMappingScheme();
+  CHECK_EQ(mapping_scheme.GetThreadsPerBlock() % 32, 0);
   LaunchDimensions launch_dimensions(mapping_scheme.GetNumberOfBlocks(),
                                      mapping_scheme.GetThreadsPerBlock());
   llvm::Type* index_ty =

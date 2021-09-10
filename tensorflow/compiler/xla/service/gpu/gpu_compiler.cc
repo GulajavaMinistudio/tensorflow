@@ -65,6 +65,7 @@ limitations under the License.
 #include "tensorflow/compiler/xla/service/dot_decomposer.h"
 #include "tensorflow/compiler/xla/service/dot_merger.h"
 #include "tensorflow/compiler/xla/service/dump.h"
+#include "tensorflow/compiler/xla/service/dynamic_dimension_simplifier.h"
 #include "tensorflow/compiler/xla/service/dynamic_index_splitter.h"
 #include "tensorflow/compiler/xla/service/dynamic_padder.h"
 #include "tensorflow/compiler/xla/service/eigh_expander.h"
@@ -162,6 +163,7 @@ limitations under the License.
 
 #if BEF_EXECUTABLE
 #include "tensorflow/compiler/mlir/tfrt/transforms/lhlo_gpu_to_tfrt_gpu/gpu_passes.h"
+#include "tfrt/gpu/pass/pass.h"  // from @tf_runtime
 #include "tfrt/bef/bef_buffer.h"  // from @tf_runtime
 #include "tfrt/bef_converter/mlir_to_bef_translate.h"  // from @tf_runtime
 #endif  // BEF_EXECUTABLE
@@ -323,7 +325,11 @@ Status GpuCompiler::OptimizeHloModule(
     pipeline.AddPass<LogisticExpander>(
         /*expansion_type=*/LogisticExpansionType::kExp);
     pipeline.AddPass<ConditionalCanonicalizer>();
-    pipeline.AddPass<DynamicPadder>();
+    pipeline.AddPass<DynamicDimensionSimplifier>();
+    auto dynamic_padder_options = DynamicPadderOptions();
+    dynamic_padder_options.shape_check_mode =
+        DynamicDimensionInference::ShapeCheckMode::kCompileTime;
+    pipeline.AddPass<DynamicPadder>(dynamic_padder_options);
 
     // Build simplification pipeline.  The passes in here are run to a fixed
     // point.
@@ -718,7 +724,7 @@ static StatusOr<OwnedBefBuffer> LowerToBef(mlir::ModuleOp mlir_module) {
                        mlir::PassManager::Nesting::Implicit);
   pm.addPass(tensorflow::createLmhloGpuAsyncConversionPass());
   pm.addPass(mlir::createGpuAsyncRegionPass());
-  pm.addPass(tensorflow::createAsyncGpuTfrtConversionPass());
+  tfrt::gpu::populateGpuToTfrtGpuPasses(pm);
   if (pm.run(mlir_module).failed()) {
     return InternalError(
         "Failed to lower LHLO to TFRT Dialect with gpu kernels.");
