@@ -3357,6 +3357,19 @@ tf_cc_test(
     ],
 )
 
+tf_cc_test(
+    name = "lookup_ops_test",
+    size = "small",
+    srcs = ["lookup_ops_test.cc"],
+    deps = [
+        ":lookup_table_op",
+        ":ops_testutil",
+        "//tensorflow/core:test",
+        "//tensorflow/core:test_main",
+        "//tensorflow/core:testlib",
+    ],
+)
+
 MATH_DEPS = [
     ":fill_functor",
     "//tensorflow/core:core_cpu",
@@ -6188,6 +6201,7 @@ filegroup(
         "sparse_xent_op.h",
         "sparse_fill_empty_rows_op.h",
         "sparse_reorder_op.h",
+        "sparse_slice_op.h",
         "sparse_tensor_dense_matmul_op.h",
         "string_util.h",
         "string_to_hash_bucket_op.h",
