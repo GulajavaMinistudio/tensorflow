@@ -3135,7 +3135,7 @@ cuda_py_test(
     size = "medium",  # http://b/30603882
     timeout = "long",
     srcs = ["depthwise_conv_op_test.py"],
-    shard_count = 3,
+    shard_count = 8,
     tags = [
         "no_oss",  # TODO(b/118842098): Re-enable this test in Kokoro.
         "notap",  # TOOD(b/195753631): Re-enable when not flaky
@@ -3147,6 +3147,8 @@ cuda_py_test(
         "//tensorflow/python:nn",
         "//tensorflow/python:nn_grad",
         "//tensorflow/python:nn_ops",
+        "//tensorflow/python:random_ops",
+        "//tensorflow/python/eager:backprop",
         "//third_party/py/numpy",
     ],
 )
