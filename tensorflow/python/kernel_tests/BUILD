@@ -2555,6 +2555,7 @@ cuda_py_test(
         "//tensorflow/python:array_ops",
         "//tensorflow/python:client_testlib",
         "//tensorflow/python:framework_for_generated_wrappers",
+        "//tensorflow/python:framework_test_lib",
         "//third_party/py/numpy",
     ],
 )
@@ -3138,7 +3139,6 @@ cuda_py_test(
     shard_count = 8,
     tags = [
         "no_oss",  # TODO(b/118842098): Re-enable this test in Kokoro.
-        "notap",  # TOOD(b/195753631): Re-enable when not flaky
     ],
     deps = [
         "//tensorflow/python:array_ops",

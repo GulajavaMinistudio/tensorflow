@@ -275,7 +275,8 @@ class DataServiceOpsTest(data_service_test_base.TestBase,
 
   @combinations.generate(test_base.default_test_combinations())
   def testExplicitProtocolFromDatasetId(self):
-    cluster = data_service_test_base.TestCluster(num_workers=1)
+    cluster = data_service_test_base.TestCluster(
+        num_workers=1, data_transfer_protocol="grpc")
     range_ds = dataset_ops.Dataset.range(10)
     dataset_id = data_service_ops.register_dataset(cluster.dispatcher.target,
                                                    range_ds)
@@ -558,7 +559,9 @@ class DataServiceOpsTest(data_service_test_base.TestBase,
   def testDistributeInvalidProcessingMode(self):
     ds = dataset_ops.Dataset.range(10)
     with self.assertRaisesRegex(
-        ValueError, "should be a ShardingPolicy, `\"parallel_epochs\"`, or "
+        ValueError,
+        "should be a `tf.data.experimental.service.ShardingPolicy`, "
+        "`\"parallel_epochs\"`, or "
         "`\"distributed_epoch\"`. Got 'invalid'."):
       ds = ds.apply(
           data_service_ops.distribute(
