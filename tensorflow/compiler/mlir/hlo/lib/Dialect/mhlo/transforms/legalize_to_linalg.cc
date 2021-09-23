@@ -1546,9 +1546,10 @@ class ReduceConverter : public OpConversionPattern<lmhlo::ReduceOp> {
     }
 
     // First fill the output buffer with the init value.
-    Value init_value =
-        rewriter.create<memref::LoadOp>(loc, adaptor.init_values()[0]);
-    rewriter.create<linalg::FillOp>(loc, init_value, adaptor.out()[0]);
+    for (auto it : llvm::zip(adaptor.init_values(), adaptor.out())) {
+      Value init_value = rewriter.create<memref::LoadOp>(loc, std::get<0>(it));
+      rewriter.create<linalg::FillOp>(loc, init_value, std::get<1>(it));
+    }
 
     DenseIntElementsAttr dimensions_attr = reduce_op.dimensions();
     SmallVector<int, 4> reduction_dims;
@@ -1569,8 +1570,10 @@ class ReduceConverter : public OpConversionPattern<lmhlo::ReduceOp> {
         dst_exprs.push_back(mlir::getAffineDimExpr(i, rewriter.getContext()));
       }
     }
-
-    auto maps = AffineMap::inferFromExprList({src_exprs, dst_exprs});
+    SmallVector<ArrayRef<AffineExpr>, 4> affine_maps;
+    affine_maps.append(adaptor.inputs().size(), makeArrayRef(src_exprs));
+    affine_maps.append(adaptor.out().size(), makeArrayRef(dst_exprs));
+    auto maps = AffineMap::inferFromExprList(affine_maps);
 
     auto linalg_op = rewriter.create<linalg::GenericOp>(
         loc, /*resultTensorTypes=*/ArrayRef<Type>{},
@@ -1586,36 +1589,49 @@ class ReduceConverter : public OpConversionPattern<lmhlo::ReduceOp> {
       // The incoming region is operating on buffers, while linalg.generic
       // expects scalar SSA values. Add some allocs around the original op to
       // make it compatible.
-      auto arg_type = block->getArgument(0).getType().cast<MemRefType>();
-      Value alloc_a = rewriter.create<memref::AllocaOp>(loc, arg_type);
-      Value alloc_b = rewriter.create<memref::AllocaOp>(loc, arg_type);
-      Value alloc_res = rewriter.create<memref::AllocaOp>(loc, arg_type);
+      SmallVector<MemRefType, 4> mem_argv_tys;
+      SmallVector<Value, 4> alloc_values;
+      for (auto ty : block->getArgumentTypes()) {
+        mem_argv_tys.push_back(ty.cast<MemRefType>());
+        alloc_values.push_back(
+            rewriter.create<memref::AllocaOp>(loc, mem_argv_tys.back()));
+      }
+      size_t num_inputs =
+          adaptor.inputs().size() + adaptor.init_values().size();
 
       // Now turn the existing signature
       //   (memref<X>, memref<X>, memref<X>) -> ()
       // into
       //   (X, X) -> X
-      TypeConverter::SignatureConversion signature_converter(3);
-      signature_converter.remapInput(0, alloc_a);
-      signature_converter.remapInput(1, alloc_b);
-      signature_converter.remapInput(2, alloc_res);
-      signature_converter.addInputs(
-          {arg_type.getElementType(), arg_type.getElementType()});
+      TypeConverter::SignatureConversion signature_converter(
+          alloc_values.size());
+      for (auto it : llvm::enumerate(alloc_values)) {
+        signature_converter.remapInput(it.index(), it.value());
+      }
+      for (auto ty : makeArrayRef(mem_argv_tys).take_front(num_inputs)) {
+        signature_converter.addInputs(ty.getElementType());
+      }
+
       Block* entry_block = rewriter.applySignatureConversion(
           &linalg_op.region(), signature_converter);
 
       // Store the arguments into the newly allocated buffers.
-      rewriter.setInsertionPointAfter(alloc_res.getDefiningOp());
-      rewriter.create<memref::StoreOp>(loc, entry_block->getArgument(0),
-                                       alloc_a);
-      rewriter.create<memref::StoreOp>(loc, entry_block->getArgument(1),
-                                       alloc_b);
+      rewriter.setInsertionPointAfter(alloc_values.back().getDefiningOp());
+      for (auto it :
+           enumerate(makeArrayRef(alloc_values).take_front(num_inputs))) {
+        rewriter.create<memref::StoreOp>(
+            loc, entry_block->getArgument(it.index()), it.value());
+      }
       rewriter.replaceOp(entry_block->getTerminator(), {});
 
       // Load & yield the result.
       rewriter.setInsertionPointToEnd(entry_block);
-      auto load_res = rewriter.create<memref::LoadOp>(loc, alloc_res);
-      rewriter.create<linalg::YieldOp>(loc, ValueRange{load_res});
+      auto output_values = makeArrayRef(alloc_values).slice(num_inputs);
+      SmallVector<Value, 4> load_results;
+      for (auto it : output_values) {
+        load_results.push_back(rewriter.create<memref::LoadOp>(loc, it));
+      }
+      rewriter.create<linalg::YieldOp>(loc, load_results);
     }
 
     rewriter.replaceOp(reduce_op, linalg_op.getOperation()->getResults());
@@ -2715,8 +2731,7 @@ struct ScatterUpdateOnTensorsConversion
     // comparison state. E.g., if the index_depth is 2, like indices = [[0, 1]],
     // we should use the update value only if (i == 0 and j == 1). However, we
     // can not get both indices in one iteration unless we pack them together.
-    auto index_vector_dim =
-        op.scatter_dimension_numbers().index_vector_dim().getInt();
+    auto index_vector_dim = op.scatter_dimension_numbers().getIndexVectorDim();
     if (indices_ty.getDimSize(index_vector_dim) != 1)
       return rewriter.notifyMatchFailure(op, "require index depth to be 1");
     if (index_vector_dim != indices_ty.getRank() - 1) {
@@ -2745,7 +2760,7 @@ struct ScatterUpdateOnTensorsConversion
 
       exprs.pop_back();
       auto update_window_dims =
-          Extract1DVector(op.scatter_dimension_numbers().update_window_dims());
+          op.scatter_dimension_numbers().getUpdateWindowDims();
       for (auto d : update_window_dims)
         exprs.push_back(rewriter.getAffineDimExpr(d));
       indexing_maps.push_back(AffineMap::get(nloops, /*symbolCount=*/0, exprs,
@@ -2755,8 +2770,8 @@ struct ScatterUpdateOnTensorsConversion
 
     auto result_ty = this->typeConverter->convertType(op.getResult().getType())
                          .cast<ShapedType>();
-    auto scatter_dims_to_operand_dims = Extract1DVector(
-        op.scatter_dimension_numbers().scatter_dims_to_operand_dims());
+    auto scatter_dims_to_operand_dims =
+        op.scatter_dimension_numbers().getScatterDimsToOperandDims();
     assert(scatter_dims_to_operand_dims.size() == 1);
     // Do not need init_tensor because we'd like to initialize the output as
     // operand.
