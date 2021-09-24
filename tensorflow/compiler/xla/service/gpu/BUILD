@@ -834,9 +834,6 @@ cc_library(
         "@local_config_rocm//rocm:rocm_headers",
     ]) + select({
         ":is_bef_thunk_enabled": [
-            ":virtual_nccl",
-            ":virtual_nccl_utils",
-            ":virtual_rccl",
             ":xlir_kernels",
             ":xlir_opdefs",
             "@llvm-project//llvm:Support",
@@ -2481,5 +2478,19 @@ cc_library(
         "//tensorflow/core:lib_proto_parsing",
         "//tensorflow/stream_executor/lib",
         "@com_google_absl//absl/types:optional",
+    ],
+)
+
+test_suite(
+    name = "bef_thunk_tests",
+    tests = [
+        # Disabled: Repeated Kernel BefThunk invocations prolong test duration.
+        # E.g., it takes ~1300s for 256x128 matrix.
+        # "//tensorflow/compiler/xla/client/lib:svd_test_gpu",
+        "//tensorflow/compiler/xla/service/gpu:custom_call_test",
+        "//tensorflow/compiler/xla/service/gpu/tests:mlir_gemm_test",
+        "//tensorflow/compiler/xla/tests:multioutput_fusion_test_gpu",
+        "//tensorflow/compiler/xla/tests:triangular_solve_test_gpu",
+        "//tensorflow/compiler/xla/tests:while_test_gpu",
     ],
 )

@@ -63,7 +63,7 @@ namespace mlir {
 namespace TF {
 namespace {
 
-using mhlo::DotDimensionNumbers;
+using mhlo::DotDimensionNumbersAttr;
 
 class ConvertConvOp : public OpConversionPattern<mhlo::ConvOp> {
  public:
@@ -844,7 +844,7 @@ class ConvertDynamicUpdateSliceOp
 bool MatchSingleIota(DenseIntElementsAttr dimensions, Value iota) {
   auto iota_op = dyn_cast_or_null<mhlo::IotaOp>(iota.getDefiningOp());
   if (!iota_op || dimensions.getNumElements() != 1) return false;
-  auto dim = *dimensions.getIntValues().begin();
+  auto dim = *dimensions.value_begin<APInt>();
   return dim == iota_op.iota_dimension();
 }
 
@@ -884,7 +884,7 @@ bool MatchConstIotaBroadCastInDim(DenseIntElementsAttr dimensions, Value iota) {
   if (!matchPattern(iota_broadcast.operand(), m_Constant(&range_const)))
     return false;
   int index = 0;
-  for (auto value : range_const.getIntValues()) {
+  for (auto value : range_const.getValues<APInt>()) {
     if (value != index++) return false;
   }
   return true;
@@ -906,7 +906,7 @@ bool MatchIotaConst(DenseIntElementsAttr dimensions, Value iota) {
   if (matchPattern(iota, m_Constant(&iota_const_attr))) {
     // The inner most dimension must match the reduce dimension.
     auto iota_type = iota_const_attr.getType();
-    auto reduce_dim = *dimensions.getIntValues().begin();
+    auto reduce_dim = *dimensions.value_begin<APInt>();
     if (reduce_dim.isNegative()) reduce_dim += iota_type.getRank();
     if (!iota_type.hasRank() || (iota_type.getRank() < 1) ||
         (iota_type.getRank() - 1) != reduce_dim) {
@@ -925,7 +925,7 @@ bool MatchIotaConst(DenseIntElementsAttr dimensions, Value iota) {
     //  ....                             outer_loop
     //  ....                                 |
     // 0 1 2 ... n - 1                    ---------
-    for (auto value : iota_const_attr.getIntValues()) {
+    for (auto value : iota_const_attr.getValues<APInt>()) {
       if (value != index) return false;
       index = (index + 1) % inner_dim;
     }
@@ -1023,15 +1023,15 @@ class ConvertSortToTfTopk : public OpConversionPattern<mhlo::SortOp> {
 // A struct to hold information about dimensions of dot_general operands.
 class DotDimensionsInfo {
  public:
-  DotDimensionsInfo(ShapedType type, DenseIntElementsAttr batch_dimensions,
-                    DenseIntElementsAttr contracting_dimensions) {
+  DotDimensionsInfo(ShapedType type, ArrayRef<int64_t> batch_dimensions,
+                    ArrayRef<int64_t> contracting_dimensions) {
     const int rank = type.getRank();
-    for (const int dim : batch_dimensions.getValues<int64_t>()) {
+    for (const int dim : batch_dimensions) {
       batch_dimensions_.axes.push_back(dim);
       batch_dimensions_.sizes.push_back(type.getDimSize(dim));
     }
 
-    for (const int dim : contracting_dimensions.getValues<int64_t>()) {
+    for (const int dim : contracting_dimensions) {
       contracting_dimensions_.axes.push_back(dim);
       contracting_dimensions_.sizes.push_back(type.getDimSize(dim));
     }
@@ -1078,7 +1078,7 @@ class DotDimensionsInfo {
 };
 
 Value ConvertDot(PatternRewriter &rewriter, Value lhs, Value rhs,
-                 DotDimensionNumbers dot_dimension_numbers,
+                 DotDimensionNumbersAttr dot_dimension_numbers,
                  ShapedType result_type, mlir::Location loc) {
   auto lhs_type = lhs.getType().cast<ShapedType>();
   auto rhs_type = rhs.getType().cast<ShapedType>();
@@ -1087,11 +1087,11 @@ Value ConvertDot(PatternRewriter &rewriter, Value lhs, Value rhs,
 
   // Collects lhs and rhs dimensions information.
   DotDimensionsInfo lhs_dot_dimensions_info(
-      lhs_type, dot_dimension_numbers.lhs_batching_dimensions(),
-      dot_dimension_numbers.lhs_contracting_dimensions());
+      lhs_type, dot_dimension_numbers.getLhsBatchingDimensions(),
+      dot_dimension_numbers.getLhsContractingDimensions());
   DotDimensionsInfo rhs_dot_dimensions_info(
-      rhs_type, dot_dimension_numbers.rhs_batching_dimensions(),
-      dot_dimension_numbers.rhs_contracting_dimensions());
+      rhs_type, dot_dimension_numbers.getRhsBatchingDimensions(),
+      dot_dimension_numbers.getRhsContractingDimensions());
 
   // Transposes lhs shape to be in the order of {batch_dimensions,
   // out_dimensions, contracting dimensions}.
@@ -1173,13 +1173,13 @@ Value ConvertDot(PatternRewriter &rewriter, Value lhs, Value rhs,
 Value ConvertDotOp(PatternRewriter &rewriter, Operation *old_op) {
   auto dot_op = cast<mhlo::DotOp>(old_op);
   auto lhs_rank = dot_op.lhs().getType().cast<ShapedType>().getRank();
-  auto dot_dimension_numbers = DotDimensionNumbers::get(
-      /*lhs_batching_dimensions=*/rewriter.getI64TensorAttr({}),
-      /*rhs_batching_dimensions=*/rewriter.getI64TensorAttr({}),
-      /*lhs_contracting_dimensions=*/
-      rewriter.getI64TensorAttr({lhs_rank == 1 ? 0 : 1}),
-      /*rhs_contracting_dimensions=*/rewriter.getI64TensorAttr({0}),
-      rewriter.getContext());
+  auto dot_dimension_numbers =
+      DotDimensionNumbersAttr::get(rewriter.getContext(),
+                                   /*lhs_batching_dimensions=*/{},
+                                   /*rhs_batching_dimensions=*/{},
+                                   /*lhs_contracting_dimensions=*/
+                                   {lhs_rank == 1 ? 0 : 1},
+                                   /*rhs_contracting_dimensions=*/{0});
   return ConvertDot(rewriter, dot_op.lhs(), dot_op.rhs(), dot_dimension_numbers,
                     dot_op.getResult().getType().cast<ShapedType>(),
                     dot_op.getLoc());
@@ -1371,7 +1371,7 @@ class ConvertReduceOpToTfArgMinMax
     DenseElementsAttr iota_init;
     if (!matchPattern(reduce_op.init_values().back(), m_Constant(&iota_init)))
       return failure();
-    if (*iota_init.getIntValues().begin() != 0) return failure();
+    if (*iota_init.getValues<APInt>().begin() != 0) return failure();
 
     // Verify that the second argument is an Iota op along the same dimenion as
     // the reduction.
@@ -1500,7 +1500,7 @@ class ConvertReduceOpToTfArgmax
     if (attr.getNumElements() != 1 ||
         !attr.getType().getElementType().isa<FloatType>())
       return false;
-    auto value = *attr.getFloatValues().begin();
+    auto value = *attr.value_begin<APFloat>();
     return value.isNegative() && value.isInfinity();
   }
 };
@@ -1515,7 +1515,7 @@ class ConvertReduceOpToTfArgmin
     if (attr.getNumElements() != 1 ||
         !attr.getType().getElementType().isa<FloatType>())
       return false;
-    auto value = *attr.getFloatValues().begin();
+    auto value = *attr.value_begin<APFloat>();
     return !value.isNegative() && value.isInfinity();
   }
 };
@@ -1903,10 +1903,9 @@ bool FloatTensorIsSign(PatternRewriter &rewriter, ElementsAttr floatv,
     return IsSign(floatv_spl, sgn_cst_spl);
   } else if (floatv.isa<DenseElementsAttr>()) {
     auto floatv_dns = floatv.cast<DenseFPElementsAttr>();
-    return llvm::all_of(floatv_dns.getAttributeValues(), [&](Attribute value) {
-      FloatAttr value_f = value.cast<FloatAttr>();
-      return IsSign(value_f.getValue(), sgn_cst_spl);
-    });
+    return llvm::all_of(
+        floatv_dns.getValues<FloatAttr>(),
+        [&](FloatAttr value) { return IsSign(value.getValue(), sgn_cst_spl); });
   }
   return false;
 }
@@ -1944,7 +1943,7 @@ bool IsIotaAttr(const DenseIntElementsAttr &attr, int64_t size) {
   if (attr.getType().getRank() != 1) return false;
   if (attr.getNumElements() != size) return false;
   int64_t iota = 0;
-  for (auto s : attr.getIntValues()) {
+  for (auto s : attr.getValues<APInt>()) {
     if (s != iota) return false;
     ++iota;
   }

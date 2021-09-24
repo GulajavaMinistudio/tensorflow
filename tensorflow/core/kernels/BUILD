@@ -987,6 +987,8 @@ tf_kernel_library(
         "//tensorflow/core:framework_headers_lib",
         "//tensorflow/core:lib",
         "//third_party/eigen3",
+        "@com_google_absl//absl/container:btree",
+        "@com_google_absl//absl/container:flat_hash_set",
     ],
 )
 
@@ -2923,7 +2925,7 @@ tf_kernel_library(
         ":tensor_list",
         "//tensorflow/core:framework",
         "//tensorflow/core:lib",
-        "//tensorflow/stream_executor:stream_executor_headers",
+        "//tensorflow/stream_executor",
         "//third_party/eigen3",
     ],
 )

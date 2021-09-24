@@ -763,14 +763,14 @@ struct ConvToLinalgConverter : public OpConversionPattern<lmhlo::ConvOp> {
 
     llvm::SmallVector<Attribute, 4> strides;
     if (auto window_strides = op.window_strides()) {
-      auto range = window_strides->getAttributeValues();
+      auto range = window_strides->getValues<Attribute>();
       strides.assign(range.begin(), range.end());
     }
     auto strides_arg = ArrayAttr::get(op.getContext(), strides);
 
     llvm::SmallVector<Attribute, 2> dilation;
     if (auto rhs_dilation = op.rhs_dilation()) {
-      auto range = rhs_dilation->getAttributeValues();
+      auto range = rhs_dilation->getValues<Attribute>();
       dilation.assign(range.begin(), range.end());
     } else {
       // Default dilation of 1.
@@ -907,7 +907,7 @@ class HloBroadcastInDimConverter
 
     if (broadcast_op.broadcast_dimensions()) {
       for (const auto& broadcastDim :
-           enumerate(broadcast_op.broadcast_dimensions().getIntValues())) {
+           enumerate(broadcast_op.broadcast_dimensions().getValues<APInt>())) {
         int size = broadcastDim.value().getSExtValue();
         bool expansion_needed = operand_shape[broadcastDim.index()] == 1 &&
                                 result_type.getShape()[size] != 1;
@@ -974,7 +974,7 @@ class HloDynamicBroadcastInDimConverter
 
     if (op.broadcast_dimensions()) {
       for (const auto& broadcast_dim :
-           enumerate(op.broadcast_dimensions().getIntValues())) {
+           enumerate(op.broadcast_dimensions().getValues<APInt>())) {
         int64_t size = broadcast_dim.value().getSExtValue();
         bool expansion_needed = operand_shape[broadcast_dim.index()] == 1;
         dim_exprs.push_back(expansion_needed ? rewriter.getAffineConstantExpr(0)
@@ -1081,7 +1081,7 @@ class LhloBroadcastInDimConverter
     SmallVector<ReassociationIndices, 4> collapsed_dims_list;
     ReassociationIndices collapsed_dims;
     for (const auto& item :
-         enumerate(op.broadcast_dimensions().getIntValues())) {
+         enumerate(op.broadcast_dimensions().getValues<APInt>())) {
       size_t index = item.index();
       int dim = item.value().getSExtValue();
 
@@ -1553,7 +1553,7 @@ class ReduceConverter : public OpConversionPattern<lmhlo::ReduceOp> {
 
     DenseIntElementsAttr dimensions_attr = reduce_op.dimensions();
     SmallVector<int, 4> reduction_dims;
-    for (const auto& dim : dimensions_attr.getIntValues()) {
+    for (const auto& dim : dimensions_attr.getValues<APInt>()) {
       reduction_dims.push_back(dim.getSExtValue());
     }
 
@@ -1958,20 +1958,16 @@ class DotGeneralOpOnTensorsConversion
       return failure();
     }
 
-    mhlo::DotDimensionNumbers dim_numbers = op.dot_dimension_numbers();
-    auto lhs_bathcing_dims =
-        Extract1DVector(dim_numbers.lhs_batching_dimensions());
-    auto rhs_bathcing_dims =
-        Extract1DVector(dim_numbers.rhs_batching_dimensions());
-    auto lhs_contracting_dims =
-        Extract1DVector(dim_numbers.lhs_contracting_dimensions());
-    auto rhs_contracting_dims =
-        Extract1DVector(dim_numbers.rhs_contracting_dimensions());
-    if (lhs_bathcing_dims.size() != 1 || lhs_bathcing_dims[0] != 0) {
+    mhlo::DotDimensionNumbersAttr dim_numbers = op.dot_dimension_numbers();
+    auto lhs_batching_dims = dim_numbers.getLhsBatchingDimensions();
+    auto rhs_batching_dims = dim_numbers.getRhsBatchingDimensions();
+    auto lhs_contracting_dims = dim_numbers.getLhsContractingDimensions();
+    auto rhs_contracting_dims = dim_numbers.getRhsContractingDimensions();
+    if (lhs_batching_dims.size() != 1 || lhs_batching_dims[0] != 0) {
       return rewriter.notifyMatchFailure(
           op, "expected lhs batching dimensions exactly {0}");
     }
-    if (rhs_bathcing_dims.size() != 1 || rhs_bathcing_dims[0] != 0) {
+    if (rhs_batching_dims.size() != 1 || rhs_batching_dims[0] != 0) {
       return rewriter.notifyMatchFailure(
           op, "expected rhs batching dimensions exactly {0}");
     }
