@@ -917,6 +917,7 @@ cc_library(
         "//tensorflow/compiler/xla:xla_data_proto_cc",
         "//tensorflow/compiler/xla/service:buffer_assignment",
         "//tensorflow/compiler/xla/service:hlo",
+        "//tensorflow/compiler/xla/service:hlo_parser",
         "//tensorflow/compiler/xla/service/llvm_ir:llvm_type_conversion_util",
         "//tensorflow/core:lib",
         "//tensorflow/core/platform:stream_executor_no_cuda",
@@ -1761,6 +1762,7 @@ cc_library(
     ] + select({
         ":is_bef_executable_enabled": [
             "//tensorflow/compiler/mlir/tfrt/transforms/lmhlo_to_gpu:lmhlo_to_gpu",
+            "//tensorflow/compiler/mlir/tfrt/transforms/lmhlo_to_gpu:lmhlo_to_gpu_binary",
             "@tf_runtime//:mlirtobef_translate",
             "@tf_runtime//:support",
             "@tf_runtime//:bef",
@@ -1779,6 +1781,18 @@ cc_library(
         ":nvptx_compiler_impl",
     ]),
     alwayslink = True,  # Contains compiler registration
+)
+
+cc_library(
+    name = "nvptx_helper",
+    srcs = ["nvptx_helper.cc"],
+    hdrs = ["nvptx_helper.h"],
+    deps = [
+        "//tensorflow/compiler/xla/service:hlo_module_config",
+        "//tensorflow/core:lib",
+        "//tensorflow/core:lib_internal",
+        "//tensorflow/core/platform:cuda_libdevice_path",
+    ],
 )
 
 cc_library(
@@ -1802,6 +1816,7 @@ cc_library(
         ":gpu_conv_rewriter",
         ":gpu_layout_assignment",
         ":ir_emission_utils",
+        ":nvptx_helper",
         ":target_constants",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/container:node_hash_map",
@@ -2528,6 +2543,7 @@ cc_library(
     ],
 )
 
+# TODO(b/187959015): Expand test patterns; see cl/377552996.
 test_suite(
     name = "bef_thunk_tests",
     tests = [
@@ -2535,9 +2551,22 @@ test_suite(
         # E.g., it takes ~1300s for 256x128 matrix.
         # "//tensorflow/compiler/xla/client/lib:svd_test_gpu",
         "//tensorflow/compiler/xla/service/gpu:custom_call_test",
+        "//tensorflow/compiler/xla/service/gpu/tests:kernel_thunk_test",
         "//tensorflow/compiler/xla/service/gpu/tests:mlir_gemm_test",
+        # TODO(b/187959015): Enable when complex number types are supported.
+        #"//tensorflow/compiler/xla/tests:cholesky_test_gpu",
+        # TODO(b/187959015): Enable when complex number types are supported.
+        #"//tensorflow/compiler/xla/tests:dot_operation_test_gpu",
         "//tensorflow/compiler/xla/tests:multioutput_fusion_test_gpu",
-        "//tensorflow/compiler/xla/tests:triangular_solve_test_gpu",
+        # TODO(b/187959015): Enable when complex number types are supported.
+        # "//tensorflow/compiler/xla/tests:triangular_solve_test_gpu",
         "//tensorflow/compiler/xla/tests:while_test_gpu",
+    ],
+)
+
+test_suite(
+    name = "bef_executable_tests",
+    tests = [
+        "//tensorflow/compiler/xla/service/gpu/tests:bef_executable_test_gpu",
     ],
 )

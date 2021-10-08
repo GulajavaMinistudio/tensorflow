@@ -1606,6 +1606,16 @@ Status IrEmitterUnnested::EmitTriangularSolve(mlir::Operation* op) {
   TF_ASSIGN_OR_RETURN(TriangularSolveOptions_Transpose transpose_a,
                       ConvertTranspose(triangular_solve_op.transpose_a()));
 
+  if (IsBefThunkEnabled()) {
+    std::vector<BufferAllocation::Slice> buffers = {a_slice, b_slice,
+                                                    output_slice};
+    TF_ASSIGN_OR_RETURN(
+        std::unique_ptr<Thunk> thunk,
+        CreateBefThunk(GetThunkInfo(op), op, std::move(buffers)));
+    AddThunkToThunkSequence(std::move(thunk));
+    return Status::OK();
+  }
+
   ThunkSequence thunks;
 
   // Triangular solve is in-place on 'b', so copy 'b' to the output if they
@@ -2717,11 +2727,6 @@ IrEmitterUnnested::GetOrCreateSubComputationFromRegion(mlir::Region* region,
           instr->SetAndSanitizeName(llvm_ir::SanitizeConstantName(
               module->name() + "_" + instr->name()));
         }
-        if (instr->shape().IsTuple() &&
-            computation == module->entry_computation() &&
-            instr != computation->root_instruction()) {
-          return InternalError("Non-root tuple types are not handled.");
-        }
       }
     }
   }
@@ -3583,24 +3588,35 @@ static void UnrollInnerTileLoop(
     return llvm::ConstantInt::get(index_ty, val);
   };
   IrArray::Index source_idx_x_base = source_idx.AddOffsetToDim(y_loc, kDimY, b);
-  for (int64_t j = 0; j < x_num_steps / vector_size; j++) {
-    for (int64_t i = 0; i < vector_size; i++) {
-      int64_t linear_index = j * vector_size + i;
-      llvm::Value* x_loc = b->CreateAdd(constant(j * step_x * vector_size + i),
-                                        start_offset_x, "x_loc");
-      IrArray::Index source_idx_x = source_idx_x_base.AddOffsetToDim(
-          constant(j * step_x * vector_size + i), kDimX, b);
-      auto emit_element = [&] {
-        return (*emit_elem_function)(source_idx_x, y_loc, x_loc, linear_index);
-      };
-      if (check_x_tile_bounds) {
-        ksl->If(loop_name + "_x_in_tile", b->CreateICmpULT(x_loc, tile_width),
-                emit_element);
-      } else {
-        emit_element();
-      }
-    }
-  }
+  KernelSupportLibrary unrolled_ksl(b, llvm_ir::UnrollMode::kFullyUnroll);
+  unrolled_ksl.For(
+      "tile_loop",
+      /*start=*/constant(0),
+      /*end=*/constant(x_num_steps / vector_size),
+      /*step=*/1, [&](llvm::Value* j) {
+        for (int64_t i = 0; i < vector_size; i++) {
+          llvm::Value* linear_index =
+              b->CreateAdd(b->CreateMul(j, constant(vector_size)), constant(i));
+          llvm::Value* x_loc = b->CreateAdd(
+              b->CreateAdd(b->CreateMul(j, constant(step_x * vector_size)),
+                           constant(i)),
+              start_offset_x, "x_loc");
+          IrArray::Index source_idx_x = source_idx_x_base.AddOffsetToDim(
+              b->CreateAdd(b->CreateMul(j, constant(step_x * vector_size)),
+                           constant(i)),
+              kDimX, b);
+          auto emit_element = [&] {
+            return (*emit_elem_function)(source_idx_x, y_loc, x_loc,
+                                         linear_index);
+          };
+          if (check_x_tile_bounds) {
+            ksl->If(loop_name + "_x_in_tile",
+                    b->CreateICmpULT(x_loc, tile_width), emit_element);
+          } else {
+            emit_element();
+          }
+        }
+      });
 }
 
 void IrEmitterUnnested::EmitTile(
@@ -4462,7 +4478,7 @@ void IrEmitterUnnested::EmitHlo021Tile(
 
   EmitElementFunction element_generator =
       [&](const llvm_ir::IrArray::Index& index, llvm::Value* y_loc,
-          llvm::Value* x_loc, int64_t x_iter_num) {
+          llvm::Value* x_loc, llvm::Value* x_iter_num) {
         auto fusion = mlir::dyn_cast<mlir::lmhlo::FusionOp>(op);
         EmitTileElementForFusion(fusion, operand_arrays, output_arrays, index,
                                  tiling_scheme, y_loc, x_loc,
@@ -4489,7 +4505,7 @@ void IrEmitterUnnested::EmitHlo021Tile(
           EmitTile(tiling_scheme, input_tile_origin, "input", ksl,
                    thread_id_info, tile_width, tile_height,
                    [&](const IrArray::Index& index, llvm::Value* y_loc,
-                       llvm::Value* x_loc, int64_t /*x_iter_num*/) {
+                       llvm::Value* x_loc, llvm::Value* /*x_iter_num*/) {
                      for (int64_t id : tiled_param_ids) {
                        IrArray& input_in_logical_shape =
                            param_in_reduced_shape_arrays.at(id);
@@ -4953,7 +4969,7 @@ ReductionCodegenInfo IrEmitterUnnested::ComputeReductionCodegenInfo(
 // Generate a single element of the tile (update the accumulator state) for a
 // given reducer of index `i`.
 void IrEmitterUnnested::GenerateElementForReducer(
-    int i, int partial_result_index, const HloComputation* reducer,
+    int i, llvm::Value* partial_result_index, const HloComputation* reducer,
     const ReductionCodegenState& codegen_state,
     const llvm_ir::IrArray::Index& index_without_linear,
     const IrArray::Index& input_index, int num_partial_results,
@@ -4973,7 +4989,7 @@ void IrEmitterUnnested::GenerateElementForReducer(
         num_partial_results > 1 ? index_without_linear : input_index);
     b_.CreateStore(input_ir_value, input_address);
     llvm::Value* partial_result_address = b_.CreateInBoundsGEP(
-        partial_reduction_result_address, {b_.getInt32(partial_result_index)});
+        partial_reduction_result_address, {partial_result_index});
     reduction_accumulators.push_back(partial_result_address);
     reduction_input_value.push_back(input_address);
   }
@@ -5035,12 +5051,12 @@ void IrEmitterUnnested::EmitIRForReduction(
 
   EmitElementFunction emit_reduction_element =
       [&](const llvm_ir::IrArray::Index& index, llvm::Value* y_loc,
-          llvm::Value* x_loc, int64_t x_iter_num) {
+          llvm::Value* x_loc, llvm::Value* x_iter_num) {
         IrArray::Index input_index = GetUnnormalizedIndex(
             index, input_shape, &b_, codegen_state.GetTilingScheme());
 
-        int partial_result_index =
-            codegen_state.IsRowReduction() ? 0 : x_iter_num;
+        llvm::Value* partial_result_index =
+            codegen_state.IsRowReduction() ? b_.getInt32(0) : x_iter_num;
 
         // Clear the linear index field of the IrArray::Index to enable the use
         // of GetElementPointer with array types. This enables the vectorization
