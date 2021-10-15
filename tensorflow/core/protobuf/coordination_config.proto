@@ -6,7 +6,7 @@ option go_package = "github.com/tensorflow/tensorflow/tensorflow/go/core/protobu
 
 // Coordination service configuration parameters.
 // The system picks appropriate values for fields that are not set.
-message CoordinationServiceConfigs {
+message CoordinationServiceConfig {
   // Type of coordination service implementation to enable.
   // For example, setting the service type as "standalone" starts a service
   // instance on the leader task to provide the coordination services such as

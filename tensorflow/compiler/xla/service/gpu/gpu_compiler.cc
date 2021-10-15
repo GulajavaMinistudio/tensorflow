@@ -76,6 +76,7 @@ limitations under the License.
 #include "tensorflow/compiler/xla/service/flatten_call_graph.h"
 #include "tensorflow/compiler/xla/service/gather_expander.h"
 #include "tensorflow/compiler/xla/service/gpu/alias_passthrough_params.h"
+#include "tensorflow/compiler/xla/service/gpu/all_reduce_blueconnect.h"
 #include "tensorflow/compiler/xla/service/gpu/cudnn_batchnorm_rewriter.h"
 #include "tensorflow/compiler/xla/service/gpu/fusion_bitcast_lift.h"
 #include "tensorflow/compiler/xla/service/gpu/fusion_merger.h"
@@ -552,6 +553,12 @@ Status GpuCompiler::OptimizeHloModule(
       pipeline.AddPass<AllReduceContiguous>();
     }
 
+    int32_t blueconnect_num_devices_per_host =
+        debug_options.xla_gpu_all_reduce_blueconnect_num_devices_per_host();
+    if (blueconnect_num_devices_per_host > 0) {
+      pipeline.AddPass<AllReduceBlueConnect>(blueconnect_num_devices_per_host);
+    }
+
     if (debug_options.xla_gpu_enable_async_all_reduce()) {
       pipeline.AddPass<AsyncCollectiveCreator>(
           AsyncCollectiveCreator::CollectiveCreatorConfig{
@@ -899,7 +906,7 @@ static void NullDiagnosticHandler(const llvm::DiagnosticInfo& diag_info,
   llvm::DiagnosticPrinterRawOStream diagnostic_printer(string_printer);
   diag_info.print(diagnostic_printer);
 
-  VLOG(1) << error_string;
+  VLOG(5) << error_string;
 }
 
 StatusOr<std::pair<std::string, std::vector<uint8>>>
