@@ -13,20 +13,23 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef TENSORFLOW_COMPILER_MLIR_XLA_TRANSFORMS_XLA_PASSES_DETAIL_H_
-#define TENSORFLOW_COMPILER_MLIR_XLA_TRANSFORMS_XLA_PASSES_DETAIL_H_
+#ifndef TENSORFLOW_COMPILER_MLIR_XLA_TRANSFORMS_ADJUST_LAYOUT_H_
+#define TENSORFLOW_COMPILER_MLIR_XLA_TRANSFORMS_ADJUST_LAYOUT_H_
 
-#include "mlir/IR/Dialect.h"
-#include "mlir/Pass/Pass.h"
+#include <memory>
+
+#include "mlir/Pass/Pass.h"  // from @llvm-project
 
 namespace mlir {
 namespace mhlo {
-class MhloDialect;
 
-#define GEN_PASS_CLASSES
-#include "tensorflow/compiler/mlir/xla/transforms/xla_passes.h.inc"
+// Fill in layouts in module using the TPU executor API.
+std::unique_ptr<Pass> CreateAdjustLayoutPass();
+
+// Register the pass for command line testing.
+void RegisterAdjustLayoutPass();
 
 }  // namespace mhlo
 }  // namespace mlir
 
-#endif  // TENSORFLOW_COMPILER_MLIR_XLA_TRANSFORMS_XLA_PASSES_DETAIL_H_
+#endif  // TENSORFLOW_COMPILER_MLIR_XLA_TRANSFORMS_ADJUST_LAYOUT_H_
