@@ -1,4 +1,4 @@
-/* Copyright 2020 The TensorFlow Authors. All Rights Reserved.
+/* Copyright 2015 The TensorFlow Authors. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -13,21 +13,17 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "third_party/eigen3/unsupported/Eigen/CXX11/Tensor"
-#include "tensorflow/core/kernels/mlir_generated/base_gpu_op.h"
+#include "tensorflow/core/common_runtime/local_session_selection.h"
 
 namespace tensorflow {
 
-GENERATE_AND_REGISTER_UNARY_GPU_KERNEL(Abs, DT_HALF);
-GENERATE_AND_REGISTER_UNARY_GPU_KERNEL(Abs, DT_FLOAT);
-GENERATE_AND_REGISTER_UNARY_GPU_KERNEL(Abs, DT_DOUBLE);
-// TODO(b/25387198): Add an int32 kernel.
-GENERATE_AND_REGISTER_UNARY_GPU_KERNEL(Abs, DT_INT64);
+static LocalSessionImpl default_local_session =
+    LocalSessionImpl::kDirectSession;
 
-// These kernels are JIT-compiled.
-#if defined(MLIR_GENERATED_EXPERIMENTAL_KERNELS_ENABLED)
-GENERATE_AND_REGISTER_UNARY_GPU_KERNEL(Abs, DT_INT8);
-GENERATE_AND_REGISTER_UNARY_GPU_KERNEL(Abs, DT_INT16);
-#endif
+void SetDefaultLocalSessionImpl(LocalSessionImpl impl) {
+  default_local_session = impl;
+}
+
+LocalSessionImpl GetDefaultLocalSessionImpl() { return default_local_session; }
 
 }  // namespace tensorflow
