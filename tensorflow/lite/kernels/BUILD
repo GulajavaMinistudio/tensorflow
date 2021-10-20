@@ -556,6 +556,7 @@ BUILTIN_KERNEL_SRCS = [
     "bidirectional_sequence_rnn.cc",
     "broadcast_args.cc",
     "broadcast_to.cc",
+    "bucketize.cc",
     "call_once.cc",
     "cast.cc",
     "ceil.cc",
@@ -1119,6 +1120,20 @@ cc_test(
 )
 
 cc_test(
+    name = "bucketize_test",
+    size = "small",
+    srcs = ["bucketize_test.cc"],
+    deps = [
+        ":builtin_ops",
+        ":test_main",
+        ":test_util",
+        "//tensorflow/lite/schema:schema_fbs",
+        "//tensorflow/lite/testing:util",
+        "@com_google_googletest//:gtest",
+    ],
+)
+
+cc_test(
     name = "cast_test",
     size = "small",
     srcs = ["cast_test.cc"],
@@ -1470,12 +1485,26 @@ cc_test(
     ],
 )
 
+cc_library(
+    name = "reduce_test_common",
+    testonly = 1,
+    hdrs = [
+        "reduce_test_common.h",
+    ],
+    deps = [
+        ":test_util",
+        "//tensorflow/lite:string",
+        "//tensorflow/lite/schema:schema_fbs",
+    ],
+)
+
 cc_test(
     name = "reduce_test",
     size = "small",
     srcs = ["reduce_test.cc"],
     tags = ["tflite_nnapi"],
     deps = [
+        ":reduce_test_common",
         ":test_main",
         ":test_util",
         "//tensorflow/lite/schema:schema_fbs",
