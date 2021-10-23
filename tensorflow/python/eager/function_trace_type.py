@@ -14,7 +14,7 @@
 # ==============================================================================
 """Utitiles for Cache Key generation based on Function Trace Type."""
 
-from typing import Dict, Optional, Sequence
+from typing import Dict, Optional, Sequence, Type, Tuple
 import weakref
 
 import numpy as np
@@ -32,7 +32,8 @@ from tensorflow.python.util import _pywrap_utils
 class SignatureContext(trace.TracingContext):
   """Container for variables and flags shared across signature tracing."""
 
-  def __init__(self):
+  def __init__(self, include_tensor_ranks_only=False):
+    self._include_tensor_ranks_only = include_tensor_ranks_only
     self._global_to_local_id = {}
 
   # TODO(b/202772221): Consider dropping after alias pattern matching is
@@ -43,6 +44,11 @@ class SignatureContext(trace.TracingContext):
       self._global_to_local_id[local_id] = len(self._global_to_local_id)
 
     return self._global_to_local_id[local_id]
+
+  # TODO(b/202430155): Remove this flag after TraceType shape relaxation.
+  @property
+  def include_tensor_ranks_only(self):
+    return self._include_tensor_ranks_only
 
 
 class GenericType(trace.TraceType):
@@ -211,8 +217,22 @@ class TupleType(OrderedCollectionType):
   pass
 
 
+class AttrsType(OrderedCollectionType):
+  """Represents a class annotated by attr.s.
+
+  Each attr.s class has a fixed, ordered set of attributes. Therefore, we only
+  need to consider the class type and the underlying attributes. Extra
+  metadata including attribute names can be ignored.
+  """
+
+  def __init__(self, classtype: Type[object],
+               attributes: Tuple[trace.TraceType]):
+    super().__init__(GenericType(classtype) + attributes)
+
+
 _pywrap_utils.RegisterType("ListType", ListType)
 _pywrap_utils.RegisterType("TupleType", TupleType)
+_pywrap_utils.RegisterType("AttrsType", TupleType)
 
 
 class DictType(trace.TraceType):
@@ -269,7 +289,7 @@ def get_arg_spec(inputs, include_tensor_ranks_only,
   """
 
   # TODO(b/201533914): Drop GenericType once TFE_Py_EncodeArg returns TraceType.
-  signature_context = SignatureContext()
+  signature_context = SignatureContext(include_tensor_ranks_only)
   try:
     return GenericType(
         pywrap_tfe.TFE_Py_EncodeArg(inputs, signature_context,
@@ -278,4 +298,3 @@ def get_arg_spec(inputs, include_tensor_ranks_only,
                                     use_full_trace_type))
   except core._NotOkStatusException as e:  # pylint: disable=protected-access
     raise core._status_to_exception(e) from None  # pylint: disable=protected-access
-
