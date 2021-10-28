@@ -543,29 +543,6 @@ void GetOptimizations(const Options& options,
   }
 }
 
-absl::flat_hash_set<tstring> SelectOptimizations(
-    const absl::flat_hash_set<string>& experiments,
-    const absl::flat_hash_set<tstring>& optimizations_enabled,
-    const absl::flat_hash_set<tstring>& optimizations_disabled,
-    const absl::flat_hash_set<tstring>& optimizations_default) {
-  absl::flat_hash_set<tstring> optimizations;
-
-  // Add the enabled and default optimizations.
-  optimizations.insert(optimizations_enabled.begin(),
-                       optimizations_enabled.end());
-  optimizations.insert(optimizations_default.begin(),
-                       optimizations_default.end());
-
-  // Add experiments unless they correspond to a disabled optimization.
-  for (auto& experiment : experiments) {
-    if (!optimizations_disabled.contains(experiment)) {
-      optimizations.insert(experiment);
-    }
-  }
-
-  return optimizations;
-}
-
 Tensor MaybeCopySubSlice(const Tensor& tensor, int64 index) {
   Tensor slice = tensor.SubSlice(index);
   if (slice.IsAligned()) {
@@ -903,6 +880,7 @@ absl::flat_hash_map<string, int64_t> DatasetExperimentRegistry::Experiments() {
 namespace {
 
 REGISTER_DATASET_EXPERIMENT("max_parallelism", 100);
+REGISTER_DATASET_EXPERIMENT("max_parallelism_v2", 5);
 REGISTER_DATASET_EXPERIMENT("min_outer_interleave_parallelism", 0);
 REGISTER_DATASET_EXPERIMENT("inject_prefetch", 0);
 }  // namespace

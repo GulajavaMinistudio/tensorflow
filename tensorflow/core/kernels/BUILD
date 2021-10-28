@@ -4457,6 +4457,7 @@ tf_kernel_library(
     deps = [
         "//tensorflow/core:framework",
         "//tensorflow/core:lib",
+        "//tensorflow/core/util:determinism_for_kernels",
         "//third_party/eigen3",
     ],
     alwayslink = 1,
@@ -7815,5 +7816,14 @@ tf_cc_test(
         "//tensorflow/core:test",
         "//tensorflow/core:test_main",
         "//tensorflow/core:testlib",
+    ],
+)
+
+tf_kernel_library(
+    name = "filesystem_ops",
+    srcs = ["filesystem_ops.cc"],
+    deps = [
+        "//tensorflow/core:framework",
+        "//tensorflow/core:lib",
     ],
 )
