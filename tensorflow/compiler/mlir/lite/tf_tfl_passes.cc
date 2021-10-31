@@ -89,7 +89,8 @@ void AddConvertHloToTfPass(std::string entry_function_name,
   pass_manager->addPass(
       mlir::mhlo::CreateExpandHloTuplesPass(entry_function_name));
   // Flatten tuples for control flows.
-  pass_manager->addPass(mlir::mhlo::createFlattenTuplePass());
+  pass_manager->addNestedPass<mlir::FuncOp>(
+      mlir::mhlo::createFlattenTuplePass());
 
   // TF dialect passes
   pass_manager->addNestedPass<mlir::FuncOp>(
@@ -99,11 +100,13 @@ void AddConvertHloToTfPass(std::string entry_function_name,
   pass_manager->addNestedPass<mlir::FuncOp>(mlir::createCanonicalizerPass());
 }
 
-void AddTFToTFLConversionPasses(const toco::ModelFlags& model_flags,
-                                const toco::TocoFlags& toco_flags,
-                                const mlir::TFL::PassConfig& pass_config,
-                                mlir::OpPassManager* pass_manager,
-                                llvm::Optional<tensorflow::Session*> session) {
+// This is the early part of the conversion in isolation. This enables a caller
+// to inject more information in the middle of the conversion before resuming
+// it.
+void AddPreVariableFreezingTFToTFLConversionPasses(
+    llvm::StringRef saved_model_dir, const toco::TocoFlags& toco_flags,
+    const mlir::TFL::PassConfig& pass_config,
+    mlir::OpPassManager* pass_manager) {
   if (pass_config.enable_hlo_to_tf_conversion) {
     // TODO(b/194747383): We need to valid that indeed the "main" func is
     // presented.
@@ -132,17 +135,10 @@ void AddTFToTFLConversionPasses(const toco::ModelFlags& model_flags,
     pass_manager->addPass(mlir::TF::CreateTFShapeInferencePass());
   }
 
-  // TODO(b/149099381): Remove after handling WhileRegion in favor of later
-  // instance.
-  if (session.hasValue()) {
-    pass_manager->addPass(
-        mlir::tf_saved_model::CreateFreezeVariablesPass(session.getValue()));
-  }
-
   // Keep this pass after the shape inference pass, which couldn't do shape
   // inference for non-tf ops.
   if (!pass_config.quant_specs.serialized_quant_stats.empty()) {
-    pass_manager->addPass(
+    pass_manager->addNestedPass<mlir::FuncOp>(
         mlir::quant::CreateImportQuantStatsPassForTFControlDialect(
             pass_config.quant_specs.serialized_quant_stats));
   }
@@ -160,13 +156,15 @@ void AddTFToTFLConversionPasses(const toco::ModelFlags& model_flags,
   // during which resources dont get frozen in the python layer.
   pass_manager->addNestedPass<mlir::FuncOp>(
       mlir::TFDevice::CreateDecomposeResourceOpsPass());
+}
 
-  // Try freezing again read only vars post resource decomposition.
-  if (session.hasValue()) {
-    pass_manager->addPass(
-        mlir::tf_saved_model::CreateFreezeVariablesPass(session.getValue()));
-  }
-
+// This is the later part of the conversion in isolation. This enables a caller
+// to resume the conversion after injecting more information in the middle of
+// it.
+void AddPostVariableFreezingTFToTFLConversionPasses(
+    llvm::StringRef saved_model_dir, const toco::TocoFlags& toco_flags,
+    const mlir::TFL::PassConfig& pass_config,
+    mlir::OpPassManager* pass_manager) {
   // Note:
   // We need to fuse composite ops before LowerStaticTensorList pass.
   // The tensorflow list is not supported right now by that pass.
@@ -234,11 +232,11 @@ void AddTFToTFLConversionPasses(const toco::ModelFlags& model_flags,
         /*allow_mutable_tensors=*/pass_config.enable_tflite_variables));
   }
 
-  if (!model_flags.saved_model_dir().empty()) {
+  if (!saved_model_dir.empty()) {
     // This pass 'freezes' tf saved model asset ops and inlines as string values
     // in a format of the tf constant op.
-    pass_manager->addPass(mlir::tf_saved_model::CreateFreezeAssetsPass(
-        model_flags.saved_model_dir()));
+    pass_manager->addPass(
+        mlir::tf_saved_model::CreateFreezeAssetsPass(saved_model_dir.str()));
   }
 
   // The below passes only make sense if Builtin TFLite ops are enabled
@@ -276,8 +274,7 @@ void AddTFToTFLConversionPasses(const toco::ModelFlags& model_flags,
 
     // This pass removes the asset file dependencies in hash table use cases.
     pass_manager->addNestedPass<mlir::FuncOp>(
-        mlir::TF::CreateInitTextFileToImportPass(
-            model_flags.saved_model_dir()));
+        mlir::TF::CreateInitTextFileToImportPass(saved_model_dir.str()));
 
     pass_manager->addNestedPass<mlir::FuncOp>(
         mlir::TFL::CreateLegalizeTFPass(pass_config.runtime_verification));
@@ -325,15 +322,29 @@ void AddTFToTFLConversionPasses(const toco::ModelFlags& model_flags,
   if (pass_config.unfold_large_splat_constant) {
     pass_manager->addPass(mlir::TFL::CreateUnfoldLargeSplatConstantPass());
   }
+  if (pass_config.outline_tf_while) {
+    pass_manager->addPass(mlir::TFL::CreateWhileOutlinePass());
+  }
+  if (pass_config.runtime_verification) {
+    pass_manager->addNestedPass<mlir::FuncOp>(
+        mlir::TFL::CreateRuntimeVerifyPass());
+  }
 }
 
+void AddTFToTFLConversionPasses(llvm::StringRef saved_model_dir,
+                                const toco::TocoFlags& toco_flags,
+                                const mlir::TFL::PassConfig& pass_config,
+                                mlir::OpPassManager* pass_manager) {
+  AddPreVariableFreezingTFToTFLConversionPasses(saved_model_dir, toco_flags,
+                                                pass_config, pass_manager);
+  AddPostVariableFreezingTFToTFLConversionPasses(saved_model_dir, toco_flags,
+                                                 pass_config, pass_manager);
+}
 void AddTFToTFLConversionPasses(const mlir::TFL::PassConfig& pass_config,
-                                mlir::OpPassManager* pass_manager,
-                                llvm::Optional<tensorflow::Session*> session) {
-  const toco::ModelFlags model_flags;
+                                mlir::OpPassManager* pass_manager) {
   const toco::TocoFlags toco_flags;
-  AddTFToTFLConversionPasses(model_flags, toco_flags, pass_config, pass_manager,
-                             session);
+  AddTFToTFLConversionPasses(/*saved_model_dir=*/"", toco_flags, pass_config,
+                             pass_manager);
 }
 
 }  // namespace tensorflow

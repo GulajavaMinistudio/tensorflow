@@ -743,6 +743,7 @@ tf_gen_op_wrapper_private_py(
         "//learning/brain/python/ops:__pkg__",
         "//tensorflow/compiler/tests:__pkg__",
         "//tensorflow/python/kernel_tests:__pkg__",
+        "//tensorflow/python/kernel_tests/math_ops:__pkg__",
     ],
 )
 
@@ -2986,7 +2987,10 @@ cuda_py_test(
     size = "medium",
     srcs = ["ops/nn_fused_batchnorm_deterministic_test.py"],
     python_version = "PY3",
-    tags = ["no_rocm"],
+    tags = [
+        "no_rocm",
+        "no_tsan",
+    ],
     deps = [
         ":client_testlib",
         ":config",
