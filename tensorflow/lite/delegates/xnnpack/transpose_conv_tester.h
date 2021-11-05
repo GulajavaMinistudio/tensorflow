@@ -130,6 +130,8 @@ class TransposeConvTester {
     return *this;
   }
 
+  inline ::tflite::Padding Padding() const { return padding_; }
+
   inline int32_t InputWidth() const {
     return ComputeInputSize(OutputWidth(), KernelWidth(), StrideWidth());
   }
@@ -187,8 +189,6 @@ class TransposeConvTester {
 
  private:
   std::vector<char> CreateTfLiteModel() const;
-
-  inline ::tflite::Padding Padding() const { return padding_; }
 
   int32_t batch_size_ = 1;
   int32_t input_channels_ = 1;

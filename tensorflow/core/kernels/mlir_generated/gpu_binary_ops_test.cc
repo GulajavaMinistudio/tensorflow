@@ -49,6 +49,10 @@ GENERATE_DEFAULT_TESTS(Add, /*test_name=*/Float, float, float, baseline_add,
                        test::OpsTestConfig().ExpectStrictlyEqual())
 GENERATE_DEFAULT_TESTS(Add, /*test_name=*/Double, double, double, baseline_add,
                        test::OpsTestConfig().ExpectStrictlyEqual())
+GENERATE_DEFAULT_TESTS(Add, /*test_name=*/Int8, int8_t, int8_t, baseline_add,
+                       test::OpsTestConfig().ExpectStrictlyEqual())
+GENERATE_DEFAULT_TESTS(Add, /*test_name=*/Int16, int16_t, int16_t, baseline_add,
+                       test::OpsTestConfig().ExpectStrictlyEqual())
 GENERATE_DEFAULT_TESTS(Add, /*test_name=*/Int64, int64_t, int64_t, baseline_add,
                        test::OpsTestConfig().ExpectStrictlyEqual())
 GENERATE_DEFAULT_TESTS(Add, /*test_name=*/UInt8, uint8_t, uint8_t, baseline_add,
@@ -60,13 +64,6 @@ GENERATE_DEFAULT_TESTS(Add, /*test_name=*/Complex128, std::complex<double>,
                        std::complex<double>, baseline_add,
                        test::OpsTestConfig().ExpectStrictlyEqual())
 
-#if defined(MLIR_GENERATED_GPU_KERNELS_ENABLED) && \
-    defined(MLIR_GENERATED_EXPERIMENTAL_KERNELS_ENABLED)
-GENERATE_DEFAULT_TESTS(Add, /*test_name=*/Int8, int8_t, int8_t, baseline_add,
-                       test::OpsTestConfig().ExpectStrictlyEqual())
-GENERATE_DEFAULT_TESTS(Add, /*test_name=*/Int16, int16_t, int16_t, baseline_add,
-                       test::OpsTestConfig().ExpectStrictlyEqual())
-#endif
 
 /// Test `tf.AddV2`.
 
@@ -348,8 +345,6 @@ GENERATE_DEFAULT_TESTS_WITH_SPECIFIC_INPUT_VALUES(
     test::OpsTestConfig().ExpectStrictlyEqual())
 
 // These kernels are JIT-compiled.
-#if defined(MLIR_GENERATED_GPU_KERNELS_ENABLED) && \
-    defined(MLIR_GENERATED_EXPERIMENTAL_KERNELS_ENABLED)
 GENERATE_DEFAULT_TESTS_WITH_SPECIFIC_INPUT_VALUES(
     Div,
     /*test_name=*/Int8, int8_t, int8_t, test::DefaultInput<int8_t>(),
@@ -365,7 +360,6 @@ GENERATE_DEFAULT_TESTS_WITH_SPECIFIC_INPUT_VALUES(
     /*test_name=*/Uint64, uint64_t, uint64_t, test::DefaultInput<uint64_t>(),
     test::DefaultInputNonZero<uint64_t>(), baseline_div,
     test::OpsTestConfig().ExpectStrictlyEqual())
-#endif
 
 // The following tests don't work with Eigen kernels if the Eigen kernels are
 // compiled with nvcc.
@@ -810,8 +804,6 @@ GENERATE_DEFAULT_TESTS(Maximum, /*test_name=*/UInt8, uint8_t, uint8_t,
                        test::OpsTestConfig().ExpectStrictlyEqual())
 
 /// Test the experimental JIT-compiled kernels.
-#if defined(MLIR_GENERATED_GPU_KERNELS_ENABLED) && \
-    defined(MLIR_GENERATED_EXPERIMENTAL_KERNELS_ENABLED)
 GENERATE_DEFAULT_TESTS(Maximum, /*test_name=*/Int8, int8_t, int8_t,
                        baseline_maximum,
                        test::OpsTestConfig().ExpectStrictlyEqual())
@@ -825,7 +817,6 @@ GENERATE_DEFAULT_TESTS(Maximum, /*test_name=*/UInt32, uint32_t, uint32_t,
 GENERATE_DEFAULT_TESTS(Maximum, /*test_name=*/UInt64, uint64_t, uint64_t,
                        baseline_maximum,
                        test::OpsTestConfig().ExpectStrictlyEqual())
-#endif
 
 /// Test `tf.Minmum`.
 
@@ -854,8 +845,6 @@ GENERATE_DEFAULT_TESTS(Minimum, /*test_name=*/UInt8, uint8_t, uint8_t,
                        test::OpsTestConfig().ExpectStrictlyEqual())
 
 /// Test the experimental JIT-compiled kernels.
-#if defined(MLIR_GENERATED_GPU_KERNELS_ENABLED) && \
-    defined(MLIR_GENERATED_EXPERIMENTAL_KERNELS_ENABLED)
 GENERATE_DEFAULT_TESTS(Minimum, /*test_name=*/Int8, int8_t, int8_t,
                        baseline_minimum,
                        test::OpsTestConfig().ExpectStrictlyEqual())
@@ -869,7 +858,6 @@ GENERATE_DEFAULT_TESTS(Minimum, /*test_name=*/UInt32, uint32_t, uint32_t,
 GENERATE_DEFAULT_TESTS(Minimum, /*test_name=*/UInt64, uint64_t, uint64_t,
                        baseline_minimum,
                        test::OpsTestConfig().ExpectStrictlyEqual())
-#endif
 
 /// Test `tf.Mul`.
 
