@@ -1,4 +1,4 @@
-# Copyright 2017 The TensorFlow Authors. All Rights Reserved.
+# Copyright 2021 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,23 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Miscellaneous utilities that don't fit anywhere else."""
 
-import importlib
-import sys
+from . import XlaComputation
 
-import six
-
-
-class BasicRef(object):
-  """This shim emulates the nonlocal keyword in Py2-compatible source."""
-
-  def __init__(self, init_value):
-    self.value = init_value
-
-
-def deprecated_py2_support(module_name):
-  """Swaps calling module with a Py2-specific implementation. Noop in Py3."""
-  if six.PY2:
-    legacy_module = importlib.import_module(module_name + '_deprecated_py2')
-    sys.modules[module_name] = legacy_module
+def xla_computation_to_mlir_module(computation: XlaComputation) -> str: ...

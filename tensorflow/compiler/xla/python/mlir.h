@@ -12,18 +12,16 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
-#include "third_party/eigen3/unsupported/Eigen/CXX11/Tensor"
-#include "tensorflow/core/kernels/mlir_generated/base_gpu_op.h"
 
-namespace tensorflow {
+#ifndef TENSORFLOW_COMPILER_XLA_PYTHON_MLIR_H_
+#define TENSORFLOW_COMPILER_XLA_PYTHON_MLIR_H_
 
-GENERATE_AND_REGISTER_BINARY_GPU_KERNEL(Pow, DT_HALF);
-GENERATE_AND_REGISTER_BINARY_GPU_KERNEL(Pow, DT_FLOAT);
-GENERATE_AND_REGISTER_BINARY_GPU_KERNEL(Pow, DT_DOUBLE);
-GENERATE_AND_REGISTER_BINARY_GPU_KERNEL(Pow, DT_INT64);
+#include "pybind11/pybind11.h"
 
-// These kernels are JIT-compiled.
-GENERATE_AND_REGISTER_BINARY_JIT_GPU_KERNEL(Pow, DT_INT8);
-GENERATE_AND_REGISTER_BINARY_JIT_GPU_KERNEL(Pow, DT_INT16);
+namespace xla {
 
-}  // namespace tensorflow
+void BuildMlirSubmodule(pybind11::module& m);
+
+}  // namespace xla
+
+#endif  // TENSORFLOW_COMPILER_XLA_PYTHON_MLIR_H_
