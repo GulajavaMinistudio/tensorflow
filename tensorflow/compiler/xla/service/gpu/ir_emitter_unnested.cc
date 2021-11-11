@@ -1052,6 +1052,10 @@ Status IrEmitterUnnested::EmitConvolutionThunk(mlir::Operation* op) {
           op.backend_config().tensor_ops_enabled().getValue()
               ? se::dnn::AlgorithmProto::TENSOR_OP_MATH
               : se::dnn::AlgorithmProto::DEFAULT_MATH);
+      auto workspace_size = op.backend_config().workspace_size().getInt();
+      if (workspace_size >= 0) {
+        algorithm->mutable_workspace_size()->set_value(workspace_size);
+      }
     }
     descriptor.backend_config.set_conv_result_scale(
         op.result_scale().convertToDouble());
@@ -2715,6 +2719,7 @@ IrEmitterUnnested::GetOrCreateSubComputationFromRegion(mlir::Region* region,
     mlir::MlirToHloConversionOptions options;
     options.propagate_layouts = true;
     options.propagate_bitcast_layouts_to_backend_config = true;
+    options.legalize_node_names = false;
     TF_RETURN_IF_ERROR(
         ConvertRegionToComputation(region, &xla_computation, options));
 
