@@ -1044,7 +1044,10 @@ def TFL_FullyConnectedOp : TFL_Op<"fully_connected", [
 
     TFL_AFAttr:$fused_activation_function,
     TFL_FullyConnectedOptionsWeightFormatAttr:$weights_format,
-    BoolAttr:$keep_num_dims
+    BoolAttr:$keep_num_dims,
+    // Used in post-training dynamic range quantization. If the value is true,
+    // input activations are asymmetrically quantized.
+    OptionalAttr<BoolAttr>:$asymmetric_quantize_inputs
   );
 
   // Depending on the weights format, this op can have one or two outputs.
@@ -4038,6 +4041,9 @@ Ba et al. 'Layer Normalization'
     Confined<
       DefaultValuedStrAttr<TFL_LSTMKernelTypeAttr, "FULL">,
       [TFL_LSTM_KT_FULL]>:$kernel_type,
+    // Used in post-training dynamic range quantization. If the value is true,
+    // input activations are asymmetrically quantized.
+    OptionalAttr<BoolAttr>:$asymmetric_quantize_inputs,
 
     // Types of the optional intermediate tensors, which exist for fully
     // quantized LSTM op and hold the ranges of the intermediate tensors.
