@@ -64,6 +64,7 @@ cc_library(
         ":util",
         "//tensorflow/lite/c:common",
         "//tensorflow/lite:string_util",
+        "//tensorflow/lite/experimental/resource",
     ] + select({
         "//tensorflow:android": [
             "//tensorflow/core:portable_tensorflow_lib_lite",
@@ -223,6 +224,7 @@ cc_library(
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/strings",
         "@flatbuffers",
+        "//tensorflow/lite/c:common",
         "//tensorflow/lite/schema:schema_fbs",
         "//tensorflow/lite:cc_api",
         "//tensorflow/lite:util",
@@ -270,6 +272,7 @@ cc_library(
     hdrs = ["subgraph_resource.h"],
     features = tf_features_nolayering_check_if_android_or_ios(),
     deps = [
+        "//tensorflow/lite/c:common",
         "//tensorflow/lite:cc_api",
     ] + select({
         "//tensorflow:android": [
@@ -322,6 +325,8 @@ cc_library(
     deps = [
         "//tensorflow/lite/c:common",
         "//tensorflow/lite:kernel_api",
+        "@com_google_absl//absl/strings:str_format",
+        "//tensorflow/lite/kernels/internal:tensor",
     ] + select({
         "//tensorflow:android": [
             "//tensorflow/core:portable_tensorflow_lib_lite",
@@ -343,7 +348,9 @@ tf_cc_test(
     srcs = ["util_test.cc"],
     deps = [
         ":util",
+        "//tensorflow/core:framework",
         "//tensorflow/lite:string",
+        "//tensorflow/lite:util",
         "//tensorflow/lite/testing:util",
         "@com_google_googletest//:gtest_main",
     ],
@@ -419,6 +426,9 @@ cc_library(
         ":buffer_map_util",
         ":subgraph_resource",
         ":util",
+        "@com_google_absl//absl/strings",
+        "//tensorflow/lite/kernels/internal:tensor",
+        "@com_google_absl//absl/strings:str_format",
         "//tensorflow/lite:cc_api",
         "//tensorflow/lite:string_util",
         "//tensorflow/lite/c:c_api_types",

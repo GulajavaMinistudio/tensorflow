@@ -145,6 +145,8 @@ bool IsOpAllowedTf2XlaFallback(Operation* op) {
     TypeID::get<TF::FakeParamOp>(),
     TypeID::get<TF::FakeQuantWithMinMaxArgsGradientOp>(),
     TypeID::get<TF::FakeQuantWithMinMaxVarsGradientOp>(),
+    TypeID::get<TF::FakeQuantWithMinMaxVarsPerChannelOp>(),
+    TypeID::get<TF::FakeQuantWithMinMaxVarsPerChannelGradientOp>(),
     TypeID::get<TF::FloorDivOp>(),
     TypeID::get<TF::FloorModOp>(),
     TypeID::get<TF::GreaterOp>(),
@@ -313,6 +315,7 @@ bool IsOpAllowedTf2XlaPreferred(Operation* op) {
     TypeID::get<TF::_EagerConstOp>(),
     TypeID::get<TF::EmptyOp>(),
     TypeID::get<TF::ExpandDimsOp>(),
+    TypeID::get<TF::FakeQuantWithMinMaxVarsOp>(),
     TypeID::get<TF::FillOp>(),
     TypeID::get<TF::FusedBatchNormOp>(),
     TypeID::get<TF::FusedBatchNormGradOp>(),
@@ -385,10 +388,6 @@ bool IsOpAllowedTf2XlaPreferred(Operation* op) {
     TypeID::get<TF::XlaGatherOp>(),
     TypeID::get<TF::Xlog1pyOp>(),
     TypeID::get<TF::ZerosLikeOp>(),
-
-    // XlaOpKernel makes use of compiler options which we don't feed in the
-    // fallback.
-    // TypeID::get<TF::FakeQuantWithMinMaxVarsOp>(),
   };
   // clang-format on
   auto* abstractOp = op->getAbstractOperation();
