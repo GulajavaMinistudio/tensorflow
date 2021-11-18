@@ -45,6 +45,16 @@
       initialization time upto 90% when OpenCL is available.
   * Deprecated `Interpreter::SetNumThreads`, in favor of
     `InterpreterBuilder::SetNumThreads`.
+* Adds `tf.compat.v1.keras.utils.get_or_create_layer` to aid migration to TF2 by
+  enabling tracking of nested keras models created in TF1-style, when used with
+  the `tf.compat.v1.keras.utils.track_tf1_style_variables` decorator.
+
+* `tf.keras`:
+  * Preprocessing Layers
+    * Added a `tf.keras.layers.experimental.preprocessing.HashedCrossing`
+      layer which applies the hashing trick to the concatenation of crossed
+      scalar inputs. This provides a stateless way to try adding feature crosses
+      of integer or string data to a model.
 
 # Thanks to our Contributors
 
