@@ -1611,22 +1611,38 @@ class BoostedTreesSparseAggregateStatsOp : public OpKernel {
     // node_ids.
     const Tensor* node_ids_t;
     OP_REQUIRES_OK(context, context->input("node_ids", &node_ids_t));
+    OP_REQUIRES(
+        context, TensorShapeUtils::IsVector(node_ids_t->shape()),
+        errors::InvalidArgument("node_ids must be a vector, received shape ",
+                                node_ids_t->shape().DebugString()));
     const auto node_ids = node_ids_t->vec<int32>();
 
     // gradients.
     const Tensor* gradients_t;
     OP_REQUIRES_OK(context, context->input("gradients", &gradients_t));
+    OP_REQUIRES(
+        context, TensorShapeUtils::IsMatrix(gradients_t->shape()),
+        errors::InvalidArgument("gradients must be a matrix, received shape ",
+                                gradients_t->shape().DebugString()));
     const auto gradients = gradients_t->matrix<float>();
 
     // hessians.
     const Tensor* hessians_t;
     OP_REQUIRES_OK(context, context->input("hessians", &hessians_t));
+    OP_REQUIRES(
+        context, TensorShapeUtils::IsMatrix(hessians_t->shape()),
+        errors::InvalidArgument("hessians must be a matrix, received shape ",
+                                hessians_t->shape().DebugString()));
     const auto hessians = hessians_t->matrix<float>();
 
     // feature indices.
     const Tensor* feature_indices_t;
     OP_REQUIRES_OK(context,
                    context->input("feature_indices", &feature_indices_t));
+    OP_REQUIRES(context, TensorShapeUtils::IsMatrix(feature_indices_t->shape()),
+                errors::InvalidArgument(
+                    "feature_indices must be a matrix, received shape ",
+                    feature_indices_t->shape().DebugString()));
     const auto feature_indices = feature_indices_t->matrix<int32>();
 
     // feature values.
