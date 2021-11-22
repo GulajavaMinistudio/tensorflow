@@ -13,20 +13,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "tensorflow/compiler/mlir/tfrt/benchmarks/reduction_benchmark.h"
+include "mlir/IR/OpBase.td"
+include "mlir/Dialect/StandardOps/IR/Ops.td"
+include "mlir/Dialect/Arithmetic/IR/ArithmeticOps.td"
+include "tensorflow/compiler/mlir/tensorflow/ir/tf_ops.td"
 
-namespace tensorflow {
-namespace {
-
-BM_TFMlir1(AllReduceDynamic, f32, /* num_threads */ 0,
-           MlirSpec("tf.Sum", "f32", {kDynamicDim}, /*dims_to_reduce=*/{0}));
-BM_TFMlir1(AllReduceStatic, f32, /* num_threads */ 0,
-           MlirSpec("tf.Sum", "f32", {kStaticDim}, /*dims_to_reduce=*/{0}));
-BM_Eigen1(AllReduce, f32, /* num_threads */ 0);
-
-// BM_TFMlir1(AllReduce, f32, /* num_threads */ 8,
-//           MlirSpec("tf.Sum", "f32", {kDynamicDim}, /*dims_to_reduce=*/{0}));
-// BM_Eigen1(AllReduce, f32, /* num_threads */ 8);
-
-}  // namespace
-}  // namespace tensorflow
+// Folds TF IdentityOp with constant input.
+def RemoveConstIdentityOp : Pat<
+  (TF_IdentityOp (TF_ConstOp $input)),
+  (TF_ConstOp $input)>;

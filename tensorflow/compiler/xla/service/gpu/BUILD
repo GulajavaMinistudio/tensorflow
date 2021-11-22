@@ -2235,11 +2235,9 @@ tf_cc_test(
     srcs = ["cudnn_fused_conv_rewriter_test.cc"],
     tags = [
         "gpu",
-        "manual",  # TODO(b/190854862)
         "no_oss",
         "noasan",
         "nomsan",
-        "notap",  # TODO(b/190854862)
         "requires-gpu-sm70",
     ],
     deps = [
@@ -2651,5 +2649,6 @@ test_suite(
         "//tensorflow/compiler/xla/service/gpu/tests:sorting.hlo.test",
         "//tensorflow/compiler/xla/service/gpu/tests:sorting_test",
         "//tensorflow/compiler/xla/service/gpu/tests:tree_reduction_rewriter_test",
+        "//tensorflow/compiler/xla/tests:multioutput_fusion_test_gpu",
     ],
 )
