@@ -32,6 +32,7 @@ limitations under the License.
 #include "tensorflow/core/lib/io/path.h"
 #include "tensorflow/core/platform/status.h"
 #include "tensorflow/core/platform/statusor.h"
+#include "tensorflow/stream_executor/stream.h"
 
 #if defined(GOOGLE_CUDA) || defined(TENSORFLOW_USE_ROCM)
 #include "tensorflow/compiler/mlir/tools/kernel_gen/tf_gpu_runtime_wrappers.h"
@@ -229,10 +230,10 @@ llvm::SmallVector<T, 8> SmallVectorFromCArray(int64_t num_elements,
 }  // namespace
 
 extern "C" void* _mlir_ciface_tf_jit_compile(
-    void* op_kernel_ctx, char* code, int64_t num_architectures,
-    char** architectures_ptr, int64_t num_tile_sizes, int64_t* tile_sizes_ptr,
-    int64_t num_unroll_factors, int64_t* unroll_factors_ptr,
-    int64_t max_supported_rank, bool enable_ftz, bool cpu_codegen) {
+    void* op_kernel_ctx, char* code, int64_t num_tile_sizes,
+    int64_t* tile_sizes_ptr, int64_t num_unroll_factors,
+    int64_t* unroll_factors_ptr, int64_t max_supported_rank, bool enable_ftz,
+    bool cpu_codegen) {
   // Get the resource manager.
   auto* ctx = static_cast<tensorflow::OpKernelContext*>(op_kernel_ctx);
   tensorflow::ResourceMgr* rm = ctx->resource_manager();
@@ -253,10 +254,17 @@ extern "C" void* _mlir_ciface_tf_jit_compile(
     return nullptr;
   }
 
+  // Determine the unique architecture for the current GPU, if any.
+  SmallVector<std::string, 1> architectures;
+  stream_executor::CudaComputeCapability cc =
+      ctx->op_device_context()->stream()->GetCudaComputeCapability();
+#if defined(GOOGLE_CUDA)
+  architectures.push_back(absl::StrCat("sm_", cc.major, cc.minor));
+#elif defined(TENSORFLOW_USE_ROCM)
+  architectures.push_back(absl::StrCat("gfx", cc.major, cc.minor));
+#endif
+
   // Construct `SmallVector`s from arguments.
-  llvm::SmallVector<std::string, 8> architectures =
-      SmallVectorFromCArray<std::string, char*>(num_architectures,
-                                                architectures_ptr);
   llvm::SmallVector<int64_t, 8> tile_sizes =
       SmallVectorFromCArray<int64_t>(num_tile_sizes, tile_sizes_ptr);
   llvm::SmallVector<int64_t, 8> unroll_factors =
@@ -277,6 +285,9 @@ extern "C" void* _mlir_ciface_tf_jit_compile(
 extern "C" void _mlir_ciface_tf_jit_execute(void* op_kernel_ctx, void* callable,
                                             void* result, int64_t num_args,
                                             void* args_ptr) {
+  // JIT compilation must have failed earlier if there is no callable ptr.
+  if (callable == nullptr) return;
+
   // Build the argument array according to `ExecutionEngine`'s calling
   // convention.
   auto* typed_args_ptr = static_cast<::UnrankedMemRefType<void>*>(args_ptr);
