@@ -152,6 +152,25 @@ tf_py_test(
 )
 
 tf_py_test(
+    name = "metadata_test",
+    size = "medium",
+    srcs = ["metadata_test.py"],
+    shard_count = 2,
+    deps = [
+        ":test_base",
+        "//tensorflow/python:framework",
+        "//tensorflow/python:framework_test_lib",
+        "//tensorflow/python:platform_test",
+        "//tensorflow/python/data/experimental/ops:data_service_ops",
+        "//tensorflow/python/data/experimental/ops:distribute",
+        "//tensorflow/python/data/kernel_tests:test_base",
+        "//tensorflow/python/data/ops:dataset_ops",
+        "//tensorflow/python/eager:def_function",
+        "@absl_py//absl/testing:parameterized",
+    ],
+)
+
+tf_py_test(
     name = "multi_device_test",
     size = "small",
     srcs = ["multi_device_test.py"],
