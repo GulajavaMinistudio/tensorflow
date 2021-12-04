@@ -21,11 +21,7 @@ limitations under the License.
 
 #include "absl/base/casts.h"
 #include "absl/container/flat_hash_map.h"
-#include "mlir/IR/BuiltinOps.h"  // from @llvm-project
-#include "mlir/Parser.h"  // from @llvm-project
-#include "tensorflow/compiler/mlir/hlo/include/mlir-hlo/Dialect/mhlo/IR/chlo_ops.h"
-#include "tensorflow/compiler/mlir/hlo/include/mlir-hlo/Dialect/mhlo/IR/hlo_ops.h"
-#include "tensorflow/compiler/mlir/tensorflow/utils/error_util.h"
+#include "tensorflow/compiler/xla/pjrt/mlir_to_hlo.h"
 #include "tensorflow/compiler/xla/pjrt/pjrt_client.h"
 #include "tensorflow/compiler/xla/pjrt/pjrt_stream_executor_client.h"
 #include "tensorflow/compiler/xla/pjrt/transpose.h"
@@ -153,7 +149,7 @@ Status PyClient::Defragment() {
       // Die instead of returning a bad status because program presumably can't
       // continue if we fail to reconstitute device buffers.
       for (TmpBuffer& tmp_buffer : tmp_buffers) {
-        TF_CHECK_OK(down_cast<PjRtStreamExecutorBuffer*>(
+        TF_CHECK_OK(tensorflow::down_cast<PjRtStreamExecutorBuffer*>(
                         tmp_buffer.py_buffer->buffer_.get())
                         ->Release(/*wait_for_operations_to_complete=*/true)
                         .status());
@@ -268,22 +264,8 @@ StatusOr<std::shared_ptr<PyExecutable>> PyClient::CompileMlir(
   {
     py::gil_scoped_release gil_release;
     mlir::MLIRContext context;
-    mlir::OwningModuleRef module;
-    context.loadDialect<mlir::StandardOpsDialect>();
-    context.loadDialect<mlir::mhlo::MhloDialect>();
-    context.loadDialect<mlir::chlo::HloClientDialect>();
-    mlir::StatusScopedDiagnosticHandler diagnostic_handler(&context);
-    module = mlir::parseSourceString(
-        llvm::StringRef(mlir_module.data(), mlir_module.size()), &context);
-    if (!module) {
-      return diagnostic_handler.ConsumeStatus();
-    }
-    if (failed(module->verify())) {
-      VLOG(1) << "MLIR verification failed.";
-      module->dump();
-      return diagnostic_handler.ConsumeStatus();
-    }
-
+    TF_ASSIGN_OR_RETURN(mlir::OwningModuleRef module,
+                        ParseMlirModuleString(mlir_module, context));
     TF_ASSIGN_OR_RETURN(
         executable, pjrt_client_->Compile(module.get(), std::move(options)));
     TF_ASSIGN_OR_RETURN(fingerprint,
