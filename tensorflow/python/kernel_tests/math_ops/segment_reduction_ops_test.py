@@ -806,7 +806,7 @@ class SparseSegmentReductionOpTest(SparseSegmentReductionHelper):
       for tf_op in ops_list:
         s = tf_op(data=tf_x, indices=tf_indices, segment_ids=segment_indices)
         with self.assertRaisesOpError(
-            "Segment ids likely to cause integer overflow"):
+            "Encountered overflow when multiplying"):
           self.evaluate(s)
 
   def testSegmentWithNumSegmentsValid(self):

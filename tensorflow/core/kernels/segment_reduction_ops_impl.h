@@ -532,12 +532,7 @@ class SparseSegmentReductionOpBase : public OpKernel {
                 errors::InvalidArgument("segment ids must be >= 0"));
 
     TensorShape output_shape = input.shape();
-    if (input.NumElements() > 0) {
-      OP_REQUIRES(context, last_segment_id < limit / input.NumElements(),
-                  errors::InvalidArgument(
-                      "Segment ids likely to cause integer overflow"));
-    }
-    output_shape.set_dim(0, output_rows);
+    OP_REQUIRES_OK(context, output_shape.SetDimWithStatus(0, output_rows));
 
     // Note that we do not initialize the output buffer with a default value, so
     // we need to explicitly set missing indices to the default value.

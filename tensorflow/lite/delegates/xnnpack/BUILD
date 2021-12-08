@@ -77,6 +77,7 @@ cc_library(
     copts = tflite_copts(),
     deps = [
         "//tensorflow/lite/kernels/internal:optimized_base",
+        "//tensorflow/lite/kernels/internal:reference_base",
         "//tensorflow/lite/kernels/internal:types",
         "@FP16",
     ],
@@ -91,6 +92,7 @@ cc_library(
     hdrs = ["test_util.h"],
     deps = [
         "//tensorflow/lite/kernels/internal:cppmath",
+        "//tensorflow/lite/kernels/internal:types",
     ],
 )
 
@@ -252,6 +254,23 @@ cc_library(
         "//tensorflow/lite/schema:schema_conversion_utils",
         "//tensorflow/lite/schema:schema_fbs",
         "@FP16",
+        "@com_google_googletest//:gtest",
+        "@flatbuffers",
+    ],
+)
+
+cc_library(
+    name = "quantize_tester",
+    testonly = 1,
+    srcs = ["quantize_tester.cc"],
+    hdrs = ["quantize_tester.h"],
+    deps = [
+        "//tensorflow/lite:framework",
+        "//tensorflow/lite:schema_fbs_version",
+        "//tensorflow/lite/c:common",
+        "//tensorflow/lite/kernels:builtin_ops",
+        "//tensorflow/lite/schema:schema_conversion_utils",
+        "//tensorflow/lite/schema:schema_fbs",
         "@com_google_googletest//:gtest",
         "@flatbuffers",
     ],
@@ -501,6 +520,7 @@ cc_library(
     srcs = ["transpose_conv_tester.cc"],
     hdrs = ["transpose_conv_tester.h"],
     deps = [
+        ":test_util",
         "//tensorflow/lite:framework",
         "//tensorflow/lite:schema_fbs_version",
         "//tensorflow/lite/c:common",
@@ -1026,6 +1046,21 @@ cc_test(
 )
 
 cc_test(
+    name = "signed_quantize_test",
+    srcs = ["signed_quantize_test.cc"],
+    linkopts = select({
+        "//tensorflow:emscripten": EMSCRIPTEN_LINKOPTS,
+        "//conditions:default": [],
+    }),
+    deps = [
+        ":quantize_tester",
+        ":test_main",
+        ":xnnpack_delegate_test_mode",
+        "@com_google_googletest//:gtest",
+    ],
+)
+
+cc_test(
     name = "signed_quantized_add_test",
     srcs = ["signed_quantized_add_test.cc"],
     linkopts = select({
@@ -1306,6 +1341,21 @@ cc_test(
         ":test_main",
         ":transpose_conv_tester",
         "//tensorflow/lite/delegates/xnnpack:xnnpack_delegate_test_mode",
+        "@com_google_googletest//:gtest",
+    ],
+)
+
+cc_test(
+    name = "unsigned_quantize_test",
+    srcs = ["unsigned_quantize_test.cc"],
+    linkopts = select({
+        "//tensorflow:emscripten": EMSCRIPTEN_LINKOPTS,
+        "//conditions:default": [],
+    }),
+    deps = [
+        ":quantize_tester",
+        ":test_main",
+        ":xnnpack_delegate_test_mode",
         "@com_google_googletest//:gtest",
     ],
 )

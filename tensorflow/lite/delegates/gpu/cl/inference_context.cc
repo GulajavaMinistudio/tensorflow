@@ -226,23 +226,44 @@ absl::Status CheckExternalTensorDescription(const GpuInfo& gpu_info,
   return absl::OkStatus();
 }
 
-absl::Status ReserveGraphTensors(
-    const InferenceContext::CreateInferenceInfo& create_info,
-    const GpuInfo& gpu_info, const GraphFloat32& graph,
-    TensorReserver* tensor_reserver) {
+absl::Status ReserveGraphTensors(const CreateGpuModelInfo& create_info,
+                                 const GpuInfo& gpu_info,
+                                 const GraphFloat32& graph,
+                                 TensorReserver* tensor_reserver) {
   ValueId max_id = 0;
   auto tensors = graph.values();
   auto data_type = DeduceDataTypeFromPrecision(create_info.precision);
   for (auto& t : tensors) {
     const auto shape = graph.GetValue(t->id)->tensor.shape;
+    auto it_predefined = create_info.predefined.find(t->id);
     auto it_immutable_external =
         create_info.external_immutable_tensors.find(t->id);
     TensorDescriptor tensor_desc;
-    if (it_immutable_external != create_info.external_immutable_tensors.end()) {
+    if (it_predefined != create_info.predefined.end()) {
+      if (!(graph.IsGraphInput(t->id) || graph.IsGraphOutput(t->id))) {
+        return absl::InvalidArgumentError(
+            "Currently predefined can be used only for graph inputs/outputs");
+      }
+      if (it_immutable_external !=
+          create_info.external_immutable_tensors.end()) {
+        return absl::InvalidArgumentError(
+            "The same tensor id can not be used in predefined and "
+            "external_immutable_tensors");
+      }
+      tensor_desc = it_predefined->second;
+      RETURN_IF_ERROR(CheckExternalTensorDescription(gpu_info, tensor_desc,
+                                                     shape, data_type));
+    } else if (it_immutable_external !=
+               create_info.external_immutable_tensors.end()) {
       if (!(graph.IsGraphInput(t->id) || graph.IsGraphOutput(t->id))) {
         return absl::InvalidArgumentError(
             "Currently external tensors can be used only for graph "
             "inputs/outputs");
+      }
+      if (it_predefined != create_info.predefined.end()) {
+        return absl::InvalidArgumentError(
+            "The same tensor id can not be used in predefined and "
+            "external_immutable_tensors");
       }
       tensor_desc = it_immutable_external->second->GetDescriptor();
       RETURN_IF_ERROR(CheckExternalTensorDescription(gpu_info, tensor_desc,
@@ -272,10 +293,11 @@ absl::Status ReserveGraphTensors(
   return absl::OkStatus();
 }
 
-absl::Status ConvertOperations(
-    const GpuInfo& gpu_info, const GraphFloat32& graph,
-    const InferenceContext::CreateInferenceInfo& create_info,
-    TensorReserver* tensor_reserver, InferenceContext::GpuModel* gpu_model) {
+absl::Status ConvertOperations(const GpuInfo& gpu_info,
+                               const GraphFloat32& graph,
+                               const CreateGpuModelInfo& create_info,
+                               TensorReserver* tensor_reserver,
+                               GpuModel* gpu_model) {
   std::map<ValueId, TensorDescriptor> tensor_descriptors;
   const auto values = graph.values();
   for (auto value : values) {
@@ -385,7 +407,7 @@ absl::Status ConvertOperations(
   return absl::OkStatus();
 }
 
-absl::Status Merge(InferenceContext::GpuModel* gpu_model) {
+absl::Status Merge(GpuModel* gpu_model) {
   absl::flat_hash_set<ValueId> ready_tensors;
   for (const auto& input : gpu_model->input_ids_and_refs) {
     ready_tensors.insert(input.first);
@@ -432,8 +454,7 @@ absl::Status Merge(InferenceContext::GpuModel* gpu_model) {
   return absl::OkStatus();
 }
 
-void CopyExternals(const GraphFloat32& graph,
-                   InferenceContext::GpuModel* gpu_model) {
+void CopyExternals(const GraphFloat32& graph, GpuModel* gpu_model) {
   const auto inputs = graph.inputs();
   for (const auto& value : inputs) {
     gpu_model->input_ids_and_refs.push_back({value->id, value->tensor.ref});
@@ -453,7 +474,7 @@ void CopyExternals(const GraphFloat32& graph,
 // Serialized model will lose polymorphic properties for GpuOperations.
 // Here we will retrieve some information needed for generic execution of
 // GpuOperations. Specifically, BindArguments must be executed.
-absl::Status ResolvePolymorphicArgs(InferenceContext::GpuModel* gpu_model) {
+absl::Status ResolvePolymorphicArgs(GpuModel* gpu_model) {
   class DummySpatialTensor : public GpuSpatialTensor {
    public:
     DummySpatialTensor() = default;
@@ -495,10 +516,9 @@ absl::Status ResolvePolymorphicArgs(InferenceContext::GpuModel* gpu_model) {
   return absl::OkStatus();
 }
 
-absl::Status GraphToGpuModel(
-    const InferenceContext::CreateInferenceInfo& create_info,
-    const GraphFloat32& graph, const GpuInfo& gpu_info,
-    InferenceContext::GpuModel* gpu_model) {
+absl::Status GraphToGpuModel(const CreateGpuModelInfo& create_info,
+                             const GraphFloat32& graph, const GpuInfo& gpu_info,
+                             GpuModel* gpu_model) {
   TensorReserver tensor_reserver;
   RETURN_IF_ERROR(
       ReserveGraphTensors(create_info, gpu_info, graph, &tensor_reserver));
@@ -533,30 +553,12 @@ void InferenceContext::ExecutionHints::Init(const GpuInfo& gpu_info) {
 }
 
 absl::Status InferenceContext::InitFromGraph(
-    const CreateInferenceInfo& create_info, const GraphFloat32& graph,
+    const CreateGpuModelInfo& create_info, const GraphFloat32& graph,
     Environment* env, std::vector<uint8_t>* serialized_model) {
   GpuModel gpu_model;
   RETURN_IF_ERROR(GraphToGpuModel(create_info, graph,
                                   env->GetDevicePtr()->GetInfo(), &gpu_model));
-
-  for (const auto& input : gpu_model.input_ids_and_refs) {
-    input_ids_.push_back(input.first);
-  }
-  for (const auto& variable_input : gpu_model.variable_ids_and_refs) {
-    variable_ids_and_refs_[variable_input.first] = variable_input.second;
-  }
-  for (const auto& output : gpu_model.output_ids_and_refs) {
-    output_ids_.push_back(output.first);
-  }
-  nodes_.resize(gpu_model.nodes.size());
-  for (int i = 0; i < gpu_model.nodes.size(); ++i) {
-    nodes_[i].cl_operation.Init(std::move(gpu_model.nodes[i].gpu_operation));
-    nodes_[i].inputs = gpu_model.nodes[i].inputs;
-    nodes_[i].outputs = gpu_model.nodes[i].outputs;
-    nodes_[i].name = gpu_model.nodes[i].name;
-  }
-  const_tensors_descs_ = std::move(gpu_model.const_tensors);
-  tensors_descs_ = std::move(gpu_model.tensors);
+  CopyFromGpuModel(&gpu_model);
 
   CreationContext creation_context;
   creation_context.device = env->GetDevicePtr();
@@ -624,7 +626,7 @@ absl::Status InferenceContext::InitFromGraph(
 
 absl::Status InferenceContext::RestoreDeserialized(
     const absl::Span<const uint8_t> serialized_model, Environment* env,
-    CreateInferenceInfo* create_info) {
+    CreateGpuModelInfo* create_info) {
   flatbuffers::Verifier verifier(serialized_model.data(),
                                  serialized_model.size());
   if (!data::VerifyInferenceContextBuffer(verifier)) {
@@ -664,6 +666,27 @@ absl::Status InferenceContext::RestoreDeserialized(
   return absl::OkStatus();
 }
 
+void InferenceContext::CopyFromGpuModel(GpuModel* gpu_model) {
+  for (const auto& input : gpu_model->input_ids_and_refs) {
+    input_ids_.push_back(input.first);
+  }
+  for (const auto& variable_input : gpu_model->variable_ids_and_refs) {
+    variable_ids_and_refs_[variable_input.first] = variable_input.second;
+  }
+  for (const auto& output : gpu_model->output_ids_and_refs) {
+    output_ids_.push_back(output.first);
+  }
+  nodes_.resize(gpu_model->nodes.size());
+  for (int i = 0; i < gpu_model->nodes.size(); ++i) {
+    nodes_[i].cl_operation.Init(std::move(gpu_model->nodes[i].gpu_operation));
+    nodes_[i].inputs = gpu_model->nodes[i].inputs;
+    nodes_[i].outputs = gpu_model->nodes[i].outputs;
+    nodes_[i].name = gpu_model->nodes[i].name;
+  }
+  const_tensors_descs_ = std::move(gpu_model->const_tensors);
+  tensors_descs_ = std::move(gpu_model->tensors);
+}
+
 void InferenceContext::InitRecordableQueue(Environment* env) {
   std::vector<ClOperation*> ops(nodes_.size());
   for (int i = 0; i < nodes_.size(); ++i) {
@@ -673,7 +696,7 @@ void InferenceContext::InitRecordableQueue(Environment* env) {
 }
 
 absl::Status InferenceContext::InitFromGraphWithTransforms(
-    const CreateInferenceInfo& create_info, GraphFloat32* graph,
+    const CreateGpuModelInfo& create_info, GraphFloat32* graph,
     Environment* env, std::vector<uint8_t>* serialized_model) {
   RETURN_IF_ERROR(RunGraphTransforms(graph));
   RETURN_IF_ERROR(InitFromGraph(create_info, *graph, env, serialized_model));
@@ -1053,14 +1076,15 @@ absl::Status InferenceContext::Profile(ProfilingCommandQueue* queue,
     for (auto& src_id : nodes_[i].inputs) {
       read_size += GetTensor(src_id)->GetMemorySizeInBytes();
     }
+    const auto& gpu_op = nodes_[i].cl_operation.GetGpuOperation();
+    read_size += gpu_op.const_args_size_;
     uint64_t write_size = 0;
     for (auto& dst_id : nodes_[i].outputs) {
       write_size += GetTensor(dst_id)->GetMemorySizeInBytes();
     }
+    result->dispatches[i].flops = gpu_op.flops_;
     result->dispatches[i].read_mem_size = read_size;
     result->dispatches[i].write_mem_size = write_size;
-    const auto& gpu_op = nodes_[i].cl_operation.GetGpuOperation();
-    result->dispatches[i].flops = gpu_op.flops_;
   }
 
   return absl::OkStatus();
