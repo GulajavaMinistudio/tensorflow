@@ -32,16 +32,6 @@
         `.save()` function inside `TrtGraphConverterV2`. When `False`, the
         `.save()` function won't save any TRT engines that have been built. When
         `True` (default), the original behavior is preserved.
-*   `tf.tpu.experimental.embedding`:
-    *   `tf.tpu.experimental.embedding.FeatureConfig` now takes an additional
-        argument `output_shape` which can specify the shape of the output
-        activation for the feature.
-    *   `tf.tpu.experimental.embedding.TPUEmbedding` now has the same behavior
-        as `tf.tpu.experimental.embedding.serving_embedding_lookup` which can
-        take arbitrary rank of dense and sparse tensor. For ragged tensor,
-        though the input tensor remains to be rank 2, the activations now can be
-        rank 2 or above by specifying the output shape in the feature config
-        or via the build method.
 
 *   <INSERT MAJOR FEATURE HERE, USING MARKDOWN SYNTAX>
 
@@ -238,6 +228,8 @@ This release contains contributions from many people at Google, as well as:
     * Add a new API that allows custom call functions to signal errors. The old API will be deprecated in a future release. See https://www.tensorflow.org/xla/custom_call for details.
     * XLA:GPU reductions are deterministic by default (reductions within `jit_compile=True` are now deterministic).
     * XLA:GPU works with Horovod (OSS contribution by Trent Lo from NVidia)
+    * XLA:CPU and XLA:GPU can compile tf.unique and tf.where when shapes are
+      provably correct at compile time.
 *   `tf.saved_model.save`:
     *   When saving a model, not specifying a namespace whitelist for custom ops with a namespace will now default to allowing rather than rejecting them all.
 * Deterministic Op Functionality (enabled by setting the environment variable `TF_DETERMINISTIC_OPS` to `"true"` or `"1"`):

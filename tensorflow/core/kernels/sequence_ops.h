@@ -1,4 +1,4 @@
-/* Copyright 2020 The TensorFlow Authors. All Rights Reserved.
+/* Copyright 2021 The TensorFlow Authors. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -13,22 +13,24 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "tensorflow/compiler/xla/service/gpu/nccl_test_utils.h"
+#ifndef TENSORFLOW_CORE_KERNELS_SEQUENCE_OPS_H_
+#define TENSORFLOW_CORE_KERNELS_SEQUENCE_OPS_H_
 
-#include <memory>
+#include "tensorflow/core/framework/op_kernel.h"
+#include "tensorflow/core/framework/tensor_types.h"
 
-#include "tensorflow/compiler/xla/service/gpu/nccl_utils.h"
+namespace tensorflow {
 
-namespace xla {
-namespace gpu {
+namespace functor {
 
-absl::flat_hash_set<GlobalDeviceId> DevicesWithOpenNcclChannels() {
-  absl::flat_hash_set<GlobalDeviceId> devices;
-  NcclCliqueCache().ForEach([&](const NcclCliqueKey& k, const NcclClique&) {
-    devices.insert(k.devices().begin(), k.devices().end());
-  });
-  return devices;
-}
+template <typename Device, typename T>
+struct RangeFunctor {
+  void operator()(OpKernelContext* context, int64_t size, T start, T delta,
+                  typename TTypes<T>::Flat output) const;
+};
 
-}  // namespace gpu
-}  // namespace xla
+}  // namespace functor
+
+}  // namespace tensorflow
+
+#endif  // TENSORFLOW_CORE_KERNELS_SEQUENCE_OPS_H_
