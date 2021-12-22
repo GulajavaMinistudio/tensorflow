@@ -65,7 +65,7 @@ class LiteralUtil {
   // native type. For example:
   //
   //  CreateR1<float>({1.0, 42.0});
-  //  CreateR2<uint32>({{1, 2}, {3, 4}});
+  //  CreateR2<uint32_t>({{1, 2}, {3, 4}});
   //
   // The variants not ending with WithLayout use the default XLA layout for the
   // literal's linear representation in memory.
@@ -293,7 +293,7 @@ class LiteralUtil {
   // Returns a multi-dimensional index as a string. For example: '{7, 8}' will
   // be returned for a 2-dimensional index with dimension 0 index equal to 7,
   // dimension 1 equal to 8.
-  static string MultiIndexAsString(absl::Span<const int64_t> multi_index);
+  static std::string MultiIndexAsString(absl::Span<const int64_t> multi_index);
 };
 
 std::ostream& operator<<(std::ostream& out, const Literal& literal);

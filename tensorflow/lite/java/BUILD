@@ -327,17 +327,30 @@ java_library(
     ],
 )
 
+java_library(
+    name = "tensorflowlite_api_javalib",
+    srcs = [":java_api_srcs"],
+    javacopts = JAVACOPTS,
+    deps = [
+        "@org_checkerframework_qual",
+    ],
+)
+
 #-----------------------------------------------------------------------------
 # java_library targets that also include native code dependencies.
 
 java_library_with_tflite(
     name = "tensorflowlitelib",
-    srcs = [":java_srcs"],
+    srcs = [":java_runtime_srcs"],
     javacopts = JAVACOPTS,
     tflite_jni_binaries = [
         ":libtensorflowlite_jni.so",
     ],
+    exports = [
+        ":tensorflowlite_api_javalib",
+    ],
     deps = [
+        ":tensorflowlite_api_javalib",
         "@org_checkerframework_qual",
     ],
 )

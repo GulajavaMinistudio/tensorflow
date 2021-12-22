@@ -240,8 +240,10 @@ Status LowerTFtoLoops(mlir::ModuleOp module, llvm::ArrayRef<int64_t> tile_sizes,
   pm.addNestedPass<mlir::FuncOp>(mlir::mhlo::createMergeAssumingOpsPass());
   pm.addNestedPass<mlir::FuncOp>(mlir::createCSEPass());
 
-  // Transform HLO operations to LinAlg.
+  // Transform HLO operations to LinAlg and standard.
   pm.addNestedPass<mlir::FuncOp>(::mlir::mhlo::createLegalizeHloToLinalgPass());
+  pm.addNestedPass<mlir::FuncOp>(
+      mlir::mhlo::createLegalizeHloShapeOpsToStandardPass());
   pm.addPass(mlir::createCanonicalizerPass());
   pm.addNestedPass<mlir::FuncOp>(mlir::createCSEPass());
 
@@ -374,7 +376,9 @@ Status LowerLoopsToGPUorCPU(mlir::ModuleOp module, bool embed_memref_prints,
   pm.addNestedPass<::mlir::FuncOp>(mlir::createForLoopSpecializationPass());
   // Take launches to launches with kernels.
   if (!cpu_codegen) {
-    pm.addPass(::mlir::createGpuKernelOutliningPass());
+    const std::string gpuDataLayoutSpec =
+        "#dlti.dl_spec<#dlti.dl_entry<index,32:i32>>";
+    pm.addPass(mlir::createGpuKernelOutliningPass(gpuDataLayoutSpec));
   }
 
   pm.addPass(::mlir::createLowerAffinePass());

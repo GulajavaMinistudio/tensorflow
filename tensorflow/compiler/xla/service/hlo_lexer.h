@@ -80,7 +80,7 @@ enum class TokKind {
   kDecimal,        // 4.2
 };
 
-string TokKindToString(TokKind kind);
+std::string TokKindToString(TokKind kind);
 
 // Lexer for the HloModule::ToString() format text.
 //
@@ -95,7 +95,7 @@ class HloLexer {
   TokKind Lex() { return token_state_.current_kind = LexToken(); }
 
   TokKind GetKind() const { return token_state_.current_kind; }
-  string GetStrVal() const {
+  std::string GetStrVal() const {
     switch (GetKind()) {
       case TokKind::kName:
       case TokKind::kAttributeName:
@@ -144,10 +144,10 @@ class HloLexer {
   // Returns the current character.
   int PeekCurrentChar() const;
 
-  // Creates StringPiece with the given begin and end. Exits if the begin > end,
+  // Creates string_view with the given begin and end. Exits if the begin > end,
   // or it's out of the range of the current buffer.
-  absl::string_view StringPieceFromPointers(const char* begin,
-                                            const char* end) const;
+  absl::string_view StringViewFromPointers(const char* begin,
+                                           const char* end) const;
 
   // Returns true if the given ptr is dereferenceable within the range of the
   // current buffer.
@@ -171,7 +171,7 @@ class HloLexer {
   struct TokenState {
     const char* token_start = nullptr;
     TokKind current_kind;
-    string str_val;
+    std::string str_val;
     int64_t int64_val;
     double decimal_val;
     PrimitiveType primitive_type_val;

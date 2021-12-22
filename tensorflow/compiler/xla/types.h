@@ -24,19 +24,7 @@ limitations under the License.
 
 namespace xla {
 
-using ::tensorflow::string;
-
-using ::int64_t;
-using ::tensorflow::int16;
-using ::tensorflow::int32;
-using ::tensorflow::int8;
-
 using ::tensorflow::bfloat16;
-
-using ::tensorflow::uint8;
-using ::tensorflow::uint16;
-using ::tensorflow::uint32;
-using ::tensorflow::uint64;
 
 using complex64 = std::complex<float>;
 using complex128 = std::complex<double>;

@@ -58,17 +58,17 @@ namespace {
 // An array that is indexed by PrimitiveType, and returns
 // the size of each element of that primitive type, or 0
 // if the PrimitiveType is not a primitive type
-constexpr uint8 primitive_byte_size[PrimitiveType_ARRAYSIZE] = {
+constexpr uint8_t primitive_byte_size[PrimitiveType_ARRAYSIZE] = {
     0,                  // PRIMITIVE_TYPE_INVALID = 0,
-    sizeof(int8),       // PRED = 1
-    sizeof(int8),       // S8 = 2
-    sizeof(int16),      // S16 = 3
-    sizeof(int32),      // S32 = 4
+    sizeof(int8_t),     // PRED = 1
+    sizeof(int8_t),     // S8 = 2
+    sizeof(int16_t),    // S16 = 3
+    sizeof(int32_t),    // S32 = 4
     sizeof(int64_t),    // S64 = 5
-    sizeof(uint8),      // U8 = 6
-    sizeof(uint16),     // U16 = 7
-    sizeof(uint32),     // U32 = 8
-    sizeof(uint64),     // U64 = 9
+    sizeof(uint8_t),    // U8 = 6
+    sizeof(uint16_t),   // U16 = 7
+    sizeof(uint32_t),   // U32 = 8
+    sizeof(uint64_t),   // U64 = 9
     sizeof(float) / 2,  // F16 = 10
     sizeof(float),      // F32 = 11
     sizeof(double),     // F64 = 12
@@ -82,9 +82,11 @@ constexpr uint8 primitive_byte_size[PrimitiveType_ARRAYSIZE] = {
 constexpr int64_t kAnnotationPrintInterval = 5;
 }  // namespace
 
-string ShapeIndex::ToString() const { return ShapeIndexView(*this).ToString(); }
+std::string ShapeIndex::ToString() const {
+  return ShapeIndexView(*this).ToString();
+}
 
-string ShapeIndexView::ToString() const {
+std::string ShapeIndexView::ToString() const {
   return StrCat("{", absl::StrJoin(indices_, ","), "}");
 }
 
@@ -628,9 +630,9 @@ ShapeUtil::MakeShapeWithDescendingLayoutAndSamePhysicalLayout(
   return IsScalar(shape) && shape.element_type() == element_type;
 }
 
-/* static */ string ShapeUtil::HumanString(const Shape& shape) {
+/* static */ std::string ShapeUtil::HumanString(const Shape& shape) {
   if (shape.IsTuple()) {
-    string text = "(";
+    std::string text = "(";
     const auto& tuple_shapes = shape.tuple_shapes();
     for (int64_t i = 0; i < tuple_shapes.size(); ++i) {
       const Shape& elem_shape = tuple_shapes[i];
@@ -645,7 +647,7 @@ ShapeUtil::MakeShapeWithDescendingLayoutAndSamePhysicalLayout(
     text += ")";
     return text;
   }
-  std::vector<string> dim_elements;
+  std::vector<std::string> dim_elements;
   const auto dimensions_size = shape.dimensions_size();
   dim_elements.reserve(dimensions_size);
   for (int i = 0; i < dimensions_size; ++i) {
@@ -660,9 +662,9 @@ ShapeUtil::MakeShapeWithDescendingLayoutAndSamePhysicalLayout(
       absl::StrJoin(dim_elements, ","), "]");
 }
 
-/* static */ string ShapeUtil::HumanStringWithLayout(const Shape& shape) {
+/* static */ std::string ShapeUtil::HumanStringWithLayout(const Shape& shape) {
   if (shape.IsTuple()) {
-    string text = "(";
+    std::string text = "(";
     const auto& tuple_shapes = shape.tuple_shapes();
     for (int64_t i = 0; i < tuple_shapes.size(); ++i) {
       const Shape& elem_shape = tuple_shapes[i];
@@ -677,9 +679,9 @@ ShapeUtil::MakeShapeWithDescendingLayoutAndSamePhysicalLayout(
     text += ")";
     return text;
   }
-  string result = HumanString(shape);
+  std::string result = HumanString(shape);
   if (IsScalar(shape)) {
-    string layout_str = LayoutUtil::HumanString(shape.layout());
+    std::string layout_str = LayoutUtil::HumanString(shape.layout());
     // Don't print "{}" as layout for scalars.
     if (layout_str != "{}") {
       StrAppend(&result, layout_str);
@@ -690,8 +692,9 @@ ShapeUtil::MakeShapeWithDescendingLayoutAndSamePhysicalLayout(
   return result;
 }
 
-/* static */ string ShapeUtil::HumanString(const ProgramShape& program_shape) {
-  std::vector<string> parameters;
+/* static */ std::string ShapeUtil::HumanString(
+    const ProgramShape& program_shape) {
+  std::vector<std::string> parameters;
   const auto& shape_parameters = program_shape.parameters();
   parameters.reserve(shape_parameters.size());
   for (const auto& shape : shape_parameters) {
@@ -765,23 +768,23 @@ ShapeUtil::MakeShapeWithDescendingLayoutAndSamePhysicalLayout(
     PrimitiveType primitive_type) {
   switch (primitive_type) {
     case PRED:
-      return sizeof(int8);
+      return sizeof(int8_t);
     case S8:
-      return sizeof(int8);
+      return sizeof(int8_t);
     case S16:
-      return sizeof(int16);
+      return sizeof(int16_t);
     case S32:
-      return sizeof(int32);
+      return sizeof(int32_t);
     case S64:
       return sizeof(int64_t);
     case U8:
-      return sizeof(uint8);
+      return sizeof(uint8_t);
     case U16:
-      return sizeof(uint16);
+      return sizeof(uint16_t);
     case U32:
-      return sizeof(uint32);
+      return sizeof(uint32_t);
     case U64:
-      return sizeof(uint64);
+      return sizeof(uint64_t);
     case BF16:
       return sizeof(float) / 2;
     case F16:
@@ -921,7 +924,7 @@ ShapeUtil::MakeShapeWithDescendingLayoutAndSamePhysicalLayout(
   }();
 
   if (shape_size < 0) {
-    return InvalidArgument("Shape %s size may overflow int64.",
+    return InvalidArgument("Shape %s size may overflow int64_t.",
                            ShapeUtil::HumanString(shape));
   }
 

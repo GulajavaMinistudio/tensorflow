@@ -369,7 +369,7 @@ TEST_F(AlgebraicSimplifierTest, MulZero) {
   HloInstruction* param0 = builder.AddInstruction(
       HloInstruction::CreateParameter(0, r0s32, "param0"));
   HloInstruction* zero = builder.AddInstruction(
-      HloInstruction::CreateConstant(LiteralUtil::CreateR0<int32>(0)));
+      HloInstruction::CreateConstant(LiteralUtil::CreateR0<int32_t>(0)));
   builder.AddInstruction(
       HloInstruction::CreateBinary(r0s32, HloOpcode::kMultiply, param0, zero));
 
@@ -4176,16 +4176,16 @@ struct ConvPaddingTestcase {
         expected_conv_window(expected_conv_window),
         pad_value(pad_value) {}
 
-  string ToString() const {
+  std::string ToString() const {
     return absl::StrFormat(
         "padding=%s, orig_conv_window=%s, expected_conv_window=%s, "
         "pad_value=%f",
         padding, orig_conv_window, expected_conv_window, pad_value);
   }
 
-  string padding;
-  string orig_conv_window;
-  string expected_conv_window;
+  std::string padding;
+  std::string orig_conv_window;
+  std::string expected_conv_window;
   float pad_value;
 };
 
@@ -4457,7 +4457,7 @@ TEST_F(AlgebraicSimplifierTest, ConvertConvToMatmul) {
   // Builds a convolution from <options> and runs algebraic simplification on
   // the computation. Returns a string description of the result of
   // simplification.
-  auto build_and_simplify = [&]() -> string {
+  auto build_and_simplify = [&]() -> std::string {
     HloComputation::Builder b(TestName());
 
     Window window;
@@ -4732,7 +4732,7 @@ TEST_F(AlgebraicSimplifierTest, ScalarBroadcastToTransposeReshape) {
 // reshape(transpose(reshape(op))) can simplify to
 // reshape(concat(slice(op), ..., slice(op))).
 TEST_F(AlgebraicSimplifierTest, TransposeReshapeToConcatSlice) {
-  const string& hlo_string = R"(
+  const std::string& hlo_string = R"(
 HloModule TransposeReshapeDepthToSpace
 
 ENTRY entry {
@@ -4759,7 +4759,7 @@ ENTRY entry {
 // reshape(transpose(reshape(op))) with a large number of chunks
 // is not rewritten.
 TEST_F(AlgebraicSimplifierTest, TransposeReshapeTooLarge) {
-  const string& hlo_string = R"(
+  const std::string& hlo_string = R"(
 HloModule TransposeReshapeDepthToSpaceBig
 
 ENTRY entry {
@@ -4779,7 +4779,7 @@ ENTRY entry {
 // Test that a reshape(transpose(reshape(op))) that does not constitute a
 // depth-to-space transformation is not rewritten.
 TEST_F(AlgebraicSimplifierTest, TransposeReshapeNotDepthToSpace) {
-  const string& hlo_string = R"(
+  const std::string& hlo_string = R"(
 HloModule TransposeReshapeDepthToSpace
 
 ENTRY entry {
@@ -4798,7 +4798,7 @@ ENTRY entry {
 
 // Test that ReduceWindow(Pad(op, x), y) can simplify to ReduceWindow(op, x).
 TEST_F(AlgebraicSimplifierTest, FoldPadIntoReduceWindow) {
-  const string& hlo_string = R"(
+  const std::string& hlo_string = R"(
 HloModule test
 fn {
   p0 = f32[] parameter(0)
@@ -4836,7 +4836,7 @@ ENTRY entry {
 // Test that ReduceWindow(Convert(Pad(op, x)), y) can simplify to
 // ReduceWindow(Convert(op), x).
 TEST_F(AlgebraicSimplifierTest, FoldConvertedPadIntoReduceWindow) {
-  const string& hlo_string = R"(
+  const std::string& hlo_string = R"(
 HloModule test
 fn {
   p0 = f32[] parameter(0)
@@ -4976,7 +4976,7 @@ TEST_F(AlgebraicSimplifierTest, ConstantDynamicSlice) {
   std::vector<HloInstruction*> params;
   for (int i = 0; i < 3; ++i) {
     params.push_back(builder.AddInstruction(HloInstruction::CreateConstant(
-        LiteralUtil::CreateR0<int32>(2 << (i + 1)))));
+        LiteralUtil::CreateR0<int32_t>(2 << (i + 1)))));
   }
   Shape ds_shape = ShapeUtil::MakeShape(F32, {2, 20, 200});
   builder.AddInstruction(HloInstruction::CreateDynamicSlice(
@@ -5584,7 +5584,7 @@ struct PadReduceWindowEffectiveBroadcastCase {
   bool prepend_a;
   bool should_become_broadcast;
 
-  string ToTestCaseName() const {
+  std::string ToTestCaseName() const {
     return absl::StrCat(absl::StrJoin(input_spatials, ","), ";",
                         absl::StrJoin(symmetric_pad_spatials, ","), ";",
                         absl::StrJoin(reduce_window_spatials, ","), ";",
@@ -6209,9 +6209,9 @@ TEST_P(DotOfGatherSimplificationTest, ConstantRHS) {
   int32_t start_col = (spec.lcd == 0) ? spec.s : 0;
   std::vector<HloInstruction*> start_indices = {
       builder.AddInstruction(HloInstruction::CreateConstant(
-          LiteralUtil::CreateR0<int32>(start_row))),
+          LiteralUtil::CreateR0<int32_t>(start_row))),
       builder.AddInstruction(HloInstruction::CreateConstant(
-          LiteralUtil::CreateR0<int32>(start_col)))};
+          LiteralUtil::CreateR0<int32_t>(start_col)))};
   int64_t slice_row_size = (spec.lcd == 0) ? spec.k : 1;
   int64_t slice_col_size = (spec.lcd == 0) ? 1 : spec.k;
   std::vector<int64_t> slice_sizes = {slice_row_size, slice_col_size};
@@ -6290,9 +6290,9 @@ TEST_P(DotOfGatherSimplificationTest, ConstantLHS) {
   int32_t start_col = (spec.rcd == 0) ? spec.s : 0;
   std::vector<HloInstruction*> start_indices = {
       builder.AddInstruction(HloInstruction::CreateConstant(
-          LiteralUtil::CreateR0<int32>(start_row))),
+          LiteralUtil::CreateR0<int32_t>(start_row))),
       builder.AddInstruction(HloInstruction::CreateConstant(
-          LiteralUtil::CreateR0<int32>(start_col)))};
+          LiteralUtil::CreateR0<int32_t>(start_col)))};
   int64_t slice_row_size = (spec.rcd == 0) ? spec.k : 1;
   int64_t slice_col_size = (spec.rcd == 0) ? 1 : spec.k;
   std::vector<int64_t> slice_sizes = {slice_row_size, slice_col_size};
