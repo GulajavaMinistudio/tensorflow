@@ -24,7 +24,6 @@ limitations under the License.
 #include "tensorflow/compiler/xla/xla_data.pb.h"
 #include "tensorflow/core/platform/logging.h"
 #include "tensorflow/core/platform/regexp.h"
-#include "tensorflow/core/platform/types.h"
 
 namespace xla {
 
@@ -164,7 +163,7 @@ class HloLexer {
 
   absl::optional<int64_t> LexNanPayload(absl::string_view& consumable);
 
-  const absl::string_view buf_;
+  absl::string_view buf_;
   const char* current_ptr_;
 
   // Information about the current token.
