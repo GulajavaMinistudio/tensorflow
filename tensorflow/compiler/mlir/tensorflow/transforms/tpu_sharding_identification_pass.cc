@@ -178,7 +178,8 @@ llvm::Optional<llvm::StringRef> GetXlaShardingFromArg(Value value) {
 // op.
 void IdentifyXlaShardingForComputationInputs(
     StringRef logical_core_0_sharding, bool use_spmd,
-    tf_device::ClusterFuncOp cluster_func, FuncOp func, Builder* builder,
+    bool infer_from_computation, tf_device::ClusterFuncOp cluster_func,
+    FuncOp func, Builder* builder,
     llvm::SmallVectorImpl<llvm::StringRef>& sharding_for_args) {
   // Look up function definition from module.
   Block& function_block = func.front();
@@ -212,22 +213,24 @@ void IdentifyXlaShardingForComputationInputs(
       continue;
     }
 
+    if (infer_from_computation) {
+      auto arg_sharding = GetXlaShardingFromArg(arg);
+      if (arg_sharding) {
+        sharding_for_args.push_back(arg_sharding.getValue());
+        continue;
+      }
+    }
+
     if (use_spmd && !IsMaximalVariable(operand)) {
       // If XLA SPMD is enabled, host variables or non-variable per-replica
-      // inputs should take on replicate sharding, unless another sharding is
-      // set via a TPUPartitionedInput op. Exclude device variables, which
-      // should take maximal sharding.
+      // inputs should take on replicate sharding, so that every device gets the
+      // whole tensor(s) (and can slice them up later). Exclude device
+      // variables, which always should take maximal sharding.
       sharding_for_args.push_back(kReplicateSharding);
       continue;
     }
 
-    auto arg_sharding = GetXlaShardingFromArg(arg);
-    if (arg_sharding) {
-      sharding_for_args.push_back(arg_sharding.getValue());
-      continue;
-    }
-
-    // Default to maximal sharding core 0 if no sharding is present.
+    // Otherwise, default to maximal sharding core 0.
     sharding_for_args.push_back(logical_core_0_sharding);
   }
 }
@@ -317,7 +320,8 @@ llvm::Optional<StringRef> GetXlaShardingFromRetval(Value value) {
 // TPUPartitionedOutput op connected to the retvals/results.
 void IdentifyXlaShardingForComputationOutputs(
     StringRef logical_core_0_sharding, bool use_spmd,
-    tf_device::ClusterFuncOp cluster_func, FuncOp func, Builder* builder,
+    bool infer_from_computation, tf_device::ClusterFuncOp cluster_func,
+    FuncOp func, Builder* builder,
     const llvm::SmallVectorImpl<llvm::StringRef>& sharding_for_args,
     llvm::SmallVectorImpl<llvm::StringRef>& sharding_for_rets) {
   Block& function_block = func.front();
@@ -346,25 +350,29 @@ void IdentifyXlaShardingForComputationOutputs(
       continue;
     }
 
-    if (use_spmd) {
-      // If XLA SPMD is enabled, outputs all should have replicate sharding,
-      // unless another sharding is set via a TPUPartitionedOutput op.
-      sharding_for_rets.push_back(kReplicateSharding);
-      continue;
-    }
-
     if (auto from_alias =
             GetXlaShardingFromAlias(result, aliases, sharding_for_args)) {
       sharding_for_rets.push_back(from_alias.getValue());
       continue;
     }
 
-    if (auto retval_sharding = GetXlaShardingFromRetval(retval.get())) {
-      sharding_for_rets.push_back(retval_sharding.getValue());
+    if (infer_from_computation) {
+      if (auto retval_sharding = GetXlaShardingFromRetval(retval.get())) {
+        sharding_for_rets.push_back(retval_sharding.getValue());
+        continue;
+      }
+    }
+
+    if (use_spmd) {
+      // If XLA SPMD is enabled, we default to replicate sharding. This way,
+      // all devices get the whole tensor(s), but if there's an XlaSharding op
+      // deeper in the function, they can use dynamic-slice to slice off their
+      // part of the computation.
+      sharding_for_rets.push_back(kReplicateSharding);
       continue;
     }
 
-    // Default to maximal sharding core 0 if no sharding is present.
+    // Otherwise, default to maximal sharding core 0.
     sharding_for_rets.push_back(logical_core_0_sharding);
   }
 }
@@ -388,13 +396,14 @@ void IdentifyXlaShardingForTPUComputation(
 
   llvm::SmallVector<llvm::StringRef, 8> sharding_for_args;
   IdentifyXlaShardingForComputationInputs(logical_core_0_sharding, use_spmd,
+                                          /*infer_from_computation=*/true,
                                           cluster_func, func, builder,
                                           sharding_for_args);
 
   llvm::SmallVector<llvm::StringRef, 8> sharding_for_rets;
   IdentifyXlaShardingForComputationOutputs(
-      logical_core_0_sharding, use_spmd, cluster_func, func, builder,
-      sharding_for_args, sharding_for_rets);
+      logical_core_0_sharding, use_spmd, /*infer_from_computation=*/true,
+      cluster_func, func, builder, sharding_for_args, sharding_for_rets);
 
   auto has_maximal_sharding = [](llvm::StringRef sharding_string) -> bool {
     xla::OpSharding sharding;
@@ -416,13 +425,15 @@ void IdentifyXlaShardingForTPUComputation(
     sharding_for_args.clear();
     sharding_for_rets.clear();
     cluster_func->setAttr(kUseSpmdAttr, builder->getBoolAttr(false));
-    IdentifyXlaShardingForComputationInputs(logical_core_0_sharding,
-                                            /*use_spmd=*/false, cluster_func,
-                                            func, builder, sharding_for_args);
-    IdentifyXlaShardingForComputationOutputs(logical_core_0_sharding,
-                                             /*use_spmd=*/false, cluster_func,
-                                             func, builder, sharding_for_args,
-                                             sharding_for_rets);
+
+    IdentifyXlaShardingForComputationInputs(
+        logical_core_0_sharding,
+        /*use_spmd=*/false, /*infer_from_computation=*/false, cluster_func,
+        func, builder, sharding_for_args);
+    IdentifyXlaShardingForComputationOutputs(
+        logical_core_0_sharding,
+        /*use_spmd=*/false, /*infer_from_computation=*/false, cluster_func,
+        func, builder, sharding_for_args, sharding_for_rets);
   }
 
   // Update sharding on function arguments and returns.
