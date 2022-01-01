@@ -17,31 +17,32 @@ set -e
 set -x
 
 source tensorflow/tools/ci_build/release/common.sh
-install_bazelisk
 
-# Selects a version of Xcode.
-export DEVELOPER_DIR=/Applications/Xcode_11.3.app/Contents/Developer
-sudo xcode-select -s "${DEVELOPER_DIR}"
+# Update bazel
+update_bazel_linux
 
-# Set up py37 via pyenv and check it worked
-PY_VERSION=3.7.9
-setup_python_from_pyenv_macos "${PY_VERSION}"
+# Setup virtual environment and install dependencies
+setup_venv_ubuntu python3.9
 
-# Set up and install MacOS pip dependencies.
-install_macos_pip_deps
-
-tag_filters="-no_oss,-oss_serial,-nomac,-no_mac$(maybe_skip_v1),-gpu,-tpu,-benchmark-test"
+export LD_LIBRARY_PATH="/usr/local/cuda:/usr/local/cuda/lib64:/usr/local/cuda/extras/CUPTI/lib64:/usr/local/tensorrt/lib"
 
 # Get the default test targets for bazel.
 source tensorflow/tools/ci_build/build_scripts/DEFAULT_TEST_TARGETS.sh
 
-# Run tests
-# Pass PYENV_VERSION since we're using pyenv. See b/182399580
-# TODO(b/212470799): Figure out why this is extremely slow / hangs.
+tag_filters="gpu,requires-gpu,-no_gpu,-no_oss,-oss_serial,-no_oss_py39,-no_cuda11"
+
+test +e
 bazel test \
-  --config=release_cpu_macos \
-  --action_env PYENV_VERSION="${PY_VERSION}" \
+  --config=release_gpu_linux_manylinux2014 \
+  --repo_env=PYTHON_BIN_PATH="$(which python)" \
   --build_tag_filters="${tag_filters}" \
   --test_tag_filters="${tag_filters}" \
-  --test_output=errors \
+  --test_lang_filters=py \
+  --test_output=errors --verbose_failures=true --keep_going \
+  --test_timeout="300,450,1200,3600" --local_test_jobs=4 \
+  --run_under=//tensorflow/tools/ci_build/gpu_build:parallel_gpu_execute \
   -- ${DEFAULT_BAZEL_TARGETS} -//tensorflow/lite/...
+test_xml_summary_exit
+
+# Remove and cleanup virtual environment
+remove_venv_ubuntu

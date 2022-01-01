@@ -17,31 +17,30 @@ set -e
 set -x
 
 source tensorflow/tools/ci_build/release/common.sh
+
+# Update bazel
 install_bazelisk
 
-# Selects a version of Xcode.
-export DEVELOPER_DIR=/Applications/Xcode_11.3.app/Contents/Developer
-sudo xcode-select -s "${DEVELOPER_DIR}"
+# Setup virtual environment and install dependencies
+setup_venv_ubuntu python3.8
 
-# Set up py37 via pyenv and check it worked
-PY_VERSION=3.7.9
-setup_python_from_pyenv_macos "${PY_VERSION}"
-
-# Set up and install MacOS pip dependencies.
-install_macos_pip_deps
-
-tag_filters="-no_oss,-oss_serial,-nomac,-no_mac$(maybe_skip_v1),-gpu,-tpu,-benchmark-test"
+tag_filters="-no_oss,-oss_serial,-gpu,-tpu,-benchmark-test,-no_oss_py38,-v1only"
 
 # Get the default test targets for bazel.
 source tensorflow/tools/ci_build/build_scripts/DEFAULT_TEST_TARGETS.sh
 
 # Run tests
-# Pass PYENV_VERSION since we're using pyenv. See b/182399580
-# TODO(b/212470799): Figure out why this is extremely slow / hangs.
+set +e
 bazel test \
-  --config=release_cpu_macos \
-  --action_env PYENV_VERSION="${PY_VERSION}" \
+  --config=release_cpu_linux_manylinux2014 \
+  --repo_env=PYTHON_BIN_PATH="$(which python)" \
   --build_tag_filters="${tag_filters}" \
   --test_tag_filters="${tag_filters}" \
+  --test_lang_filters=py \
   --test_output=errors \
+  --local_test_jobs=8 \
   -- ${DEFAULT_BAZEL_TARGETS} -//tensorflow/lite/...
+test_xml_summary_exit
+
+# Remove and cleanup virtual environment
+remove_venv_ubuntu
