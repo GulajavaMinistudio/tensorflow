@@ -102,6 +102,7 @@ limitations under the License.
 #include "tensorflow/compiler/xla/service/gpu/ir_emitter_unnested.h"
 #include "tensorflow/compiler/xla/service/gpu/launch_dimensions.h"
 #include "tensorflow/compiler/xla/service/gpu/llvm_gpu_backend/gpu_backend_lib.h"
+#include "tensorflow/compiler/xla/service/gpu/metrics.h"
 #include "tensorflow/compiler/xla/service/gpu/multi_output_fusion.h"
 #include "tensorflow/compiler/xla/service/gpu/nccl_all_gather_thunk.h"
 #include "tensorflow/compiler/xla/service/gpu/reduction_degenerate_dim_remover.h"
@@ -161,6 +162,7 @@ limitations under the License.
 #include "tensorflow/core/platform/env.h"
 #include "tensorflow/core/platform/logging.h"
 #include "tensorflow/core/platform/regexp.h"
+#include "tensorflow/core/platform/statusor.h"
 #include "tensorflow/core/platform/stream_executor_no_cuda.h"
 #include "tensorflow/core/platform/subprocess.h"
 #include "tensorflow/core/platform/threadpool.h"
@@ -738,6 +740,7 @@ StatusOr<std::unique_ptr<HloModule>> GpuCompiler::RunHloPasses(
     const CompileOptions& options) {
   // We dump the post-optimization HLO in RunBackend so no need to dump it here.
   XLA_SCOPED_LOGGING_TIMER("GpuCompiler::RunHloPasses");
+  uint64_t start_usecs = tensorflow::Env::Default()->NowMicros();
   tensorflow::profiler::TraceMe activity(
       [&] { return absl::StrCat("HLO Transforms:", module->name()); },
       tensorflow::profiler::TraceMeLevel::kInfo);
@@ -745,6 +748,12 @@ StatusOr<std::unique_ptr<HloModule>> GpuCompiler::RunHloPasses(
       OptimizeHloModule(module.get(), stream_exec, options.device_allocator));
 
   TF_RETURN_IF_ERROR(PrepareHloModuleForIrEmitting(module.get()));
+
+  uint64_t end_usecs = tensorflow::Env::Default()->NowMicros();
+
+  // This won't record values for calls that error out (because if they error
+  // out we have no way of telling how far through the process we got).
+  RecordHloPassesDuration(end_usecs - start_usecs);
 
   return std::move(module);
 }
@@ -839,8 +848,7 @@ static Status CompileModuleToLlvmIrImpl(
     const std::string& platform_name, GpuDeviceInfo gpu_device_info,
     se::CudaComputeCapability cuda_compute_capability,
     const HloDataflowAnalysis::CanShareBuffer& can_share_buffer_function,
-    int pointer_size, const HloProfileIndexMap* profile_index_map,
-    CompileModuleResults* results) {
+    int pointer_size, CompileModuleResults* results) {
   results->llvm_module = absl::make_unique<llvm::Module>("", *llvm_context);
   results->llvm_module->setTargetTriple(target_triple);
   results->llvm_module->setDataLayout(data_layout);
@@ -873,6 +881,7 @@ static Status CompileModuleToLlvmIrImpl(
                          absl::StrCat("sm_", cuda_compute_capability.ToString(),
                                       "_gpu_after_optimizations"));
 
+  uint64_t start_usecs = tensorflow::Env::Default()->NowMicros();
   mlir::MLIRContext mlir_context;
   mlir_context
       .loadDialect<mlir::lmhlo::LmhloDialect, mlir::mhlo::MhloDialect,
@@ -899,8 +908,8 @@ static Status CompileModuleToLlvmIrImpl(
 
   IrEmitterContext ir_emitter_context(
       /*hlo_module=*/nullptr, /*buffer_assignment=*/nullptr, platform_name,
-      gpu_device_info, cuda_compute_capability, profile_index_map,
-      &mlir_context, results->llvm_module.get());
+      gpu_device_info, cuda_compute_capability, &mlir_context,
+      results->llvm_module.get());
 
   ir_emitter_context.set_allocations(results->allocations);
 
@@ -914,6 +923,11 @@ static Status CompileModuleToLlvmIrImpl(
     TF_RETURN_IF_ERROR(ir_emitter->EmitLmhloRegion(&entry_function.body()));
 
     results->constants = std::move(ir_emitter_context.constants());
+    uint64_t end_usecs = tensorflow::Env::Default()->NowMicros();
+
+    // This won't record values for calls that error out (because if they error
+    // out we have no way of telling how far through the process we got).
+    RecordHloToLlvmDuration(end_usecs - start_usecs);
   }
 
 #if BEF_EXECUTABLE
@@ -1156,9 +1170,6 @@ StatusOr<std::unique_ptr<Executable>> GpuCompiler::RunBackend(
 
   GpuDeviceInfo gpu_device_info = GetGpuDeviceInfo(stream_exec);
 
-  std::unique_ptr<HloProfileIndexMap> profile_index_map;
-  std::unique_ptr<HloProfilePrinterData> profile_printer;
-
   if (module->config().hlo_profiling_enabled() || VLOG_IS_ON(1)) {
     HloCostAnalysis cost_analysis(ShapeSizeBytesFunction());
     cost_analysis.set_bytes_per_second(
@@ -1177,8 +1188,7 @@ StatusOr<std::unique_ptr<Executable>> GpuCompiler::RunBackend(
       module.get(), &llvm_context, target_triple_, data_layout_,
       stream_exec->platform()->Name(), gpu_device_info,
       stream_exec->GetDeviceDescription().cuda_compute_capability(),
-      GetCanShareBuffer(), pointer_size_, profile_index_map.get(),
-      &compile_module_results));
+      GetCanShareBuffer(), pointer_size_, &compile_module_results));
 
   if (user_pre_optimization_hook_) {
     user_pre_optimization_hook_(*compile_module_results.llvm_module);
@@ -1212,29 +1222,25 @@ StatusOr<std::unique_ptr<Executable>> GpuCompiler::RunBackend(
   auto buffer_assignment_proto = std::make_unique<BufferAssignmentProto>(
       compile_module_results.buffer_assignment->ToProto());
 
-  size_t profile_index = 0;
-  if (profile_index_map) {
-    profile_index =
-        profile_index_map->GetProfileIndexFor(*module->entry_computation());
-  }
-
   // Make it shared to be captured in the following lambda.
   std::shared_ptr<const BufferAssignment> buffer_assignment(
       std::move(compile_module_results.buffer_assignment));
 
   GpuVersion gpu_version = GetGpuVersion(stream_exec);
-  auto* gpu_executable = new GpuExecutable(
-      {std::move(backend_result.first), std::move(backend_result.second),
-       gpu_version, std::move(compile_module_results.thunks_or_bef),
-       compile_module_results.entry_func_attrs,
-       std::move(compile_module_results.constants),
-       std::move(compile_module_results.output_info),
-       compile_module_results.module_name, compile_module_results.output_shape,
-       std::move(compile_module_results.allocations),
-       std::move(buffer_assignment_proto),
-       [buffer_assignment] { return buffer_assignment->ToVerboseString(); },
-       std::move(module), profile_index, std::move(profile_printer),
-       std::move(profile_index_map)});
+  TF_ASSIGN_OR_RETURN(
+      auto gpu_executable,
+      GpuExecutable::Create(
+          {std::move(backend_result.first), std::move(backend_result.second),
+           gpu_version, std::move(compile_module_results.thunks_or_bef),
+           compile_module_results.entry_func_attrs,
+           std::move(compile_module_results.constants),
+           std::move(compile_module_results.output_info),
+           compile_module_results.module_name,
+           compile_module_results.output_shape,
+           std::move(compile_module_results.allocations),
+           std::move(buffer_assignment_proto),
+           [buffer_assignment] { return buffer_assignment->ToVerboseString(); },
+           std::move(module)}));
   if (embed_ir_in_executable) {
     DCHECK_NE("", ir_module_string_before_opt);
     gpu_executable->set_ir_module_string(ir_module_string_before_opt);
@@ -1254,7 +1260,7 @@ StatusOr<std::unique_ptr<Executable>> GpuCompiler::RunBackend(
     gpu_executable->set_hlo_proto(std::move(hlo_proto));
   }
   gpu_executable->set_debug_info(buffer_assignment->GetStats().ToString());
-  return std::unique_ptr<Executable>(gpu_executable);
+  return static_cast<std::unique_ptr<Executable>>(std::move(gpu_executable));
 }
 
 GpuDeviceInfo GetGpuDeviceInfo(se::StreamExecutor* stream_exec) {
@@ -1299,7 +1305,7 @@ StatusOr<std::unique_ptr<llvm::Module>> CompileModuleToLlvmIr(
   TF_RETURN_IF_ERROR(CompileModuleToLlvmIrImpl(
       hlo_module, llvm_context, target_triple, data_layout, platform_name,
       gpu_device_info, cuda_compute_capability, DummyCanShareBufferFunction,
-      pointer_size, /*profile_index_map=*/nullptr, &results));
+      pointer_size, &results));
   return std::move(results.llvm_module);
 }
 
@@ -1412,12 +1418,11 @@ StatusOr<std::unique_ptr<Executable>> CompileLmhloToExecutable(
                           options, /*debug_module=*/nullptr));
 
   GpuVersion gpu_version = compiler->GetGpuVersion(stream_exec);
-  auto* gpu_executable = new GpuExecutable(
+  return GpuExecutable::Create(
       {std::move(backend_result.first), std::move(backend_result.second),
        gpu_version, std::move(thunk_schedule), entry_func_attrs,
        std::move(ir_emitter_context->constants()), std::move(output_info),
        module_name, output_shape, std::move(allocations)});
-  return std::unique_ptr<Executable>(gpu_executable);
 }
 
 }  // namespace gpu

@@ -64,12 +64,14 @@ DenseElementsAttr GetScalarOfType(Type ty, int64_t raw_value) {
   if (auto int_ty = ty.dyn_cast<IntegerType>()) {
     APInt value(int_ty.getWidth(), static_cast<int64_t>(raw_value), true);
     return DenseElementsAttr::get(scalar_ty, value);
-  } else if (auto complex_ty = ty.dyn_cast<ComplexType>()) {
+  }
+  if (auto complex_ty = ty.dyn_cast<ComplexType>()) {
     Type complex_element_ty = complex_ty.getElementType();
     if (complex_element_ty.isF32()) {
       return DenseElementsAttr::get(
           scalar_ty, static_cast<std::complex<float>>(raw_value));
-    } else if (complex_element_ty.isF64()) {
+    }
+    if (complex_element_ty.isF64()) {
       return DenseElementsAttr::get(
           scalar_ty, static_cast<std::complex<double>>(raw_value));
     }
