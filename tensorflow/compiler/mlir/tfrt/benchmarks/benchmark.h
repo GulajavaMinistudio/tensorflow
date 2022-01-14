@@ -27,7 +27,7 @@ limitations under the License.
 #include "tensorflow/compiler/mlir/tensorflow/dialect_registration.h"
 #include "tensorflow/compiler/mlir/tfrt/jit/tf_cpurt_pipeline.h"
 #include "tensorflow/core/platform/test_benchmark.h"
-#include "tfrt/cpu/jit/cpurt.h"  // from @tf_runtime
+#include "tfrt/jitrt/jitrt.h"  // from @tf_runtime
 #include "tfrt/dtype/dtype.h"  // from @tf_runtime
 #include "tfrt/host_context/host_context.h"  // from @tf_runtime
 #include "tfrt/tensor/dense_host_tensor.h"  // from @tf_runtime
@@ -41,9 +41,9 @@ namespace tensorflow {
 
 using ::tfrt::HostContext;
 using ::tfrt::RemainingResults;
-using ::tfrt::cpu::jit::JitExecutable;
-using ::tfrt::cpu::jit::MemrefDesc;
-using ::tfrt::cpu::jit::Type;
+using ::tfrt::jitrt::JitExecutable;
+using ::tfrt::jitrt::MemrefDesc;
+using ::tfrt::jitrt::Type;
 
 // Constants to make shape specification more readable.
 // kStaticDim refers to the static shape in IR taken from ARGS of the benchmark.

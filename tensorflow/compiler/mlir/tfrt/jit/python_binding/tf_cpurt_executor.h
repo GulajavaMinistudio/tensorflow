@@ -23,7 +23,7 @@ limitations under the License.
 #include "pybind11/numpy.h"
 #include "pybind11/pybind11.h"
 #include "pybind11/stl.h"
-#include "tfrt/cpu/jit/cpurt.h"  // from @tf_runtime
+#include "tfrt/jitrt/jitrt.h"  // from @tf_runtime
 #include "tfrt/host_context/host_context.h"  // from @tf_runtime
 
 namespace tensorflow {
@@ -34,7 +34,7 @@ namespace tensorflow {
 class TfCpurtExecutor {
  public:
   using Handle = int64_t;
-  using Specialization = tfrt::cpu::jit::CompilationOptions::Specialization;
+  using Specialization = tfrt::jitrt::CompilationOptions::Specialization;
 
   TfCpurtExecutor();
 
@@ -56,7 +56,7 @@ class TfCpurtExecutor {
 
  private:
   tfrt::HostContext host_context_;
-  llvm::DenseMap<Handle, tfrt::cpu::jit::JitExecutable> jit_executables_;
+  llvm::DenseMap<Handle, tfrt::jitrt::JitExecutable> jit_executables_;
 };
 
 }  // namespace tensorflow

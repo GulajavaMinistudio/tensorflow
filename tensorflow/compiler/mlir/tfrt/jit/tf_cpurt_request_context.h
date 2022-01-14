@@ -17,17 +17,17 @@ limitations under the License.
 #define TENSORFLOW_COMPILER_MLIR_TFRT_JIT_TF_CPURT_REQUEST_CONTEXT_H_
 
 #include "tensorflow/core/platform/status.h"
-#include "tfrt/cpu/jit/cpurt.h"  // from @tf_runtime
+#include "tfrt/jitrt/jitrt.h"  // from @tf_runtime
 
 namespace tensorflow {
 
 struct TfCpuRtRequestState {
   explicit TfCpuRtRequestState(
-      tfrt::cpu::jit::JitExecutableCache* jit_executable_cache)
+      tfrt::jitrt::JitExecutableCache* jit_executable_cache)
       : jit_executable_cache(jit_executable_cache) {}
 
   // A pointer to the Jit Executable cache owned by the resource context.
-  tfrt::cpu::jit::JitExecutableCache* jit_executable_cache;
+  tfrt::jitrt::JitExecutableCache* jit_executable_cache;
 };
 
 // Sets up RequestContext with the CpuRt state required for running `tf_cpurt`

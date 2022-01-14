@@ -77,12 +77,13 @@ void AddLinalgTransformations(OpPassManager& pm,
                                    options.reduction_2d_tile_sizes.end());
   }
   pm.addNestedPass<FuncOp>(CreateTileReductionPass(
-      options.reduction_1d_tile_size, reduction_2d_tile_sizes));
+      options.vector_size, options.reduction_1d_tile_size,
+      reduction_2d_tile_sizes));
 
   if (options.fuse_fill) {
     pm.addNestedPass<FuncOp>(CreateFuseFillIntoTiledReductionPass());
   }
-  pm.addNestedPass<FuncOp>(CreateTileCWisePass(options.cwise_tile_size));
+  pm.addNestedPass<FuncOp>(CreateTileCWisePass(options.vector_size));
   if (options.peel) {
     pm.addNestedPass<FuncOp>(CreatePeelTiledLoopsPass());
   }
@@ -126,8 +127,9 @@ void CreateTfCpuRtPipeline(OpPassManager& pm,
   // Add the broadcast propagation pass first, because it can help to avoid
   // exponential complexity from the EarlyBroadcastInDimOp pattern which is used
   // in the merge assuming ops pass further down.
+  pm.addNestedPass<FuncOp>(
+      mlir::mhlo::createMergeAssumingOpsPass(/*propagate_broadcasts=*/false));
   pm.addNestedPass<FuncOp>(mlir::mhlo::createBroadcastPropagationPass());
-  pm.addNestedPass<FuncOp>(mlir::mhlo::createMergeAssumingOpsPass());
   pm.addPass(mlir::createCSEPass());
   pm.addPass(mlir::createCanonicalizerPass());
 
@@ -201,6 +203,7 @@ void CreateTfCpuRtPipeline(OpPassManager& pm,
   vec_to_scf_options.unroll = true;
   pm.addNestedPass<FuncOp>(
       mlir::createConvertVectorToSCFPass(vec_to_scf_options));
+  pm.addNestedPass<FuncOp>(createRewriteVectorMultiReductionPass());
 
   pm.addNestedPass<FuncOp>(CreateMathApproximationPass({"all"}));
 }

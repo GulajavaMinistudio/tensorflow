@@ -30,6 +30,7 @@ using mlir::failure;
 using mlir::success;
 using mlir::arith::ConstantIndexOp;
 using mlir::linalg::CodegenStrategy;
+using mlir::linalg::GenericOp;
 using mlir::linalg::TiledLoopOp;
 using mlir::tensor::ExpandShapeOp;
 using mlir::vector::TransferReadOp;
@@ -52,9 +53,16 @@ struct TransferReadOfOneDimExpandShape
     if (expand_src_type.getRank() != 1 || expand_dst_type.getRank() != 2)
       return failure();
 
+    auto result_type = vector_read.getType().dyn_cast<mlir::ShapedType>();
+    if (!result_type || result_type.getShape() != expand_dst_type.getShape())
+      return failure();
+
     auto zero = rewriter.create<ConstantIndexOp>(vector_read.getLoc(), 0);
     auto map = mlir::AffineMap::get(1, 0, {rewriter.getAffineDimExpr(0)},
                                     vector_read.getContext());
+    // TODO(pifon): Also support canonicalization in case the map is not an
+    // identity.
+    if (!map.isIdentity()) return failure();
 
     auto new_read = rewriter.create<TransferReadOp>(
         vector_read.getLoc(),
@@ -94,12 +102,17 @@ struct VectorizeTiledOpsPass
     mlir::OpPassManager dynamicPM2("builtin.func");
     CodegenStrategy strategy2;
     strategy2
-        .vectorize(
-            mlir::linalg::GenericOp::getOperationName(),
-            [](mlir::Operation *op) {
-              // TODO(b/206986898): Allow vectorization of non-tiled ops.
-              return success(op->getParentOfType<TiledLoopOp>() != nullptr);
-            })
+        .vectorize(GenericOp::getOperationName(),
+                   [](mlir::Operation *op) {
+                     auto generic = mlir::dyn_cast<GenericOp>(op);
+                     if (!generic) return failure();
+
+                     if (op->getParentOfType<TiledLoopOp>()) return success();
+
+                     // Allow vectorization of 1D reductions.
+                     return success(generic.getNumLoops() == 1 &&
+                                    generic.getNumReductionLoops() == 1);
+                   })
         .vectorLowering(
             mlir::linalg::LinalgVectorLoweringOptions()
                 .setVectorTransferToSCFOptions(vector_transfer_opts));

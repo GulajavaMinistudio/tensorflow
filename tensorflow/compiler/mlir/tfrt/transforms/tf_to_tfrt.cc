@@ -57,7 +57,7 @@ limitations under the License.
 #include "tensorflow/core/platform/tstring.h"
 #include "tensorflow/core/runtime_fallback/opdefs/tfrt_fallback.h"
 #include "tensorflow/core/runtime_fallback/opdefs/tfrt_fallback_async.h"
-#include "tfrt/cpu/jit/opdefs/cpurt_ops.h"  // from @tf_runtime
+#include "tfrt/jitrt/opdefs/jitrt_ops.h"  // from @tf_runtime
 #include "tfrt/basic_kernels/opdefs/basic_kernels.h"  // from @tf_runtime
 #include "tfrt/basic_kernels/opdefs/tfrt_base.h"  // from @tf_runtime
 #include "tfrt/basic_kernels/opdefs/types.h"  // from @tf_runtime
@@ -158,6 +158,10 @@ class FallbackExecuteOpConversion : public mlir::ConversionPattern {
                      llvm::isa<mlir::TF::TPUReplicatedInputOp,
                                mlir::TF::TPUReplicatedOutputOp>(op);
 
+    // TODO(b/214111933): Deprecate the special handling of variable ops.
+    bool is_variable_op =
+        llvm::isa<mlir::TF::AssignVariableOp, mlir::TF::ReadVariableOp>(op);
+
     // Currently the fallback executeop does not support GPU device. For GPU
     // device, we still lower it to corert executeop where more devices are
     // supported.
@@ -166,7 +170,7 @@ class FallbackExecuteOpConversion : public mlir::ConversionPattern {
     // remove the conversion to corert.
     if (parsed_device_name->device_type == DEVICE_GPU ||
         (parsed_device_name->device_type == kDeviceTypeTpu &&
-         !tpu_lower_to_fallback_) ||
+         (!tpu_lower_to_fallback_ || is_variable_op)) ||
         // Convert ops running on TPU to CoreRT dialect to prevent the creation
         // of tfrt_fallback_async.createop for them.
         // These ops will be encountered here only when using fallback to run
@@ -201,8 +205,6 @@ class FallbackExecuteOpConversion : public mlir::ConversionPattern {
     // whether a TF op should be lowered to FallbackExecute op.
     return !llvm::isa<
         mlir::TF::_TfrtSetResourceOp, mlir::TF::_TfrtGetResourceOp,
-        mlir::TF::_TPUCompileMlirOp, mlir::TF::TPUCompileSucceededAssertOp,
-        mlir::TF::TPUExecuteOp, mlir::TF::TPUCompileMlirAndExecuteOp,
         // Specifically handle control flow ops.
         mlir::TF::CaseOp, mlir::TF::IfOp, mlir::TF::WhileOp,
         mlir::TF::StatefulPartitionedCallOp, mlir::TF::PartitionedCallOp,
@@ -1413,13 +1415,13 @@ constexpr char kCpuRtDevice[] = "CPU";
 
 // Convert cpurt.call operations to the tf_cpurt.fallback.execute operation.
 class CpuRtCallToCpurtCompileAndExecuteConversion
-    : public OpConversionPattern<tfrt::cpu::jit::CallOp> {
+    : public OpConversionPattern<tfrt::jitrt::CallOp> {
  public:
   explicit CpuRtCallToCpurtCompileAndExecuteConversion(MLIRContext *context)
-      : OpConversionPattern<tfrt::cpu::jit::CallOp>(context) {}
+      : OpConversionPattern<tfrt::jitrt::CallOp>(context) {}
 
   LogicalResult matchAndRewrite(
-      tfrt::cpu::jit::CallOp call, OpAdaptor adaptor,
+      tfrt::jitrt::CallOp call, OpAdaptor adaptor,
       ConversionPatternRewriter &rewriter) const override {
     // Convert operands to fallback tensors.
     llvm::SmallVector<Value, 4> fallback_operands;
@@ -1453,7 +1455,7 @@ void SetUpTFToTFRTConversionLegality(mlir::ConversionTarget *target,
   target->addLegalDialect<tf_cpurt::CpuRuntimeDialect>();
   target->addIllegalDialect<TF::TensorFlowDialect>();
   target->addIllegalDialect<tf_device::TensorFlowDeviceDialect>();
-  target->addIllegalDialect<tfrt::cpu::jit::CpuRuntimeDialect>();
+  target->addIllegalDialect<tfrt::jitrt::JitRuntimeDialect>();
   target->addDynamicallyLegalOp<mlir::FuncOp>([func_type_converter,
                                                chain_type](FuncOp op) {
     auto func_type = op.getType();
@@ -1906,7 +1908,7 @@ class OutlineCpuRtClustersPass
   void runOnOperation() override;
 
   void getDependentDialects(mlir::DialectRegistry &registry) const override {
-    registry.insert<tfrt::cpu::jit::CpuRuntimeDialect>();
+    registry.insert<tfrt::jitrt::JitRuntimeDialect>();
   }
 
  private:
@@ -2032,7 +2034,7 @@ LogicalResult OutlineCpuRtClustersPass::SetEntrypointConstraints(
     if (auto constraint = constraints.GetConstraint(func.getArgument(i))) {
       auto constraint_name = mlir::StringAttr::get(
           &getContext(), llvm::formatv("{0}", *constraint).str());
-      func.setArgAttr(i, "cpurt.constraint", constraint_name);
+      func.setArgAttr(i, "jitrt.constraint", constraint_name);
     }
   }
 
@@ -2058,7 +2060,7 @@ LogicalResult OutlineCpuRtClustersPass::OutlineClusterOp(
   auto func_ref = mlir::SymbolRefAttr::get(builder.getContext(), module_name,
                                            {func_flat_ref});
 
-  auto cluster_func_op = builder.create<tfrt::cpu::jit::CallOp>(
+  auto cluster_func_op = builder.create<tfrt::jitrt::CallOp>(
       loc, cluster.getResultTypes(), func_ref,
       compiled_module.operands.getArrayRef());
 

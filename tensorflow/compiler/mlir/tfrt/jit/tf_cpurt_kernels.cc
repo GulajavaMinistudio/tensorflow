@@ -34,9 +34,9 @@ limitations under the License.
 #include "tensorflow/core/profiler/lib/traceme.h"
 #include "tensorflow/core/runtime_fallback/kernel/kernel_fallback_compat_request_state.h"
 #include "tensorflow/core/tfrt/utils/fallback_tensor.h"
-#include "tfrt/cpu/jit/async_runtime.h"  // from @tf_runtime
-#include "tfrt/cpu/jit/async_runtime_api.h"  // from @tf_runtime
-#include "tfrt/cpu/jit/cpurt.h"  // from @tf_runtime
+#include "tfrt/jitrt/async_runtime.h"  // from @tf_runtime
+#include "tfrt/jitrt/async_runtime_api.h"  // from @tf_runtime
+#include "tfrt/jitrt/jitrt.h"  // from @tf_runtime
 #include "tfrt/dtype/dtype.h"  // from @tf_runtime
 #include "tfrt/host_context/async_dispatch.h"  // from @tf_runtime
 #include "tfrt/host_context/async_value_ref.h"  // from @tf_runtime
@@ -90,16 +90,16 @@ using ::tfrt::StrCat;
 using ::tfrt::StringAttribute;
 using ::tfrt::TaskFunction;
 
-using ::tfrt::cpu::jit::CompilationOptions;
-using ::tfrt::cpu::jit::EmitErrors;
-using ::tfrt::cpu::jit::Executable;
-using ::tfrt::cpu::jit::JitExecutable;
-using ::tfrt::cpu::jit::JitExecutableCache;
-using ::tfrt::cpu::jit::MemrefDesc;
-using ::tfrt::cpu::jit::OperandConstraint;
-using ::tfrt::cpu::jit::ReturnAsyncStridedMemref;
-using ::tfrt::cpu::jit::ReturnStridedMemref;
-using ::tfrt::cpu::jit::ReturnValueConverter;
+using ::tfrt::jitrt::CompilationOptions;
+using ::tfrt::jitrt::EmitErrors;
+using ::tfrt::jitrt::Executable;
+using ::tfrt::jitrt::JitExecutable;
+using ::tfrt::jitrt::JitExecutableCache;
+using ::tfrt::jitrt::MemrefDesc;
+using ::tfrt::jitrt::OperandConstraint;
+using ::tfrt::jitrt::ReturnAsyncStridedMemref;
+using ::tfrt::jitrt::ReturnStridedMemref;
+using ::tfrt::jitrt::ReturnValueConverter;
 
 using ::tensorflow::Env;
 using ::tensorflow::thread::ThreadPool;
@@ -116,7 +116,7 @@ using ::tensorflow::tfrt_stub::FallbackTensor;
 class CompilationThreadPool : public SharedContext {
  public:
   explicit CompilationThreadPool(HostContext* host)
-      : thread_pool_(Env::Default(), "tf-cpurt-compiler", /*num_threads=*/16) {}
+      : thread_pool_(Env::Default(), "tf-cpurt-compiler", /*num_threads=*/32) {}
 
   static CompilationThreadPool& Get(const ExecutionContext& exec_ctx) {
     return exec_ctx.host()->GetOrCreateSharedContext<CompilationThreadPool>();
@@ -376,6 +376,12 @@ static Expected<AsyncValuePtr<JitExecutable>> CompileImpl(
     opts.type_converter = mlir::bufferization::BufferizeTypeConverter();
     opts.register_dialects = mlir::RegisterAllTensorFlowDialects;
 
+    // TODO(b/202247905): Default binary compilation can be prohibitively
+    // expensive because of the exponential complexity in the broadcast
+    // propagation pass. Specialized binaries have most (often all)
+    // broadcasts removed, and typically are much cheaper to compile.
+    opts.specialization = CompilationOptions::Specialization::kAlways;
+
     // Register a custom pipeline for lowering from Tensorflow dialect.
     if (tf_cpurt_opts) {
       opts.register_pass_pipeline = [tf_cpurt_opts](OpPassManager& pm) {
@@ -506,13 +512,15 @@ static void ExecuteImpl(Executable& executable,
          {"specialization", !executable.specialization().hasValue()
                                 ? "default"
                                 : std::to_string(*executable.specialization())},
-         {"num_worker_threads", executable.num_worker_threads()}});
+         {"num_worker_threads", executable.num_worker_threads()},
+         {"time_to_compile_ms", executable.time_to_compile().count()}});
   });
 
   // Keep track of memory address to tensor mapping for result conversion.
-  auto ctx = std::make_unique<TensorflowConversionContext>(operands.size());
+  auto ctx = std::make_unique<TensorflowConversionContext>(operands.size(),
+                                                           results.size());
   for (auto& t : operands)
-    ctx->tensor_operands.insert({t.tensor().data(), &t.tensor()});
+    ctx->runtime_tensors.insert({t.tensor().data(), &t.tensor()});
 
   // Tensorflow -> CPURT only supports returning Memrefs as Tensors.
   TensorflowReturnValueConverter converter(results, std::move(ctx));

@@ -27,7 +27,7 @@ limitations under the License.
 #include "tensorflow/compiler/mlir/tfrt/jit/tf_cpurt_pipeline.h"
 #include "tensorflow/compiler/mlir/tfrt/python_tests/python_test_attrs_registration.h"
 #include "tensorflow/core/platform/dynamic_annotations.h"
-#include "tfrt/cpu/jit/cpurt.h"  // from @tf_runtime
+#include "tfrt/jitrt/jitrt.h"  // from @tf_runtime
 #include "tfrt/dtype/dtype.h"  // from @tf_runtime
 #include "tfrt/host_context/async_value.h"  // from @tf_runtime
 #include "tfrt/host_context/concurrent_work_queue.h"  // from @tf_runtime
@@ -51,12 +51,12 @@ using ::tfrt::RemainingResults;
 using ::tfrt::RequestContext;
 using ::tfrt::RequestContextBuilder;
 using ::tfrt::StrCat;
-using ::tfrt::cpu::jit::CompilationOptions;
-using ::tfrt::cpu::jit::Executable;
-using ::tfrt::cpu::jit::JitExecutable;
-using ::tfrt::cpu::jit::MemrefDesc;
-using ::tfrt::cpu::jit::ReturnStridedMemref;
-using ::tfrt::cpu::jit::ReturnValueConverter;
+using ::tfrt::jitrt::CompilationOptions;
+using ::tfrt::jitrt::Executable;
+using ::tfrt::jitrt::JitExecutable;
+using ::tfrt::jitrt::MemrefDesc;
+using ::tfrt::jitrt::ReturnStridedMemref;
+using ::tfrt::jitrt::ReturnValueConverter;
 
 namespace tensorflow {
 
@@ -315,7 +315,7 @@ std::vector<py::array> TfCpurtExecutor::Execute(
 
   RemainingResults results(result_storage);
 
-  // Convert returned memrefs to Tensors.
+  // Convert returned memrefs to python arrays.
   PyBindingReturnValueConverter converter(results);
   converter.AddConversion(ReturnStridedMemref<MemrefToPyArray>);
   if (auto err = (*executable)->Execute(memrefs, converter, exec_ctx))

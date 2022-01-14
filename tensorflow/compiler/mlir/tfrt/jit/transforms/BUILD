@@ -18,7 +18,7 @@ tfrt_cc_library(
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:IR",
         "@llvm-project//mlir:Support",
-        "@tf_runtime//backends/cpu:cpurt_support",
+        "@tf_runtime//backends/jitrt:support",
     ],
 )
 
@@ -52,6 +52,7 @@ cc_library(
         "tf_cpurt_math_approximation.cc",
         "tf_cpurt_passes.cc",
         "tf_cpurt_peel_tiled_loops.cc",
+        "tf_cpurt_rewrite_vector_multi_reduction.cc",
         "tf_cpurt_symbolic_shape_optimization.cc",
         "tf_cpurt_tile_cwise.cc",
         "tf_cpurt_tile_reduction.cc",
