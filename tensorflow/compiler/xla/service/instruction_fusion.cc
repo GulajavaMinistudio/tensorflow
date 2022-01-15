@@ -19,6 +19,7 @@ limitations under the License.
 #include <list>
 #include <memory>
 #include <numeric>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -498,6 +499,9 @@ StatusOr<bool> InstructionFusion::Run(HloModule* module) {
     fusion_config->clear();
   }
 
+  bool dump_fusion =
+      module->config().debug_options().xla_dump_fusion_visualization();
+
   for (auto* computation : GetFusionComputations(module_)) {
     CHECK(!computation->IsFusionComputation());
     computation_ = computation;
@@ -511,10 +515,6 @@ StatusOr<bool> InstructionFusion::Run(HloModule* module) {
           ComputeGloballyUnfusible(computation_->MakeInstructionPostOrder());
     }
     auto fusion_queue = GetFusionQueue(computation_);
-
-    if (module->config().debug_options().xla_dump_fusion_visualization()) {
-      TF_RETURN_IF_ERROR(RegisterFusionState(*computation, ""));
-    }
 
     // Instruction fusion effectively fuses edges in the computation graph
     // (producer instruction -> consumer instruction) so we iterate over all
@@ -565,6 +565,17 @@ StatusOr<bool> InstructionFusion::Run(HloModule* module) {
         if (should_fuse) {
           should_fuse = ShouldFuse(instruction, i);
           if (should_fuse && consume_fuel()) {
+            if (dump_fusion) {
+              TF_RETURN_IF_ERROR(RegisterFusionState(
+                  *computation,
+                  absl::StrCat("About to fuse |", operand->name(), "| into |",
+                               instruction->name(),
+                               "| inside InstructionFusion with may_duplicate=",
+                               may_duplicate_),
+                  /*consumer=*/*instruction,
+                  /*producer=*/operand));
+            }
+
             fusion_queue->PreFusion(operand, instruction);
             fusion_instruction = Fuse(operand, instruction);
           }
@@ -580,6 +591,17 @@ StatusOr<bool> InstructionFusion::Run(HloModule* module) {
           }
           if (can_fuse_mof) {
             if (consume_fuel()) {
+              if (dump_fusion) {
+                TF_RETURN_IF_ERROR(RegisterFusionState(
+                    *computation,
+                    absl::StrCat(
+                        "About to MOF-fuse |", operand->name(), "| into |",
+                        instruction->name(),
+                        "| inside InstructionFusion with may_duplicate=",
+                        may_duplicate_),
+                    /*consumer=*/*instruction, /*producer=*/operand));
+              }
+
               fusion_queue->PreFusion(operand, instruction);
               fusion_instruction = FuseIntoMultiOutput(operand, instruction);
             }
@@ -589,9 +611,7 @@ StatusOr<bool> InstructionFusion::Run(HloModule* module) {
 
         if (fusion_instruction == nullptr) {
           CHECK(!should_fuse.CanFuse());
-          if (module->config()
-                  .debug_options()
-                  .xla_dump_fusion_visualization()) {
+          if (dump_fusion) {
             VLOG(2) << "Not fusing " << operand->ToShortString() << "| into |"
                     << instruction->ToShortString() << "| as "
                     << should_fuse.Explain();
@@ -602,11 +622,11 @@ StatusOr<bool> InstructionFusion::Run(HloModule* module) {
                 instruction->opcode() != HloOpcode::kGetTupleElement) {
               TF_RETURN_IF_ERROR(RegisterFusionState(
                   *computation,
-                  absl::StrCat("Not fusing |", operand->ToShortString(),
-                               "| into |", instruction->ToShortString(),
-                               "| as ", should_fuse.Explain()),
-                  instruction,
-                  /*changed=*/false));
+                  absl::StrCat("Not fusing |", operand->name(), "| into |",
+                               instruction->name(), "| as ",
+                               should_fuse.Explain()),
+                  /*consumer=*/*instruction,
+                  /*producer=*/operand));
             }
           }
 
@@ -614,16 +634,8 @@ StatusOr<bool> InstructionFusion::Run(HloModule* module) {
           continue;
         }
 
-        if (module->config().debug_options().xla_dump_fusion_visualization()) {
-          TF_RETURN_IF_ERROR(RegisterFusionState(
-              *computation,
-              absl::StrCat("Fused |", operand->ToShortString(), "| into |",
-                           fusion_instruction->ToShortString(),
-                           "| inside InstructionFusion with may_duplicate=",
-                           may_duplicate_),
-              fusion_instruction, /*changed=*/true));
-        }
-
+        // Saving name to use after the instruction is removed.
+        std::string producer_name = operand->name();
         fusion_queue->OnFusingInstruction(fusion_instruction, operand,
                                           instruction);
         changed = true;
@@ -635,6 +647,16 @@ StatusOr<bool> InstructionFusion::Run(HloModule* module) {
           fusion_queue->RemoveInstruction(operand);
           // Remove from computation.
           TF_RETURN_IF_ERROR(computation_->RemoveInstruction(operand));
+        }
+
+        if (dump_fusion) {
+          TF_RETURN_IF_ERROR(RegisterFusionState(
+              *computation,
+              absl::StrCat("Fused |", producer_name, "| into |",
+                           fusion_instruction->name(),
+                           "| inside InstructionFusion with may_duplicate=",
+                           may_duplicate_),
+              *fusion_instruction));
         }
 
         if (fusion_instruction != instruction) {

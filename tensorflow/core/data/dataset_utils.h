@@ -15,7 +15,6 @@ limitations under the License.
 #ifndef TENSORFLOW_CORE_DATA_DATASET_UTILS_H_
 #define TENSORFLOW_CORE_DATA_DATASET_UTILS_H_
 
-#include <algorithm>
 #include <functional>
 #include <string>
 
@@ -360,9 +359,7 @@ inline int GetCpuBudget() {
 
 // Returns the initial value for parallelism parameter before the first Autotune
 // optimization.
-inline int64 GetAutotuneDefaultParallelism(IteratorContext* ctx) {
-  return std::min(kAutotuneDefaultParallelism, ctx->runner_threadpool_size());
-}
+int64 GetAutotuneDefaultParallelism(IteratorContext* ctx);
 
 // Registry of tf.data experiments.
 class DatasetExperimentRegistry {
