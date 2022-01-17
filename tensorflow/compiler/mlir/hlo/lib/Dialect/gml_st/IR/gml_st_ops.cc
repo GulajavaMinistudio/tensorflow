@@ -1,4 +1,4 @@
-/* Copyright 2021 The TensorFlow Authors. All Rights Reserved.
+/* Copyright 2022 The TensorFlow Authors. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -13,12 +13,23 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "tensorflow/compiler/mlir/tfrt/jit/tf_jitrt_kernels_registration.h"
+// This file defines the operations used in the ST dialect.
 
-namespace tensorflow {
+#include "mlir-hlo/Dialect/gml_st/IR/gml_st_ops.h"
 
-namespace kernels {
-TFRT_STATIC_KERNEL_REGISTRATION(RegisterTfJitRuntimeKernels);
-}  // namespace kernels
+namespace mlir {
+namespace gml_st {
 
-}  // namespace tensorflow
+GmlStDialect::GmlStDialect(MLIRContext* context)
+    : Dialect(getDialectNamespace(), context, TypeID::get<GmlStDialect>()) {
+  addOperations<
+#define GET_OP_LIST
+#include "mlir-hlo/Dialect/gml_st/IR/gml_st_ops.cc.inc"
+      >();
+}
+
+}  // namespace gml_st
+}  // namespace mlir
+
+#define GET_OP_CLASSES
+#include "mlir-hlo/Dialect/gml_st/IR/gml_st_ops.cc.inc"

@@ -1,4 +1,4 @@
-/* Copyright 2021 The TensorFlow Authors. All Rights Reserved.
+/* Copyright 2022 The TensorFlow Authors. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -13,12 +13,16 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "tensorflow/compiler/mlir/tfrt/jit/tf_jitrt_kernels_registration.h"
+#ifndef GML_ST_OPS_BASE
+#define GML_ST_OPS_BASE
 
-namespace tensorflow {
+include "mlir/IR/OpBase.td"
 
-namespace kernels {
-TFRT_STATIC_KERNEL_REGISTRATION(RegisterTfJitRuntimeKernels);
-}  // namespace kernels
+def GMLST_Dialect : Dialect {
+  let name = "gml_st";
+  let cppNamespace = "::mlir::gml_st";
 
-}  // namespace tensorflow
+  let emitAccessorPrefix = kEmitAccessorPrefix_Raw;
+}
+
+#endif // GML_ST_OPS_BASE

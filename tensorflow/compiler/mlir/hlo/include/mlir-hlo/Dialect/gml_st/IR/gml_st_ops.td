@@ -1,4 +1,4 @@
-/* Copyright 2021 The TensorFlow Authors. All Rights Reserved.
+/* Copyright 2022 The TensorFlow Authors. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -13,12 +13,17 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "tensorflow/compiler/mlir/tfrt/jit/tf_jitrt_kernels_registration.h"
+// This is the operation definition file for ST ops.
 
-namespace tensorflow {
+#ifndef GML_ST_OPS
+#define GML_ST_OPS
 
-namespace kernels {
-TFRT_STATIC_KERNEL_REGISTRATION(RegisterTfJitRuntimeKernels);
-}  // namespace kernels
+include "mlir/IR/OpBase.td"
+include "mlir-hlo/Dialect/gml_st/IR/gml_st_ops_base.td"
 
-}  // namespace tensorflow
+class GMLST_Op<string mnemonic, list<OpTrait> traits> :
+    Op<GMLST_Dialect, mnemonic, traits> {
+  let verifier = [{ return Verify(*this); }];
+}
+
+#endif // GML_ST_OPS
