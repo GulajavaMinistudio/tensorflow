@@ -18,6 +18,7 @@ limitations under the License.
 
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "absl/container/node_hash_map.h"
@@ -69,8 +70,8 @@ class NVPTXCompiler : public GpuCompiler {
   // We cache the cuda_data_dir() and the result of our search, so that if the
   // next module we have to compile has the same cuda_data_dir(), we can skip
   // the search.
-  std::string cached_cuda_data_dir_ TF_GUARDED_BY(mutex_);
-  std::string cached_libdevice_dir_ TF_GUARDED_BY(mutex_);
+  std::string cached_cuda_data_dir_ ABSL_GUARDED_BY(mutex_);
+  std::string cached_libdevice_dir_ ABSL_GUARDED_BY(mutex_);
 
   // Tries to compile the given ptx string to cubin.  Returns a vector with the
   // compiled cubin.  If compilation was unsuccessful, returns an empty vector.
@@ -98,27 +99,20 @@ class NVPTXCompiler : public GpuCompiler {
           cc_major(cc_major),
           cc_minor(cc_minor),
           relocatable(relocatable) {}
+    template <typename H>
+    friend H AbslHashValue(H h, const CompilationCacheKey& key) {
+      return H::combine(std::move(h), key.ptx, key.cc_major, key.cc_minor,
+                        key.relocatable);
+    }
+    friend bool operator==(const CompilationCacheKey& a,
+                           const CompilationCacheKey& b) {
+      return a.cc_major == b.cc_major && a.cc_minor == b.cc_minor &&
+             a.ptx == b.ptx && a.relocatable == b.relocatable;
+    }
     std::string ptx;
     int cc_major;
     int cc_minor;
     bool relocatable;
-  };
-  struct CompilationCacheHash {
-    size_t operator()(const CompilationCacheKey& key) const {
-      return tensorflow::Hash64Combine(
-          tensorflow::Hash64Combine(
-              tensorflow::Hash64Combine(tensorflow::Hash64(key.ptx),
-                                        key.cc_major),
-              key.cc_minor),
-          key.relocatable);
-    }
-  };
-  struct CompilationCacheEq {
-    size_t operator()(const CompilationCacheKey& a,
-                      const CompilationCacheKey& b) const {
-      return a.cc_major == b.cc_major && a.cc_minor == b.cc_minor &&
-             a.ptx == b.ptx && a.relocatable == b.relocatable;
-    }
   };
   struct CompilationCacheValue {
     bool compilation_done = false;
@@ -130,9 +124,8 @@ class NVPTXCompiler : public GpuCompiler {
 
   // Don't even think about switching this to flat_hash_map; iterator stability
   // is critical here.
-  absl::node_hash_map<CompilationCacheKey, CompilationCacheValue,
-                      CompilationCacheHash, CompilationCacheEq>
-      compilation_cache_ TF_GUARDED_BY(mutex_);
+  absl::node_hash_map<CompilationCacheKey, CompilationCacheValue>
+      compilation_cache_ ABSL_GUARDED_BY(mutex_);
 
   NVPTXCompiler(const NVPTXCompiler&) = delete;
   NVPTXCompiler& operator=(const NVPTXCompiler&) = delete;
