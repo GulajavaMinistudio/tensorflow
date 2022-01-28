@@ -57,7 +57,6 @@ limitations under the License.
 #include "tensorflow/core/lib/strings/numbers.h"
 #include "tensorflow/core/platform/base64.h"
 #include "tensorflow/core/platform/env.h"
-#include "tensorflow/core/platform/mutex.h"
 #include "tensorflow/core/platform/protobuf.h"
 #include "tensorflow/core/platform/regexp.h"
 #include "tensorflow/stream_executor/dnn.h"
@@ -335,11 +334,19 @@ class HloDotDumper {
 
   // Returns a CSS id assigned to the instruction, if that exists.
   absl::optional<std::string> CssIdForInstruction(const HloInstruction& instr) {
+    if (instr.opcode() == HloOpcode::kFusion) {
+      // For fusion we render it as a subcomputation.
+      auto it = cluster_ids_.find(instr.called_computations()[0]);
+      if (it == cluster_ids_.end()) {
+        return absl::nullopt;
+      }
+      return StrCat("#a_clust", it->second, " path");
+    }
     auto it = node_ids_.find(&instr);
     if (it == node_ids_.end()) {
       return absl::nullopt;
     }
-    return StrCat("node", it->second);
+    return StrCat("#node", it->second, " polygon");
   }
 
  private:
@@ -422,7 +429,7 @@ class HloDotDumper {
   int64_t next_edge_id_ = 1;
   std::unordered_multimap<
       std::pair<const HloInstruction*, const HloInstruction*>, int64_t,
-      tensorflow::hash<std::pair<const HloInstruction*, const HloInstruction*>>>
+      absl::Hash<std::pair<const HloInstruction*, const HloInstruction*>>>
       edge_ids_;
 
   // Each HloComputation that's emitted gets a monotonically-increasing ID.
@@ -1732,13 +1739,13 @@ std::string WrapDotInHtml(absl::string_view dot) {
   return absl::StrCat(html_prefix, dot, html_suffix);
 }
 
-tensorflow::mutex url_renderer_mu(tensorflow::LINKER_INITIALIZED);
+absl::Mutex url_renderer_mu(absl::kConstInit);
 std::function<StatusOr<std::string>(absl::string_view)>* url_renderer
     ABSL_GUARDED_BY(url_renderer_mu) = nullptr;
 
 // Storage for fusion visualization: (module_id, computation_id) -> sequence of
 // fusion states.
-tensorflow::mutex fusion_visualizer_state_mu(tensorflow::LINKER_INITIALIZED);
+absl::Mutex fusion_visualizer_state_mu(absl::kConstInit);
 namespace {
 
 // Fusion state: a sequence of rendered graphs in DOT formats with explanations.
@@ -1845,7 +1852,7 @@ static std::string EscapeJSONString(absl::string_view raw) {
 }
 
 StatusOr<std::string> WrapFusionExplorer(const HloComputation& computation) {
-  tensorflow::mutex_lock lock(fusion_visualizer_state_mu);
+  absl::MutexLock lock(&fusion_visualizer_state_mu);
   using absl::StrAppend;
   using absl::StrFormat;
   using absl::StrJoin;
@@ -1950,7 +1957,7 @@ StatusOr<std::string> WrapFusionExplorer(const HloComputation& computation) {
       var panzoom = svgPanZoom(area.children[0], {
           zoomEnabled: true, controlIconsEnabled: true, });
       var to_highlight = frame[2].length ?
-        document.querySelector(`#${frame[2]} polygon`) : null;
+        document.querySelector(`${frame[2]}`) : null;
       if (to_highlight) {
         to_highlight.style.setProperty('fill', 'red');
       }
@@ -2042,7 +2049,7 @@ StatusOr<std::string> WrapFusionExplorer(const HloComputation& computation) {
 
 void RegisterGraphToURLRenderer(
     std::function<StatusOr<std::string>(absl::string_view)> renderer) {
-  tensorflow::mutex_lock lock(url_renderer_mu);
+  absl::MutexLock lock(&url_renderer_mu);
   if (url_renderer != nullptr) {
     LOG(WARNING) << "Multiple calls to RegisterGraphToURLRenderer.  Last call "
                     "wins, but because order of initialization in C++ is "
@@ -2057,7 +2064,7 @@ void RegisterFusionState(const HloComputation& computation,
                          absl::string_view label,
                          const HloInstruction& consumer,
                          const HloInstruction* producer) {
-  tensorflow::mutex_lock lock(fusion_visualizer_state_mu);
+  absl::MutexLock lock(&fusion_visualizer_state_mu);
   FusionVisualizerProgress& fusion_progress =
       fusion_visualizer_states[FusionVisualizerStateKey(computation)];
 
@@ -2089,7 +2096,7 @@ StatusOr<std::string> RenderGraph(
     const DebugOptions& debug_options, RenderedGraphFormat format,
     const HloExecutionProfile* hlo_execution_profile,
     HloRenderOptions hlo_render_options) {
-  tensorflow::mutex_lock lock(url_renderer_mu);
+  absl::MutexLock lock(&url_renderer_mu);
   if (format == RenderedGraphFormat::kUrl && url_renderer == nullptr) {
     return Unavailable("Can't render as URL; no URL renderer was registered.");
   }
@@ -2105,7 +2112,7 @@ StatusOr<std::string> RenderNeighborhoodAround(
     const HloInstruction& node, int radius, RenderedGraphFormat format,
     HloRenderOptions hlo_render_options,
     const absl::flat_hash_set<const HloInstruction*>& boundary) {
-  tensorflow::mutex_lock lock(url_renderer_mu);
+  absl::MutexLock lock(&url_renderer_mu);
   if (format == RenderedGraphFormat::kUrl && url_renderer == nullptr) {
     return FailedPrecondition(
         "Can't render as URL; no URL renderer was registered.");
@@ -2125,7 +2132,7 @@ StatusOr<std::string> RenderNeighborhoodAround(
 StatusOr<std::string> RenderAllPathsFromTo(
     const HloInstruction& from, const HloInstruction& to, int64_t max_nodes,
     RenderedGraphFormat format, HloRenderOptions hlo_render_options) {
-  tensorflow::mutex_lock lock(url_renderer_mu);
+  absl::MutexLock lock(&url_renderer_mu);
   if (format == RenderedGraphFormat::kUrl && url_renderer == nullptr) {
     return FailedPrecondition(
         "Can't render as URL; no URL renderer was registered.");
