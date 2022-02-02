@@ -4294,7 +4294,7 @@ class ConvertMeanOp
   using GenericConvertReductionOp::GenericConvertReductionOp;
   static Value GetInitialValue(Type reduce_element_type, Location loc,
                                PatternRewriter *rewriter) {
-    return GetScalarConstOfType(reduce_element_type, loc, 0, rewriter);
+    return GetScalarNegZeroOfType(reduce_element_type, loc, rewriter);
   }
 };
 
@@ -4310,7 +4310,8 @@ class ConvertSumOp
 
   static Value GetInitialValue(Type reduce_element_type, Location loc,
                                PatternRewriter *rewriter) {
-    return GetScalarConstOfType(reduce_element_type, loc, 0, rewriter);
+    // The neutral element of fp addition is -0.0, not 0.0: '0.0 + -0.0 = 0.0'.
+    return GetScalarNegZeroOfType(reduce_element_type, loc, rewriter);
   }
 };
 
@@ -5406,7 +5407,7 @@ class ConvertInfeedDequeueTupleOp
     // The infeed instruction produces a tuple of the infeed data and a token
     // type. Emit get_tuple_element to get infeed data tuple.
     auto data_tuple = rewriter.create<GetTupleElementOp>(
-        op.getLoc(), data_tuple_type, data_and_token,
+        op.getLoc(), data_tuple_type, data_and_token.getResult(0),
         rewriter.getI32IntegerAttr(0));
 
     // Emit get_tuple_element for each result.
@@ -5451,7 +5452,8 @@ class ConvertOutfeedEnqueueTupleOp
     auto token_type = mhlo::TokenType::get(rewriter.getContext());
     auto tuple = rewriter.create<TupleOp>(op.getLoc(), op.inputs());
     auto token = rewriter.create<CreateTokenOp>(op.getLoc(), token_type);
-    rewriter.create<OutfeedOp>(op.getLoc(), token_type, tuple, token,
+    SmallVector<Value> outfeed_data({tuple});
+    rewriter.create<OutfeedOp>(op.getLoc(), token_type, outfeed_data, token,
                                /*outfeed_config=*/rewriter.getStringAttr(""));
     rewriter.eraseOp(op);
     return success();

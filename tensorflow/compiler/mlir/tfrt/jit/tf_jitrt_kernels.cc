@@ -64,6 +64,7 @@ using ::llvm::Expected;
 using ::llvm::None;
 using ::llvm::Optional;
 
+using ::tfrt::Argument;
 using ::tfrt::ArrayRef;
 using ::tfrt::AsyncValue;
 using ::tfrt::AsyncValuePtr;
@@ -73,6 +74,7 @@ using ::tfrt::Chain;
 using ::tfrt::CompilationUnitAttribute;
 using ::tfrt::DecodedDiagnostic;
 using ::tfrt::DType;
+using ::tfrt::EmitErrorAsync;
 using ::tfrt::ExecutionContext;
 using ::tfrt::HostContext;
 using ::tfrt::IndirectAsyncValue;
@@ -348,7 +350,13 @@ static Expected<AsyncValuePtr<JitExecutable>> CompileImpl(
         return TraceMeEncode({{"src", serialized_operation}});
       });
 
+      auto compile_start_time = absl::Now();
       compile();
+      auto compile_duration = absl::Now() - compile_start_time;
+
+      LOG(INFO) << "JitExecutable specialization compilation for " << name
+                << " took " << absl::ToInt64Milliseconds(compile_duration)
+                << " ms";
     });
   };
 
@@ -379,7 +387,7 @@ static Expected<AsyncValuePtr<JitExecutable>> CompileImpl(
 
     // Options for the JitRt JitExecutable compilation.
     CompilationOptions opts;
-    opts.specialization = CompilationOptions::Specialization::kAlways;
+    opts.specialization = CompilationOptions::Specialization::kEnabled;
 
     // Register dialects and interfaces required for the compilation pipeline.
     opts.register_dialects = [](mlir::DialectRegistry& registry) {
@@ -416,8 +424,14 @@ static Expected<AsyncValuePtr<JitExecutable>> CompileImpl(
     auto module = kernel.serialized_operation();
 
     // Instantiate new JitExecutable from the MLIR source.
+    auto compile_start_time = absl::Now();
     Expected<JitExecutable> jit_executable =
         JitExecutable::Instantiate(module, entrypoint, std::move(opts), runner);
+    auto compile_duration = absl::Now() - compile_start_time;
+
+    LOG(INFO) << "JitExecutable instantiation for "
+              << kernel.root_symbol().str() << " took "
+              << absl::ToInt64Milliseconds(compile_duration) << " ms";
 
     // Set the entry async value state to error or concrete.
     if (auto err = jit_executable.takeError())
@@ -446,6 +460,27 @@ static AsyncValueRef<Chain> Compile(StringAttribute device,
     return MakeErrorAsyncValueRef(StrCat(err));
 
   // Immediately return an available chain once we schedule the compilation.
+  return MakeAvailableAsyncValueRef<Chain>();
+}
+
+// -------------------------------------------------------------------------- //
+// TFRT kernel function definition for tf_jitrt.fallback.wait_for_compilation.
+// -------------------------------------------------------------------------- //
+
+static AsyncValueRef<Chain> WaitForCompilation(
+    Argument<Chain> chain, CompilationUnitAttribute kernel,
+    const ExecutionContext& exec_ctx) {
+  // Request context must be initialized with the tf_jitrt state.
+  auto* state = exec_ctx.request_ctx()->GetDataIfExists<TfJitRtRequestState>();
+  if (!state)
+    return EmitErrorAsync(exec_ctx,
+                          "tf_jitrt state not found in the request context");
+
+  // Wait for the completion of all compilation tasks.
+  JitExecutableCache* jit_executable_cache = state->jit_executable_cache;
+  if (auto cached = jit_executable_cache->Find(kernel.id()))
+    return cached->AllExecutablesCompiled();
+
   return MakeAvailableAsyncValueRef<Chain>();
 }
 
@@ -736,6 +771,8 @@ void ExecuteDebug(RepeatedArguments<FallbackTensor> operands,
 
 void RegisterTfJitRuntimeKernels(KernelRegistry* registry) {
   registry->AddKernel("tf_jitrt.fallback.compile", TFRT_KERNEL(Compile));
+  registry->AddKernel("tf_jitrt.fallback.wait_for_compilation",
+                      TFRT_KERNEL(WaitForCompilation));
   registry->AddKernel("tf_jitrt.fallback.execute", TFRT_KERNEL(Execute));
   registry->AddKernel("tf_jitrt.fallback.debug.execute",
                       TFRT_KERNEL(ExecuteDebug));
