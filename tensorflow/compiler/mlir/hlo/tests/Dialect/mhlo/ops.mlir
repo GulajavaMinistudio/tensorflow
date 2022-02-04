@@ -655,6 +655,38 @@ func @infeed_non_token_second_result(%token: !mhlo.token) -> tuple<tensor<i32>, 
 
 // -----
 
+func @main(%arg0: !mhlo.token) -> tensor<3x3xi32> {
+  // expected-error@+1 {{layout-attribute size must be 2 (which is the number of op-results - 1 (for token result)), but got 1}}
+  %0:3 = "mhlo.infeed"(%arg0) {infeed_config = "foobar", layout=[[0, 1]]} : (!mhlo.token) -> (tensor<3x3xi32>, tensor<i1>, !mhlo.token)
+  return %0#0 : tensor<3x3xi32>
+}
+
+// -----
+
+func @main(%arg0: !mhlo.token) -> !mhlo.token {
+  // expected-error@+1 {{layout-attribute size must be 0 (which is the number of op-results - 1 (for token result)), but got 1}}
+  %0:1 = "mhlo.infeed"(%arg0) {infeed_config = "foobar", layout=[[]]} : (!mhlo.token) -> (!mhlo.token)
+  return %0#0 : !mhlo.token
+}
+
+// -----
+
+func @main(%arg0: !mhlo.token) -> tensor<3x3xi32> {
+  // expected-error@+1 {{layout-attribute expected to have elements of type array, but got 0 : i64}}
+  %0:2 = "mhlo.infeed"(%arg0) {infeed_config = "foobar", layout=[0]} : (!mhlo.token) -> (tensor<3x3xi32>, !mhlo.token)
+  return %0#0 : tensor<3x3xi32>
+}
+
+// -----
+
+func @main(%arg0: !mhlo.token) -> tensor<3x3xi32> {
+  // expected-error@+1 {{ayout-attribute's leaf elements are expected to be of type integer, but got []}}
+  %0:2 = "mhlo.infeed"(%arg0) {infeed_config = "foobar", layout=[[0,[]]]} : (!mhlo.token) -> (tensor<3x3xi32>, !mhlo.token)
+  return %0#0 : tensor<3x3xi32>
+}
+
+// -----
+
 func @iota_scalar() -> tensor<i32> {
   // expected-error@+1 {{does not support scalars}}
   %0 = "mhlo.iota"() {iota_dimension = 0 : i64} : () -> tensor<i32>
@@ -2362,7 +2394,8 @@ func @while_with_different_types(%arg0: tensor<3xf32>) -> tensor<3xf32> {
     %2 = arith.constant dense<0> : tensor<i32>
     %3 = "mhlo.slice"(%arg2) {limit_indices = dense<[1]> : tensor<1xi64>, start_indices = dense<[0]> : tensor<1xi64>, strides = dense<1> : tensor<1xi64>} : (tensor<2xi32>) -> tensor<1xi32>
     %4 = "mhlo.compare"(%arg1, %3) {comparison_direction = "LT"} : (tensor<1xi32>, tensor<1xi32>) -> tensor<1xi1>
-    "mhlo.return"(%4) : (tensor<1xi1>) -> ()
+    %5 = "mhlo.reshape"(%4) : (tensor<1xi1>) -> tensor<i1>
+    "mhlo.return"(%5) : (tensor<i1>) -> ()
   },  {
   ^bb0(%arg1: tensor<1xi32>, %arg2: tensor<2xi32>, %arg3: tensor<1xf32>, %arg4: tensor<3xf32>):
     %3 = "mhlo.broadcast_in_dim"(%arg3) {broadcast_dimensions = dense<0> : tensor<1xi64>} : (tensor<1xf32>) -> tensor<3xf32>
