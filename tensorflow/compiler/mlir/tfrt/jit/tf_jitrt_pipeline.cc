@@ -24,6 +24,7 @@ limitations under the License.
 #include "mlir/Dialect/Shape/Transforms/Passes.h"
 #include "mlir/Dialect/Tensor/Transforms/Passes.h"
 #include "mlir/Transforms/Passes.h"
+#include "mlir/Conversion/BufferizationToMemRef/BufferizationToMemRef.h"  // from @llvm-project
 #include "tensorflow/compiler/jit/flags.h"
 #include "tensorflow/compiler/mlir/hlo/include/mlir-hlo/Dialect/mhlo/transforms/passes.h"
 #include "tensorflow/compiler/mlir/hlo/include/mlir-hlo/Transforms/passes.h"
@@ -111,12 +112,16 @@ void CreateTfJitRtPipeline(OpPassManager& pm,
   pm.addPass(mlir::createCanonicalizerPass());
 
   // Transform TF operation to HLO.
+  pm.addPass(mlir::mhlo::createLegalizeTFControlFlowPass());
   pm.addNestedPass<FuncOp>(mlir::mhlo::createLegalizeTFPass());
 
   if (options.legalize_i1_tensors) {
     // Convert 'i1' tensors into 'i8' tensors.
     pm.addPass(CreateJitRtLegalizeI1TypesPass());
   }
+
+  // Remove redundant shape operations left after legalizing to HLO.
+  pm.addPass(mlir::createCSEPass());
 
   // Resolve all shape constraints (e.g. broadcast constraints that can be
   // proved statically and changed to const witness) early to allow more
@@ -145,6 +150,7 @@ void CreateTfJitRtPipeline(OpPassManager& pm,
   pm.addNestedPass<FuncOp>(mlir::createReshapeSimplifierPass());
 
   // Transform HLO operations to Linalg and Standard.
+  pm.addNestedPass<FuncOp>(mlir::mhlo::createLegalizeControlFlowPass());
   pm.addNestedPass<FuncOp>(mlir::mhlo::createLegalizeHloToLinalgPass());
   pm.addNestedPass<FuncOp>(
       mlir::mhlo::createLegalizeHloShapeOpsToStandardPass());
@@ -168,6 +174,9 @@ void CreateTfJitRtPipeline(OpPassManager& pm,
 
   // Add linalg passes to perform fusion, tiling, peeling and vectorization.
   AddLinalgTransformations(pm, options);
+
+  // Inline everything, bufferization doesn't model ownership across calls.
+  pm.addPass(mlir::createInlinerPass());
 
   // Bufferize Linalg on tensors program.
   // Always run canonicalizer (which does dead code removal) before bufferizing
@@ -205,6 +214,7 @@ void CreateTfJitRtPipeline(OpPassManager& pm,
   if (options.vectorize) {
     pm.addNestedPass<FuncOp>(mlir::createConvertLinalgTiledLoopsToSCFPass());
   }
+  pm.addPass(mlir::createBufferizationToMemRefPass());
   pm.addPass(mlir::createCSEPass());
   pm.addPass(mlir::createCanonicalizerPass());
 

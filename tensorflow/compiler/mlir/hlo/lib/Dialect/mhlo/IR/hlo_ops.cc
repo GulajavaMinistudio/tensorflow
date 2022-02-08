@@ -196,7 +196,7 @@ static LogicalResult rngInferReturnTypeComponents(
 Value MaybeCastTo(OpBuilder& b, Location loc, Value value, Type type) {
   if (type == value.getType()) return value;
   assert(type.isIndex() || value.getType().isIndex());
-  return b.create<arith::IndexCastOp>(loc, value, type);
+  return b.create<arith::IndexCastOp>(loc, type, value);
 }
 
 }  // namespace
@@ -1026,7 +1026,7 @@ static Value castToIndexTensor(OpBuilder& builder, Location loc,
       builder.getContext(),
       shape_op.getType().cast<ShapedType>().getDimSize(0));
   if (shape_op.getType() == result_ty) return shape_op;  // Nothing to do.
-  return builder.create<arith::IndexCastOp>(loc, shape_op, result_ty);
+  return builder.create<arith::IndexCastOp>(loc, result_ty, shape_op);
 }
 
 LogicalResult DynamicIotaOp::reifyReturnTypeShapes(
@@ -2590,51 +2590,29 @@ LogicalResult RealDynamicSliceOp::reifyReturnTypeShapes(
 // Checks that the result type is of the form `zero_or_more_type(s),
 // mhlo::token`
 LogicalResult InfeedOp::verify() {
-  auto result_types = getResultTypes();
-  if (result_types.empty())
-    return emitOpError()
-           << "result is expected to be at least of size 1, but got "
-           << result_types.size();
-
-  if (!result_types[result_types.size() - 1].isa<TokenType>())
-    return emitOpError() << "last element of result types is expected to "
-                            "be of token type, but got "
-                         << result_types[result_types.size() - 1];
-
-  // Verify layout attribute
-  constexpr char kLayoutAttr[] = "layout";
-  if (!getOperation()->hasAttr(kLayoutAttr)) return success();
-
-  mlir::ArrayAttr layout =
-      getOperation()->getAttrOfType<mlir::ArrayAttr>(kLayoutAttr);
-  if (!layout)
-    return emitOpError() << "layout-attribute expected to be of array-type.";
-
-  if (layout.size() != result_types.size() - 1) {
-    return emitOpError() << "layout-attribute size must be "
-                         << result_types.size() - 1
-                         << " (which is the number of "
-                            "op-results - 1 (for token result)), but got "
-                         << layout.size();
-  }
-
-  for (auto child_layout : layout) {
-    mlir::ArrayAttr child_layout_arr = child_layout.dyn_cast<mlir::ArrayAttr>();
-    if (!child_layout_arr) {
-      return emitOpError() << "layout-attribute expected to have "
-                              "elements of type array, but got "
-                           << child_layout;
-    }
-
-    for (int64_t i = 0; i < child_layout_arr.size(); i++) {
-      mlir::IntegerAttr attr =
-          child_layout_arr[i].dyn_cast<mlir::IntegerAttr>();
-      if (!attr) {
-        return emitOpError() << "layout-attribute's leaf elements are "
-                                "expected to be of type integer, but got "
-                             << child_layout_arr[i];
-      }
-    }
+  auto result_ty = getResult(0).getType().dyn_cast<TupleType>();
+  if (result_ty) {
+    // TODO(@sdasgup): The current branch need to be removed once the
+    // allowance of tuple-return-type for infeed is revoked.
+    auto subtypes = result_ty.getTypes();
+    if (subtypes.size() != 2)
+      return emitOpError()
+             << "result is expected to be a tuple of size 2, but got "
+             << subtypes.size();
+    if (!subtypes[1].isa<TokenType>())
+      return emitOpError() << "second element of result tuple is expected to "
+                              "be of token type, but got "
+                           << subtypes[1];
+  } else {
+    auto result_types = getResultTypes();
+    if (result_types.empty())
+      return emitOpError()
+             << "result is expected to be at least of size 1, but got "
+             << result_types.size();
+    if (!result_types[result_types.size() - 1].isa<TokenType>())
+      return emitOpError() << "last element of result types is expected to "
+                              "be of token type, but got "
+                           << result_types[result_types.size() - 1];
   }
 
   return success();
