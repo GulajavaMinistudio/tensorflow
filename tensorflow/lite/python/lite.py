@@ -415,22 +415,29 @@ class QuantizationMode(object):
     if not self._is_int8_target_required():
       return
 
-    if self._target_spec.supported_types and (self._smallest_supported_type() !=
-                                              _dtypes.int8):
-      raise ValueError("TFLITE_BUILTINS_INT8 requires smallest supported "
-                       "type to be INT8.")
+    # Validate target_spec attibute.
+    if (set(self._target_spec.supported_ops) == {OpsSet.TFLITE_BUILTINS_INT8}
+        and not (set(self._target_spec.supported_types) == set() or
+                 set(self._target_spec.supported_types) == {_dtypes.int8})):
+      raise ValueError(
+          "As full integer quantization has been enabled by setting "
+          "`target_spec.supported_ops`={tf.lite.OpsSet.TFLITE_BUILTINS_INT8}, "
+          "thus `target_spec.supported_types` should be left uninitizalized "
+          "or set to {tf.int8}.")
+    if set(self._target_spec.supported_types) == {_dtypes.int8}:
+      self._target_spec.supported_ops = {OpsSet.TFLITE_BUILTINS_INT8}
 
+    # Check if representative_dataset is specified.
+    if (not self._representative_dataset and
+        not self.is_quantization_aware_training()):
+      raise ValueError("For full integer quantization, a "
+                       "`representative_dataset` must be specified.")
+
+    # Update represenative dataset to the expected format.
     if self._representative_dataset:
       if not isinstance(self._representative_dataset, RepresentativeDataset):
         self._representative_dataset = RepresentativeDataset(
             self._representative_dataset)
-      if self._representative_dataset.input_gen is None:
-        raise ValueError(
-            "Provide an input generator for representative_dataset")
-    else:
-      # TODO(b/162537905): Relax this check for QAT.
-      raise ValueError("representative_dataset is required when specifying "
-                       "TFLITE_BUILTINS_INT8 or INT8 supported types.")
 
   def _validate_full_integer_quantization_bias_type(self):
     """Validates bias type for full interger quantization."""
@@ -548,10 +555,7 @@ class TFLiteConverterBase(object):
     # When the value is true, the MLIR quantantizer triggers dynamic range
     # quantization in MLIR instead of the old quantizer. Used only if
     # experimental_new_quantizer is on.
-    # TODO(b/204727097): Enable _experimental_new_dynamic_range_quantizer
-    # by default and remove the flag once feature parity with the old quantizer
-    # is verified.
-    self._experimental_new_dynamic_range_quantizer = False
+    self._experimental_new_dynamic_range_quantizer = True
     # Experimental flag to enable low-bit QAT in 8 bit.
     self._experimental_low_bit_qat = False
 

@@ -19,6 +19,12 @@ limitations under the License.
 namespace tensorflow {
 namespace profiler {
 
+// Convert from clock cycles to seconds.
+inline double CyclesToSeconds(double cycles, double frequency_hz) {
+  // cycles / (cycles/s) = s.
+  return cycles / frequency_hz;
+}
+
 // Checks the divisor and returns 0 to avoid divide by zero.
 inline double SafeDivide(double dividend, double divisor) {
   constexpr double kEpsilon = 1.0E-10;
@@ -26,10 +32,12 @@ inline double SafeDivide(double dividend, double divisor) {
   return dividend / divisor;
 }
 
+inline double GibiToGiga(double gibi) { return gibi * ((1 << 30) / 1.0e9); }
+inline double GigaToGibi(double giga) { return giga / ((1 << 30) / 1.0e9); }
+
 // Calculates GiB/s.
-inline double GibibytesPerSecond(double bytes, double ns) {
-  constexpr double kGigaToGibi = 0.93132257461;  // 10^9/2^30
-  return kGigaToGibi * SafeDivide(bytes, ns);
+inline double GibibytesPerSecond(double gigabytes, double ns) {
+  return GigaToGibi(SafeDivide(gigabytes, ns));
 }
 
 }  // namespace profiler
