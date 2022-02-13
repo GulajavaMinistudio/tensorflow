@@ -419,7 +419,9 @@ static Expected<AsyncValuePtr<JitExecutable>> CompileImpl(
 
     // Options for the JitRt JitExecutable compilation.
     CompilationOptions opts;
-    opts.specialization = CompilationOptions::Specialization::kEnabled;
+    opts.specialization = GetJitRtFlags().always_specialize
+                              ? CompilationOptions::Specialization::kAlways
+                              : CompilationOptions::Specialization::kEnabled;
 
     // Register dialects and interfaces required for the compilation pipeline.
     opts.register_dialects = [](mlir::DialectRegistry& registry) {
@@ -617,14 +619,18 @@ static void ExecuteImpl(Executable& executable,
          {"time_to_compile_ms", executable.time_to_compile().count()}});
   });
 
+  // TODO(ezhulenev): Conversion context and async task runner might not outlive
+  // the execution of all async tasks, and should be kept alive until all tasks
+  // are completed, which will require heap allocation(s).
+  assert(!executable.IsAsync() && "async executables are not yet supported");
+
   // Keep track of memory address to tensor mapping for result conversion.
-  auto ctx = std::make_unique<TensorflowConversionContext>(operands.size(),
-                                                           results.size());
+  TensorflowConversionContext ctx(operands.size(), results.size());
   for (auto& t : operands)
-    ctx->runtime_tensors.insert({t.tensor().data(), &t.tensor()});
+    ctx.runtime_tensors.insert({t.tensor().data(), &t.tensor()});
 
   // Tensorflow -> JitRt only supports returning Memrefs as Tensors.
-  TensorflowReturnValueConverter converter(results, std::move(ctx));
+  TensorflowReturnValueConverter converter(results, ctx);
   converter.AddConversion(ReturnAsyncStridedMemref<ConvertTensor>);
   converter.AddConversion(ReturnStridedMemref<ConvertTensor>);
 
@@ -633,10 +639,6 @@ static void ExecuteImpl(Executable& executable,
       GetWorkerThreads(exec_ctx);
   if (auto err = worker_threads.takeError())
     return ReturnErrors(results, std::move(err), exec_ctx);
-
-  // TODO(ezhulenev): Async task runner might not outlive the execution of all
-  // async tasks, and shoud be kept alive until all tasks are completed.
-  assert(!executable.IsAsync() && "async executables are not yet supported");
 
   // Use Eigen thread pool to execute all async tasks.
   EigenThreadPoolAsyncTaskRunner async_task_runner(*worker_threads);
@@ -651,13 +653,6 @@ static void ExecuteImpl(Executable& executable,
     EmitError(exec_ctx, StrCat(err));
     return;
   }
-
-  // If executable is async keep operands and conversion context alive until
-  // results become available.
-  if (executable.IsAsync())
-    RunWhenReady(results.values(),
-                 [operands = RCArray<AsyncValue>(operands.values()),
-                  ctx = converter.TakeConversionContext()] {});
 }
 
 // Gets a specialized Executable async value from the JitExecutable, and then
