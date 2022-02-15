@@ -16,6 +16,7 @@ limitations under the License.
 // This file implements logic for translating mixed IR to buffer form.
 // Currently it supports MHLO and some operations from the Standard dialect.
 
+#include <cstdint>
 #include <memory>
 #include <utility>
 
@@ -53,6 +54,7 @@ limitations under the License.
 #include "mlir/IR/PatternMatch.h"  // from @llvm-project
 #include "mlir/IR/Visitors.h"  // from @llvm-project
 #include "mlir/Transforms/DialectConversion.h"  // from @llvm-project
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"  // from @llvm-project
 #include "tensorflow/compiler/mlir/hlo/include/mlir-hlo/Dialect/lhlo/IR/lhlo_ops.h"
 #include "tensorflow/compiler/mlir/hlo/include/mlir-hlo/Dialect/mhlo/IR/chlo_ops.h"
 #include "tensorflow/compiler/mlir/hlo/include/mlir-hlo/Dialect/mhlo/IR/hlo_ops.h"
@@ -248,9 +250,38 @@ struct FinalBufferizePass : public FinalBufferizePassBase<FinalBufferizePass> {
     tensor::registerBufferizableOpInterfaceExternalModels(registry);
     arith::registerBufferizableOpInterfaceExternalModels(registry);
   }
+  // Default alignment_ specified in passes.td
+  FinalBufferizePass() = default;
 
- public:
+  explicit FinalBufferizePass(uint64_t alignment) { alignment_ = alignment; }
+
   void runOnOperation() override {
+    // Bufferize ops using BufferizableOpInterface. This could be switched to
+    // One-Shot Bufferize in the future.
+    RewritePatternSet patterns(&getContext());
+    bufferization::BufferizationOptions options =
+        bufferization::getPartialBufferizationOptions();
+    options.bufferAlignment = alignment_;
+    // TODO(springerm): Add dialects to this filter as more and more dialects
+    // will be migrated to BufferizableOpInterface-based bufferization.
+    options.addToDialectFilter<arith::ArithmeticDialect, StandardOpsDialect,
+                               tensor::TensorDialect>();
+    bufferization::AlwaysCopyBufferizationState bufferization_state(options);
+    bufferization::populateBufferizationPattern(bufferization_state, patterns);
+
+    if (failed(applyPatternsAndFoldGreedily(getOperation(),
+                                            std::move(patterns)))) {
+      signalPassFailure();
+      return;
+    }
+
+    // Bufferize the remaining IR with dialect conversion. This will disappear
+    // eventually once all bufferization is done via BufferizableOpInterface.
+    if (failed(runDialectConversionBasedBufferization())) signalPassFailure();
+  }
+
+ private:
+  LogicalResult runDialectConversionBasedBufferization() {
     auto& context = getContext();
     ConversionTarget target(context);
     target.addLegalDialect<
@@ -278,19 +309,6 @@ struct FinalBufferizePass : public FinalBufferizePassBase<FinalBufferizePass> {
                                  tf_framework::JITExecuteOp>(typesAreLegal);
 
     RewritePatternSet patterns(&getContext());
-
-    // Bufferize ops using BufferizableOpInterface. This could be switched to
-    // One-Shot Bufferize in the future.
-    bufferization::BufferizationOptions options =
-        bufferization::getPartialBufferizationOptions();
-    // TODO(springerm): Add dialects to this filter as more and more
-    // `populate...BufferizePatterns` functions will disappear with recent
-    // changes to bufferization.
-    options.addToDialectFilter<arith::ArithmeticDialect, StandardOpsDialect,
-                               tensor::TensorDialect>();
-    bufferization::AlwaysCopyBufferizationState bufferizationState(options);
-    bufferization::populateBufferizationPattern(bufferizationState, patterns);
-
     linalg::populateLinalgBufferizePatterns(converter, patterns);
     populateEliminateBufferizeMaterializationsPatterns(converter, patterns);
     populateExtraBufferizePatterns(&getContext(), &converter, &patterns);
@@ -299,10 +317,7 @@ struct FinalBufferizePass : public FinalBufferizePassBase<FinalBufferizePass> {
     scf::populateSCFStructuralTypeConversionsAndLegality(converter, patterns,
                                                          target);
 
-    auto module = getOperation();
-    if (failed(applyFullConversion(module, target, std::move(patterns)))) {
-      signalPassFailure();
-    }
+    return applyFullConversion(getOperation(), target, std::move(patterns));
   }
 };
 
@@ -318,6 +333,11 @@ std::unique_ptr<OperationPass<FuncOp>> CreateTiledLoopBufferizePass() {
 
 std::unique_ptr<OperationPass<ModuleOp>> CreateFinalBufferizePass() {
   return std::make_unique<FinalBufferizePass>();
+}
+
+std::unique_ptr<OperationPass<ModuleOp>> CreateFinalBufferizePass(
+    uint64_t alignment) {
+  return std::make_unique<FinalBufferizePass>(alignment);
 }
 
 }  // namespace transforms

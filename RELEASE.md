@@ -54,6 +54,17 @@
 
 # Bug Fixes and Other Changes
 
+*   `tf.data`:
+
+    *   Fixed bug in `tf.data.experimental.parse_example_dataset` when
+        `tf.io.RaggedFeatures` would specify `value_key` but no `partitions`.
+        Before the fix, setting `value_key` but no `partitions` would result in
+        the feature key being replaced by the value key, e.g.
+        `{'value_key': <RaggedTensor>}` instead of `{'key': <RaggedTensor>}`.
+        Now the correct feature key will be used. This aligns the behavior of
+        `tf.data.experimental.parse_example_dataset` to match the behavior of
+        `tf.io.parse_example`.
+
 *   <SIMILAR TO ABOVE SECTION, BUT FOR OTHER IMPORTANT CHANGES / BUG FIXES>
 *   <IF A CHANGE CLOSES A GITHUB ISSUE, IT SHOULD BE DOCUMENTED HERE>
 *   <NOTES SHOULD BE GROUPED PER AREA>
@@ -122,6 +133,10 @@ This release contains contributions from many people at Google, as well as:
 
 *   `tf.data`:
 
+    *   Fixed a bug where setting `options.deterministic = False` would only
+        modify one transformation to run non-deterministically,
+        leaving other transformations deterministic. The option will now
+        apply the same across all transformations.
     *   The optimization `parallel_batch` now becomes default if not disabled by
         users, which will parallelize copying of batch elements.
     *   Added the ability for `TensorSliceDataset` to identify and handle inputs
