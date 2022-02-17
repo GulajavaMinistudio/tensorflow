@@ -291,6 +291,7 @@ py_library(
         "//tensorflow/python/distribute:merge_call_interim",
         "//tensorflow/python/distribute:multi_process_runner",
         "//tensorflow/python/distribute:multi_worker_test_base",
+        "//tensorflow/python/distribute:sharded_variable",
     ],
 )
 
@@ -3929,6 +3930,21 @@ py_library(
     deps = [
         ":_pywrap_sanitizers",
         ":pywrap_tensorflow",
+    ],
+)
+
+tf_python_pybind_extension(
+    name = "flags_pybind",
+    srcs = ["//tensorflow/core/config:flags_api_wrapper.cc"],
+    module_name = "flags_pybind",
+    visibility = ["//tensorflow/core/config:__subpackages__"],
+    deps = [
+        "//tensorflow/core:lib_headers_for_pybind",
+        "//tensorflow/core/config:flags_headers",
+        "//tensorflow/python:pybind11_lib",
+        "//third_party/python_runtime:headers",
+        "@com_google_absl//absl/types:optional",
+        "@pybind11",
     ],
 )
 

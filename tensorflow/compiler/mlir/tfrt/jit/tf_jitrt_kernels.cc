@@ -108,7 +108,6 @@ using ::tfrt::jitrt::JitExecutableCache;
 using ::tfrt::jitrt::MemrefDesc;
 using ::tfrt::jitrt::OperandConstraint;
 using ::tfrt::jitrt::RegisterDefaultJitRtDialects;
-using ::tfrt::jitrt::ReturnAsyncStridedMemref;
 using ::tfrt::jitrt::ReturnErrors;
 using ::tfrt::jitrt::ReturnStridedMemref;
 using ::tfrt::jitrt::ReturnValueConverter;
@@ -255,7 +254,7 @@ static const std::string GetSessionName(RequestContext* req_ctx) {
 }
 
 static Expected<AsyncValuePtr<JitExecutable>> CompileImpl(
-    CompilationUnitAttribute kernel, const ExecutionContext& exec_ctx,
+    const CompilationUnitAttribute& kernel, const ExecutionContext& exec_ctx,
     const Optional<TfJitRtPipelineOpts>& opts = None) {
   // We only support functions nested in top level compiled module.
   if (kernel.nested_symbols().size() != 1)
@@ -399,7 +398,7 @@ static Expected<AsyncValuePtr<JitExecutable>> CompileImpl(
   CompilationThreadPool& thread_pool = CompilationThreadPool::Get(host);
 
   thread_pool.Schedule([kernel_info, runner, workers = *worker_threads,
-                        ptr = entry.ptr, request_id = req_ctx->id(),
+                        ref = entry.ptr.CopyRef(), request_id = req_ctx->id(),
                         session_name = GetSessionName(req_ctx),
                         tf_jitrt_opts = opts]() {
     TraceMe trace_me([&] {
@@ -477,9 +476,9 @@ static Expected<AsyncValuePtr<JitExecutable>> CompileImpl(
 
     // Set the entry async value state to error or concrete.
     if (auto err = jit_executable.takeError())
-      ptr.SetError(std::move(err));
+      ref.SetError(std::move(err));
     else
-      ptr.emplace(std::move(*jit_executable));
+      ref.emplace(std::move(*jit_executable));
   });
 
   return entry.ptr;
@@ -546,9 +545,9 @@ static void ConvertTensorToMemrefDesc(const tensorflow::Tensor& tensor,
   memref->strides.resize_for_overwrite(rank);
 
   // Fill memref sizes and compute strides from the tensor dimensions.
-  ssize_t multiplier = 1;
+  int64_t multiplier = 1;
   for (int i = rank - 1; i >= 0; --i) {
-    ssize_t dim_size = tensor.dim_size(i);
+    int64_t dim_size = tensor.dim_size(i);
     memref->sizes[i] = dim_size;
     memref->strides[i] = multiplier;
     multiplier *= dim_size;
@@ -676,15 +675,13 @@ static void ExecuteImpl(JitExecutable& jit_executable,
   if (auto err = executable.takeError())
     return ReturnErrors(results, std::move(err), exec_ctx);
 
-  // If executable is available execute it inline.
-  if (executable->IsAvailable()) {
-    if (executable->IsError()) {
-      ReturnErrors(results, executable->GetError(), exec_ctx);
-    } else {
-      ExecuteImpl(executable->get(), memrefs, operands, results, exec_ctx);
-    }
-    return;
-  }
+  // If executable is available execute it inline ...
+  if (LLVM_LIKELY(executable->IsConcrete()))
+    return ExecuteImpl(executable->get(), memrefs, operands, results, exec_ctx);
+
+  // ... or maybe return errors.
+  if (LLVM_UNLIKELY(executable->IsError()))
+    return ReturnErrors(results, executable->GetError(), exec_ctx);
 
   // Otherwise execute it when the executable will become available. This
   // requires careful lifetime extension of all async values passed as operands
@@ -724,8 +721,8 @@ static void ExecuteImpl(JitExecutable& jit_executable,
 // Gets a JitExecutable async value from the cache, and then dispatches it
 // inline or using and-then continuation depending on the async value state.
 static void ExecuteImpl(RepeatedArguments<FallbackTensor> operands,
-                        RemainingResults results, StringAttribute device,
-                        CompilationUnitAttribute kernel,
+                        RemainingResults results, const StringAttribute& device,
+                        const CompilationUnitAttribute& kernel,
                         const ExecutionContext& exec_ctx, bool debug = false,
                         const Optional<TfJitRtPipelineOpts>& opts = None) {
   // Compile kernel module into the JitExecutable.
@@ -735,15 +732,13 @@ static void ExecuteImpl(RepeatedArguments<FallbackTensor> operands,
   if (auto err = jit_executable.takeError())
     return ReturnErrors(results, std::move(err), exec_ctx);
 
-  // If kernel is available execute it inline.
-  if (jit_executable->IsAvailable()) {
-    if (jit_executable->IsError()) {
-      ReturnErrors(results, jit_executable->GetError(), exec_ctx);
-    } else {
-      ExecuteImpl(**jit_executable, operands, results, exec_ctx, debug);
-    }
-    return;
-  }
+  // If kernel is available execute it inline ...
+  if (LLVM_LIKELY(jit_executable->IsConcrete()))
+    return ExecuteImpl(**jit_executable, operands, results, exec_ctx, debug);
+
+  // ... or maybe return errors.
+  if (LLVM_UNLIKELY(jit_executable->IsError()))
+    return ReturnErrors(results, jit_executable->GetError(), exec_ctx);
 
   // Otherwise execute it when the executable will become available. This
   // requires careful lifetime extension of all async values passed as operands

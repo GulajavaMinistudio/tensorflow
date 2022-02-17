@@ -96,7 +96,6 @@ limitations under the License.
 #include "tensorflow/compiler/xla/service/gpu/sequential_thunk.h"
 #include "tensorflow/compiler/xla/service/gpu/target_util.h"
 #include "tensorflow/compiler/xla/service/gpu/thunk.h"
-#include "tensorflow/compiler/xla/service/gpu/triangular_solve_thunk.h"
 #include "tensorflow/compiler/xla/service/gpu/while_thunk.h"
 #include "tensorflow/compiler/xla/service/hlo_casting_utils.h"
 #include "tensorflow/compiler/xla/service/hlo_computation.h"
@@ -129,6 +128,7 @@ limitations under the License.
 
 #if GOOGLE_CUDA || TENSORFLOW_USE_ROCM
 #include "tensorflow/compiler/xla/service/gpu/cholesky_thunk.h"
+#include "tensorflow/compiler/xla/service/gpu/triangular_solve_thunk.h"
 #endif  // GOOGLE_CUDA || TENSORFLOW_USE_ROCM
 
 namespace xla {
@@ -1509,6 +1509,7 @@ Status IrEmitterUnnested::EmitFftThunk(mlir::Operation* op) {
   return Status::OK();
 }
 
+#if GOOGLE_CUDA || TENSORFLOW_USE_ROCM
 Status IrEmitterUnnested::EmitTriangularSolveCustomCall(mlir::Operation* op) {
   auto custom_call = mlir::cast<mlir::lmhlo::CustomCallOp>(op);
 
@@ -1593,6 +1594,7 @@ Status IrEmitterUnnested::EmitTriangularSolveCustomCall(mlir::Operation* op) {
   }
   return Status::OK();
 }
+#endif  // GOOGLE_CUDA || TENSORFLOW_USE_ROCM
 
 // Convert the following form of fusion region:
 //   fusion() {
@@ -2899,7 +2901,7 @@ Status IrEmitterUnnested::EmitCollectivePermute(mlir::Operation* op) {
     if (IsBefThunkEnabled()) {
       std::vector<BufferAllocation::Slice> buffers = {source_slice,
                                                       result_slice};
-      TF_ASSIGN_OR_RETURN(thunk, CreateBefCollectivePermuteThunk(
+      TF_ASSIGN_OR_RETURN(thunk, CreateBefCollectiveThunk(
                                      GetThunkInfo(op), op, std::move(buffers),
                                      replica_count, partition_count));
     } else {
@@ -2978,7 +2980,9 @@ Status IrEmitterUnnested::EmitNcclThunk(mlir::Operation* untyped_op) {
         arg_buffers.push_back(buffer.destination_buffer);
       }
       TF_ASSIGN_OR_RETURN(
-          thunk, CreateBefThunk(GetThunkInfo(op), op, std::move(arg_buffers)));
+          thunk,
+          CreateBefCollectiveThunk(GetThunkInfo(op), op, std::move(arg_buffers),
+                                   replica_count, partition_count));
     } else {
       thunk = absl::make_unique<NcclThunkType>(GetThunkInfo(op), op,
                                                /*buffers=*/std::move(buffers));
@@ -5475,9 +5479,12 @@ Status IrEmitterUnnested::EmitOp(mlir::Operation* op) {
     if (call.call_target_name() == "SliceToDynamic") {
       return EmitSliceToDynamic(op);
     }
+#if GOOGLE_CUDA || TENSORFLOW_USE_ROCM
     if (call.call_target_name() == kTriangularSolveCallTarget) {
       return EmitTriangularSolveCustomCall(op);
     }
+#endif  // GOOGLE_CUDA || TENSORFLOW_USE_ROCM
+
     return EmitCustomCallThunk(op);
   }
 
@@ -5497,7 +5504,7 @@ Status IrEmitterUnnested::EmitOp(mlir::Operation* op) {
   if (mlir::isa<mlir::lmhlo_gpu::CholeskyOp>(op)) {
     return EmitCholeskyThunk(op);
   }
-#endif  // GOOGLE_CUDA
+#endif  // GOOGLE_CUDA || TENSORFLOW_USE_ROCM
 
   if (mlir::isa<mlir::lmhlo::FftOp>(op)) {
     return EmitFftThunk(op);
