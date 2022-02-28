@@ -32,6 +32,12 @@ std::string GetReadImageFromDataType(DataType data_type) {
     return "read_imagef";
   } else if (data_type == DataType::FLOAT16) {
     return "read_imageh";
+  } else if (data_type == DataType::INT8 || data_type == DataType::INT16 ||
+             data_type == DataType::INT32) {
+    return "read_imagei";
+  } else if (data_type == DataType::UINT8 || data_type == DataType::UINT16 ||
+             data_type == DataType::UINT32) {
+    return "read_imageui";
   } else {
     return "error";
   }
@@ -42,6 +48,12 @@ std::string GetWriteImageFromDataType(DataType data_type) {
     return "write_imagef";
   } else if (data_type == DataType::FLOAT16) {
     return "write_imageh";
+  } else if (data_type == DataType::INT8 || data_type == DataType::INT16 ||
+             data_type == DataType::INT32) {
+    return "write_imagei";
+  } else if (data_type == DataType::UINT8 || data_type == DataType::UINT16 ||
+             data_type == DataType::UINT32) {
+    return "write_imageui";
   } else {
     return "error";
   }
@@ -470,8 +482,6 @@ absl::Status TensorDescriptor::PerformWrite2DSelector(
 std::string TensorDescriptor::Read(
     const GpuInfo& gpu_info, DataType read_as_type,
     const std::vector<std::string>& coords) const {
-  const std::string read_as =
-      read_as_type == DataType::FLOAT16 ? "read_imageh" : "read_imagef";
   const bool need_conversion = read_as_type != data_type;
   const std::string metal_type =
       read_as_type == DataType::FLOAT32 ? "float4" : "half4";
@@ -505,7 +515,8 @@ std::string TensorDescriptor::Read(
     case TensorStorageType::TEXTURE_2D:
     case TensorStorageType::SINGLE_TEXTURE_2D:
       if (gpu_info.IsApiOpenCl()) {
-        return absl::Substitute("$0(image2d, $1, (int2)($2, $3))", read_as,
+        return absl::Substitute("$0(image2d, $1, (int2)($2, $3))",
+                                GetReadImageFromDataType(read_as_type),
                                 AddressModeToCLSampler(AddressModeFromState()),
                                 coords[0], coords[1]);
       } else if (gpu_info.IsApiMetal()) {
@@ -529,7 +540,7 @@ std::string TensorDescriptor::Read(
     case TensorStorageType::TEXTURE_3D:
       if (gpu_info.IsApiOpenCl()) {
         return absl::Substitute("$0(image3d, $1, (int4)($2, $3, $4, 0))",
-                                read_as,
+                                GetReadImageFromDataType(read_as_type),
                                 AddressModeToCLSampler(AddressModeFromState()),
                                 coords[0], coords[1], coords[2]);
       } else if (gpu_info.IsApiMetal()) {
@@ -554,7 +565,7 @@ std::string TensorDescriptor::Read(
     case TensorStorageType::TEXTURE_ARRAY:
       if (gpu_info.IsApiOpenCl()) {
         return absl::Substitute("$0(image2d_array, $1, (int4)($2, $3, $4, 0))",
-                                read_as,
+                                GetReadImageFromDataType(read_as_type),
                                 AddressModeToCLSampler(AddressModeFromState()),
                                 coords[0], coords[1], coords[2]);
       } else if (gpu_info.IsApiMetal()) {
@@ -578,7 +589,8 @@ std::string TensorDescriptor::Read(
       }
     case TensorStorageType::IMAGE_BUFFER:
       if (gpu_info.IsApiOpenCl()) {
-        return absl::StrCat(read_as, "(image_buffer, ", coords[0], ")");
+        return absl::StrCat(GetReadImageFromDataType(read_as_type),
+                            "(image_buffer, ", coords[0], ")");
       } else if (gpu_info.IsApiMetal()) {
         std::string result =
             absl::Substitute("image_buffer.read(uint($0))", coords[0]);
@@ -1097,6 +1109,12 @@ void TensorDescriptor::UploadData(
 }
 
 void TensorDescriptor::UploadData(
+    const tflite::gpu::Tensor<BHWC, DataType::INT32>& src) {
+  shape = BHWDC(src.shape.b, src.shape.h, src.shape.w, 1, src.shape.c);
+  UploadData(src.data.data());
+}
+
+void TensorDescriptor::UploadData(
     const tflite::gpu::Tensor<HWC, DataType::FLOAT32>& src) {
   shape = BHWDC(1, src.shape.h, src.shape.w, 1, src.shape.c);
   UploadData(src.data.data());
@@ -1121,6 +1139,54 @@ void TensorDescriptor::UploadData(const float* src) {
     half* gpu_data = reinterpret_cast<half*>(data.data());
     DataFromBHWDC(src, shape, *this, gpu_data);
   }
+}
+
+void TensorDescriptor::UploadData(const int32_t* src) {
+  int aligned_channels = storage_type == TensorStorageType::SINGLE_TEXTURE_2D
+                             ? shape.c
+                             : AlignByN(shape.c, 4);
+  int elements_count = shape.b * shape.w * shape.h * shape.d * aligned_channels;
+  data.resize(elements_count * SizeOf(data_type));
+  int32_t* gpu_data = reinterpret_cast<int32_t*>(data.data());
+  DataFromBHWDC(src, shape, *this, gpu_data);
+}
+
+void TensorDescriptor::DownloadData(
+    tflite::gpu::Tensor<BHWC, DataType::FLOAT32>* dst) {
+  dst->shape = BHWC(shape.b, shape.h, shape.w, shape.c);
+  dst->data.resize(dst->shape.DimensionsProduct(), 0.0f);
+  DownloadData(dst->data.data());
+}
+void TensorDescriptor::DownloadData(
+    tflite::gpu::Tensor<BHWC, DataType::INT32>* dst) {
+  dst->shape = BHWC(shape.b, shape.h, shape.w, shape.c);
+  dst->data.resize(dst->shape.DimensionsProduct(), 0);
+  DownloadData(dst->data.data());
+}
+
+void TensorDescriptor::DownloadData(float* dst) {
+  int aligned_channels = storage_type == TensorStorageType::SINGLE_TEXTURE_2D
+                             ? shape.c
+                             : AlignByN(shape.c, 4);
+  int elements_count = shape.b * shape.w * shape.h * shape.d * aligned_channels;
+  data.resize(elements_count * SizeOf(data_type));
+  if (data_type == DataType::FLOAT32) {
+    float* gpu_data = reinterpret_cast<float*>(data.data());
+    DataToBHWDC(gpu_data, shape, *this, dst);
+  } else {
+    half* gpu_data = reinterpret_cast<half*>(data.data());
+    DataToBHWDC(gpu_data, shape, *this, dst);
+  }
+}
+
+void TensorDescriptor::DownloadData(int32_t* dst) {
+  int aligned_channels = storage_type == TensorStorageType::SINGLE_TEXTURE_2D
+                             ? shape.c
+                             : AlignByN(shape.c, 4);
+  int elements_count = shape.b * shape.w * shape.h * shape.d * aligned_channels;
+  data.resize(elements_count * SizeOf(data_type));
+  int32_t* gpu_data = reinterpret_cast<int32_t*>(data.data());
+  DataToBHWDC(gpu_data, shape, *this, dst);
 }
 
 bool TensorDescriptor::SupportsZeroClamp(const Axis& axis) const {
