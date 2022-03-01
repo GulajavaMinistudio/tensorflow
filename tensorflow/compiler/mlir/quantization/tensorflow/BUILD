@@ -1,10 +1,18 @@
 load("//tensorflow:tensorflow.bzl", "pytype_strict_binary")
 load("//tensorflow:tensorflow.bzl", "tf_cc_binary")
+load("//tensorflow/compiler/mlir/quantization/tensorflow:internal_visibility_allowlist.bzl", "internal_visibility_allowlist")
 load("@llvm-project//mlir:tblgen.bzl", "gentbl_cc_library", "td_library")
+
+package_group(
+    name = "internal_visibility_allowlist_package",
+    packages = [
+        "//tensorflow/compiler/mlir/quantization/...",
+    ] + internal_visibility_allowlist(),
+)
 
 package(
     default_visibility = [
-        "//tensorflow/compiler/mlir/quantization:__subpackages__",
+        ":internal_visibility_allowlist_package",
     ],
     licenses = ["notice"],
 )
