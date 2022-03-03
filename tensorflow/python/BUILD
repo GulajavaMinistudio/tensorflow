@@ -3269,7 +3269,7 @@ pywrap_tensorflow_macro(
         "//tensorflow/python/lib/core:pybind11_lib",
         "//tensorflow/python/lib/core:pybind11_status",
         "//tensorflow/python/lib/core:pybind11_proto",
-        "//tensorflow/python/framework:op_def_util_headers",
+        "//tensorflow/python/framework:op_def_util_cc",
         "//tensorflow/python/framework:python_api_dispatcher",
         "//tensorflow/python/framework:python_api_info",
         "//tensorflow/python/framework:python_api_parameter_converter",
@@ -3352,7 +3352,7 @@ filegroup(
         ":numpy_lib",  # checkpoint_reader
         ":py_exception_registry",  # py_exception_registry
         "//tensorflow/python/lib/core:py_func_lib",
-        "//tensorflow/python/framework:op_def_util_headers",  # op_def_util
+        "//tensorflow/python/framework:op_def_util_cc",  # op_def_util
         "//tensorflow/python/framework:python_api_dispatcher",  # python_api_dispatcher
         "//tensorflow/python/framework:python_tensor_converter",  # python_tensor_converter
         "//tensorflow/python/framework:python_op_gen",  # python_op_gen
@@ -4090,35 +4090,6 @@ tf_python_pybind_extension(
         "//third_party/python_runtime:headers",
         "@pybind11",
     ],
-)
-
-# TODO(b/220191419): Move this build rule back to tensorflow/core/function/BUILD.
-# TODO(b/221223841): Get rid of if_static, it's nonstandard.
-tf_python_pybind_extension(
-    name = "runtime_client_pybind",
-    srcs = ["//tensorflow/core/function:runtime_client_pybind.cc"],
-    module_name = "runtime_client_pybind",
-    visibility = ["//tensorflow/core/function:__subpackages__"],
-    deps = [
-        "//tensorflow/core/function:runtime_client_headers",
-        "@pybind11",
-        "//tensorflow/python/lib/core:pybind11_status",
-    ] + if_static(
-        extra_deps = [
-            "//tensorflow/core/framework:function_proto_cc",
-            "//tensorflow/core/protobuf:coordination_service_proto_cc",
-            "//tensorflow/core/protobuf:eager_service_proto_cc",
-            "//tensorflow/core/protobuf:master_proto_cc",
-            "//tensorflow/core/protobuf:worker_proto_cc",
-        ],
-        otherwise = [
-            "//tensorflow/core/framework:function_proto_cc_headers_only",
-            "//tensorflow/core/protobuf:coordination_service_proto_cc_headers_only",
-            "//tensorflow/core/protobuf:eager_service_proto_cc_headers_only",
-            "//tensorflow/core/protobuf:master_proto_cc_headers_only",
-            "//tensorflow/core/protobuf:worker_proto_cc_headers_only",
-        ],
-    ),
 )
 
 py_library(
