@@ -17,11 +17,11 @@ limitations under the License.
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"  // from @llvm-project
 #include "mlir/Dialect/Bufferization/Transforms/Bufferize.h"  // from @llvm-project
+#include "mlir/Dialect/Func/IR/FuncOps.h"  // from @llvm-project
 #include "mlir/Dialect/Linalg/IR/Linalg.h"  // from @llvm-project
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"  // from @llvm-project
 #include "mlir/Dialect/MemRef/IR/MemRef.h"  // from @llvm-project
 #include "mlir/Dialect/SCF/SCF.h"  // from @llvm-project
-#include "mlir/Dialect/StandardOps/IR/Ops.h"  // from @llvm-project
 #include "mlir/Dialect/Tensor/IR/Tensor.h"  // from @llvm-project
 #include "mlir/IR/Attributes.h"  // from @llvm-project
 #include "mlir/IR/BlockAndValueMapping.h"  // from @llvm-project
@@ -152,6 +152,24 @@ struct BufferizeInsertSliceOp : public OpConversionPattern<InsertSliceOp> {
   }
 };
 
+/// Create linalg op on buffers given the original tensor-based operation and
+/// the buffers for the outputs.
+static linalg::LinalgOp createLinalgOpOnBuffers(
+    ConversionPatternRewriter &rewriter, linalg::LinalgOp linalgOp,
+    ValueRange inputs, ValueRange outputs) {
+  SmallVector<Value, 8> newOperands = inputs;
+  newOperands.append(outputs.begin(), outputs.end());
+  auto *newOp = linalgOp.cloneWithoutRegions(rewriter, linalgOp.getLoc(),
+                                             /*resultTypes=*/ArrayRef<Type>{},
+                                             newOperands);
+  for (auto regions : llvm::zip(linalgOp->getRegions(), newOp->getRegions())) {
+    auto &oldRegion = std::get<0>(regions);
+    auto &newRegion = std::get<1>(regions);
+    rewriter.inlineRegionBefore(oldRegion, newRegion, newRegion.begin());
+  }
+  return newOp;
+}
+
 // Bufferize LinalgOps in-place.
 struct BufferizeLinalgOp
     : public OpInterfaceConversionPattern<linalg::LinalgOp> {
@@ -169,8 +187,7 @@ struct BufferizeLinalgOp
     // TODO(b/199046880): Replace this with LinalgOp::Adaptor or equivalent.
     linalg::GenericOpAdaptor adaptor(operands, op->getAttrDictionary());
 
-    mlir::linalg::createLinalgOpOnBuffers(rewriter, op, adaptor.inputs(),
-                                          adaptor.outputs());
+    createLinalgOpOnBuffers(rewriter, op, adaptor.inputs(), adaptor.outputs());
     rewriter.replaceOp(op, adaptor.outputs());
     return success();
   }
