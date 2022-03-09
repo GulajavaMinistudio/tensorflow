@@ -59,7 +59,7 @@ limitations under the License.
 #include "mlir/IR/Types.h"  // from @llvm-project
 #include "mlir/IR/Value.h"  // from @llvm-project
 #include "mlir/Interfaces/SideEffectInterfaces.h"  // from @llvm-project
-#include "mlir/Parser.h"  // from @llvm-project
+#include "mlir/Parser/Parser.h"  // from @llvm-project
 #include "mlir/Support/LLVM.h"  // from @llvm-project
 #include "mlir/Support/LogicalResult.h"  // from @llvm-project
 #include "mlir/Transforms/InliningUtils.h"  // from @llvm-project
@@ -1023,8 +1023,14 @@ LogicalResult VerifyShapeOperandAndResult(Operation *op, Type operand_type,
     // is static.
     // Note: We do not handle this situation as an error, this would be too
     // restrictive due to incompleteness of shape inference at this point.
-    op->emitWarning("has static shape result")
-        << variadic_idx_str << " for unranked operand" << variadic_idx_str;
+    mlir::InFlightDiagnostic diag =
+        mlir::emitWarning(op->getLoc(), "has static shape result");
+    if (op->getContext()->shouldPrintOpOnDiagnostic()) {
+      diag.attachNote(op->getLoc())
+          .append("see current operation: ")
+          .appendOp(*op, OpPrintingFlags().printGenericOpForm());
+    }
+    diag << variadic_idx_str << " for unranked operand" << variadic_idx_str;
   }
 
   Type element_type = result_ranked_type.getElementType();
@@ -1535,6 +1541,8 @@ LogicalResult SplitOp::verify() {
   int64_t input_dim_size =
       op.value().getType().cast<RankedTensorType>().getDimSize(*dim_index);
   if (ShapedType::isDynamic(input_dim_size)) return success();
+
+  if (op.getNumResults() == 0) return failure();
 
   if (input_dim_size % op.getNumResults() != 0)
     return op.emitOpError("dimension #")

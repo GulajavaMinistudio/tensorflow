@@ -23,7 +23,7 @@ limitations under the License.
 #include "llvm/Support/TargetSelect.h"
 #include "mlir/ExecutionEngine/ExecutionEngine.h"  // from @llvm-project
 #include "mlir/ExecutionEngine/OptUtils.h"  // from @llvm-project
-#include "mlir/Parser.h"  // from @llvm-project
+#include "mlir/Parser/Parser.h"  // from @llvm-project
 #include "tensorflow/compiler/mlir/tools/kernel_gen/compile_cache_item.pb.h"
 #include "tensorflow/compiler/mlir/tools/kernel_gen/ir/tf_framework_ops.h"
 #include "tensorflow/compiler/mlir/tools/kernel_gen/kernel_creator.h"
@@ -186,7 +186,8 @@ llvm::Expected<std::unique_ptr<ExecutionEngine>> Compile(
             /*print_ptx=*/false, /*print_llvmir=*/false, enable_ftz,
             index_64bit, cpu_codegen,
             /*jit_compile=*/false,
-            /*jit_i64_indexed_for_large_tensors=*/false);
+            /*jit_i64_indexed_for_large_tensors=*/false,
+            /*apply_cl_options=*/false);
     if (!status_or_module.ok()) return nullptr;
     module = std::move(status_or_module.ValueOrDie());
 
