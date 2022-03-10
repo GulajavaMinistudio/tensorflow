@@ -65,6 +65,21 @@ bool LooksLikeAnActivation(const HloInstruction* inst) {
         break;
       case HloOpcode::kBitcast:
         return LooksLikeAnActivation(user);
+      case HloOpcode::kDynamicSlice:
+        if (std::find(user->operands().begin() + 1, user->operands().end(),
+                      inst) != user->operands().end()) {
+          return true;
+        }
+        // TODO(b/222538192): This workaround is needed when the embedding table
+        // is further spliced and reduced and used elsewhere in the program.
+        // Remove this workaround once we better understand what's causing it
+        // and fix it on the model side.
+        if (absl::c_all_of(user->users(), [](const HloInstruction* ds_user) {
+              return ds_user->opcode() == HloOpcode::kReduce;
+            })) {
+          continue;
+        }
+        return LooksLikeAnActivation(user);
       default:
         return true;
     }
@@ -316,10 +331,10 @@ int MemorySpaceAssignmentCostAnalysis::CalculateComputationNestLevel(
   int nest_level = 0;
   const HloComputation* computation = instruction->parent();
   while (!computation->IsEntryComputation()) {
-    auto node = call_graph_->GetNode(computation);
+    auto& node = call_graph_->GetNode(computation);
     auto callsites = node.caller_callsites();
     CHECK_EQ(callsites.size(), 1) << "The module is not flattened!";
-    auto callsite = callsites[0];
+    auto& callsite = callsites[0];
     if (!while_only || callsite.instruction()->opcode() == HloOpcode::kWhile) {
       ++nest_level;
     }
