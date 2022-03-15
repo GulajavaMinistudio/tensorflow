@@ -641,7 +641,7 @@ func @dot_illegal_input_type(%arg0: tensor<3xf32>, %arg1: tensor<?x3xf32>) -> te
 // -----
 
 func @dot_illegal_result_type(%arg0: tensor<?x3xf32>, %arg1: tensor<3xf32>) -> tensor<3x?xf32> {
-  // expected-error@+1 {{op inferred type(s) 'tensor<?xf32>' are incompatible with return type(s) of operation 'tensor<3x?xf32>'}}
+  // expected-error@+1 {{Unexpected result type: has 'tensor<3x?xf32>' but inferred 'tensor<?xf32>' from operands 'tensor<?x3xf32>' and 'tensor<3xf32>'}}
   %0 = "mhlo.dot"(%arg0, %arg1) : (tensor<?x3xf32>, tensor<3xf32>) -> tensor<3x?xf32>
   return %0 : tensor<3x?xf32>
 }
@@ -896,11 +896,48 @@ func @rng_bit_generator(%arg0: tensor<2xui64>) -> (tensor<2xui64>, tensor<10x12x
 
 // -----
 
+func @rng_normal_invalid_mu_rank(%mu: tensor<1xf32>, %sigma: tensor<f32>) -> tensor<2x3x5xf32> {
+  %shape = mhlo.constant dense<[2, 3, 5]> : tensor<3xi64>
+  // expected-error@+1 {{but got 'tensor<1xf32>'}}
+  %0 = "mhlo.rng_normal"(%mu, %sigma, %shape) : (tensor<1xf32>, tensor<f32>, tensor<3xi64>) -> tensor<2x3x5xf32>
+  return %0 : tensor<2x3x5xf32>
+}
 
-func @rng_uniform_invalid_type(%mu: tensor<complex<f32>>, %sigma: tensor<f32>) -> tensor<2x3x5xf32> {
+// -----
+
+
+func @rng_normal_invalid_sigma_rank(%mu: tensor<f32>, %sigma: tensor<1xf32>) -> tensor<2x3x5xf32> {
+  %shape = mhlo.constant dense<[2, 3, 5]> : tensor<3xi64>
+  // expected-error@+1 {{but got 'tensor<1xf32>'}}
+  %0 = "mhlo.rng_normal"(%mu, %sigma, %shape) : (tensor<f32>, tensor<1xf32>, tensor<3xi64>) -> tensor<2x3x5xf32>
+  return %0 : tensor<2x3x5xf32>
+}
+
+// -----
+
+func @rng_uniform_invalid_a_rank(%a: tensor<1xf32>, %b: tensor<f32>) -> tensor<2x3x5xf32> {
+  %shape = mhlo.constant dense<[2, 3, 5]> : tensor<3xi64>
+  // expected-error@+1 {{but got 'tensor<1xf32>'}}
+  %0 = "mhlo.rng_uniform"(%a, %b, %shape) : (tensor<1xf32>, tensor<f32>, tensor<3xi64>) -> tensor<2x3x5xf32>
+  return %0 : tensor<2x3x5xf32>
+}
+
+
+// -----
+
+func @rng_uniform_invalid_b_rank(%a: tensor<f32>, %b: tensor<1xf32>) -> tensor<2x3x5xf32> {
+  %shape = mhlo.constant dense<[2, 3, 5]> : tensor<3xi64>
+  // expected-error@+1 {{but got 'tensor<1xf32>'}}
+  %0 = "mhlo.rng_uniform"(%a, %b, %shape) : (tensor<f32>, tensor<1xf32>, tensor<3xi64>) -> tensor<2x3x5xf32>
+  return %0 : tensor<2x3x5xf32>
+}
+
+// -----
+
+func @rng_uniform_invalid_type(%a: tensor<complex<f32>>, %b: tensor<f32>) -> tensor<2x3x5xf32> {
   %shape = mhlo.constant dense<[2, 3, 5]> : tensor<3xi64>
   // expected-error@+1 {{but got 'tensor<complex<f32>>'}}
-  %0 = "mhlo.rng_uniform"(%mu, %sigma, %shape) : (tensor<complex<f32>>, tensor<f32>, tensor<3xi64>) -> tensor<2x3x5xf32>
+  %0 = "mhlo.rng_uniform"(%a, %b, %shape) : (tensor<complex<f32>>, tensor<f32>, tensor<3xi64>) -> tensor<2x3x5xf32>
   return %0 : tensor<2x3x5xf32>
 }
 
@@ -979,7 +1016,7 @@ func @select_bad_pred_shape(%arg0: tensor<3xi1>, %arg1: tensor<2x3xi32>, %arg2: 
 // -----
 
 func @select_bad_shape_mismatch(%arg0: tensor<3xi1>, %arg1: tensor<2x4xi32>, %arg2: tensor<2x3xi32>) -> tensor<2x3xi32> {
-  // expected-error@+1 {{op inferred type(s) 'tensor<2x4xi32>' are incompatible with return type(s) of operation 'tensor<2x3xi32>'}}
+  // expected-error@+1 {{op requires the same type for all operands and results}}
   %0 = "mhlo.select"(%arg0, %arg1, %arg2) : (tensor<3xi1>, tensor<2x4xi32>, tensor<2x3xi32>) -> tensor<2x3xi32>
   return %0 : tensor<2x3xi32>
 }

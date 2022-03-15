@@ -66,6 +66,7 @@ class CoordinationServiceAgentImpl : public CoordinationServiceAgent {
   const CoordinationServiceDeviceInfo& GetClusterDeviceInfo() override;
   StatusOr<TaskState> GetTaskStatus(const CoordinatedTask& task) override;
   Status ReportError(const Status& error) override;
+  Status Shutdown() override;
   Status Reset() override;
 
   StatusOr<std::string> GetKeyValue(const std::string& key) override;
@@ -218,10 +219,10 @@ Status CoordinationServiceAgentImpl::Connect() {
           "Coordination service agent is not in DISCONNECTED state."));
     }
   }
-  RegisterWorkerRequest request;
+  RegisterTaskRequest request;
   *request.mutable_source_task() = task_;
   request.set_incarnation(incarnation_id_);
-  RegisterWorkerResponse response;
+  RegisterTaskResponse response;
   absl::Notification n;
 
   // Block until the remote service is up and the task is registered.
@@ -231,7 +232,7 @@ Status CoordinationServiceAgentImpl::Connect() {
           ? configs_.cluster_register_timeout_in_ms()
           : kDefaultClusterRegisterTimeoutMs;
   call_opts.SetTimeout(register_timeout);
-  leader_client_->RegisterWorkerAsync(
+  leader_client_->RegisterTaskAsync(
       &call_opts, &request, &response, [&](Status s) {
         if (!s.ok()) {
           SetError(s);
@@ -361,6 +362,11 @@ Status CoordinationServiceAgentImpl::ReportError(const Status& error) {
   });
   n.WaitForNotification();
   return Status::OK();
+}
+
+Status CoordinationServiceAgentImpl::Shutdown() {
+  return MakeCoordinationError(errors::Unimplemented(
+      "CoordinationServiceAgentImpl::Shutdown is not implemented yet."));
 }
 
 Status CoordinationServiceAgentImpl::Reset() {
