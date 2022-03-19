@@ -1098,7 +1098,14 @@ def HLO_CompareOp: HLO_Op<"compare", [NoSideEffect, SameTypeOperands,
 
   let builders = [
     OpBuilder<(ins "Value":$lhs, "Value":$rhs,
-      "StringAttr":$comparison_direction, CArg<"StringAttr", "{}">:$compare_type)>,
+      "::mlir::mhlo::ComparisonDirection":$comparison_direction,
+      CArg<"::mlir::mhlo::ComparisonType",
+      "::mlir::mhlo::ComparisonType::NOTYPE">:$compare_type)>,
+
+    OpBuilder<(ins "Value":$lhs, "Value":$rhs,
+      "::mlir::mhlo::ComparisonDirectionAttr":$comparison_direction,
+      CArg<"::mlir::mhlo::ComparisonTypeAttr",
+      "::mlir::mhlo::ComparisonTypeAttr()">:$compare_type)>,
   ];
 
   let hasCustomHLOConverter = 1;
@@ -1709,6 +1716,7 @@ def HLO_FftOp: HLO_Op<"fft", [NoSideEffect]> {
     I64ElementsAttr:$fft_length
   );
 
+  let hasVerifier = 1;
   let results = (outs HLO_Tensor);
 }
 
