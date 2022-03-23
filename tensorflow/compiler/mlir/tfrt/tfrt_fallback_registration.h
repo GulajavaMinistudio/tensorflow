@@ -16,10 +16,10 @@ limitations under the License.
 // This file implements TFRuntimeFallback tensor conversion function for
 // converting to host tensor.
 
-#ifndef TENSORFLOW_CORE_RUNTIME_FALLBACK_TFRT_FALLBACK_REGISTRATION_H_
-#define TENSORFLOW_CORE_RUNTIME_FALLBACK_TFRT_FALLBACK_REGISTRATION_H_
+#ifndef TENSORFLOW_COMPILER_MLIR_TFRT_TFRT_FALLBACK_REGISTRATION_H_
+#define TENSORFLOW_COMPILER_MLIR_TFRT_TFRT_FALLBACK_REGISTRATION_H_
 
-#include "mlir/IR/Dialect.h"
+#include "mlir/IR/Dialect.h"  // from @llvm-project
 
 namespace tensorflow {
 namespace tfd {
@@ -30,4 +30,4 @@ void RegisterTfrtFallbackDialect(mlir::DialectRegistry &registry);
 }  // namespace tfd
 }  // namespace tensorflow
 
-#endif  // TENSORFLOW_CORE_RUNTIME_FALLBACK_TFRT_FALLBACK_REGISTRATION_H_
+#endif  // TENSORFLOW_COMPILER_MLIR_TFRT_TFRT_FALLBACK_REGISTRATION_H_

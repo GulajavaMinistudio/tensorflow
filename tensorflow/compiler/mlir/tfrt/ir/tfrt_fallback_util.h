@@ -12,18 +12,19 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
-#ifndef TENSORFLOW_CORE_RUNTIME_FALLBACK_OPDEFS_TFRT_FALLBACK_UTIL_H_
-#define TENSORFLOW_CORE_RUNTIME_FALLBACK_OPDEFS_TFRT_FALLBACK_UTIL_H_
+#ifndef TENSORFLOW_COMPILER_MLIR_TFRT_IR_TFRT_FALLBACK_UTIL_H_
+#define TENSORFLOW_COMPILER_MLIR_TFRT_IR_TFRT_FALLBACK_UTIL_H_
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"  // from @llvm-project
 #include "mlir/IR/BuiltinOps.h"  // from @llvm-project
 
 namespace tfrt {
 namespace fallback_async {
 
-bool IsArgConsumedByFallback(mlir::FuncOp func, int arg_index);
+bool IsArgConsumedByFallback(mlir::func::FuncOp func, int arg_index);
 
 void ForEachArgConsumedByFallback(
-    mlir::FuncOp func, llvm::function_ref<void(int arg_index)> action);
+    mlir::func::FuncOp func, llvm::function_ref<void(int arg_index)> action);
 
 void ForEachArgConsumedByFallback(
     mlir::ModuleOp module,
@@ -32,4 +33,4 @@ void ForEachArgConsumedByFallback(
 }  // namespace fallback_async
 }  // namespace tfrt
 
-#endif  // TENSORFLOW_CORE_RUNTIME_FALLBACK_OPDEFS_TFRT_FALLBACK_UTIL_H_
+#endif  // TENSORFLOW_COMPILER_MLIR_TFRT_IR_TFRT_FALLBACK_UTIL_H_

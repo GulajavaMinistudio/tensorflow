@@ -44,6 +44,22 @@ TEST_F(XlaCompilationCacheSerializeTest, PersistentCacheTest) {
   }
   TF_ASSERT_OK(
       listener()->VerifyListenerHistory(/*expect_persistent_cache_use=*/true));
+
+  // Reset the cluster numbering between sessions so we can get the same
+  // cluster numbering.
+  testing::ResetClusterSequenceNumber();
+
+  TF_ASSERT_OK(
+      AlterPersistentCacheEntryHloModuleNames(tensorflow::testing::TmpDir()));
+
+  // Run again but these should all fail, because the persistent cache entries'
+  // HLO modules have been altered.
+  for (int b = 1; b < 4; ++b) {
+    auto status = ExecuteWithBatch(graph, b);
+    EXPECT_FALSE(status.ok());
+    EXPECT_TRUE(absl::StrContains(status.error_message(),
+                                  "Serialized HLO does not match."));
+  }
 }
 
 }  // namespace
