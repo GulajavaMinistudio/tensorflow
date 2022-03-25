@@ -1,7 +1,7 @@
 // RUN: mlir-hlo-opt %s -verify-diagnostics -split-input-file -allow-unregistered-dialect | FileCheck %s
 
 // CHECK: func @select_and_scatter
-func @select_and_scatter(
+func.func @select_and_scatter(
     %arg0: tensor<10x24x24x64xf32>,
     %arg1: tensor<10x12x12x64xf32>) -> tensor<10x24x24x64xf32> {
     %0 = mhlo.constant dense<0.000000e+00> : tensor<f32>
@@ -23,10 +23,10 @@ func @select_and_scatter(
     } : (tensor<10x24x24x64xf32>, tensor<10x12x12x64xf32>, tensor<f32>) ->
           tensor<10x24x24x64xf32>
 
-    return %1 : tensor<10x24x24x64xf32>
+    func.return %1 : tensor<10x24x24x64xf32>
 }
 
-func @select_and_scatter_with_unranked_dims(
+func.func @select_and_scatter_with_unranked_dims(
   %arg0: tensor<4x5x1x1xbf16>,
   %arg1: tensor<2x2x1x1xbf16>,
   %arg2: tensor<bf16>) -> tensor<?x?x?x?xbf16> {
@@ -53,12 +53,12 @@ func @select_and_scatter_with_unranked_dims(
   : (tensor<4x5x1x1xbf16>, tensor<2x2x1x1xbf16>, tensor<bf16>) ->
       tensor<?x?x?x?xbf16>
 
-  return %3 : tensor<?x?x?x?xbf16>
+  func.return %3 : tensor<?x?x?x?xbf16>
 }
 
 // -----
 
-func @select_and_scatter_invalid_select_computation(
+func.func @select_and_scatter_invalid_select_computation(
     %arg0: tensor<10x24x24x64xf32>,
     %arg1: tensor<10x12x12x64xf32>) -> tensor<10x24x24x64xf32> {
     %0 = mhlo.constant dense<0.000000e+00> : tensor<f32>
@@ -81,12 +81,12 @@ func @select_and_scatter_invalid_select_computation(
     } : (tensor<10x24x24x64xf32>, tensor<10x12x12x64xf32>, tensor<f32>) ->
           tensor<10x24x24x64xf32>
 
-    return %1 : tensor<10x24x24x64xf32>
+    func.return %1 : tensor<10x24x24x64xf32>
 }
 
 // -----
 
-func @select_and_scatter_invalid_select_computation(
+func.func @select_and_scatter_invalid_select_computation(
     %arg0: tensor<10x24x24x64xf32>,
     %arg1: tensor<10x12x12x64xf32>) -> tensor<10x24x24x64xf32> {
     %0 = mhlo.constant dense<0.000000e+00> : tensor<f32>
@@ -108,12 +108,12 @@ func @select_and_scatter_invalid_select_computation(
     } : (tensor<10x24x24x64xf32>, tensor<10x12x12x64xf32>, tensor<f32>) ->
           tensor<10x24x24x64xf32>
 
-    return %1 : tensor<10x24x24x64xf32>
+    func.return %1 : tensor<10x24x24x64xf32>
 }
 
 // -----
 
-func @select_and_scatter_invalid_select_computation(
+func.func @select_and_scatter_invalid_select_computation(
     %arg0: tensor<10x24x24x64xf32>,
     %arg1: tensor<10x12x12x64xf32>) -> tensor<10x24x24x64xf32> {
     %0 = mhlo.constant dense<0.000000e+00> : tensor<f32>
@@ -136,12 +136,12 @@ func @select_and_scatter_invalid_select_computation(
     } : (tensor<10x24x24x64xf32>, tensor<10x12x12x64xf32>, tensor<f32>) ->
           tensor<10x24x24x64xf32>
 
-    return %1 : tensor<10x24x24x64xf32>
+    func.return %1 : tensor<10x24x24x64xf32>
 }
 
 // -----
 
-func @select_and_scatter_invalid_select_computation(
+func.func @select_and_scatter_invalid_select_computation(
     %arg0: tensor<10x24x24x64xf32>,
     %arg1: tensor<10x12x12x64xf32>) -> tensor<10x24x24x64xf32> {
     %0 = mhlo.constant dense<0.000000e+00> : tensor<f32>
@@ -163,12 +163,12 @@ func @select_and_scatter_invalid_select_computation(
     } : (tensor<10x24x24x64xf32>, tensor<10x12x12x64xf32>, tensor<f32>) ->
           tensor<10x24x24x64xf32>
 
-    return %1 : tensor<10x24x24x64xf32>
+    func.return %1 : tensor<10x24x24x64xf32>
 }
 
 // -----
 
-func @select_and_scatter_invalid_select_computation(
+func.func @select_and_scatter_invalid_select_computation(
     %arg0: tensor<10x24x24x64xf32>,
     %arg1: tensor<10x12x12x64xf32>) -> tensor<10x24x24x64xf32> {
     %0 = mhlo.constant dense<0.000000e+00> : tensor<f32>
@@ -191,12 +191,12 @@ func @select_and_scatter_invalid_select_computation(
     } : (tensor<10x24x24x64xf32>, tensor<10x12x12x64xf32>, tensor<f32>) ->
           tensor<10x24x24x64xf32>
 
-    return %1 : tensor<10x24x24x64xf32>
+    func.return %1 : tensor<10x24x24x64xf32>
 }
 
 // -----
 
-func @select_and_scatter_invalid_select_computation(
+func.func @select_and_scatter_invalid_select_computation(
     %arg0: tensor<10x24x24x64xf32>,
     %arg1: tensor<10x12x12x64xf32>) -> tensor<10x24x24x64xf32> {
     %0 = mhlo.constant dense<0.000000e+00> : tensor<f32>
@@ -219,12 +219,12 @@ func @select_and_scatter_invalid_select_computation(
     } : (tensor<10x24x24x64xf32>, tensor<10x12x12x64xf32>, tensor<f32>) ->
           tensor<10x24x24x64xf32>
 
-    return %1 : tensor<10x24x24x64xf32>
+    func.return %1 : tensor<10x24x24x64xf32>
 }
 
 // -----
 
-func @select_and_scatter_invalid_attributes(
+func.func @select_and_scatter_invalid_attributes(
     %arg0: tensor<10x24x24x64xf32>,
     %arg1: tensor<10x12x12x64xf32>) -> tensor<10x24x24x64xf32> {
     %0 = mhlo.constant dense<0.000000e+00> : tensor<f32>
@@ -245,12 +245,12 @@ func @select_and_scatter_invalid_attributes(
     } : (tensor<10x24x24x64xf32>, tensor<10x12x12x64xf32>, tensor<f32>) ->
           tensor<10x24x24x64xf32>
 
-    return %1 : tensor<10x24x24x64xf32>
+    func.return %1 : tensor<10x24x24x64xf32>
 }
 
 // -----
 
-func @select_and_scatter_invalid_attributes(
+func.func @select_and_scatter_invalid_attributes(
     %arg0: tensor<10x24x24x64xf32>,
     %arg1: tensor<10x12x12x64xf32>) -> tensor<10x24x24x64xf32> {
     %0 = mhlo.constant dense<0.000000e+00> : tensor<f32>
@@ -272,12 +272,12 @@ func @select_and_scatter_invalid_attributes(
     } : (tensor<10x24x24x64xf32>, tensor<10x12x12x64xf32>, tensor<f32>) ->
           tensor<10x24x24x64xf32>
 
-    return %1 : tensor<10x24x24x64xf32>
+    func.return %1 : tensor<10x24x24x64xf32>
 }
 
 // -----
 
-func @select_and_scatter_invalid_attributes(
+func.func @select_and_scatter_invalid_attributes(
     %arg0: tensor<10x24x24x64xf32>,
     %arg1: tensor<10x12x12x64xf32>) -> tensor<10x24x24x64xf32> {
     %0 = mhlo.constant dense<0.000000e+00> : tensor<f32>
@@ -300,12 +300,12 @@ func @select_and_scatter_invalid_attributes(
     } : (tensor<10x24x24x64xf32>, tensor<10x12x12x64xf32>, tensor<f32>) ->
           tensor<10x24x24x64xf32>
 
-    return %1 : tensor<10x24x24x64xf32>
+    func.return %1 : tensor<10x24x24x64xf32>
 }
 
 // -----
 
-func @select_and_scatter_invalid_attributes(
+func.func @select_and_scatter_invalid_attributes(
     %arg0: tensor<10x24x24x64xf32>,
     %arg1: tensor<10x12x12x64xf32>) -> tensor<10x24x24x64xf32> {
     %0 = mhlo.constant dense<0.000000e+00> : tensor<f32>
@@ -328,12 +328,12 @@ func @select_and_scatter_invalid_attributes(
     } : (tensor<10x24x24x64xf32>, tensor<10x12x12x64xf32>, tensor<f32>) ->
           tensor<10x24x24x64xf32>
 
-    return %1 : tensor<10x24x24x64xf32>
+    func.return %1 : tensor<10x24x24x64xf32>
 }
 
 // -----
 
-func @select_and_scatter_invalid_attributes(
+func.func @select_and_scatter_invalid_attributes(
     %arg0: tensor<10x24x24x64xf32>,
     %arg1: tensor<10x12x12x64xf32>) -> tensor<10x24x24x64xf32> {
     %0 = mhlo.constant dense<0.000000e+00> : tensor<f32>
@@ -356,12 +356,12 @@ func @select_and_scatter_invalid_attributes(
     } : (tensor<10x24x24x64xf32>, tensor<10x12x12x64xf32>, tensor<f32>) ->
           tensor<10x24x24x64xf32>
 
-    return %1 : tensor<10x24x24x64xf32>
+    func.return %1 : tensor<10x24x24x64xf32>
 }
 
 // -----
 
-func @select_and_scatter_invalid_attributes(
+func.func @select_and_scatter_invalid_attributes(
     %arg0: tensor<10x24x24x64xf32>,
     %arg1: tensor<10x12x12x64xf32>) -> tensor<10x24x24x64xf32> {
     %0 = mhlo.constant dense<0.000000e+00> : tensor<f32>
@@ -384,12 +384,12 @@ func @select_and_scatter_invalid_attributes(
     } : (tensor<10x24x24x64xf32>, tensor<10x12x12x64xf32>, tensor<f32>) ->
           tensor<10x24x24x64xf32>
 
-    return %1 : tensor<10x24x24x64xf32>
+    func.return %1 : tensor<10x24x24x64xf32>
 }
 
 // -----
 
-func @select_and_scatter_invalid_attributes(
+func.func @select_and_scatter_invalid_attributes(
     %arg0: tensor<10x24x24x64xf32>,
     %arg1: tensor<10x12x12x64xf32>) -> tensor<10x24x24x64xf32> {
     %0 = mhlo.constant dense<0.000000e+00> : tensor<f32>
@@ -412,12 +412,12 @@ func @select_and_scatter_invalid_attributes(
     } : (tensor<10x24x24x64xf32>, tensor<10x12x12x64xf32>, tensor<f32>) ->
           tensor<10x24x24x64xf32>
 
-    return %1 : tensor<10x24x24x64xf32>
+    func.return %1 : tensor<10x24x24x64xf32>
 }
 
 // -----
 
-func @select_and_scatter_invalid_ret_type(
+func.func @select_and_scatter_invalid_ret_type(
     %arg0: tensor<10x24x24x64xf32>,
     %arg1: tensor<10x12x12x64xf32>) -> () {
     %0 = mhlo.constant dense<0.000000e+00> : tensor<f32>
@@ -445,7 +445,7 @@ func @select_and_scatter_invalid_ret_type(
 
 // -----
 
-func @select_and_scatter_invalid_ret_type(
+func.func @select_and_scatter_invalid_ret_type(
     %arg0: tensor<10x24x24x64xf32>,
     %arg1: tensor<10x12x12x64xf32>) -> () {
     %0 = mhlo.constant dense<0.000000e+00> : tensor<f32>
@@ -473,7 +473,7 @@ func @select_and_scatter_invalid_ret_type(
 
 // -----
 
-func @select_and_scatter_invalid_scatter_reducer(
+func.func @select_and_scatter_invalid_scatter_reducer(
     %arg0: tensor<10x24x24x64xf32>,
     %arg1: tensor<10x12x12x64xf32>) -> () {
     %0 = mhlo.constant dense<0.000000e+00> : tensor<f32>
@@ -501,7 +501,7 @@ func @select_and_scatter_invalid_scatter_reducer(
 
 // -----
 
-func @select_and_scatter_invalid_scatter_reducer(
+func.func @select_and_scatter_invalid_scatter_reducer(
     %arg0: tensor<10x24x24x64xf32>,
     %arg1: tensor<10x12x12x64xf32>) -> () {
     %0 = mhlo.constant dense<0.000000e+00> : tensor<f32>
@@ -529,7 +529,7 @@ func @select_and_scatter_invalid_scatter_reducer(
 
 // -----
 
-func @select_and_scatter_invalid_scatter_reducer(
+func.func @select_and_scatter_invalid_scatter_reducer(
     %arg0: tensor<10x24x24x64xf32>,
     %arg1: tensor<10x12x12x64xf32>) -> () {
     %0 = mhlo.constant dense<0.000000e+00> : tensor<f32>
@@ -557,7 +557,7 @@ func @select_and_scatter_invalid_scatter_reducer(
 
 // -----
 
-func @select_and_scatter_invalid_scatter_reducer(
+func.func @select_and_scatter_invalid_scatter_reducer(
     %arg0: tensor<10x24x24x64xf32>,
     %arg1: tensor<10x12x12x64xf32>) -> () {
     %0 = mhlo.constant dense<0.000000e+00> : tensor<f32>
@@ -586,7 +586,7 @@ func @select_and_scatter_invalid_scatter_reducer(
 
 // -----
 
-func @select_and_scatter_invalid_scatter_reducer(
+func.func @select_and_scatter_invalid_scatter_reducer(
     %arg0: tensor<10x24x24x64xf32>,
     %arg1: tensor<10x12x12x64xf32>) -> () {
     %0 = mhlo.constant dense<0.000000e+00> : tensor<f32>
@@ -614,7 +614,7 @@ func @select_and_scatter_invalid_scatter_reducer(
 
 // -----
 
-func @select_and_scatter_invalid_scatter_reducer(
+func.func @select_and_scatter_invalid_scatter_reducer(
     %arg0: tensor<10x24x24x64xf32>,
     %arg1: tensor<10x12x12x64xf32>) -> () {
     %0 = mhlo.constant dense<0.000000e+00> : tensor<f32>
@@ -642,7 +642,7 @@ func @select_and_scatter_invalid_scatter_reducer(
 
 // -----
 
-func @select_and_scatter_invalid_scatter_reducer(
+func.func @select_and_scatter_invalid_scatter_reducer(
     %arg0: tensor<10x24x24x64xf32>,
     %arg1: tensor<10x12x12x64xf32>) -> () {
     %0 = mhlo.constant dense<0.000000e+00> : tensor<f32>
@@ -670,7 +670,7 @@ func @select_and_scatter_invalid_scatter_reducer(
 
 // -----
 
-func @select_and_scatter_invalid_scatter_reducer(
+func.func @select_and_scatter_invalid_scatter_reducer(
     %arg0: tensor<10x24x24x64xf32>,
     %arg1: tensor<10x12x12x64xf32>) -> () {
     %0 = mhlo.constant dense<0> : tensor<i32>
@@ -698,7 +698,7 @@ func @select_and_scatter_invalid_scatter_reducer(
 
 // -----
 
-func @select_and_scatter_invalid_scatter_reducer(
+func.func @select_and_scatter_invalid_scatter_reducer(
     %arg0: tensor<10x24x24x64xf32>,
     %arg1: tensor<10x12x12x64xf32>) -> () {
     %0 = mhlo.constant dense<0.000000e+00> : tensor<f32>
@@ -726,7 +726,7 @@ func @select_and_scatter_invalid_scatter_reducer(
 
 // -----
 
-func @select_and_scatter_invalid_scatter_reducer(
+func.func @select_and_scatter_invalid_scatter_reducer(
     %arg0: tensor<10x24x24x64xf32>,
     %arg1: tensor<10x12x12x64xf32>) -> () {
     %0 = mhlo.constant dense<0.000000e+00> : tensor<1xf32>
@@ -754,7 +754,7 @@ func @select_and_scatter_invalid_scatter_reducer(
 
 // -----
 
-func @select_and_scatter_invalid_source_operand(
+func.func @select_and_scatter_invalid_source_operand(
     %arg0: tensor<10x24x24x64xf32>,
     %arg1: tensor<10x12x12x32xf32>) -> () {
     %0 = mhlo.constant dense<0.000000e+00> : tensor<f32>
@@ -782,7 +782,7 @@ func @select_and_scatter_invalid_source_operand(
 
 // -----
 
-func @select_and_scatter_invalid_source_operand(
+func.func @select_and_scatter_invalid_source_operand(
     %arg0: tensor<10x24x24x64xf32>,
     %arg1: tensor<10x12x12x64xi32>) -> () {
     %0 = mhlo.constant dense<0> : tensor<i32>
