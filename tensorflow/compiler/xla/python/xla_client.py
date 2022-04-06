@@ -46,7 +46,7 @@ profiler = _xla.profiler
 _version = 63
 
 # Version number for MLIR:Python components.
-mlir_api_version = 5
+mlir_api_version = 6
 
 xla_platform_names = {
     'cpu': 'Host',
@@ -58,7 +58,7 @@ def make_interpreter_client():
   return _xla.get_interpreter_client()
 
 
-def make_cpu_client(*, use_tfrt=False):
+def make_cpu_client(*, use_tfrt: bool = True) -> ...:
   if use_tfrt:
     return _xla.get_tfrt_cpu_client(asynchronous=True)
   else:
