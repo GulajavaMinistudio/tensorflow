@@ -111,6 +111,7 @@ cc_library(
         "//tensorflow/compiler/mlir/tfrt/jit/transforms:tf_jitrt_passes",
         "//tensorflow/compiler/mlir/tools/kernel_gen/transforms:passes",
         "//tensorflow/compiler/mlir/xla:xla_legalize_tf",
+        "//tensorflow/core:ops",
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:ArithmeticTransforms",
         "@llvm-project//mlir:Async",
@@ -518,7 +519,6 @@ cc_library(
         "//tensorflow/core/tfrt/eager:__pkg__",
         "//tensorflow/core/tfrt/graph_executor:__pkg__",
         "//tensorflow/core/tfrt/saved_model:__pkg__",
-        "@tf_runtime//:__subpackages__",
     ],
     deps = [
         ":function",
