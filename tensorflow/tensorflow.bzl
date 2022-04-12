@@ -756,9 +756,6 @@ def tf_cc_shared_object(
 def get_cc_shared_library_target_name(name):
     return name + "_st"  # Keep short. See b/221093790
 
-def get_sharedlibname(name):
-    return "sl_" + name  # Keep short. See b/221093790
-
 # buildozer: disable=function-docstring-args
 def tf_cc_shared_library(
         name,
@@ -822,13 +819,12 @@ def tf_cc_shared_library(
         )
 
         cc_shared_library_name = get_cc_shared_library_target_name(name_os_full)
-        shared_lib_name = get_sharedlibname(name_os_full)
         cc_shared_library(
             name = cc_shared_library_name,
             roots = [cc_library_name],
             static_deps = static_deps,
-            shared_lib_name = shared_lib_name,
-            user_link_flags = linkopts + _rpath_user_link_flags(shared_lib_name) + select({
+            shared_lib_name = name_os_full,
+            user_link_flags = linkopts + _rpath_user_link_flags(name_os_full) + select({
                 clean_dep("//tensorflow:ios"): [
                     "-Wl,-install_name,@rpath/" + soname,
                 ],
@@ -841,18 +837,12 @@ def tf_cc_shared_library(
                 ],
             }),
             additional_linker_inputs = additional_linker_inputs,
-            features = if_windows(["no_windows_export_all_symbols"]),  # See b/227922702
             visibility = visibility,
             win_def_file = if_windows(win_def_file, otherwise = None),
         )
-        native.alias(
-            name = shared_lib_name,
-            actual = cc_shared_library_name,
-            visibility = visibility,
-        )
         filegroup(
             name = name_os_full,
-            srcs = [shared_lib_name],
+            srcs = [cc_shared_library_name],
             output_group = "main_shared_library_output",
         )
 
@@ -3079,9 +3069,9 @@ def pybind_extension(
         compatible_with = compatible_with,
     )
 
-def tf_python_pybind_static_deps():
+def tf_python_pybind_static_deps(testonly):
     # TODO(b/146808376): Reduce the dependencies to those that are really needed.
-    return if_oss([
+    static_deps = [
         "//:__subpackages__",
         "@FP16//:__subpackages__",
         "@FXdiv//:__subpackages__",
@@ -3094,9 +3084,7 @@ def tf_python_pybind_static_deps():
         "@com_github_googlecloudplatform_tensorflow_gcp_tools//:__subpackages__",
         "@com_github_grpc_grpc//:__subpackages__",
         "@com_google_absl//:__subpackages__",
-        "@com_google_benchmark//:__subpackages__",  # testonly
         "@com_google_googleapis//:__subpackages__",
-        "@com_google_googletest//:__subpackages__",  # testonly
         "@com_google_protobuf//:__subpackages__",
         "@com_googlesource_code_re2//:__subpackages__",
         "@compute_library//:__subpackages__",
@@ -3142,7 +3130,12 @@ def tf_python_pybind_static_deps():
         "@sobol_data//:__subpackages__",
         "@upb//:__subpackages__",
         "@zlib//:__subpackages__",
-    ])
+    ]
+    static_deps += [] if not testonly else [
+        "@com_google_benchmark//:__subpackages__",
+        "@com_google_googletest//:__subpackages__",
+    ]
+    return if_oss(static_deps)
 
 # buildozer: enable=function-docstring-args
 def tf_python_pybind_extension(
@@ -3150,14 +3143,14 @@ def tf_python_pybind_extension(
         srcs,
         module_name,
         hdrs = [],
-        static_deps = None,
         deps = [],
         compatible_with = None,
         copts = [],
         defines = [],
         features = [],
         testonly = None,
-        visibility = None):
+        visibility = None,
+        win_def_file = None):
     """A wrapper macro for pybind_extension that is used in tensorflow/python/BUILD.
 
     Please do not use it anywhere else as it may behave unexpectedly. b/146445820
@@ -3170,7 +3163,7 @@ def tf_python_pybind_extension(
         srcs,
         module_name,
         hdrs = hdrs,
-        static_deps = static_deps,
+        static_deps = tf_python_pybind_static_deps(testonly),
         deps = deps + tf_binary_pybind_deps() + if_mkl_ml(["//third_party/mkl:intel_binary_blob"]),
         compatible_with = compatible_with,
         copts = copts,
@@ -3179,6 +3172,7 @@ def tf_python_pybind_extension(
         link_in_framework = True,
         testonly = testonly,
         visibility = visibility,
+        win_def_file = win_def_file,
     )
 
 def tf_pybind_cc_library_wrapper(name, deps, visibility = None, **kwargs):
