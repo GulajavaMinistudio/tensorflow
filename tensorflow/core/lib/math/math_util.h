@@ -86,12 +86,27 @@ class MathUtil {
   static T IPow(T base, int exp);
 
   // Retrieves the sign of `x`:
+  //  nan if x is nan.
   //   -1 if x < 0,
   //   +1 if x > 0,
   //    0 if x = 0.
-  //  nan if x is nan.
+  template <typename T, absl::enable_if_t<std::is_integral<T>::value, int> = 0>
+  static T Sign(const T x) {
+    return SignHelper<T>(x);
+  }
+  template <typename T, absl::enable_if_t<!std::is_integral<T>::value, int> = 0>
+  static T Sign(const T x) {
+    return std::isnan(x) ? x : SignHelper<T>(x);
+  }
+
+ private:
+  // A helper function to reduce duplication between two MathUtil::Sign
+  // functions, which are required to be split to avoid ambiguity for integral
+  // types with std::isnan for some builds.
   template <typename T>
-  static T Sign(const T x);
+  static T SignHelper(const T x) {
+    return x == T(0) ? T(0) : (x > T(0) ? T(1) : T(-1));
+  }
 };
 
 // ---- CeilOrFloorOfRatio ----
@@ -164,11 +179,6 @@ T MathUtil::IPow(T base, int exp) {
     exp >>= 1;
     if (exp == 0) return result;
   }
-}
-
-template <typename T>
-T MathUtil::Sign(const T x) {
-  return std::isnan(x) ? x : (x == T(0) ? T(0) : (x > T(0) ? T(1) : T(-1)));
 }
 
 }  // namespace tensorflow
