@@ -184,6 +184,10 @@ packed weights. If it can be found, we access the packed weights in the
 cache for subsequent operations, and the temporary buffer is freed. Otherwise,
 the packed weights is added to the cache.
 
+## Profiling
+When TfLite profiling is enabled, XNNPACK will time each operator and report the
+results to TfLite which will print them as part of the overall execution profile.
+
 ## Limitations and supported operators
 
 XNNPACK delegate is a work-in-progress, and currently supports a limited set of
@@ -489,6 +493,10 @@ Below is the list of operators supported in IEEE FP16 inference:
 
 * Must satisfy constraints on the floating-point (FP32) operator.
 
+#### `FULLY_CONNECTED`
+
+* Must satisfy constraints on the floating-point (FP32) operator.
+
 #### `HARD_SWISH`
 
 * Must satisfy constraints on the floating-point (FP32) operator.
@@ -561,6 +569,10 @@ Below is the list of operators supported in IEEE FP16 inference:
 * Must satisfy constraints on the floating-point (FP32) operator.
 
 #### `SPLIT`
+
+* Must satisfy constraints on the floating-point (FP32) operator.
+
+#### `SQRT`
 
 * Must satisfy constraints on the floating-point (FP32) operator.
 
