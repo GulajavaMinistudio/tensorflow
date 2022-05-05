@@ -84,6 +84,15 @@ namespace mlir {
 namespace mlir {
 namespace mhlo {
 namespace {
+void createArgs(ArrayRef<OpAsmParser::UnresolvedOperand> operands,
+                ArrayRef<Type> types,
+                SmallVector<OpAsmParser::Argument>& args) {
+  for (auto argAndType : llvm::zip(operands, types)) {
+    auto& arg = args.emplace_back();
+    arg.ssaName = std::get<0>(argAndType);
+    arg.type = std::get<1>(argAndType);
+  }
+}
 
 //===----------------------------------------------------------------------===//
 // Utilities for the canonicalize patterns
@@ -622,6 +631,21 @@ LogicalResult ReduceScatterOp::verify() {
       /*operand_types=*/{operand().getType()},
       /*result_types=*/{getType()},
       /*scatter_dimension=*/scatter_dimension());
+}
+
+//===----------------------------------------------------------------------===//
+// AddOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult AddOp::inferReturnTypeComponents(
+    MLIRContext*, Optional<Location> location, ValueShapeRange operands,
+    DictionaryAttr attributes, RegionRange regions,
+    SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
+  auto lhs_type = (*operands.begin()).getType().cast<ShapedType>();
+  // TODO(b/231358795): Review the use of InferTypeOpInterface for ops that
+  // support quantization or sparsity.
+  inferredReturnShapes.push_back(lhs_type);
+  return success();
 }
 
 //===----------------------------------------------------------------------===//
@@ -3106,6 +3130,22 @@ LogicalResult DynamicSliceOp::verify() {
   return success();
 }
 
+LogicalResult DynamicSliceOp::inferReturnTypeComponents(
+    MLIRContext*, Optional<Location> location, ValueShapeRange operands,
+    DictionaryAttr attributes, RegionRange regions,
+    SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
+  DynamicSliceOp::Adaptor adaptor(operands, attributes, regions);
+  Value operand = adaptor.operand();
+  auto operand_type = operand.getType().dyn_cast<RankedTensorType>();
+  if (!operand_type) return failure();
+
+  auto slice_sizes = adaptor.slice_sizes();
+  Type element_ty = operand_type.getElementType();
+  inferredReturnShapes.emplace_back(slice_sizes.getValues<int64_t>(),
+                                    element_ty);
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // RealDynamicSliceOp
 //===----------------------------------------------------------------------===//
@@ -3604,7 +3644,7 @@ LogicalResult ReduceWindowOp::verify() {
                                   operand_tensor_types.end());
 
   // P2.
-  if (failed(verifyCompatibleShapes(inputs().getTypes())))
+  if (failed(verifyCompatibleShapes(operands().getTypes())))
     return emitOpError() << "requires same shape for all inputs";
 
   // P3.
@@ -3702,7 +3742,7 @@ Operation* ReduceWindowOp::getReductionOp(int result_index) {
   if (!arg0 || !arg1) return nullptr;
   int arg0_num = arg0.getArgNumber();
   int arg1_num = arg1.getArgNumber();
-  int other_arg_index = result_index + inputs().size();
+  size_t other_arg_index = result_index + operands().size();
   if (arg0_num == result_index && arg1_num == other_arg_index)
     return compute_op;
   if (arg0_num == other_arg_index && arg1_num == result_index &&
@@ -3777,24 +3817,24 @@ static TensorType GetReduceResultType(Type operand_ty,
 }
 
 void ReduceOp::build(OpBuilder& builder, OperationState& state,
-                     ValueRange inputs, ValueRange init_values,
+                     ValueRange operands, ValueRange init_values,
                      DenseIntElementsAttr dimensions) {
   SmallVector<Type, 1> result_ty;
-  result_ty.reserve(inputs.size());
+  result_ty.reserve(operands.size());
 
-  for (Value input : inputs) {
+  for (Value operand : operands) {
     result_ty.push_back(
-        GetReduceResultType(input.getType(), dimensions, &builder));
+        GetReduceResultType(operand.getType(), dimensions, &builder));
   }
-  build(builder, state, result_ty, inputs, init_values, dimensions);
+  build(builder, state, result_ty, operands, init_values, dimensions);
 }
 
 LogicalResult ReduceOp::fold(ArrayRef<Attribute> operands,
                              SmallVectorImpl<OpFoldResult>& results) {
   // No dimensions to reduce.
   if (dimensions().getNumElements() == 0) {
-    for (Value input : this->inputs()) {
-      results.push_back(input);
+    for (Value operand : this->operands()) {
+      results.push_back(operand);
     }
     return success();
   }
@@ -3816,6 +3856,17 @@ LogicalResult ReduceOp::fold(ArrayRef<Attribute> operands,
   }
 
   return failure();
+}
+
+bool HasSameOperandAndResultTypes(Operation& op) {
+  Type expected;
+  if (op.getNumResults() != 0) expected = op.getResult(0).getType();
+  if (op.getNumOperands() != 0) expected = op.getOperand(0).getType();
+  if (!expected) return false;
+
+  auto type_match = [&](Type actual) { return actual == expected; };
+  return llvm::all_of(op.getOperandTypes(), type_match) &&
+         llvm::all_of(op.getResultTypes(), type_match);
 }
 
 // Checks the following eligibility criteria for compact printing of
@@ -3845,17 +3896,19 @@ static bool isEligibleForCompactPrint(ReduceOp op) {
 
   if (innerOp.getNumOperands() != 2 ||
       !innerOp.hasTrait<mlir::OpTrait::OneResult>() ||
-      !innerOp.hasTrait<mlir::OpTrait::SameOperandsAndResultType>() ||
+      !HasSameOperandAndResultTypes(innerOp) ||
       !innerOp.hasTrait<mlir::OpTrait::IsCommutative>() ||
       !innerOp.hasTrait<mlir::OpTrait::ZeroRegion>())
     return false;
 
   // Check E3.
-  if (op.inputs().empty()) return false;
+  if (op.operands().empty()) return false;
 
-  auto elemType = op.inputs()[0].getType().cast<TensorType>().getElementType();
-  auto expectedInnerOpType = RankedTensorType::get(/*shape=*/{}, elemType);
-  if (innerOp.getOperands()[0].getType() != expectedInnerOpType) return false;
+  auto elem_type =
+      op.operands()[0].getType().cast<TensorType>().getElementType();
+  auto expected_inner_op_type = RankedTensorType::get(/*shape=*/{}, elem_type);
+  if (innerOp.getOperands()[0].getType() != expected_inner_op_type)
+    return false;
 
   // Check E4.
   if (!llvm::equal(block.getArguments(), innerOp.getOperands())) return false;
@@ -3991,8 +4044,9 @@ ParseResult ReduceOp::parse(OpAsmParser& parser, OperationState& result) {
       OpAsmParser::UnresolvedOperand operand;
       Type type;
       Optional<Location> loc;
-      if (parser.parseRegionArgument(operand) || parser.parseColon() ||
-          parser.parseType(type) || parser.parseOptionalLocationSpecifier(loc))
+      if (parser.parseOperand(operand, /*allowResultNumber=*/false) ||
+          parser.parseColon() || parser.parseType(type) ||
+          parser.parseOptionalLocationSpecifier(loc))
         return failure();
       operands.push_back(operand);
       types.push_back(type);
@@ -4012,13 +4066,15 @@ ParseResult ReduceOp::parse(OpAsmParser& parser, OperationState& result) {
     reducerTypes.append(reducerInitTypes);
     reducerLocs.append(reducerInitLocs);
     result.addTypes(reduceOpFntype.getResults());
+    SmallVector<OpAsmParser::Argument> reducerArgs;
+    createArgs(reducerOperands, reducerTypes, reducerArgs);
 
     // Derive the SSA-values for reduce-op's operands and parse the region, and
     // the optional trailing location.
     Optional<Location> trailingLoc;
     if (parser.resolveOperands(operands, reduceOpFntype.getInputs(), loc,
                                result.operands) ||
-        parser.parseRegion(*result.addRegion(), reducerOperands, reducerTypes))
+        parser.parseRegion(*result.addRegion(), reducerArgs))
       return failure();
     // Set the individual block arguments.
     for (auto argAndLoc :
@@ -4039,13 +4095,11 @@ ParseResult ReduceOp::parse(OpAsmParser& parser, OperationState& result) {
   if (!innerOpDialect || !innerOpDialect->getNamespace().equals("mhlo") ||
       !innerOpNameInfo->hasTrait<mlir::OpTrait::NOperands<2>::Impl>() ||
       !innerOpNameInfo->hasTrait<mlir::OpTrait::OneResult>() ||
-      !innerOpNameInfo->hasTrait<mlir::OpTrait::SameOperandsAndResultType>() ||
       !innerOpNameInfo->hasTrait<mlir::OpTrait::IsCommutative>() ||
       !innerOpNameInfo->hasTrait<mlir::OpTrait::ZeroRegion>()) {
     parser.emitError(loc,
                      "expected the inner-op to be a commutative binary-op from "
-                     "mhlo dialect, zero region, producing single result such "
-                     "that the operands and result all have the same type");
+                     "mhlo dialect, zero region, producing single result");
     return failure();
   }
 
@@ -4293,7 +4347,7 @@ LogicalResult ReduceOp::reifyReturnTypeShapes(
     OpBuilder& builder, ValueRange operands,
     SmallVectorImpl<Value>& reifiedReturnShapes) {
   ReduceOp::Adaptor adaptor(operands);
-  auto inputs = adaptor.inputs();
+  auto inputs = adaptor.operands();
 
   auto operand_type = inputs[0].getType().dyn_cast<RankedTensorType>();
   // Not support unranked type a.t.m.
@@ -6892,12 +6946,14 @@ ParseResult WhileOp::parse(OpAsmParser& parser, OperationState& result) {
       return failure();
   }
 
+  SmallVector<OpAsmParser::Argument> args;
+  createArgs(iterArgs, result.types, args);
   if (parser.resolveOperands(operands, result.types, loc, result.operands) ||
       parser.parseOptionalAttrDictWithKeyword(result.attributes) ||
       parser.parseKeyword("cond") ||
-      parser.parseRegion(*result.addRegion(), iterArgs, result.types) ||
+      parser.parseRegion(*result.addRegion(), args) ||
       parser.parseKeyword("do") ||
-      parser.parseRegion(*result.addRegion(), iterArgs, result.types))
+      parser.parseRegion(*result.addRegion(), args))
     return failure();
   return success();
 }

@@ -268,12 +268,7 @@ cc_library(
     name = "tpu_client",
     srcs = ["tpu_client.cc"],
     hdrs = ["tpu_client.h"],
-    visibility = [
-        "//learning/brain/research/jax:__subpackages__",
-        "//learning/deepmind/tensorflow/tensorfn:__subpackages__",
-        "//learning/pathways:__subpackages__",
-        "//tensorflow/compiler/xla:friends",
-    ],
+    visibility = ["//tensorflow/compiler/xla:friends"],
     deps = [
         ":local_device_state",
         ":pjrt_stream_executor_client",
@@ -288,6 +283,7 @@ cc_library(
         "//tensorflow/compiler/xla/service:shaped_buffer",
         "//tensorflow/compiler/xla/service:tpu_computation_placer",
         "//tensorflow/core:lib",
+        "//tensorflow/core/tpu:tpu_initializer_helper",
         "//tensorflow/core/tpu:tpu_on_demand_compiler",
         "//tensorflow/stream_executor:device_memory",
         "//tensorflow/stream_executor:stream",
