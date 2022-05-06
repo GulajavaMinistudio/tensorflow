@@ -1589,7 +1589,10 @@ class DotOpConversion : public OpConversionPattern<mhlo::DotOp> {
     if (GetDotOperationType(op) != op_type) return failure();
 
     Location loc = op.getLoc();
-    auto output_type = op.getType().cast<ShapedType>();
+    // Convert unsigned to signed. This works because signed and unsigned
+    // integer matmul is the same operation in two's complement.
+    auto output_type =
+        typeConverter->convertType(op.getType()).cast<ShapedType>();
     auto output_el_type = output_type.getElementType();
     auto zero_attr = rewriter.getZeroAttr(output_el_type);
     Value zero = rewriter.create<arith::ConstantOp>(loc, zero_attr);
@@ -1599,23 +1602,11 @@ class DotOpConversion : public OpConversionPattern<mhlo::DotOp> {
     Value zero_tensor =
         rewriter.create<linalg::FillOp>(loc, zero, init_tensor).getResult(0);
     rewriter.replaceOpWithNewOp<LinalgOp>(
-        op, TypeRange{op.getType()}, ValueRange{adaptor.lhs(), adaptor.rhs()},
+        op, TypeRange{output_type}, ValueRange{adaptor.lhs(), adaptor.rhs()},
         ValueRange{zero_tensor}, PruneAttributeList(op));
     return success();
   }
 };
-
-SmallVector<Value, 8> GetDotGeneralOpInitTensorDynSizes(
-    OpBuilder& b, Location loc, Value lhs, Value rhs, ShapedType result_type) {
-  SmallVector<Value, 8> dyn_shape;
-  if (result_type.isDynamicDim(0))
-    dyn_shape.push_back(b.create<tensor::DimOp>(loc, lhs, 0));
-  if (result_type.isDynamicDim(1))
-    dyn_shape.push_back(b.create<tensor::DimOp>(loc, lhs, 1));
-  if (result_type.isDynamicDim(2))
-    dyn_shape.push_back(b.create<tensor::DimOp>(loc, rhs, 2));
-  return dyn_shape;
-}
 
 class DotGeneralBatchMatMulOpConversion
     : public OpConversionPattern<mhlo::DotGeneralOp> {
@@ -1651,17 +1642,19 @@ class DotGeneralBatchMatMulOpConversion
     }
 
     Location loc = op.getLoc();
-    auto output_type = op.getType().cast<ShapedType>();
+    // Convert unsigned to signed. This works because signed and unsigned
+    // integer matmul is the same operation in two's complement.
+    auto output_type =
+        typeConverter->convertType(op.getType()).cast<ShapedType>();
     auto output_el_type = output_type.getElementType();
-    SmallVector<Value, 8> dyn_shape = GetDotGeneralOpInitTensorDynSizes(
-        rewriter, loc, adaptor.lhs(), adaptor.rhs(), output_type);
     auto zero_attr = rewriter.getZeroAttr(output_el_type);
     Value zero = rewriter.create<arith::ConstantOp>(loc, zero_attr);
-    auto init_tensor = GetInitTensor(rewriter, loc, output_type, dyn_shape);
+    auto init_tensor =
+        GetInitTensorFor(rewriter, loc, output_type, op, adaptor.getOperands());
     Value zero_tensor =
         rewriter.create<linalg::FillOp>(loc, zero, init_tensor).getResult(0);
     Operation* linalg_op = rewriter.create<linalg::BatchMatmulOp>(
-        loc, /*resultTensorTypes=*/TypeRange{op.getType()},
+        loc, /*resultTensorTypes=*/TypeRange{output_type},
         /*inputs=*/ValueRange{adaptor.lhs(), adaptor.rhs()},
         /*outputBuffers=*/ValueRange{zero_tensor}, PruneAttributeList(op));
 
@@ -2915,7 +2908,10 @@ class DotGeneralOpConversion : public OpConversionPattern<mhlo::DotGeneralOp> {
     assert(lhs_contracting_dims.size() == rhs_contracting_dims.size() &&
            "number of contracting dims must be equal");
     auto num_contracting = lhs_contracting_dims.size();
-    auto output_type = op.getType().cast<ShapedType>();
+    // Convert unsigned to signed. This works because signed and unsigned
+    // integer matmul is the same operation in two's complement.
+    auto output_type =
+        typeConverter->convertType(op.getType()).cast<ShapedType>();
     auto target_rank = output_type.getRank();
     auto total_loop_count = num_contracting + target_rank;
 
@@ -2926,11 +2922,10 @@ class DotGeneralOpConversion : public OpConversionPattern<mhlo::DotGeneralOp> {
 
     Location loc = op.getLoc();
     auto output_el_type = output_type.getElementType();
-    SmallVector<Value, 8> dyn_shape = GetDotGeneralOpInitTensorDynSizes(
-        rewriter, loc, adaptor.lhs(), adaptor.rhs(), output_type);
     auto zero_attr = rewriter.getZeroAttr(output_el_type);
     Value zero = rewriter.create<arith::ConstantOp>(loc, zero_attr);
-    auto init_tensor = GetInitTensor(rewriter, loc, output_type, dyn_shape);
+    auto init_tensor =
+        GetInitTensorFor(rewriter, loc, output_type, op, adaptor.getOperands());
     Value zero_tensor =
         rewriter.create<linalg::FillOp>(loc, zero, init_tensor).getResult(0);
     SmallVector<AffineMap, 3> indexing_maps;
@@ -2996,7 +2991,7 @@ class DotGeneralOpConversion : public OpConversionPattern<mhlo::DotGeneralOp> {
     }
 
     Operation* linalg_op = rewriter.create<linalg::GenericOp>(
-        loc, /*resultTensorTypes=*/TypeRange{op.getType()},
+        loc, /*resultTensorTypes=*/TypeRange{output_type},
         /*inputs=*/ValueRange{adaptor.lhs(), adaptor.rhs()},
         /*outputBuffers=*/ValueRange{zero_tensor}, indexing_maps,
         GetParallelAndReductionIterators(

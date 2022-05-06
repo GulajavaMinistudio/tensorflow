@@ -131,12 +131,12 @@ class HLO_UnaryElementwiseOp<string mnemonic, list<Trait> traits,
                                                   operands.front(),
                                                   &reifiedReturnShapes);
     }
-    // Replace the strict default implementation with one that allows
-    // for different sparsity encodings during the is-same test.
+    // Relax the strict default implementation with one that allows
+    // for MHLO-specific differences.
     static bool isCompatibleReturnTypes(TypeRange l, TypeRange r) {
       if (l.size() != r.size()) return false;
       for (auto it : llvm::zip(l, r))
-        if (!isSameTypesWithoutSparseEncoding(std::get<0>(it), std::get<1>(it)))
+        if (!isCompatibleForMhloTypeInference(std::get<0>(it), std::get<1>(it)))
           return false;
       return true;
     }
@@ -454,14 +454,13 @@ class HLO_BinaryElementwiseOpNoAssembly<string mnemonic, list<Trait> traits> :
                                                   operands.front(),
                                                   &reifiedReturnShapes);
     }
-    // Replace the strict default implementation with one that allows
-    // for different sparsity encodings during the is-same test.
+    // Relax the strict default implementation with one that allows
+    // for MHLO-specific differences.
     static bool isCompatibleReturnTypes(TypeRange l, TypeRange r) {
-      // TODO(burmako): Re-enable this check by accounting for dynamism rules.
-      // if (l.size() != r.size()) return false;
-      // for (auto it : llvm::zip(l, r))
-      //   if (!isSameTypesWithoutSparseEncoding(std::get<0>(it), std::get<1>(it)))
-      //    return false;
+      if (l.size() != r.size()) return false;
+      for (auto it : llvm::zip(l, r))
+        if (!isCompatibleForMhloTypeInference(std::get<0>(it), std::get<1>(it)))
+         return false;
       return true;
     }
   }];
@@ -483,7 +482,8 @@ class HLO_BinaryElementwiseOp<string mnemonic, list<Trait> traits> :
 }
 
 def HLO_AddOp : HLO_BinaryElementwiseOp<"add",
-      [Commutative, NoSideEffect, InferTensorType]> {
+      [Commutative, NoSideEffect,
+       HLO_CompatibleOperandsAndResultType, InferTensorType]> {
   let summary = "Addition operator";
   let description = [{
     Returns `lhs + rhs` element-wise.
@@ -1672,7 +1672,7 @@ def HLO_DotOp: HLO_Op<"dot",
   }];
 }
 
-def HLO_DotGeneralOp: HLO_Op<"dot_general", [NoSideEffect]> {
+def HLO_DotGeneralOp: HLO_ShapedInterfaceOp<"dot_general", [NoSideEffect]> {
   let summary = "General Dot operator";
   let description = [{
     Performs general dot products between vectors, vector/matrix and
@@ -2024,7 +2024,7 @@ def HLO_ReverseOp: HLO_Op<"reverse",
 }
 
 def HLO_PadOp: HLO_Op<"pad",
-      [NoSideEffect, SameOperandsAndResultElementType]> {
+      [NoSideEffect, SameOperandsAndResultElementType, InferTensorType]> {
   let summary = "Pad operator";
   let description = [{
     Pads the edges of `operand` with the `padding_value` and according to
@@ -2050,7 +2050,6 @@ def HLO_PadOp: HLO_Op<"pad",
   let hasCustomHLOConverter = 1;
 
   let hasFolder = 1;
-  let hasVerifier = 1;
 }
 
 def HLO_TraceOp: HLO_Op<"trace", []> {

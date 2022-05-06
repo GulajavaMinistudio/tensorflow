@@ -914,6 +914,43 @@ LogicalResult DotGeneralOp::verify() {
   return success();
 }
 
+LogicalResult DotGeneralOp::reifyReturnTypeShapes(
+    OpBuilder& builder, ValueRange operands,
+    SmallVectorImpl<Value>& reifiedReturnShapes) {
+  auto lhs_type = lhs().getType().dyn_cast<ShapedType>();
+  auto rhs_type = rhs().getType().dyn_cast<ShapedType>();
+  if (!lhs_type || !rhs_type) {
+    return failure();
+  }
+
+  Adaptor adaptor(operands);
+  auto dim_numbers = dot_dimension_numbers();
+  SmallVector<Value> dimensions;
+  for (const int64_t lhs_dim : dim_numbers.getLhsBatchingDimensions()) {
+    dimensions.push_back(
+        builder.create<tensor::DimOp>(getLoc(), adaptor.lhs(), lhs_dim));
+  }
+
+  for (int64_t i = 0; i < lhs_type.getRank(); i++) {
+    if (!llvm::is_contained(dim_numbers.getLhsContractingDimensions(), i) &&
+        !llvm::is_contained(dim_numbers.getLhsBatchingDimensions(), i)) {
+      dimensions.push_back(
+          builder.create<tensor::DimOp>(getLoc(), adaptor.lhs(), i));
+    }
+  }
+  for (int64_t i = 0; i < rhs_type.getRank(); i++) {
+    if (!llvm::is_contained(dim_numbers.getRhsContractingDimensions(), i) &&
+        !llvm::is_contained(dim_numbers.getRhsBatchingDimensions(), i)) {
+      dimensions.push_back(
+          builder.create<tensor::DimOp>(getLoc(), adaptor.rhs(), i));
+    }
+  }
+
+  reifiedReturnShapes.push_back(
+      builder.create<tensor::FromElementsOp>(getLoc(), dimensions));
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // FftOp
 //===----------------------------------------------------------------------===//
@@ -2778,8 +2815,6 @@ static Attribute foldConcatenateHelper(ConcatenateOp* op,
                                        ArrayRef<Attribute> operands) {
   auto axis = op->dimension();
   auto type = op->getType().cast<ShapedType>();
-
-  SmallVector<T, 6> values;
   auto shape = type.getShape();
 
   size_t top_size = 1;
@@ -2787,6 +2822,12 @@ static Attribute foldConcatenateHelper(ConcatenateOp* op,
     top_size = top_size * shape[i];
   }
 
+  // TODO(b/210478841): Define a constant folding policy that generalizes this.
+  if (type.getNumElements() * op->getNumOperands() > UINT32_MAX) {
+    return {};
+  }
+
+  SmallVector<T, 6> values;
   for (size_t i = 0; i < top_size; i++) {
     for (auto operand : operands) {
       DenseElementsAttr attr = operand.cast<DenseElementsAttr>();
@@ -2829,7 +2870,6 @@ OpFoldResult ConcatenateOp::fold(ArrayRef<Attribute> operands) {
     return attr;
   }
 
-  llvm::SmallVector<Value, 6> new_operands;
   for (auto operand : getOperands()) {
     auto ty = operand.getType().cast<ShapedType>();
     if (ty.getDimSize(axis) != 0) {
@@ -4615,61 +4655,73 @@ OpFoldResult SetDimensionSizeOp::fold(ArrayRef<Attribute> operands) {
 // PadOp
 //===----------------------------------------------------------------------===//
 
-LogicalResult PadOp::verify() {
-  auto input_type = operand().getType().cast<RankedTensorType>();
-  auto pad_type = padding_value().getType().cast<RankedTensorType>();
+LogicalResult PadOp::inferReturnTypeComponents(
+    MLIRContext*, Optional<Location> location, ValueShapeRange operands,
+    DictionaryAttr attributes, RegionRange regions,
+    SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
+  PadOp::Adaptor adaptor(operands, attributes, regions);
+  auto input_type = adaptor.operand().getType().cast<RankedTensorType>();
+  auto pad_type = adaptor.padding_value().getType().cast<RankedTensorType>();
 
   if (pad_type.getRank() != 0) {
-    return emitOpError(
-        llvm::formatv("padding value type should be a rank-0 "
-                      "tensor, is rank {0}",
-                      pad_type.getRank()));
+    return emitOptionalError(
+        location, llvm::formatv("padding value type should be a rank-0 "
+                                "tensor, is rank {0}",
+                                pad_type.getRank()));
   }
 
-  const auto& padding_low = edge_padding_low();
+  const auto& padding_low = adaptor.edge_padding_low();
   if (padding_low.getType().getNumElements() != input_type.getRank()) {
-    return emitOpError(llvm::formatv(
-        "edge_padding_low length ({0}) must match operand rank ({1})",
-        padding_low.getType().getNumElements(), input_type.getRank()));
+    return emitOptionalError(
+        location,
+        llvm::formatv(
+            "edge_padding_low length ({0}) must match operand rank ({1})",
+            padding_low.getType().getNumElements(), input_type.getRank()));
   }
 
-  const auto& padding_high = edge_padding_high();
+  const auto& padding_high = adaptor.edge_padding_high();
   if (padding_high.getType().getNumElements() != input_type.getRank()) {
-    return emitOpError(llvm::formatv(
-        "edge_padding_high length ({0}) must match operand rank ({1})",
-        padding_high.getType().getNumElements(), input_type.getRank()));
+    return emitOptionalError(
+        location,
+        llvm::formatv(
+            "edge_padding_high length ({0}) must match operand rank ({1})",
+            padding_high.getType().getNumElements(), input_type.getRank()));
   }
 
-  const auto& padding_interior = interior_padding();
+  const auto& padding_interior = adaptor.interior_padding();
   if (padding_interior.getType().getNumElements() != input_type.getRank()) {
-    return emitOpError(llvm::formatv(
-        "interior_padding length ({0}) must match operand rank ({1})",
-        padding_interior.getType().getNumElements(), input_type.getRank()));
+    return emitOptionalError(
+        location,
+        llvm::formatv(
+            "interior_padding length ({0}) must match operand rank ({1})",
+            padding_interior.getType().getNumElements(), input_type.getRank()));
   }
 
   auto input_shape = input_type.getShape();
-  auto output_shape = getResult().getType().cast<RankedTensorType>().getShape();
-  if (input_shape.size() != output_shape.size()) {
-    return emitOpError(
-        llvm::formatv("operand rank ({0}) and result rank({0}) should match",
-                      input_shape.size(), output_shape.size()));
-  }
-
+  SmallVector<int64_t> result_shape;
   for (int i = 0, e = input_shape.size(); i < e; i++) {
     int64_t padding_low_val = padding_low.getValues<APInt>()[i].getSExtValue();
     int64_t padding_high_val =
         padding_high.getValues<APInt>()[i].getSExtValue();
     int64_t padding_interior_val =
         padding_interior.getValues<APInt>()[i].getSExtValue();
+    if (padding_interior_val < 0) {
+      return emitOptionalError(
+          location, llvm::formatv("Interior padding cannot be negative: {0}",
+                                  padding_interior_val));
+    }
     int64_t expected_output =
         input_shape[i] + padding_low_val + padding_high_val +
         std::max<int64_t>(input_shape[i] - 1, 0LL) * padding_interior_val;
-    if (expected_output != output_shape[i]) {
-      return emitOpError(llvm::formatv(
-          "expected output shape's dimension #{0} to be {1} but found {2}", i,
-          expected_output, output_shape[i]));
+    if (expected_output < 0) {
+      return emitOptionalError(
+          location,
+          llvm::formatv("Padding result in negative size for dimension {0}",
+                        i));
     }
+    result_shape.push_back(expected_output);
   }
+  inferredReturnShapes.emplace_back(result_shape, input_type.getElementType());
 
   return success();
 }
@@ -7810,20 +7862,57 @@ static LogicalResult VerifyArgResultAliasAttr(StringAttr attr_name,
 }
 
 //===----------------------------------------------------------------------===//
-// Type utilities for ignoring sparsity encoding
+// Type utilities
 //===----------------------------------------------------------------------===//
 
-bool isSameTypesWithoutSparseEncoding(Type tp1, Type tp2) {
-  // Only ranked types can have sparse encoding, so look "under the hood"
-  // when comparing two ranked tensor types.
-  if (auto rtp1 = tp1.dyn_cast<RankedTensorType>()) {
-    if (auto rtp2 = tp2.dyn_cast<RankedTensorType>())
-      return rtp1.getShape() == rtp2.getShape() &&
-             rtp1.getElementType() == rtp2.getElementType();
-    return false;
+Type getExpressedTypeOrSelf(Type type) {
+  auto quant_type = type.dyn_cast<quant::QuantizedType>();
+  return quant_type ? quant_type.getExpressedType() : type;
+}
+
+bool isCompatibleForMhloTypeInference(Type tp1, Type tp2) {
+  // Dynamism: We don't require shapes to be the same, we only require them
+  // to be compatible, which means that:
+  //   1) At least one of the shapes is unranked.
+  //   2) Or both shapes have the same rank and their dimensions are compatible,
+  //     i.e. for each pair of corresponding dimensions:
+  //       2.1) At least one of the dimensions is dynamic,
+  //       2.2) Or both dimensions are equal.
+  // These relaxed rules simplify the implementation of type inference, allowing
+  // ops with partially inferred types to pass verification.
+  auto stp1 = tp1.dyn_cast<ShapedType>();
+  auto stp2 = tp2.dyn_cast<ShapedType>();
+  if (stp1 && stp2) {
+    return succeeded(verifyCompatibleShape(stp1, stp2)) &&
+           isCompatibleForMhloTypeInference(stp1.getElementType(),
+                                            stp2.getElementType());
   }
-  // Default implementation.
-  return tp1 == tp2;
+
+  // Quantization: In the most general case, we allow any combination of
+  // quantized/non-quantized across any combination of operands/results,
+  // and some differences in quantization parameters across operands/results.
+  // Individual ops may introduce additional constraints.
+  auto qtp1 = tp1.dyn_cast<quant::QuantizedType>();
+  auto qtp2 = tp2.dyn_cast<quant::QuantizedType>();
+  if (qtp1 && qtp2) {
+    if (qtp1.getStorageType() != qtp2.getStorageType() ||
+        qtp1.getStorageTypeMin() != qtp2.getStorageTypeMin() ||
+        qtp1.getStorageTypeMax() != qtp2.getStorageTypeMax())
+      return false;
+  }
+  auto etp1 = getExpressedTypeOrSelf(tp1);
+  auto etp2 = getExpressedTypeOrSelf(tp2);
+
+  // Sparsity: In the most general case, we allow any combination of
+  // sparsity/denseness across any combination of operands/results, as well as
+  // differences in sparsity encodings for operands and results.
+  // Individual ops may introduce additional constraints.
+  // No additional code is needed to check this because of how sparsity is
+  // currently implemented.
+
+  // Default case: Unless dynamism, quantization and/or sparsity are involved,
+  // the types are required to be exactly equal.
+  return etp1 == etp2;
 }
 
 //===----------------------------------------------------------------------===//

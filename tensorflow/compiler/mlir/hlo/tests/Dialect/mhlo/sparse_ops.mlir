@@ -201,6 +201,67 @@ func.func @dot3(%arg0: tensor<4xf64, #SV>,
 }
 
 //
+// Reduce.
+//
+
+// CHECK-LABEL: func @sparse_reduce(
+//  CHECK-SAME: %[[A:.*]]: tensor<10xi64, #{{.*}}>) -> tensor<i64> {
+//       CHECK: %[[C:.*]] = mhlo.constant dense<0> : tensor<i64>
+//       CHECK: %[[T:.*]] = mhlo.reduce(%[[A]] init: %[[C]])  across dimensions = [0] : (tensor<10xi64, #{{.*}}>) -> tensor<i64>
+//       CHECK: return %[[T]] : tensor<i64>
+func.func @sparse_reduce(%arg0: tensor<10xi64, #SV>) -> tensor<i64> {
+  %0 = mhlo.constant dense<0> : tensor<i64>
+  %1 = mhlo.reduce(%arg0 init: %0) across dimensions = [0] : (tensor<10xi64, #SV>, tensor<i64>) -> tensor<i64>
+   reducer(%arg1: tensor<i64>, %arg2: tensor<i64>)  {
+    %2 = mhlo.add %arg1, %arg2 : tensor<i64>
+    "mhlo.return"(%2) : (tensor<i64>) -> ()
+  }
+  return %1 : tensor<i64>
+}
+
+//
+// Transpose.
+//
+
+// CHECK-LABEL: func @sparse_transpose(
+//  CHECK-SAME: %[[A:.*]]: tensor<100x100xf64, #{{.*}}>) -> tensor<100x100xf64, #{{.*}}> {
+//       CHECK: %[[T:.*]] = "mhlo.transpose"(%[[A]]) {{{.*}}} : (tensor<100x100xf64, #{{.*}}>) -> tensor<100x100xf64, #{{.*}}>
+//       CHECK: return %[[T]] : tensor<100x100xf64, #{{.*}}>
+func.func @sparse_transpose(%arg0: tensor<100x100xf64, #CSR>)
+                                -> tensor<100x100xf64, #DCSR> {
+  %0 = "mhlo.transpose"(%arg0) {permutation = dense<[1, 0]> : tensor<2xi64>}
+     : (tensor<100x100xf64, #CSR>) -> tensor<100x100xf64, #DCSR>
+  return %0 : tensor<100x100xf64, #DCSR>
+}
+
+//
+// Math.
+//
+
+// CHECK-LABEL: func @sparse_zero_preserving_math(
+//  CHECK-SAME: %[[A:.*]]: tensor<64xf64, #{{.*}}>)
+//       CHECK: %[[T0:.*]] = mhlo.abs %[[A]] : tensor<64xf64, #{{.*}}>
+//       CHECK: %[[T1:.*]] = mhlo.exponential_minus_one %[[T0]] : tensor<64xf64, #{{.*}}>
+//       CHECK: %[[T2:.*]] = mhlo.log_plus_one %[[T1]] : tensor<64xf64, #{{.*}}>
+//       CHECK: %[[T3:.*]] = mhlo.negate %[[T2]] : tensor<64xf64, #{{.*}}>
+//       CHECK: %[[T4:.*]] = mhlo.sign %[[T3]] : tensor<64xf64, #{{.*}}>
+//       CHECK: %[[T5:.*]] = mhlo.sine %[[T4]] : tensor<64xf64, #{{.*}}>
+//       CHECK: %[[T6:.*]] = mhlo.sqrt %[[T5]] : tensor<64xf64, #{{.*}}>
+//       CHECK: %[[T7:.*]] = mhlo.tanh %[[T6]] : tensor<64xf64, #{{.*}}>
+//       CHECK: return %[[T7]] : tensor<64xf64, #{{.*}}>
+func.func @sparse_zero_preserving_math(%arg0: tensor<64xf64, #SV>) -> tensor<64xf64, #SV> {
+  %0 = mhlo.abs(%arg0) : (tensor<64xf64, #SV>) -> tensor<64xf64, #SV>
+  %1 = mhlo.exponential_minus_one(%0) : (tensor<64xf64, #SV>) -> tensor<64xf64, #SV>
+  %2 = mhlo.log_plus_one(%1) : (tensor<64xf64, #SV>) -> tensor<64xf64, #SV>
+  %3 = mhlo.negate(%2) : (tensor<64xf64, #SV>) -> tensor<64xf64, #SV>
+  %4 = mhlo.sign(%3) : (tensor<64xf64, #SV>) -> tensor<64xf64, #SV>
+  %5 = mhlo.sine(%4) : (tensor<64xf64, #SV>) -> tensor<64xf64, #SV>
+  %6 = mhlo.sqrt(%5) : (tensor<64xf64, #SV>) -> tensor<64xf64, #SV>
+  %7 = mhlo.tanh(%6) : (tensor<64xf64, #SV>) -> tensor<64xf64, #SV>
+  return %7 : tensor<64xf64, #SV>
+}
+
+//
 // Combination of quantization and sparse.
 //
 
