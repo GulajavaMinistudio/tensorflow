@@ -10,7 +10,7 @@ package(
 )
 
 exports_files([
-    "include/mlir-hlo/Dialect/mhlo/IR/clo_ops.td",
+    "include/mlir-hlo/Dialect/mhlo/IR/chlo_ops.td",
     "include/mlir-hlo/Dialect/mhlo/IR/hlo_ops.td",
     "include/mlir-hlo/Dialect/lhlo/IR/lhlo_ops.td",
 ])
@@ -1330,6 +1330,24 @@ cc_library(
 )
 
 cc_library(
+    name = "convert_to_signless_pass",
+    srcs = ["lib/Dialect/mhlo/transforms/convert_to_signless_pass.cc"],
+    hdrs = [
+        "include/mlir-hlo/Dialect/mhlo/transforms/passes.h",
+    ],
+    deps = [
+        ":hlo",
+        ":mhlo_pass_details",
+        ":type_conversion",
+        "@llvm-project//llvm:Support",
+        "@llvm-project//mlir:FuncDialect",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Support",
+        "@llvm-project//mlir:Transforms",
+    ],
+)
+
+cc_library(
     name = "legalize_trigonometric_to_approximation",
     srcs = ["lib/Dialect/mhlo/transforms/legalize_trigonometric_to_approximation.cc"],
     hdrs = [
@@ -1556,6 +1574,7 @@ cc_library(
         "lib/Dialect/mhlo/transforms/chlo_legalize_to_hlo_pass.cc",
         "lib/Dialect/mhlo/transforms/materialize_broadcasts_pass.cc",
         "lib/Dialect/mhlo/transforms/optimize_mhlo_pass.cc",
+        "lib/Dialect/mhlo/transforms/restrict_max_rank.cc",
         "lib/Dialect/mhlo/transforms/test_infer_shaped_type_pass.cc",
         "lib/Dialect/mhlo/transforms/unfuse_batch_norm_pass.cc",
     ],
@@ -1570,6 +1589,7 @@ cc_library(
         ":transforms_pass_details",
         ":unfuse_batch_norm",  # build-cleaner: keep
         ":userange_analysis",
+        "@llvm-project//llvm:Support",
         "@llvm-project//mlir:Analysis",
         "@llvm-project//mlir:ArithmeticDialect",
         "@llvm-project//mlir:BufferizationTransforms",
@@ -1582,6 +1602,7 @@ cc_library(
         "@llvm-project//mlir:Pass",
         "@llvm-project//mlir:SCFDialect",
         "@llvm-project//mlir:Shape",
+        "@llvm-project//mlir:Support",
         "@llvm-project//mlir:TensorDialect",
         "@llvm-project//mlir:Transforms",
     ],
@@ -1608,6 +1629,7 @@ cc_library(
         ":chlo_legalize_to_hlo",
         ":collapse_elementwise_map",
         ":constraint_fusion_pass",
+        ":convert_to_signless_pass",
         ":copy_removal",
         ":expand_hlo_tuples",
         ":gml_st_passes_inc_gen",

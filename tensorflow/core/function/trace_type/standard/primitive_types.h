@@ -19,10 +19,49 @@ limitations under the License.
 #include <string>
 #include <vector>
 
+#include "absl/types/optional.h"
 #include "tensorflow/core/function/trace_type/standard/trace_type.h"
 
 namespace tensorflow {
 namespace trace_type {
+
+// Represents cases where the value is not defined.
+class None : public TraceType {
+ public:
+  explicit None();
+  std::unique_ptr<TraceType> clone() const override;
+
+  bool is_subtype_of(const TraceType& other) const override;
+  std::unique_ptr<TraceType> most_specific_common_supertype(
+      const std::vector<const TraceType*>& others) const override;
+
+  std::string to_string() const override;
+  std::size_t hash() const override;
+
+  bool operator==(const TraceType& other) const override;
+};
+
+// Represents type hierarchies that have a generic top type.
+class Any : public TraceType {
+ public:
+  // Passing in absl::nullopt instantiates the top type.
+  explicit Any(absl::optional<std::unique_ptr<TraceType>> base);
+  std::unique_ptr<TraceType> clone() const override;
+
+  absl::optional<const TraceType*> base() const;
+
+  bool is_subtype_of(const TraceType& other) const override;
+  std::unique_ptr<TraceType> most_specific_common_supertype(
+      const std::vector<const TraceType*>& others) const override;
+
+  std::string to_string() const override;
+  std::size_t hash() const override;
+
+  bool operator==(const TraceType& other) const override;
+
+ private:
+  absl::optional<std::unique_ptr<TraceType>> base_;
+};
 
 // TODO(b/231340870): Add support for other types such as tf.dtype.
 template <typename T>
@@ -76,6 +115,28 @@ template <>
 inline std::string Literal<std::string>::to_string() const {
   return "String<" + value_ + ">";
 }
+
+// TODO(b/232114163): Reconsider flexibility of structural subtyping.
+// Represents a fixed collection of types.
+class Product : public TraceType {
+ public:
+  explicit Product(std::vector<std::unique_ptr<TraceType>> elements);
+  std::unique_ptr<TraceType> clone() const override;
+
+  const std::vector<const TraceType*> elements() const;
+
+  bool is_subtype_of(const TraceType& other) const override;
+  std::unique_ptr<TraceType> most_specific_common_supertype(
+      const std::vector<const TraceType*>& others) const override;
+
+  std::string to_string() const override;
+  std::size_t hash() const override;
+
+  bool operator==(const TraceType& other) const override;
+
+ private:
+  std::vector<std::unique_ptr<TraceType>> elements_;
+};
 
 }  // namespace trace_type
 }  // namespace tensorflow

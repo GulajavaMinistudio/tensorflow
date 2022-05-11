@@ -16,7 +16,6 @@ limitations under the License.
 #include "tensorflow/core/function/trace_type/standard/primitive_types.h"
 
 #include <memory>
-#include <optional>
 #include <string>
 #include <utility>
 
@@ -89,6 +88,119 @@ TEST(PrimitiveTypesTest, LiteralStringType) {
       string_1.most_specific_common_supertype({&string_1});
   EXPECT_EQ(*result, string_1);
   EXPECT_EQ(string_1.most_specific_common_supertype({&string_2}), nullptr);
+}
+
+TEST(PrimitiveTypesTest, NoneType) {
+  None none_1 = None();
+  std::unique_ptr<TraceType> none_1_copy = none_1.clone();
+  Literal<std::string> string = Literal<std::string>("b");
+
+  EXPECT_EQ(none_1.to_string(), "None<>");
+  EXPECT_EQ(none_1_copy->to_string(), "None<>");
+
+  EXPECT_EQ(none_1, *none_1_copy);
+  EXPECT_EQ(none_1.hash(), none_1_copy->hash());
+  EXPECT_NE(none_1, string);
+
+  EXPECT_TRUE(none_1.is_subtype_of(*none_1_copy));
+  EXPECT_FALSE(none_1.is_subtype_of(string));
+
+  std::unique_ptr<TraceType> result =
+      none_1.most_specific_common_supertype({&none_1});
+  EXPECT_EQ(*result, none_1);
+  EXPECT_EQ(none_1.most_specific_common_supertype({&string}), nullptr);
+}
+
+TEST(PrimitiveTypesTest, Any) {
+  Any any_1 = Any(std::make_unique<Literal<std::string>>("a"));
+  std::unique_ptr<TraceType> any_1_copy = any_1.clone();
+  Any any_2 = Any(absl::nullopt);
+
+  EXPECT_EQ(any_1.to_string(), "Any<String<a>>");
+  EXPECT_EQ(any_1_copy->to_string(), "Any<String<a>>");
+  EXPECT_EQ(any_2.to_string(), "Any<Any>");
+
+  EXPECT_EQ(any_1, *any_1_copy);
+  EXPECT_EQ(any_1.hash(), any_1_copy->hash());
+  EXPECT_NE(any_1, any_2);
+
+  EXPECT_TRUE(any_1.is_subtype_of(*any_1_copy));
+  EXPECT_TRUE(any_1.is_subtype_of(any_2));
+  EXPECT_FALSE(any_2.is_subtype_of(any_1));
+
+  std::unique_ptr<TraceType> result_1 =
+      any_1.most_specific_common_supertype({&any_1});
+  EXPECT_EQ(*result_1, any_1);
+  EXPECT_EQ(any_1.most_specific_common_supertype({any_1.base().value()}),
+            nullptr);
+  std::unique_ptr<TraceType> result_2(
+      any_1.most_specific_common_supertype({&any_2}));
+  EXPECT_EQ(*result_2, any_2);
+}
+
+TEST(PrimitiveTypesTest, ProductOfLiterals) {
+  std::vector<std::unique_ptr<TraceType>> elements;
+  elements.push_back(std::make_unique<Literal<std::string>>("a"));
+  elements.push_back(std::make_unique<Literal<int>>(33));
+  elements.push_back(std::make_unique<Literal<bool>>(true));
+
+  Product product_1 = Product(std::move(elements));
+  std::unique_ptr<TraceType> product_1_copy = product_1.clone();
+
+  std::vector<std::unique_ptr<TraceType>> elements_2;
+  elements_2.push_back(std::make_unique<Literal<std::string>>("b"));
+  elements_2.push_back(std::make_unique<Literal<int>>(34));
+  elements_2.push_back(std::make_unique<Literal<bool>>(false));
+  Product product_2 = Product(std::move(elements_2));
+
+  EXPECT_EQ(product_1.to_string(), "Product<String<a>, Int<33>, Bool<True>>");
+  EXPECT_EQ(product_1_copy->to_string(),
+            "Product<String<a>, Int<33>, Bool<True>>");
+  EXPECT_EQ(product_2.to_string(), "Product<String<b>, Int<34>, Bool<False>>");
+
+  EXPECT_EQ(product_1, *product_1_copy);
+  EXPECT_EQ(product_1.hash(), product_1_copy->hash());
+  EXPECT_NE(product_1, product_2);
+
+  EXPECT_TRUE(product_1.is_subtype_of(*product_1_copy));
+  EXPECT_FALSE(product_1.is_subtype_of(product_2));
+
+  std::unique_ptr<TraceType> result =
+      product_1.most_specific_common_supertype({&product_1});
+  EXPECT_EQ(*result, product_1);
+  EXPECT_EQ(product_1.most_specific_common_supertype({&product_2}), nullptr);
+}
+
+TEST(PrimitiveTypesTest, ProductOfAny) {
+  std::vector<std::unique_ptr<TraceType>> elements;
+  elements.push_back(
+      std::make_unique<Any>(std::make_unique<Literal<std::string>>("a")));
+  elements.push_back(std::make_unique<Any>(std::make_unique<Literal<int>>(33)));
+
+  Product product_1 = Product(std::move(elements));
+  std::unique_ptr<TraceType> product_1_copy = product_1.clone();
+
+  std::vector<std::unique_ptr<TraceType>> elements_2;
+  elements_2.push_back(std::make_unique<Any>(absl::nullopt));
+  elements_2.push_back(
+      std::make_unique<Any>(std::make_unique<Literal<int>>(33)));
+  Product product_2 = Product(std::move(elements_2));
+
+  EXPECT_EQ(product_1.to_string(), "Product<Any<String<a>>, Any<Int<33>>>");
+  EXPECT_EQ(product_1_copy->to_string(),
+            "Product<Any<String<a>>, Any<Int<33>>>");
+  EXPECT_EQ(product_2.to_string(), "Product<Any<Any>, Any<Int<33>>>");
+
+  EXPECT_EQ(product_1, *product_1_copy);
+  EXPECT_EQ(product_1.hash(), product_1_copy->hash());
+  EXPECT_NE(product_1, product_2);
+
+  EXPECT_TRUE(product_1.is_subtype_of(*product_1_copy));
+  EXPECT_TRUE(product_1.is_subtype_of(product_2));
+  EXPECT_FALSE(product_2.is_subtype_of(product_1));
+
+  EXPECT_EQ(*product_1.most_specific_common_supertype({&product_1}), product_1);
+  EXPECT_EQ(*product_1.most_specific_common_supertype({&product_2}), product_2);
 }
 
 }  // namespace trace_type
