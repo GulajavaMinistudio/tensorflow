@@ -623,6 +623,26 @@ func.func @dynamic_broadcast_in_dim_op_not_actually_dynamic(%arg0: tensor<4xf32>
   func.return %0 : tensor<5x4xf32>
 }
 
+// CHECK-LABEL: func @dynamic_broadcast_in_dim_op_not_actually_dynamic_constant_shape
+func.func @dynamic_broadcast_in_dim_op_not_actually_dynamic_constant_shape(%arg0: tensor<i32>) -> tensor<4x32xi32> {
+  %0 = mhlo.constant dense<[4, 32]> : tensor<2xi32>
+  // CHECK: %[[RESULT:.+]] = "mhlo.broadcast_in_dim"(%arg0) {broadcast_dimensions = dense<> : tensor<0xi64>} : (tensor<i32>) -> tensor<4x32xi32>
+  %1 = "mhlo.dynamic_broadcast_in_dim"(%arg0, %0) {broadcast_dimensions = dense<> : tensor<0xi64>} : (tensor<i32>, tensor<2xi32>) -> tensor<?x32xi32>
+  %2 = "mhlo.dynamic_reshape"(%1, %0) : (tensor<?x32xi32>, tensor<2xi32>) -> tensor<4x32xi32>
+  // CHECK: return %[[RESULT]] : tensor<4x32xi32>
+  func.return %2 : tensor<4x32xi32>
+}
+
+// CHECK-LABEL: func @dynamic_broadcast_in_dim_op_not_actually_dynamic_constant_index_shape
+func.func @dynamic_broadcast_in_dim_op_not_actually_dynamic_constant_index_shape(%arg0: tensor<f32>) -> tensor<4x32xf32> {
+  %0 = shape.const_shape [4, 32] : tensor<2xindex>
+  // CHECK: %[[RESULT:.+]] = "mhlo.broadcast_in_dim"(%arg0) {broadcast_dimensions = dense<> : tensor<0xi64>} : (tensor<f32>) -> tensor<4x32xf32>
+  %1 = "mhlo.dynamic_broadcast_in_dim"(%arg0, %0) {broadcast_dimensions = dense<> : tensor<0xi64>} : (tensor<f32>, tensor<2xindex>) -> tensor<?x32xf32>
+  %2 = "mhlo.dynamic_reshape"(%1, %0) : (tensor<?x32xf32>, tensor<2xindex>) -> tensor<4x32xf32>
+  // CHECK: return %[[RESULT]] : tensor<4x32xf32>
+  func.return %2 : tensor<4x32xf32>
+}
+
 // CHECK-LABEL: func @dynamic_broadcast_in_dim_op_almost_not_actually_dynamic
 func.func @dynamic_broadcast_in_dim_op_almost_not_actually_dynamic(%arg0: tensor<?xf32>, %arg1: tensor<2xi64>) -> tensor<5x4xf32> {
   // CHECK: %[[RESULT:.+]] = "mhlo.dynamic_broadcast_in_dim"(%arg0, %arg1) {broadcast_dimensions = dense<1> : tensor<1xi64>} : (tensor<?xf32>, tensor<2xi64>) -> tensor<5x4xf32>
@@ -2026,12 +2046,31 @@ func.func @pad_negative_fold() -> tensor<4x4xi32> {
   // CHECK: "mhlo.pad"
 }
 
+// CHECK-LABEL: @pad_fold_zero_elements
 func.func @pad_fold_zero_elements() -> tensor<3xi32> {
   %0 = mhlo.constant dense<> : tensor<0xi32>
   %1 = mhlo.constant dense<7> : tensor<i32>
   %2 = "mhlo.pad"(%0, %1) {edge_padding_high = dense<3> : tensor<1xi64>, edge_padding_low = dense<0> : tensor<1xi64>, interior_padding = dense<0> : tensor<1xi64>} : (tensor<0xi32>, tensor<i32>) -> tensor<3xi32>
   func.return %2 : tensor<3xi32>
   // CHECK: mhlo.constant dense<7> : tensor<3xi32>
+}
+
+// CHECK-LABEL: @pad_float_fold
+func.func @pad_float_fold() -> tensor<2xf32> {
+  %0 = mhlo.constant dense<2.000000e+00> : tensor<1xf32>
+  %1 = mhlo.constant dense<1.000000e+00> : tensor<f32>
+  %2 = "mhlo.pad"(%0, %1) {edge_padding_high = dense<1> : tensor<1xi64>, edge_padding_low = dense<0> : tensor<1xi64>, interior_padding = dense<0> : tensor<1xi64>} : (tensor<1xf32>, tensor<f32>) -> tensor<2xf32>
+  return %2 : tensor<2xf32>
+  // CHECK: mhlo.constant dense<[2.000000e+00, 1.000000e+00]> : tensor<2xf32>
+}
+
+// CHECK-LABEL: @pad_complex_fold
+func.func @pad_complex_fold() -> tensor<2xcomplex<f32>> {
+  %0 = mhlo.constant dense<(2.000000e+00,0.000000e+00)> : tensor<1xcomplex<f32>>
+  %1 = mhlo.constant dense<(1.000000e+00,0.000000e+00)> : tensor<complex<f32>>
+  %2 = "mhlo.pad"(%0, %1) {edge_padding_high = dense<1> : tensor<1xi64>, edge_padding_low = dense<0> : tensor<1xi64>, interior_padding = dense<0> : tensor<1xi64>} : (tensor<1xcomplex<f32>>, tensor<complex<f32>>) -> tensor<2xcomplex<f32>>
+  return %2 : tensor<2xcomplex<f32>>
+  // CHECK: mhlo.constant dense<[(2.000000e+00,0.000000e+00), (1.000000e+00,0.000000e+00)]> : tensor<2xcomplex<f32>>
 }
 
 // CHECK-LABEL: @identity_broadcast_reshape
@@ -2166,3 +2205,11 @@ func.func @sort_no_dim_provided(%arg0: tensor<3x5xi32>) -> tensor<3x5xi32> {
 // CHECK:         %[[RES:.+]] = "mhlo.sort"(%[[ARG0]])
 // CHECK:           dimension = 1 : i64
 // CHECK:         return %[[RES]] : tensor<3x5xi32>
+
+// CHECK-LABEL: @reshape_splat_of_bools
+func.func public @reshape_splat_of_bools() -> tensor<2x1xi1> {
+  // CHECK: mhlo.constant dense<true> : tensor<2x1xi1>
+  %0 = mhlo.constant dense<true> : tensor<2xi1>
+  %1 = "mhlo.reshape"(%0) : (tensor<2xi1>) -> tensor<2x1xi1>
+  return %1 : tensor<2x1xi1>
+}
