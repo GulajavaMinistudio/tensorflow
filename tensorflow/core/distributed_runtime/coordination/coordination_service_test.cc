@@ -15,6 +15,7 @@ limitations under the License.
 
 #include "tensorflow/core/distributed_runtime/coordination/coordination_service.h"
 
+#include <memory>
 #include <string>
 #include <utility>
 
@@ -353,6 +354,51 @@ TEST(CoordinationServiceTest, TestCoordinatedJobs) {
   EXPECT_TRUE(errors::IsInvalidArgument(status)) << status;
 }
 
+TEST(CoordinationServiceTest, RegisterTask_AlreadyConnected_Fails) {
+  ServerDef server_def = GetMultiClientServerDef("worker", 1);
+  JobDef* job_def = server_def.mutable_cluster()->add_job();
+  job_def->set_name("worker");
+  job_def->mutable_tasks()->insert({0, "dummy address"});
+  CoordinatedTask task_0;
+  task_0.set_job_name("worker");
+  task_0.set_task_id(0);
+  std::unique_ptr<CoordinationServiceInterface> coord_service =
+      CoordinationServiceInterface::EnableCoordinationService(
+          kCoordinationServiceType, Env::Default(), server_def,
+          /*cache=*/nullptr);
+  // Task connects to coordination service.
+  TF_ASSERT_OK(coord_service->RegisterTask(task_0, /*incarnation=*/0));
+
+  // Registration should fail since task already registered previously.
+  const Status status = coord_service->RegisterTask(task_0, /*incarnation=*/0);
+
+  EXPECT_TRUE(errors::IsAborted(status)) << status;
+}
+
+TEST(CoordinationServiceTest, RegisterTask_AlreadyInError_Fails) {
+  ServerDef server_def = GetMultiClientServerDef("worker", 1);
+  JobDef* job_def = server_def.mutable_cluster()->add_job();
+  job_def->set_name("worker");
+  job_def->mutable_tasks()->insert({0, "dummy address"});
+  CoordinatedTask task_0;
+  task_0.set_job_name("worker");
+  task_0.set_task_id(0);
+  std::unique_ptr<CoordinationServiceInterface> coord_service =
+      CoordinationServiceInterface::EnableCoordinationService(
+          kCoordinationServiceType, Env::Default(), server_def,
+          /*cache=*/nullptr);
+  // Task connects to coordination service.
+  TF_ASSERT_OK(coord_service->RegisterTask(task_0, /*incarnation=*/0));
+  // Arbitrarily set task to be in error.
+  TF_ASSERT_OK(
+      coord_service->ReportTaskError(task_0, errors::Internal("test_error")));
+
+  // Registration should fail since task already registered previously.
+  const Status status = coord_service->RegisterTask(task_0, /*incarnation=*/0);
+
+  EXPECT_TRUE(errors::IsAborted(status)) << status;
+}
+
 TEST_F(CoordinateTwoTasksTest, TestTaskHeartbeatTimeout) {
   EnableCoordinationService();
   TF_ASSERT_OK(coord_service_->RegisterTask(task_0_, incarnation_0_));
@@ -439,11 +485,15 @@ TEST_F(CoordinateTwoTasksTest, TestSetGetValues) {
   // Delete key-values recursively
   TF_ASSERT_OK(coord_service_->DeleteKeyValue("/path"));
   // Get key that is not available
-  absl::Notification n2;
+  auto n2 = std::make_shared<absl::Notification>();
   coord_service_->GetKeyValueAsync(
       "/path/to/key1",
-      [&](const StatusOr<std::string>& status_or_value) { n2.Notify(); });
-  EXPECT_FALSE(n2.HasBeenNotified());
+      // Note: this callback will remain pending until it is cleaned up during
+      // service shutdown. Hence, we use a shared pointer for notification so
+      // that the it will not be deallocated before the pending callback is
+      // cleaned up.
+      [n2](const StatusOr<std::string>& status_or_value) { n2->Notify(); });
+  EXPECT_FALSE(n2->HasBeenNotified());
 }
 
 TEST_F(CoordinateTwoTasksTest, GetKeyValueDir_SingleValueInDirectory) {

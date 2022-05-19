@@ -2245,18 +2245,49 @@ void TupleOp::getCanonicalizationPatterns(RewritePatternSet& results,
 // AllToAllOp
 //===----------------------------------------------------------------------===//
 
-LogicalResult AllToAllOp::verify() {
+LogicalResult AllToAllOp::inferReturnTypeComponents(
+    MLIRContext*, Optional<Location> location, ValueShapeRange operands,
+    DictionaryAttr attributes, RegionRange regions,
+    SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
+  AllToAllOp::Adaptor adaptor(operands, attributes, regions);
+  Type operand_type = adaptor.operand().getType();
+  RankedTensorType operand_ranked_type =
+      operand_type.dyn_cast<RankedTensorType>();
+  if (!operand_ranked_type) {
+    inferredReturnShapes.emplace_back(
+        operand_type.cast<TensorType>().getElementType());
+    return success();
+  }
+
+  int64_t input_rank = operand_ranked_type.getRank();
+  int64_t split_dimension = static_cast<int64_t>(adaptor.split_dimension());
+  int64_t concat_dimension = static_cast<int64_t>(adaptor.concat_dimension());
+  if (split_dimension >= input_rank || split_dimension < 0) {
+    return emitOptionalError(location, "AllToAll split_dimension ",
+                             split_dimension,
+                             " is out-of-bounds for input rank ", input_rank);
+  }
+  if (concat_dimension >= input_rank || concat_dimension < 0) {
+    return emitOptionalError(location, "AllToAll concat_dimension ",
+                             concat_dimension,
+                             " is out-of-bounds for input rank ", input_rank);
+  }
+
   // If operand is ranked, size of split dimension should be a multiple of split
   // count.
-  auto type = getOperand().getType().dyn_cast<RankedTensorType>();
-  if (!type) return success();
-  auto split_dim_size = type.getDimSize(split_dimension());
-  auto split_count = this->split_count();
+  int64_t split_count = adaptor.split_count();
+  auto split_dim_size = operand_ranked_type.getDimSize(split_dimension);
   if (split_dim_size % split_count != 0) {
-    return emitError() << "split dimension has size " << split_dim_size
-                       << ", expected to be a multiple of split_count "
-                       << split_count;
+    return emitOptionalError(
+        location, "split dimension has size ", split_dim_size,
+        ", expected to be a multiple of split_count ", split_count);
   }
+  SmallVector<int64_t> result_shape(operand_ranked_type.getShape().begin(),
+                                    operand_ranked_type.getShape().end());
+  result_shape[split_dimension] /= split_count;
+  result_shape[concat_dimension] *= split_count;
+  inferredReturnShapes.emplace_back(result_shape,
+                                    operand_ranked_type.getElementType());
   return success();
 }
 
@@ -5849,9 +5880,10 @@ static Attribute BinaryFolder(Op* op, ArrayRef<Attribute> attrs) {
   SplatElementsAttr splat_lhs = lhs.dyn_cast<SplatElementsAttr>();
   SplatElementsAttr splat_rhs = rhs.dyn_cast<SplatElementsAttr>();
   if (splat_lhs && splat_rhs) {
-    return SplatElementsAttr::get(
-        type, Convert()(splat_lhs.getSplatValue<ValType>(),
-                        splat_rhs.getSplatValue<ValType>()));
+    FailureOr<ValType> result(Convert()(splat_lhs.getSplatValue<ValType>(),
+                                        splat_rhs.getSplatValue<ValType>()));
+    return succeeded(result) ? SplatElementsAttr::get(type, *result)
+                             : Attribute();
   }
 
   // Prevent folding if lhs/rhs are too large.
@@ -5863,7 +5895,11 @@ static Attribute BinaryFolder(Op* op, ArrayRef<Attribute> attrs) {
   values.reserve(lhs.getNumElements());
   for (const auto zip :
        llvm::zip(lhs.getValues<ValType>(), rhs.getValues<ValType>())) {
-    values.push_back(Convert()(std::get<0>(zip), std::get<1>(zip)));
+    FailureOr<ValType> result(Convert()(std::get<0>(zip), std::get<1>(zip)));
+    if (failed(result)) {
+      return {};
+    }
+    values.push_back(std::move(*result));
   }
 
   return DenseElementsAttr::get(type, values);
@@ -5874,7 +5910,10 @@ struct divide : std::divides<T> {};
 
 template <>
 struct divide<APInt> {
-  APInt operator()(const APInt& a, const APInt& b) const { return a.sdiv(b); }
+  FailureOr<APInt> operator()(const APInt& a, const APInt& b) const {
+    if (b.isZero()) return failure();
+    return a.sdiv(b);
+  }
 };
 
 template <typename T>
@@ -5882,7 +5921,10 @@ struct remainder : std::modulus<T> {};
 
 template <>
 struct remainder<APInt> {
-  APInt operator()(const APInt& a, const APInt& b) const { return a.srem(b); }
+  FailureOr<APInt> operator()(const APInt& a, const APInt& b) const {
+    if (b.isZero()) return failure();
+    return a.srem(b);
+  }
 };
 
 template <>
