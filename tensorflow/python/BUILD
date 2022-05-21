@@ -2965,7 +2965,6 @@ cuda_py_test(
     python_version = "PY3",
     tags = [
         "no_windows_gpu",
-        "noasan",  # TODO(b/233235689): Fails with ASAN.
     ],
     deps = [
         ":array_ops",
@@ -4519,6 +4518,21 @@ alias(
 alias(
     name = "session_run_hook",
     actual = "//tensorflow/python/training:session_run_hook",
+)
+
+alias(
+    name = "checkpoint",
+    actual = "//tensorflow/python/checkpoint:checkpoint",
+)
+
+alias(
+    name = "checkpoint_lib",
+    actual = "//tensorflow/python/checkpoint:checkpoint_lib",
+)
+
+alias(
+    name = "trackable",
+    actual = "//tensorflow/python/trackable:trackable",
 )
 
 alias(
