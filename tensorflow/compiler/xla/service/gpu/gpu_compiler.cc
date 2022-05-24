@@ -164,7 +164,6 @@ limitations under the License.
 #include "tensorflow/compiler/xla/util.h"
 #include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/lib/gtl/cleanup.h"
-#include "tensorflow/core/lib/io/path.h"
 #include "tensorflow/core/platform/blocking_counter.h"
 #include "tensorflow/core/platform/casts.h"
 #include "tensorflow/core/platform/env.h"
@@ -172,9 +171,7 @@ limitations under the License.
 #include "tensorflow/core/platform/regexp.h"
 #include "tensorflow/core/platform/statusor.h"
 #include "tensorflow/core/platform/stream_executor_no_cuda.h"
-#include "tensorflow/core/platform/subprocess.h"
 #include "tensorflow/core/platform/threadpool.h"
-#include "tensorflow/core/platform/tracing.h"
 #include "tensorflow/core/profiler/lib/traceme.h"
 #include "tensorflow/core/util/env_var.h"
 
