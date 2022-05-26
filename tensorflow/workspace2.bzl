@@ -57,7 +57,7 @@ def _initialize_third_party():
     FP16()
     absl()
     benchmark()
-    clog()
+    clog()  # Note: needed only by XNNPACK, at some point it should be removed
     cpuinfo()
     dlpack()
     eigen3()
@@ -392,6 +392,15 @@ def _tf_repositories():
         sha256_urls = {
             "ff17ce94e102024deb68773eb1cc74ca76da4e658f373531f0ac22d68a6bb1ad": tf_mirror_urls("https://raw.githubusercontent.com/python/typing/master/typing_extensions/LICENSE"),
         },
+    )
+
+    tf_http_archive(
+        name = "opt_einsum_archive",
+        build_file = "//third_party:opt_einsum.BUILD",
+        sha256 = "d3d464b4da7ef09e444c30e4003a27def37f85ff10ff2671e5f7d7813adac35b",
+        strip_prefix = "opt_einsum-2.3.2",
+        system_build_file = "//third_party/systemlibs:opt_einsum.BUILD",
+        urls = tf_mirror_urls("https://pypi.python.org/packages/f6/d6/44792ec668bcda7d91913c75237314e688f70415ab2acd7172c845f0b24f/opt_einsum-2.3.2.tar.gz"),
     )
 
     tf_http_archive(

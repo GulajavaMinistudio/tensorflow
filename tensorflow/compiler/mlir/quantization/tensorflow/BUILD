@@ -27,11 +27,14 @@ py_binary(
 
 genrule(
     name = "quantized_function_library",
-    srcs = ["passes/quantized_function_library.mlir"],
+    srcs = [
+        "passes/quantized_function_library.mlir",
+        "passes/quantized_function_library_drq.mlir",
+    ],
     outs = [
         "passes/quantized_function_library.h",
     ],
-    cmd = "$(location gen_quantized_function_library) --output_file $(RULEDIR)/passes/quantized_function_library.h --src $(SRCS)",
+    cmd = "$(location gen_quantized_function_library) --output_file $(RULEDIR)/passes/quantized_function_library.h --src '$(SRCS)'",
     exec_tools = ["gen_quantized_function_library"],
 )
 
@@ -53,7 +56,7 @@ td_library(
     name = "quant_td_files",
     srcs = [
         "passes/lift_quantizable_spots_as_functions.td",
-        "passes/lift_quantizable_spots_as_functions_dynamic_range.td",
+        "passes/lift_quantizable_spots_as_functions_drq.td",
         "passes/prepare_lifting.td",
         "passes/prepare_quantize.td",
         "passes/quantize_composite_functions.td",
@@ -96,15 +99,15 @@ gentbl_cc_library(
 )
 
 gentbl_cc_library(
-    name = "lift_quantizable_spots_as_functions_dynamic_range_inc_gen",
+    name = "lift_quantizable_spots_as_functions_drq_inc_gen",
     tbl_outs = [
         (
             ["-gen-rewriters"],
-            "passes/lift_quantizable_spots_as_functions_dynamic_range.inc",
+            "passes/lift_quantizable_spots_as_functions_drq.inc",
         ),
     ],
     tblgen = "@llvm-project//mlir:mlir-tblgen",
-    td_file = "passes/lift_quantizable_spots_as_functions_dynamic_range.td",
+    td_file = "passes/lift_quantizable_spots_as_functions_drq.td",
     deps = [":quant_td_files"],
 )
 
@@ -193,13 +196,14 @@ cc_library(
         "passes/issue_ids_of_custom_aggregation_ops.cc",
         "passes/lift_quantizable_spots_as_functions.cc",
         "passes/lift_quantizable_spots_as_functions.inc",
-        "passes/lift_quantizable_spots_as_functions_dynamic_range.cc",
-        "passes/lift_quantizable_spots_as_functions_dynamic_range.inc",
+        "passes/lift_quantizable_spots_as_functions_drq.cc",
+        "passes/lift_quantizable_spots_as_functions_drq.inc",
         "passes/post_quantize.cc",
         "passes/prepare_lifting.cc",
         "passes/prepare_lifting.inc",
         "passes/prepare_quantize.cc",
         "passes/prepare_quantize.inc",
+        "passes/prepare_quantize_drq.cc",
         "passes/quantize.cc",
         "passes/quantize_composite_functions.cc",
         "passes/quantize_composite_functions.inc",
@@ -228,6 +232,7 @@ cc_library(
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/strings",
         "@llvm-project//llvm:Support",
+        "@llvm-project//mlir:ArithmeticDialect",
         "@llvm-project//mlir:FuncDialect",
         "@llvm-project//mlir:IR",
         "@llvm-project//mlir:Parser",

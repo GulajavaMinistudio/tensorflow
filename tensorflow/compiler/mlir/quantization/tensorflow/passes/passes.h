@@ -41,6 +41,10 @@ CreateLiftQuantizableSpotsAsFunctionsPass();
 // lifting.
 std::unique_ptr<OperationPass<func::FuncOp>> CreatePrepareLiftingPass();
 
+// Lifts the dynamic range quantizable spots as composite functions.
+std::unique_ptr<OperationPass<ModuleOp>>
+CreateLiftQuantizableSpotsAsFunctionsDRQPass();
+
 // Replaces tf.CustomAggregator ops with quant.Stats ops for finalizing the
 // calibration procedure.
 std::unique_ptr<OperationPass<func::FuncOp>>
@@ -51,7 +55,8 @@ std::unique_ptr<OperationPass<ModuleOp>>
 CreateIssueIDsOfCustomAggregationOpsPass();
 
 // Inserts quantized function library.
-std::unique_ptr<OperationPass<ModuleOp>> CreateInsertQuantizedFunctionsPass();
+std::unique_ptr<OperationPass<ModuleOp>> CreateInsertQuantizedFunctionsPass(
+    QuantizationMethod quantization_method);
 
 // Inserts custom aggregation operators for the calibration procedure.
 std::unique_ptr<OperationPass<func::FuncOp>>
@@ -74,6 +79,10 @@ std::unique_ptr<OperationPass<func::FuncOp>> CreateQuantizePass();
 // transformations as TFL::PrepareQuantizePass.
 std::unique_ptr<OperationPass<func::FuncOp>> CreatePrepareQuantizePass(
     QuantizationMethod quantization_method);
+
+// Creates an instance of the PrepareQuantizeDRQ pass, which will
+// perfrom similar transformations as TFL::PrepareQuantizeDynamicRangePass.
+std::unique_ptr<OperationPass<func::FuncOp>> CreatePrepareQuantizeDRQPass();
 
 // Creates an instance of the PostQuantize pass, which will remove unnecessary
 // ops from the final quantized graph.

@@ -24,6 +24,7 @@ limitations under the License.
 #include <unordered_map>
 #include <utility>
 
+#include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
 #include "tensorflow/core/platform/logging.h"
@@ -38,6 +39,12 @@ namespace tensorflow {
 // Only clang supports warn_unused_result as a type annotation.
 class TF_MUST_USE_RESULT Status;
 #endif
+
+namespace errors {
+
+typedef ::tensorflow::error::Code Code;
+
+}  // namespace errors
 
 /// @ingroup core
 /// Denotes success or failure of a call in Tensorflow.
@@ -139,14 +146,13 @@ class Status {
   //
   // Returns the payload of a status given its unique `type_url` key, if
   // present.
-  absl::optional<absl::string_view> GetPayload(
-      absl::string_view type_url) const;
+  absl::optional<absl::Cord> GetPayload(absl::string_view type_url) const;
 
   // Sets the payload for a non-ok status using a `type_url` key, overwriting
   // any existing payload for that `type_url`.
   //
   // This function does nothing if the Status is ok.
-  void SetPayload(absl::string_view type_url, absl::string_view payload);
+  void SetPayload(absl::string_view type_url, absl::Cord payload);
 
   // Erases the payload corresponding to the `type_url` key.  Returns `true` if
   // the payload was present.
@@ -159,7 +165,7 @@ class Status {
   // any time and any mutation on the same Status object during visitation is
   // forbidden and could result in undefined behavior.
   void ForEachPayload(
-      const std::function<void(absl::string_view, absl::string_view)>& visitor)
+      absl::FunctionRef<void(absl::string_view, const absl::Cord&)> visitor)
       const;
 
  private:
@@ -167,7 +173,7 @@ class Status {
   struct State {
     tensorflow::error::Code code;
     std::string msg;
-    std::unordered_map<std::string, std::string> payloads;
+    std::unordered_map<std::string, absl::Cord> payloads;
   };
 
   // OK status has a `NULL` state_.  Otherwise, `state_` points to
@@ -182,7 +188,6 @@ class Status {
 // Returns an OK status, equivalent to a default constructed instance. Prefer
 // usage of `OkStatus()` when constructing such an OK status.
 Status OkStatus();
-
 
 // Convenience Status constructors, not having to specify the underlying Code.
 Status AbortedError(absl::string_view message);
@@ -202,10 +207,26 @@ Status UnavailableError(absl::string_view message);
 Status UnimplementedError(absl::string_view message);
 Status UnknownError(absl::string_view message);
 
-// TODO(b/197552541) Move this namespace to errors.h.
-namespace errors {
+// These convenience functions return `true` if a given status matches the
+// `Code` error code of its associated function.
+bool IsAborted(const Status& status);
+bool IsAlreadyExists(const Status& status);
+bool IsCancelled(const Status& status);
+bool IsDataLoss(const Status& status);
+bool IsDeadlineExceeded(const Status& status);
+bool IsFailedPrecondition(const Status& status);
+bool IsInternal(const Status& status);
+bool IsInvalidArgument(const Status& status);
+bool IsNotFound(const Status& status);
+bool IsOutOfRange(const Status& status);
+bool IsPermissionDenied(const Status& status);
+bool IsResourceExhausted(const Status& status);
+bool IsUnauthenticated(const Status& status);
+bool IsUnavailable(const Status& status);
+bool IsUnimplemented(const Status& status);
+bool IsUnknown(const Status& status);
 
-typedef ::tensorflow::error::Code Code;
+namespace errors {
 
 void SetStackTrace(::tensorflow::Status& status,
                    std::vector<StackFrame> stack_trace);
@@ -235,7 +256,7 @@ class StatusGroup {
   // otherwise one payload value will be chosen in an unspecified but
   // deterministic order.
   // NOTE: The payload marking derived statuses as derived will not be returned.
-  std::unordered_map<std::string, std::string> GetPayloads() const;
+  std::unordered_map<std::string, absl::Cord> GetPayloads() const;
 
   // Return a merged status with combined child status messages with a summary.
   Status as_summary_status() const;
