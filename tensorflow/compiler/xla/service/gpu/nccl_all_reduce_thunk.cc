@@ -81,26 +81,6 @@ Status RunAllReduce(ReductionKind reduction_kind,
 
 namespace {
 
-StatusOr<std::vector<DeviceBufferPair>> ConvertToDeviceBuffers(
-    const Thunk::ExecuteParams& params,
-    const std::vector<NcclCollectiveThunk::Buffer>& buffers,
-    const std::vector<PrimitiveType>& element_types) {
-  if (buffers.size() != element_types.size())
-    return FailedPrecondition("Mismatch in operand buffer counts.");
-
-  std::vector<DeviceBufferPair> device_buffers;
-  device_buffers.reserve(buffers.size());
-  for (int i = 0; i < buffers.size(); ++i) {
-    device_buffers.emplace_back(DeviceBufferPair{
-        element_types[i], buffers[i].element_count,
-
-        params.buffer_allocations->GetDeviceAddress(buffers[i].source_buffer),
-        params.buffer_allocations->GetDeviceAddress(
-            buffers[i].destination_buffer)});
-  }
-  return device_buffers;
-}
-
 bool IsValidOperand(mlir::Value operand) {
   Shape shape = TypeToShape(operand.getType());
   return LayoutUtil::IsDenseArray(shape) &&
@@ -276,7 +256,7 @@ Status NcclAllReduceThunk::RunNcclCollective(const ExecuteParams& params,
 
   int device_ordinal = stream.parent()->device_ordinal();
   VLOG(3) << "Done performing all-reduce for ordinal: " << device_ordinal;
-  return Status::OK();
+  return ::tensorflow::OkStatus();
 }
 
 NcclAllReduceStartThunk::NcclAllReduceStartThunk(
@@ -328,7 +308,7 @@ Status NcclAllReduceStartThunk::RunNcclCollective(const ExecuteParams& params,
   }
 
   VLOG(3) << "Done performing all-reduce-start for ordinal: " << device_ordinal;
-  return Status::OK();
+  return ::tensorflow::OkStatus();
 }
 
 StatusOr<se::Event> NcclAllReduceStartThunk::TakeDoneEvent(int device_ordinal) {
@@ -350,7 +330,7 @@ Status NcclAllReduceDoneThunk::ExecuteOnStream(const ExecuteParams& params) {
   TF_ASSIGN_OR_RETURN(se::Event done_event,
                       start_thunk_.TakeDoneEvent(device_ordinal));
   params.stream->ThenWaitFor(&done_event);
-  return Status::OK();
+  return ::tensorflow::OkStatus();
 }
 
 NcclReduceScatterThunk::NcclReduceScatterThunk(
@@ -378,32 +358,37 @@ NcclReduceScatterThunk::NcclReduceScatterThunk(
 
 Status NcclReduceScatterThunk::RunNcclCollective(const ExecuteParams& params,
                                                  ncclComm_t comm) {
+  TF_ASSIGN_OR_RETURN(
+      std::vector<DeviceBufferPair> device_buffers,
+      ConvertToDeviceBuffers(params, buffers_,
+                             config_.config.operand_element_type));
+  return RunReduceScatter(config_.reduction_kind, device_buffers,
+                          *params.stream, comm);
+}
+
+Status RunReduceScatter(ReductionKind reduction_kind,
+                        std::vector<DeviceBufferPair>& buffers,
+                        se::Stream& stream, ncclComm_t comm) {
 #if XLA_ENABLE_XCCL
-  int device_ordinal = params.stream->parent()->device_ordinal();
+  int device_ordinal = stream.parent()->device_ordinal();
   VLOG(3) << "Performing reduce-scatter from device ordinal: "
           << device_ordinal;
 
-  ncclRedOp_t reduce_op = ToNcclReduction(config_.reduction_kind);
+  ncclRedOp_t reduce_op = ToNcclReduction(reduction_kind);
 
-  se::gpu::GpuStreamHandle gpu_stream =
-      se::gpu::AsGpuStreamValue(params.stream);
+  se::gpu::GpuStreamHandle gpu_stream = se::gpu::AsGpuStreamValue(&stream);
 
   int num_participants = 0;
   XLA_CUDA_RETURN_IF_ERROR(ncclCommCount(comm, &num_participants));
 
   XLA_CUDA_RETURN_IF_ERROR(ncclGroupStart());
-  for (size_t i = 0; i < buffers_.size(); ++i) {
-    const Buffer& buffer = buffers_[i];
-    const void* send_buffer =
-        params.buffer_allocations->GetDeviceAddress(buffer.source_buffer)
-            .opaque();
-    void* recv_buffer =
-        params.buffer_allocations->GetDeviceAddress(buffer.destination_buffer)
-            .opaque();
+  for (size_t i = 0; i < buffers.size(); ++i) {
+    DeviceBufferPair& buffer = buffers[i];
+    const void* send_buffer = buffer.source_buffer.opaque();
+    void* recv_buffer = buffer.destination_buffer.opaque();
 
-    PrimitiveType element_type = config_.config.operand_element_type[i];
     TF_ASSIGN_OR_RETURN(auto dtype_and_multiplier,
-                        ToNcclDataTypeAndCountMultiplier(element_type));
+                        ToNcclDataTypeAndCountMultiplier(buffer.element_type));
     ncclDataType_t dtype = dtype_and_multiplier.first;
     int element_count = buffer.element_count * dtype_and_multiplier.second;
 
@@ -427,7 +412,7 @@ Status NcclReduceScatterThunk::RunNcclCollective(const ExecuteParams& params,
   XLA_CUDA_RETURN_IF_ERROR(ncclGroupEnd());
 
   VLOG(3) << "Done performing reduce-scatter for ordinal: " << device_ordinal;
-  return Status::OK();
+  return ::tensorflow::OkStatus();
 #else   // XLA_ENABLE_XCCL
   return Unimplemented(
       "NCCL support is not available: this binary was not built with a CUDA "

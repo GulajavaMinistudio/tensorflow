@@ -20,6 +20,7 @@ limitations under the License.
 #include <string>
 #include <utility>
 
+#include "absl/container/flat_hash_set.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/substitute.h"
 #include "absl/synchronization/notification.h"
@@ -133,7 +134,11 @@ class CoordinationServiceAgentImpl : public CoordinationServiceAgent {
   };
   mutable mutex state_mu_;
   State state_ TF_GUARDED_BY(state_mu_) = State::UNINITIALIZED;
-  Status status_ TF_GUARDED_BY(state_mu_) = Status::OK();
+  Status status_ TF_GUARDED_BY(state_mu_) = OkStatus();
+  // Note: this set grows without bounds. For now, this is okay as most users
+  // require < 100 barriers. If there is a use case that requires many barriers,
+  // consider using a monotonic sequence number to track instead.
+  absl::flat_hash_set<std::string> used_barrier_ids_ TF_GUARDED_BY(state_mu_);
 
   uint64_t leader_incarnation_ = 0;
   CoordinationServiceDeviceInfo cluster_devices_;
@@ -213,7 +218,7 @@ Status CoordinationServiceAgentImpl::Initialize(
   }
   error_fn_ = error_fn;
   state_ = State::DISCONNECTED;
-  return Status::OK();
+  return OkStatus();
 }
 
 bool CoordinationServiceAgentImpl::IsInitialized() {
@@ -314,7 +319,7 @@ Status CoordinationServiceAgentImpl::Connect() {
           }
         }
       }));
-  return Status::OK();
+  return OkStatus();
 }
 
 Status CoordinationServiceAgentImpl::WaitForAllTasks(
@@ -339,7 +344,7 @@ Status CoordinationServiceAgentImpl::WaitForAllTasks(
     return status;
   }
   cluster_devices_.MergeFrom(response.cluster_device_info());
-  return Status::OK();
+  return OkStatus();
 }
 
 const CoordinationServiceDeviceInfo&
@@ -393,11 +398,11 @@ Status CoordinationServiceAgentImpl::ReportError(const Status& error) {
     n.Notify();
   });
   n.WaitForNotification();
-  return Status::OK();
+  return OkStatus();
 }
 
 Status CoordinationServiceAgentImpl::Shutdown() {
-  Status status = Status::OK();
+  Status status = OkStatus();
   bool is_connected = false;
   {
     mutex_lock l(state_mu_);
@@ -626,7 +631,7 @@ Status CoordinationServiceAgentImpl::DeleteKeyValue(const std::string& key) {
     n.Notify();
   });
   n.WaitForNotification();
-  return Status::OK();
+  return OkStatus();
 }
 
 Status CoordinationServiceAgentImpl::UpdateKeyValue(const std::string& key,
@@ -685,6 +690,17 @@ void CoordinationServiceAgentImpl::WaitAtBarrierAsync(
     done(agent_running_status);
     return;
   }
+  {
+    mutex_lock l(state_mu_);
+    auto [it, inserted] = used_barrier_ids_.insert(barrier_id);
+    if (!inserted) {
+      done(errors::FailedPrecondition(
+          "WaitAtBarrier() should not be called with the same id more than "
+          "once. Barrier id: ",
+          barrier_id));
+      return;
+    }
+  }
   auto request = std::make_shared<BarrierRequest>();
   auto response = std::make_shared<BarrierResponse>();
   request->set_barrier_id(barrier_id);
@@ -731,7 +747,7 @@ Status CoordinationServiceAgentImpl::ValidateRunningAgent() {
   mutex_lock l(state_mu_);
   switch (state_) {
     case State::RUNNING:
-      return Status::OK();
+      return OkStatus();
 
     case State::UNINITIALIZED:
       return MakeCoordinationError(errors::FailedPrecondition(
