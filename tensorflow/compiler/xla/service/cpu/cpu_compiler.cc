@@ -950,9 +950,9 @@ Status LowerMLIRModule(mlir::ModuleOp mlir_module,
   return ::tensorflow::OkStatus();
 }
 
-StatusOr<mlir::ModuleOp> createMLIRModule(HloModule* module,
-                                          mlir::MLIRContext& mlir_context,
-                                          BufferAssignment* assignment) {
+StatusOr<mlir::OwningOpRef<mlir::ModuleOp>> createMLIRModule(
+    HloModule* module, mlir::MLIRContext& mlir_context,
+    BufferAssignment* assignment) {
   LoadMLIRDialects(mlir_context);
   mlir::OpBuilder builder(&mlir_context);
   auto mlir_module = builder.create<mlir::ModuleOp>(builder.getUnknownLoc());
@@ -1000,7 +1000,7 @@ StatusOr<mlir::ModuleOp> createMLIRModule(HloModule* module,
                  mlir::ArrayAttr::get(f.getContext(), result_inner_mapping));
     }
   });
-  return mlir_module;
+  return {mlir_module};
 }
 
 struct ComputationToEmit {
@@ -1090,6 +1090,8 @@ StatusOr<std::unique_ptr<Executable>> CpuCompiler::RunBackend(
   mlir::MLIRContext mlir_context;
   LoadMLIRDialects(mlir_context);
   auto llvm_context = std::make_unique<llvm::LLVMContext>();
+  // TODO(kramerb): Remove once it's the default in LLVM.
+  llvm_context->setOpaquePointers(true);
   auto llvm_module =
       absl::make_unique<llvm::Module>("__compute_module", *llvm_context);
 
@@ -1328,6 +1330,8 @@ CpuCompiler::CompileAheadOfTime(std::unique_ptr<HloModuleGroup> module_group,
   mlir::MLIRContext mlir_context;
   LoadMLIRDialects(mlir_context);
   llvm::LLVMContext llvm_context;
+  // TODO(kramerb): Remove once it's the default in LLVM.
+  llvm_context.setOpaquePointers(true);
   std::unique_ptr<llvm::Module> llvm_module;
 
   std::vector<std::unique_ptr<AotCompilationResult>> results;
@@ -1380,13 +1384,13 @@ CpuCompiler::CompileAheadOfTime(std::unique_ptr<HloModuleGroup> module_group,
       TF_ASSIGN_OR_RETURN(
           auto mlir_module,
           createMLIRModule(module, mlir_context, assignment.get()));
-      TF_RETURN_IF_ERROR(LowerMLIRModule(mlir_module, mlir_context));
+      TF_RETURN_IF_ERROR(LowerMLIRModule(*mlir_module, mlir_context));
 
       llvm::cast<mlir::LLVM::LLVMFuncOp>(
-          mlir_module.lookupSymbol("main_xla_framework"))
+          mlir_module->lookupSymbol("main_xla_framework"))
           .setName(options.entry_point_name());
 
-      llvm_module = mlir::translateModuleToLLVMIR(mlir_module, llvm_context);
+      llvm_module = mlir::translateModuleToLLVMIR(*mlir_module, llvm_context);
       // Set missing information
       llvm_module->setDataLayout(target_machine->createDataLayout());
       llvm_module->setTargetTriple(triple.getTriple());
