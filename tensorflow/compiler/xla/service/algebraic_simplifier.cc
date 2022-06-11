@@ -30,9 +30,7 @@ limitations under the License.
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/container/inlined_vector.h"
-#include "absl/memory/memory.h"
 #include "absl/strings/str_cat.h"
-#include "absl/types/optional.h"
 #include "absl/types/span.h"
 #include "tensorflow/compiler/xla/comparison_util.h"
 #include "tensorflow/compiler/xla/layout_util.h"
@@ -412,7 +410,6 @@ bool ValidateTilingOfBitcast(
 }  // namespace
 
 void AlgebraicSimplifierVisitor::ResetState(HloComputation* computation) {
-  changed_ = false;
   ResetVisitStates();
   computation_ = computation;
 }
@@ -422,7 +419,7 @@ bool AlgebraicSimplifierVisitor::Run(HloComputation* computation,
                                      AlgebraicSimplifier* simplifier) {
   ResetState(computation);
   TF_CHECK_OK(computation->Accept(this));
-  return changed_ || changed();
+  return changed();
 }
 
 bool AlgebraicSimplifierVisitor::SameShape(const HloInstruction* lhs,
@@ -589,7 +586,7 @@ Status AlgebraicSimplifierVisitor::ScalarMultiplyReduction(
     return OkStatus();
   }
 
-  changed_ = true;
+  MarkAsChanged();
 
   // Combine all constant multipliers.
   float multiplier = 1.0;
@@ -1322,7 +1319,6 @@ Status AlgebraicSimplifierVisitor::HandleBitcastConvert(
 
 Status AlgebraicSimplifierVisitor::HandleCopy(HloInstruction* copy) {
   if (SwapCopyBitcastCopy(copy)) {
-    changed_ = true;
     return OkStatus();
   }
   // If a copy feeds a copy, make it a single copy.
@@ -3053,7 +3049,7 @@ Status AlgebraicSimplifierVisitor::HandleMultiply(HloInstruction* multiply) {
         !ShapeUtil::ElementIsComplex(abs_operand->shape())) {
       TF_RETURN_IF_ERROR(multiply->ReplaceOperandWith(0, abs_operand));
       TF_RETURN_IF_ERROR(multiply->ReplaceOperandWith(1, abs_operand));
-      changed_ = true;
+      MarkAsChanged();
       return OkStatus();
     }
   }
@@ -3373,7 +3369,7 @@ Status AlgebraicSimplifierVisitor::HandleOptimizationBarrier(
     return OkStatus();
   }
 
-  changed_ = true;
+  MarkAsChanged();
   std::vector<int64_t> index_map(used_elements.size(), -1);
   std::vector<HloInstruction*> operands;
   int64_t current_index = 0;
@@ -3505,8 +3501,8 @@ Status AlgebraicSimplifierVisitor::HandleBroadcast(HloInstruction* broadcast) {
     TF_ASSIGN_OR_RETURN(
         bool sink_succeeded,
         TryToSinkBroadcastAfterOpWithUniqueNonScalarOperand(broadcast));
-    changed_ |= sink_succeeded;
     if (sink_succeeded) {
+      MarkAsChanged();
       return OkStatus();
     }
   }
@@ -3530,7 +3526,7 @@ Status AlgebraicSimplifierVisitor::HandleBroadcast(HloInstruction* broadcast) {
         // Use HloInstruction::ReplaceAllUsesWith instead of
         // HloComputation::ReplaceWithNewInstruction because we are replacing an
         // instruction other than the visited instruction.
-        changed_ = true;
+        MarkAsChanged();
         return user->ReplaceAllUsesWith(new_broadcast);
       }
     }
@@ -4967,7 +4963,7 @@ Status AlgebraicSimplifierVisitor::HandleDynamicSlice(
               index->shape(), HloOpcode::kAdd, index, inner_index));
       TF_RETURN_IF_ERROR(dynamic_slice->ReplaceOperandWith(i, combined_index));
     }
-    changed_ = true;
+    MarkAsChanged();
   }
   return OkStatus();
 }
@@ -5091,7 +5087,7 @@ Status AlgebraicSimplifierVisitor::HandleDynamicUpdateSlice(
       TF_RETURN_IF_ERROR(
           dynamic_update_slice->ReplaceOperandWith(i, combined_index));
     }
-    changed_ = true;
+    MarkAsChanged();
     return OkStatus();
   }
   return OkStatus();
@@ -5405,7 +5401,7 @@ Status AlgebraicSimplifierVisitor::HandleReduce(HloInstruction* hlo) {
       }
     }
     if (can_move_reshape_into_reduce) {
-      changed_ = true;
+      MarkAsChanged();
       absl::flat_hash_set<int64_t> dimensions_not_to_reduce;
       for (auto dim_pair : unmodified_dims) {
         if (arg_dim_in_output[dim_pair.second]) {
@@ -6214,7 +6210,7 @@ Status AlgebraicSimplifierVisitor::HandleTranspose(HloInstruction* transpose) {
           return true;
         }()));
     if (did_transform) {
-      changed_ = true;
+      MarkAsChanged();
       return OkStatus();
     }
   }
