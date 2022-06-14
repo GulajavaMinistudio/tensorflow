@@ -226,7 +226,7 @@ struct GeneralDotConvert : public OpRewritePattern<DotGeneralOp> {
     }
 
     llvm::SmallVector<int64_t> staticDims;
-    llvm::SmallVector<Value> dyn_dims;
+    llvm::SmallVector<Value> dynDims;
 
     auto getDynamicDims = [&](Value arg,
                               llvm::ArrayRef<int64_t> contractingDims) {
@@ -235,7 +235,7 @@ struct GeneralDotConvert : public OpRewritePattern<DotGeneralOp> {
       for (auto contractingDim : contractingDims) {
         for (; index < contractingDim; index++) {
           staticDims.push_back(ty.getDimSize(index));
-          dyn_dims.push_back(rewriter.create<mhlo::GetDimensionSizeOp>(
+          dynDims.push_back(rewriter.create<mhlo::GetDimensionSizeOp>(
               loc, RankedTensorType::get({1}, rewriter.getI32Type()), arg,
               rewriter.getI64IntegerAttr(index)));
         }
@@ -244,7 +244,7 @@ struct GeneralDotConvert : public OpRewritePattern<DotGeneralOp> {
 
       for (; index < ty.getRank(); index++) {
         staticDims.push_back(ty.getDimSize(index));
-        dyn_dims.push_back(rewriter.create<mhlo::GetDimensionSizeOp>(
+        dynDims.push_back(rewriter.create<mhlo::GetDimensionSizeOp>(
             loc, RankedTensorType::get({1}, rewriter.getI32Type()), arg,
             rewriter.getI64IntegerAttr(index)));
       }
@@ -255,9 +255,9 @@ struct GeneralDotConvert : public OpRewritePattern<DotGeneralOp> {
 
     Value reshapeDimsTensor = rewriter.create<mhlo::ConcatenateOp>(
         loc,
-        RankedTensorType::get({static_cast<int64_t>(dyn_dims.size())},
+        RankedTensorType::get({static_cast<int64_t>(dynDims.size())},
                               rewriter.getI32Type()),
-        dyn_dims, rewriter.getI64IntegerAttr(0));
+        dynDims, rewriter.getI64IntegerAttr(0));
 
     Value result = rewriter.create<DynamicReshapeOp>(
         op.getLoc(),
@@ -274,7 +274,7 @@ struct LegalizeGeneralDotPass
   /// Lower all general dots that can be represented as a non-batched matmul.
   void runOnOperation() override {
     RewritePatternSet patterns(&getContext());
-    PopulateGeneralDotOpLoweringPatterns(&patterns, &getContext());
+    populateGeneralDotOpLoweringPatterns(&patterns, &getContext());
     if (failed(applyPatternsAndFoldGreedily(getOperation(),
                                             std::move(patterns)))) {
       return signalPassFailure();
@@ -286,7 +286,7 @@ struct LegalizeGeneralDotPass
 }  // namespace mhlo
 }  // namespace mlir
 
-void mlir::mhlo::PopulateGeneralDotOpLoweringPatterns(
+void mlir::mhlo::populateGeneralDotOpLoweringPatterns(
     RewritePatternSet *patterns, MLIRContext *ctx) {
   patterns->add<GeneralDotConvert>(ctx);
 }

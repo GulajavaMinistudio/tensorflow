@@ -182,10 +182,10 @@ Value createReduce(Location loc, Value operand, Value zero,
   // setup "mhlo.reduce"'s body
   Region& region = reduce.body();
   Block& block = region.emplaceBlock();
-  RankedTensorType block_argument_type =
+  RankedTensorType blockArgumentType =
       RankedTensorType::get({}, operandType.getElementType());
-  block.addArgument(block_argument_type, loc);
-  block.addArgument(block_argument_type, loc);
+  block.addArgument(blockArgumentType, loc);
+  block.addArgument(blockArgumentType, loc);
   auto* firstArgument = block.args_begin();
   auto secondArgument = block.args_rbegin();
   {
@@ -371,7 +371,7 @@ class UnfuseBatchNormTrainingPattern
 // In combination with marking such ops as illegal, this allows backends that
 // do not have special support for fused batchnorm to use simpler arithmetic
 // primitives.
-void PopulateUnfuseBatchNormPatterns(MLIRContext* context,
+void populateUnfuseBatchNormPatterns(MLIRContext* context,
                                      RewritePatternSet* patterns) {
   patterns->add<UnfuseBatchNormInferencePattern>(context);
   patterns->add<UnfuseBatchNormTrainingPattern>(context);

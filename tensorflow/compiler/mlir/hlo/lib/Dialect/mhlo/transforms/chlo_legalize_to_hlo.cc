@@ -1434,7 +1434,7 @@ struct ConvertTrivialNonBroadcastBinaryOp
     }
 
     rewriter.replaceOp(op,
-                       {Adaptor::CreateOp(op, op.getResult().getType(),
+                       {Adaptor::createOp(op, op.getResult().getType(),
                                           adaptor.getOperands(), rewriter)});
     return success();
   }
@@ -1523,7 +1523,7 @@ struct ConvertRankedDynamicBroadcastBinaryOp
         rhs, resultExtents, rewriter.getI64TensorAttr(rhsBroadcastDimensions));
 
     // And generate the final non-broadcasted binary op.
-    Value finalResult = Adaptor::CreateOp(
+    Value finalResult = Adaptor::createOp(
         op, resultType, {broadcastedLhs, broadcastedRhs}, rewriter);
     rewriter.create<shape::AssumingYieldOp>(loc, finalResult);
     rewriter.replaceOp(op, {assumingOp.getResult(0)});
@@ -1542,8 +1542,8 @@ class ConvertDynamicReshapeOp
     auto tensor = op.operand();
     auto shape = op.output_shape();
 
-    auto shape_ty = shape.getType().cast<ShapedType>();
-    auto result_ty = op.getType().cast<ShapedType>();
+    auto shapeTy = shape.getType().cast<ShapedType>();
+    auto resultTy = op.getType().cast<ShapedType>();
 
     Value inputShape = rewriter.create<shape::ShapeOfOp>(loc, tensor);
     Value numEls = rewriter.create<shape::NumElementsOp>(loc, inputShape);
@@ -1551,10 +1551,10 @@ class ConvertDynamicReshapeOp
     rewriter.replaceOpWithNewOp<shape::AssumingOp>(
         op, cstr, [&](OpBuilder &b, Location l) {
           Value computedShape =
-              b.create<mhlo::ComputeReshapeShapeOp>(l, shape_ty, numEls, shape);
+              b.create<mhlo::ComputeReshapeShapeOp>(l, shapeTy, numEls, shape);
           SmallVector<Value> result;
-          result.push_back(b.create<mhlo::DynamicReshapeOp>(
-              l, result_ty, tensor, computedShape));
+          result.push_back(b.create<mhlo::DynamicReshapeOp>(l, resultTy, tensor,
+                                                            computedShape));
           return result;
         });
 
@@ -1565,21 +1565,21 @@ class ConvertDynamicReshapeOp
 #include "generated_chlo_legalize_to_hlo.inc"
 }  // namespace
 
-void PopulateChloBroadcastingPatterns(MLIRContext *context,
+void populateChloBroadcastingPatterns(MLIRContext *context,
                                       RewritePatternSet *patterns) {
   // Instantiate conversion templates for conforming binary elementwise ops
   // that do not have different dtypes between operands and results and do
   // not have special attributes that need to be preserved.
-  PopulateForBroadcastingBinaryOp<ConvertTrivialNonBroadcastBinaryOp>(
+  populateForBroadcastingBinaryOp<ConvertTrivialNonBroadcastBinaryOp>(
       context, patterns, 10);
-  PopulateForBroadcastingBinaryOp<ConvertRankedDynamicBroadcastBinaryOp>(
+  populateForBroadcastingBinaryOp<ConvertRankedDynamicBroadcastBinaryOp>(
       context, patterns, 5);
   patterns
       ->add<ConvertConstantLikeOp, ConvertDynamicReshapeOp, ConvertSelectOp>(
           context);
 }
 
-void PopulateDecomposeChloPatterns(MLIRContext *context,
+void populateDecomposeChloPatterns(MLIRContext *context,
                                    RewritePatternSet *patterns) {
   populateWithGenerated(*patterns);
 
