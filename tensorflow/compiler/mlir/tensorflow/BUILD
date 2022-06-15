@@ -1,9 +1,8 @@
 # buildifier: disable=same-origin-load
-load("//tensorflow:tensorflow.bzl", "filegroup")
+load("//tensorflow:tensorflow.google.bzl", "filegroup", "get_compatible_with_cloud")
 
 # buildifier: disable=same-origin-load
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
-load("//tensorflow:tensorflow.bzl", "get_compatible_with_cloud")
 load("//tensorflow/core/platform:rules_cc.bzl", "cc_library")
 load("@llvm-project//mlir:tblgen.bzl", "gentbl_cc_library", "td_library")
 load("//tensorflow:tensorflow.bzl", "tf_cc_test", "tf_gen_op_wrapper_py")
@@ -1141,6 +1140,7 @@ cc_library(
         "transforms/convert_launch_func_to_tf_call.cc",
         "transforms/convert_tf_control_flow_to_scf.cc",
         "transforms/convert_to_legacy_compile_and_replicate_attributes.cc",
+        "transforms/decompose_reduce_dataset.cc",
         "transforms/decompose_resource_ops_pass.cc",
         "transforms/device_attribute_to_launch.cc",
         "transforms/device_index_selector.cc",
@@ -2096,7 +2096,7 @@ COMPILE_MLIR_UTIL_DEPS = [
     "@llvm-project//llvm:Support",
     "@llvm-project//mlir:IR",
     "@llvm-project//mlir:Pass",
-    "@llvm-project//mlir:Shape",
+    "@llvm-project//mlir:ShapeDialect",
     "@llvm-project//mlir:FuncDialect",
     "@llvm-project//mlir:Support",
     "@llvm-project//mlir:TransformUtils",
