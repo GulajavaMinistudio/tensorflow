@@ -1,8 +1,9 @@
 # buildifier: disable=same-origin-load
-load("//tensorflow:tensorflow.google.bzl", "filegroup", "get_compatible_with_cloud")
+load("//tensorflow:tensorflow.bzl", "filegroup")
 
 # buildifier: disable=same-origin-load
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("//tensorflow:tensorflow.bzl", "get_compatible_with_cloud")
 load("//tensorflow/core/platform:rules_cc.bzl", "cc_library")
 load("@llvm-project//mlir:tblgen.bzl", "gentbl_cc_library", "td_library")
 load("//tensorflow:tensorflow.bzl", "tf_cc_test", "tf_gen_op_wrapper_py")
@@ -359,7 +360,6 @@ cc_library(
         ":tf_device_pass_inc_gen",
         ":tf_pass_inc_gen",
         "//tensorflow/compiler/mlir/hlo",
-        "//tensorflow/compiler/mlir/hlo:hlo_ops_base_structs",
         "//tensorflow/core:framework",
         "//tensorflow/core:lib",
         "@llvm-project//llvm:Support",
