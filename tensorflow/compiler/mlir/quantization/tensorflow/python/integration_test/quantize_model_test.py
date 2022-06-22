@@ -22,6 +22,7 @@ import tensorflow  # pylint: disable=unused-import
 
 from tensorflow.compiler.mlir.quantization.tensorflow import quantization_options_pb2 as quant_opts_pb2
 from tensorflow.compiler.mlir.quantization.tensorflow.python import quantize_model
+from tensorflow.compiler.mlir.quantization.tensorflow.python import representative_dataset as repr_dataset
 from tensorflow.python.client import session
 from tensorflow.python.data.ops import dataset_ops
 from tensorflow.python.eager import def_function
@@ -104,7 +105,7 @@ def _create_simple_tf1_conv_model(
 def _create_data_generator(
     input_key: str,
     shape: Sequence[int],
-    num_examples=128) -> quantize_model._RepresentativeDataset:
+    num_examples=128) -> repr_dataset.RepresentativeDataset:
   """Creates a data generator to be used as representative dataset.
 
   Supports generating random value input tensors mapped by the `input_key`.
@@ -277,8 +278,8 @@ class StaticRangeQuantizationTest(test.TestCase, parameterized.TestCase):
         tensor_spec.TensorSpec(shape=[1, 4], dtype=dtypes.float32)
     ])
     def matmul(self, input_tensor):
-      filters = random_ops.random_uniform(shape=(4, 3), minval=-1.0, maxval=1.0)
-      bias = random_ops.random_uniform(shape=(3,), minval=-1.0, maxval=1.0)
+      filters = np.random.uniform(low=-1.0, high=1.0, size=(4, 3))
+      bias = np.random.uniform(low=-1.0, high=1.0, size=(3,))
       out = math_ops.matmul(input_tensor, filters)
 
       if self.has_bias:
