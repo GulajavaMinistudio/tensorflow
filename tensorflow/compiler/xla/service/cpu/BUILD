@@ -121,6 +121,7 @@ cc_library(
         "//tensorflow/compiler/xla/service:shaped_buffer",
         "//tensorflow/core:lib",
         "@com_google_absl//absl/base",
+        "@com_google_absl//absl/cleanup",
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/types:span",
     ],
@@ -197,6 +198,7 @@ cc_library(
         "@llvm-project//mlir:BufferizationToMemRef",
         "@llvm-project//mlir:BufferizationTransforms",
         "@llvm-project//mlir:SCFToControlFlow",
+        "@llvm-project//mlir:ComplexToStandard",
         "@llvm-project//mlir:MathToLLVM",
         "@llvm-project//mlir:TensorDialect",
         "@llvm-project//mlir:Transforms",
@@ -368,6 +370,7 @@ cc_library(
         "@llvm-project//llvm:OrcJIT",
         "@llvm-project//llvm:Support",
         "@llvm-project//llvm:Target",  # fixdeps: keep
+        "@llvm-project//mlir:mlir_c_runner_utils",
         "//tensorflow/compiler/xla/service:custom_call_target_registry",
         "//tensorflow/compiler/xla:types",
         "//tensorflow/compiler/xla:util",

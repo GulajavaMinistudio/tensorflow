@@ -80,12 +80,41 @@ typedef struct {
   void* priv;
   PJRT_Client* client;
 } PJRT_Client_Destroy_Args;
-
 const size_t PJRT_Client_Destroy_Args_STRUCT_SIZE =
     PJRT_STRUCT_SIZE(PJRT_Client_Destroy_Args, client);
 
 // Shuts down and frees `client`. `client` can be nullptr.
 typedef PJRT_Error* PJRT_Client_Destroy(PJRT_Client_Destroy_Args* args);
+
+typedef struct {
+  size_t struct_size;
+  void* priv;
+  PJRT_Client* client;
+  // `platform_name` has the same lifetime as `client`. It is owned by `client`.
+  const char* platform_name;  // out
+  size_t platform_name_size;  // out
+} PJRT_Client_PlatformName_Args;
+
+const size_t PJRT_Client_PlatformName_Args_STRUCT_SIZE =
+    PJRT_STRUCT_SIZE(PJRT_Client_PlatformName_Args, platform_name_size);
+
+// Returns a string that identifies the platform (e.g. "cpu", "gpu", "tpu").
+typedef PJRT_Error* PJRT_Client_PlatformName(
+    PJRT_Client_PlatformName_Args* args);
+
+typedef struct {
+  size_t struct_size;
+  void* priv;
+  PJRT_Client* client;
+  int process_index;  // out
+} PJRT_Client_Process_Index_Args;
+const size_t PJRT_Client_Process_Index_Args_STRUCT_SIZE =
+    PJRT_STRUCT_SIZE(PJRT_Client_Process_Index_Args, process_index);
+
+// Return the process index of this client. Always 0 in single-process
+// settings.
+typedef PJRT_Error* PJRT_Client_Process_Index(
+    PJRT_Client_Process_Index_Args* args);
 
 // -------------------------------- API access ---------------------------------
 
@@ -100,6 +129,8 @@ typedef struct {
 
   PJRT_API_STRUCT_FIELD(PJRT_Client_Create);
   PJRT_API_STRUCT_FIELD(PJRT_Client_Destroy);
+  PJRT_API_STRUCT_FIELD(PJRT_Client_PlatformName);
+  PJRT_API_STRUCT_FIELD(PJRT_Client_Process_Index);
 } PJRT_Api;
 
 const size_t PJRT_Api_STRUCT_SIZE =

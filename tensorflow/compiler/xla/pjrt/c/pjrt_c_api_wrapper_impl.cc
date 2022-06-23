@@ -65,8 +65,25 @@ PJRT_Error* PJRT_Client_Destroy(PJRT_Client_Destroy_Args* args) {
   PJRT_RETURN_IF_ERROR(CheckMatchingStructSizes(
       "PJRT_Client_Destroy_Args", PJRT_Client_Destroy_Args_STRUCT_SIZE,
       args->struct_size));
-
   delete args->client;
+  return nullptr;
+}
+
+PJRT_Error* PJRT_Client_Process_Index(PJRT_Client_Process_Index_Args* args) {
+  PJRT_RETURN_IF_ERROR(CheckMatchingStructSizes(
+      "PJRT_CLient_Process_Index_Args",
+      PJRT_Client_Process_Index_Args_STRUCT_SIZE, args->struct_size));
+  args->process_index = args->client->client->process_index();
+  return nullptr;
+}
+
+PJRT_Error* PJRT_Client_PlatformName(PJRT_Client_PlatformName_Args* args) {
+  PJRT_RETURN_IF_ERROR(CheckMatchingStructSizes(
+      "PJRT_Client_PlatformName_Args",
+      PJRT_Client_PlatformName_Args_STRUCT_SIZE, args->struct_size));
+  absl::string_view platform_name = args->client->client->platform_name();
+  args->platform_name = platform_name.data();
+  args->platform_name_size = platform_name.size();
   return nullptr;
 }
 
