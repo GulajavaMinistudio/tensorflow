@@ -1333,6 +1333,26 @@ func.func @slice(%arg0: tensor<3x4xi32>) -> tensor<1x2xi32> {
 
 // -----
 
+// CHECK-LABEL: func @slice
+func.func @slice_dynamic_dim(%arg0: tensor<3x?xi32>) -> tensor<1x?xi32> {
+  %0 = "mhlo.slice"(%arg0) {
+    start_indices = dense<[1, -1]> : tensor<2xi64>,
+    limit_indices = dense<[2, -1]> : tensor<2xi64>,
+    strides = dense<[1, -1]> : tensor<2xi64>
+  } : (tensor<3x?xi32>) -> tensor<1x?xi32>
+  func.return %0 : tensor<1x?xi32>
+}
+
+// -----
+
+// CHECK-LABEL: func @slice_unranked
+func.func @slice_unranked(%arg0: tensor<*xi32>) -> tensor<*xi32> {
+  %0 = "mhlo.slice"(%arg0) {start_indices = dense<[1, 0]> : tensor<2xi64>, limit_indices = dense<[2, 4]> : tensor<2xi64>, strides = dense<[1, 2]> : tensor<2xi64>} : (tensor<*xi32>) -> tensor<*xi32>
+  func.return %0 : tensor<*xi32>
+}
+
+// -----
+
 func.func @slice_indices_mismatch(%arg0: tensor<3x4xi32>) -> tensor<1x4xi32> {
   // expected-error@+1 {{failed to verify that all of {start_indices, limit_indices, strides} have same type}}
   %0 = "mhlo.slice"(%arg0) {start_indices = dense<[1, 2]> : tensor<2xi64>, limit_indices = dense<[2, 4, 1]> : tensor<3xi64>, strides = dense<[1, 2]> : tensor<2xi64>} : (tensor<3x4xi32>) -> tensor<1x4xi32>
@@ -1367,6 +1387,54 @@ func.func @slice_indices_wrong_size(%arg0: tensor<3x4xi32>) -> tensor<1x2xi32> {
     start_indices = dense<[1, 0, 0]> : tensor<3xi64>,
     limit_indices = dense<[2, 4, 0]> : tensor<3xi64>,
     strides = dense<[1, 2, 0]> : tensor<3xi64>
+  } : (tensor<3x4xi32>) -> tensor<1x2xi32>
+  func.return %0 : tensor<1x2xi32>
+}
+
+// -----
+
+func.func @slice_negative_start_index(%arg0: tensor<3x4xi32>) -> tensor<1x2xi32> {
+  // expected-error@+1 {{negative start index -1 in dimension 0}}
+  %0 = "mhlo.slice"(%arg0) {
+    start_indices = dense<[-1, 0]> : tensor<2xi64>,
+    limit_indices = dense<[2, 4]> : tensor<2xi64>,
+    strides = dense<[1, 2]> : tensor<2xi64>
+  } : (tensor<3x4xi32>) -> tensor<1x2xi32>
+  func.return %0 : tensor<1x2xi32>
+}
+
+// -----
+
+func.func @slice_limit_index_larger_than_operand_dim(%arg0: tensor<3x4xi32>) -> tensor<1x2xi32> {
+  // expected-error@+1 {{limit index 5 is larger than dimension size 4 in dimension 1}}
+  %0 = "mhlo.slice"(%arg0) {
+    start_indices = dense<[1, 0]> : tensor<2xi64>,
+    limit_indices = dense<[2, 5]> : tensor<2xi64>,
+    strides = dense<[1, 2]> : tensor<2xi64>
+  } : (tensor<3x4xi32>) -> tensor<1x2xi32>
+  func.return %0 : tensor<1x2xi32>
+}
+
+// -----
+
+func.func @slice_start_index_larger_than_limit_index(%arg0: tensor<3x4xi32>) -> tensor<1x2xi32> {
+  // expected-error@+1 {{start index 3 is larger than limit index 2 in dimension 1}}
+  %0 = "mhlo.slice"(%arg0) {
+    start_indices = dense<[1, 3]> : tensor<2xi64>,
+    limit_indices = dense<[2, 2]> : tensor<2xi64>,
+    strides = dense<[1, 2]> : tensor<2xi64>
+  } : (tensor<3x4xi32>) -> tensor<1x2xi32>
+  func.return %0 : tensor<1x2xi32>
+}
+
+// -----
+
+func.func @slice_negative_stride(%arg0: tensor<3x4xi32>) -> tensor<1x2xi32> {
+  // expected-error@+1 {{stride must be positive but got 0 in dimension 0}}
+  %0 = "mhlo.slice"(%arg0) {
+    start_indices = dense<[1, 0]> : tensor<2xi64>,
+    limit_indices = dense<[2, 4]> : tensor<2xi64>,
+    strides = dense<[0, 2]> : tensor<2xi64>
   } : (tensor<3x4xi32>) -> tensor<1x2xi32>
   func.return %0 : tensor<1x2xi32>
 }
@@ -1499,6 +1567,14 @@ func.func @transpose_unranked(%arg0: tensor<*xi32>) ->  tensor<*xi32> {
 
 // -----
 
+func.func @transpose_missing_permutation(%arg0: tensor<1x2x3x4xi32>) -> tensor<2x1x4x3xi32> {
+  // expected-error@+1 {{requires attribute 'permutation'}}
+  %0 = "mhlo.transpose"(%arg0) {} : (tensor<1x2x3x4xi32>) -> tensor<2x1x4x3xi32>
+  func.return %0: tensor<2x1x4x3xi32>
+}
+
+// -----
+
 func.func @transpose_bad_permutations_rank(%arg0: tensor<1x2x3x4xi32>) ->  tensor<2x1x4x3xi32> {
   // expected-error@+1 {{permutation has rank 2 instead of rank 1}}
   %0 = "mhlo.transpose"(%arg0) {permutation = dense<[[1]]> : tensor<1x1xi64>} : (tensor<1x2x3x4xi32>) -> tensor<2x1x4x3xi32>
@@ -1510,6 +1586,14 @@ func.func @transpose_bad_permutations_rank(%arg0: tensor<1x2x3x4xi32>) ->  tenso
 func.func @transpose_bad_permutations_size(%arg0: tensor<1x2x3x4xi32>) ->  tensor<2x1x4x3xi32> {
   // expected-error@+1 {{TransposeOp operand rank 4 does not match permutation size 1}}
   %0 = "mhlo.transpose"(%arg0) {permutation = dense<[1]> : tensor<1xi64>} : (tensor<1x2x3x4xi32>) -> tensor<2x1x4x3xi32>
+  func.return %0: tensor<2x1x4x3xi32>
+}
+
+// -----
+
+func.func @transpose_bad_permutation(%arg0: tensor<1x2x3x4xi32>) ->  tensor<2x1x4x3xi32> {
+  // expected-error@+1 {{attribute permutation must be a permutation of [0, 1, 2, 3] but got dense<[1, 0, 3, 9]> : tensor<4xi64>}}
+  %0 = "mhlo.transpose"(%arg0) {permutation = dense<[1, 0, 3, 9]> : tensor<4xi64>} : (tensor<1x2x3x4xi32>) -> tensor<2x1x4x3xi32>
   func.return %0: tensor<2x1x4x3xi32>
 }
 
@@ -3709,6 +3793,14 @@ func.func @einsum_i8xi8_i16(%arg0: tensor<1x2xi8>, %arg1: tensor<2x1xi8>) -> ten
 // CHECK-LABEL: func @part_id
 func.func @part_id() -> tensor<ui32> {
   %1 = "mhlo.partition_id"() : () -> tensor<ui32>
+  return %1 : tensor<ui32>
+}
+
+// -----
+
+// CHECK-LABEL: func @domain
+func.func @domain(%arg0: tensor<ui32>) -> tensor<ui32> {
+  %1 = "mhlo.domain"(%arg0) {kind = #mhlo<"kind sharding">, entry_metadata = "", exit_metadata = ""} : (tensor<ui32>) -> tensor<ui32>
   return %1 : tensor<ui32>
 }
 
