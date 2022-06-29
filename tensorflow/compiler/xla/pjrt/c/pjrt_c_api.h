@@ -63,6 +63,7 @@ typedef void PJRT_Error_Message(PJRT_Error_Message_Args* args);
 // ---------------------------------- Client -----------------------------------
 
 typedef struct PJRT_Client PJRT_Client;
+typedef struct PJRT_Device PJRT_Device;
 
 typedef struct {
   size_t struct_size;
@@ -134,9 +135,39 @@ const size_t PJRT_Client_PlatformVersion_Args_STRUCT_SIZE =
 typedef PJRT_Error* PJRT_Client_PlatformVersion(
     PJRT_Client_PlatformVersion_Args* args);
 
-// --------------------------------- Devices -----------------------------------
+typedef struct {
+  size_t struct_size;
+  void* priv;
+  PJRT_Client* client;
+  PJRT_Device** devices;  // out
+  size_t num_devices;     // out
+} PJRT_Client_Devices_Args;
 
-typedef struct PJRT_Device PJRT_Device;
+const size_t PJRT_Client_Devices_Args_STRUCT_SIZE =
+    PJRT_STRUCT_SIZE(PJRT_Client_Devices_Args, num_devices);
+
+// Returns a list of all devices visible to the runtime, including addressable
+// and non-addressable devices.
+typedef PJRT_Error* PJRT_Client_Devices(PJRT_Client_Devices_Args* args);
+
+typedef struct {
+  size_t struct_size;
+  void* priv;
+  PJRT_Client* client;
+  PJRT_Device** addressable_devices;  // out
+  size_t num_addressable_devices;     // out
+} PJRT_Client_AddressableDevices_Args;
+
+const size_t PJRT_Client_AddressableDevices_Args_STRUCT_SIZE =
+    PJRT_STRUCT_SIZE(PJRT_Client_AddressableDevices_Args, addressable_devices);
+
+// Returns a list of devices that are addressable from the client.
+// Addressable devices are those that the client can issue commands to.
+// All devices are addressable in a single-process environment.
+typedef PJRT_Error* PJRT_Client_AddressableDevices(
+    PJRT_Client_AddressableDevices_Args* args);
+
+// --------------------------------- Devices -----------------------------------
 
 typedef struct {
   size_t struct_size;
@@ -151,6 +182,36 @@ const size_t PJRT_Device_Id_Args_STRUCT_SIZE =
 // (e.g. CPUs, GPUs). On multi-host platforms, this will be unique across all
 // hosts' devices.
 typedef PJRT_Error* PJRT_Device_Id(PJRT_Device_Id_Args* args);
+
+typedef struct {
+  size_t struct_size;
+  void* priv;
+  PJRT_Device* device;
+  int process_index;  // out
+} PJRT_Device_ProcessIndex_Args;
+const size_t PJRT_Device_ProcessIndex_Args_STRUCT_SIZE =
+    PJRT_STRUCT_SIZE(PJRT_Device_ProcessIndex_Args, process_index);
+
+// The index of the process that this device belongs to, i.e. is addressable
+// from. This is not always identical to PJRT_Client_ProcessIndex in a
+// multi-process setting, where each client can see devices from all
+// processes, but only a subset of them are addressable and have the same
+// process_index as the client.
+typedef PJRT_Error* PJRT_Device_ProcessIndex(
+    PJRT_Device_ProcessIndex_Args* args);
+
+typedef struct {
+  size_t struct_size;
+  void* priv;
+  PJRT_Device* device;
+  bool is_addressable;  // out
+} PJRT_Device_IsAddressable_Args;
+const size_t PJRT_Device_IsAddressable_Args_STRUCT_SIZE =
+    PJRT_STRUCT_SIZE(PJRT_Device_IsAddressable_Args, is_addressable);
+
+// Whether client can issue command to this device.
+typedef PJRT_Error* PJRT_Device_IsAddressable(
+    PJRT_Device_IsAddressable_Args* args);
 
 // ------------------------------- Executables ---------------------------------
 
@@ -205,8 +266,12 @@ typedef struct {
   PJRT_API_STRUCT_FIELD(PJRT_Client_PlatformName);
   PJRT_API_STRUCT_FIELD(PJRT_Client_ProcessIndex);
   PJRT_API_STRUCT_FIELD(PJRT_Client_PlatformVersion);
+  PJRT_API_STRUCT_FIELD(PJRT_Client_Devices);
+  PJRT_API_STRUCT_FIELD(PJRT_Client_AddressableDevices);
 
   PJRT_API_STRUCT_FIELD(PJRT_Device_Id);
+  PJRT_API_STRUCT_FIELD(PJRT_Device_ProcessIndex);
+  PJRT_API_STRUCT_FIELD(PJRT_Device_IsAddressable);
 
   PJRT_API_STRUCT_FIELD(PJRT_Executable_Name);
 

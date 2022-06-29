@@ -98,12 +98,47 @@ PJRT_Error* PJRT_Client_PlatformVersion(
   return nullptr;
 }
 
+PJRT_Error* PJRT_Client_Devices(PJRT_Client_Devices_Args* args) {
+  PJRT_RETURN_IF_ERROR(CheckMatchingStructSizes(
+      "PJRT_Client_Devices_Args", PJRT_Client_Devices_Args_STRUCT_SIZE,
+      args->struct_size));
+  args->num_devices = args->client->devices.size();
+  args->devices = args->client->devices.data();
+  return nullptr;
+}
+
+PJRT_Error* PJRT_Client_AddressableDevices(
+    PJRT_Client_AddressableDevices_Args* args) {
+  PJRT_RETURN_IF_ERROR(CheckMatchingStructSizes(
+      "PJRT_Client_AddressableDevices_Args",
+      PJRT_Client_AddressableDevices_Args_STRUCT_SIZE, args->struct_size));
+  args->num_addressable_devices = args->client->addressable_devices.size();
+  args->addressable_devices = args->client->addressable_devices.data();
+  return nullptr;
+}
+
 PJRT_Error* PJRT_Device_Id(PJRT_Device_Id_Args* args) {
   PJRT_RETURN_IF_ERROR(CheckMatchingStructSizes("PJRT_Device_Id_Args",
                                                 PJRT_Device_Id_Args_STRUCT_SIZE,
                                                 args->struct_size));
 
   args->id = args->device->device->id();
+  return nullptr;
+}
+
+PJRT_Error* PJRT_Device_ProcessIndex(PJRT_Device_ProcessIndex_Args* args) {
+  PJRT_RETURN_IF_ERROR(CheckMatchingStructSizes(
+      "PJRT_Device_ProcessIndex_Args",
+      PJRT_Device_ProcessIndex_Args_STRUCT_SIZE, args->struct_size));
+  args->process_index = args->device->device->process_index();
+  return nullptr;
+}
+
+PJRT_Error* PJRT_Device_IsAddressable(PJRT_Device_IsAddressable_Args* args) {
+  PJRT_RETURN_IF_ERROR(CheckMatchingStructSizes(
+      "PJRT_Device_IsAddressable_Args",
+      PJRT_Device_IsAddressable_Args_STRUCT_SIZE, args->struct_size));
+  args->is_addressable = args->device->device->IsAddressable();
   return nullptr;
 }
 

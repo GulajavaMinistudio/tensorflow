@@ -116,7 +116,8 @@ Value getInitTensor(OpBuilder& b, Location loc, ShapedType type,
 Value getInitSparseTensor(OpBuilder& b, Location loc, ShapedType type,
                           ArrayRef<Value> dynSizes) {
   return b.create<bufferization::AllocTensorOp>(loc, type, dynSizes,
-                                                /*copy=*/Value());
+                                                /*copy=*/Value(),
+                                                /*memory_space=*/IntegerAttr());
 }
 
 Value getInitTensorFor(OpBuilder& b, Location loc, ShapedType resultType,
@@ -1151,14 +1152,18 @@ class ReshapeOpConverter : public OpConversionPattern<mhlo::ReshapeOp> {
               shape[targetDim] = 1;
           }
         }
-        auto newOperandType = RankedTensorType::get(shape, elemType);
+        // Insert a cast if types are not the same (ignoring sparse encoding).
+        auto enc = sparse_tensor::getSparseTensorEncoding(operandType);
+        auto newOperandType = RankedTensorType::get(shape, elemType, enc);
         if (newOperandType != operandType) {
           operand = rewriter.create<tensor::CastOp>(reshapeOp.getLoc(),
                                                     newOperandType, operand);
         }
+        // Generate collapse operation.
         rewriter.replaceOpWithNewOp<tensor::CollapseShapeOp>(
             reshapeOp, resultType, operand, *reassociationMap);
       } else {
+        // Generate expand operation.
         rewriter.replaceOpWithNewOp<tensor::ExpandShapeOp>(
             reshapeOp, resultType, operand, *reassociationMap);
       }
@@ -2431,8 +2436,10 @@ struct ReduceWindowOpOnTensorsGenericConversion
       dstExprs.push_back(mlir::getAffineDimExpr(i, ctx));
     }
 
-    SmallVector<AffineMap, 4> inferredMaps =
-        AffineMap::inferFromExprList({srcExprs, windowExprs, dstExprs});
+    SmallVector<AffineMap, 4> inferredMaps(3, AffineMap::get(ctx));
+    if (rank > 0)
+      inferredMaps =
+          AffineMap::inferFromExprList({srcExprs, windowExprs, dstExprs});
 
     SmallVector<AffineMap, 4> indexingMaps;
 
@@ -3319,6 +3326,7 @@ void populateHloToLinalgConversionPattern(MLIRContext* context,
       PointwiseToLinalgConverter<mhlo::SubOp>,
       PointwiseToLinalgConverter<mhlo::TanhOp>,
       PointwiseToLinalgConverter<mhlo::XorOp>,
+      PointwiseToLinalgConverter<mhlo::ReducePrecisionOp>,
       RealDynamicSliceConverter,
       ReshapeOpConverter,
       ReverseConverter,
