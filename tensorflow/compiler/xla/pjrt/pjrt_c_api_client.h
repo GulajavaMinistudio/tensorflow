@@ -26,7 +26,6 @@ limitations under the License.
 #include "tensorflow/compiler/xla/pjrt/c/pjrt_c_api.h"
 #include "tensorflow/compiler/xla/pjrt/c/pjrt_c_api_helpers.h"
 #include "tensorflow/compiler/xla/pjrt/pjrt_client.h"
-#include "tensorflow/core/platform/casts.h"
 
 namespace xla {
 
@@ -168,9 +167,7 @@ class PjRtCApiClient : public PjRtClient {
       const PjRtExecutable& executable) const override;
 
   StatusOr<std::unique_ptr<PjRtExecutable>> DeserializeExecutable(
-      absl::string_view serialized, CompileOptions options) override {
-    return WrapExecutable(wrapped_->DeserializeExecutable(serialized, options));
-  }
+      absl::string_view serialized, CompileOptions options) override;
 
   StatusOr<std::unique_ptr<PjRtBuffer>> CreateUninitializedBuffer(
       const Shape& shape, PjRtDevice* device) override {
@@ -258,6 +255,8 @@ class PjRtCApiClient : public PjRtClient {
 
   const PJRT_Api* pjrt_c_api() const;
 
+  PJRT_Client* pjrt_c_client() { return c_client_.get(); }
+
  private:
   const PJRT_Api* c_api_;
   std::unique_ptr<PJRT_Client, ::pjrt::PJRT_ClientDeleter> c_client_;
@@ -311,7 +310,7 @@ class PjRtCApiBuffer : public PjRtBuffer {
     return wrapped_->CopyRawToHost(dst, offset, transfer_size);
   }
 
-  void Delete() override { wrapped_->Delete(); }
+  void Delete() override;
 
   StatusOr<std::unique_ptr<ExternalReference>> ReleaseDeviceMemoryOwnership(
       bool wait_for_operations_to_complete) override {
@@ -319,7 +318,7 @@ class PjRtCApiBuffer : public PjRtBuffer {
         wait_for_operations_to_complete);
   }
 
-  bool IsDeleted() override { return wrapped_->IsDeleted(); }
+  bool IsDeleted() override;
 
   StatusOr<std::unique_ptr<PjRtBuffer>> CopyToDevice(
       PjRtDevice* dst_device) override {
@@ -427,8 +426,8 @@ class PjRtCApiExecutable : public PjRtExecutable {
       std::optional<PjRtFuture<Status>>& returned_future,
       bool fill_future) override;
 
-  void Delete() override { return wrapped()->Delete(); }
-  bool IsDeleted() override { return wrapped()->IsDeleted(); }
+  void Delete() override;
+  bool IsDeleted() override;
 
   PjRtExecutable* wrapped() const;
 
