@@ -689,7 +689,7 @@ INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(ShiftRightLogicalOp)
 INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(SignOp)
 INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(SineOp)
 INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(SqrtOp)
-INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(SubOp)
+INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(SubtractOp)
 INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(TanhOp)
 INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(XorOp)
 
@@ -5713,6 +5713,14 @@ struct Round {
   }
 };
 
+struct RoundNearestEven {
+  APFloat operator()(const APFloat& f) {
+    APFloat r = f;
+    r.roundToIntegral(llvm::RoundingMode::NearestTiesToEven);
+    return r;
+  }
+};
+
 struct LogicalNot {
   APInt operator()(const APInt& i) {
     return APInt(i.getBitWidth(), static_cast<uint64_t>(!i));
@@ -5768,6 +5776,7 @@ struct Sign {
 UNARY_FOLDER(NegOp, std::negate);
 UNARY_FOLDER(SignOp, Sign);
 UNARY_FOLDER_INT(NotOp, LogicalNot);
+UNARY_FOLDER_FLOAT(RoundNearestEvenOp, RoundNearestEven);
 UNARY_FOLDER_FLOAT(RoundOp, Round);
 
 #undef UNARY_FOLDER
@@ -5954,7 +5963,7 @@ struct Xor {
 // Due to the other ops behaving differently in signed vs unsigned integers,
 // APInts need a special implementation. Currently, it replicates signed int
 // op behavior.
-BINARY_FOLDER(SubOp, std::minus);
+BINARY_FOLDER(SubtractOp, std::minus);
 BINARY_FOLDER(DivOp, Divide);
 BINARY_FOLDER(RemOp, Remainder);
 BINARY_FOLDER(MaxOp, Max);

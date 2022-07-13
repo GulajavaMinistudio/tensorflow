@@ -285,6 +285,17 @@ def LHLO_RoundOp: LHLO_UnaryElementwiseOp<"round_nearest_afz", LHLO_FpBuffer> {
     https://www.tensorflow.org/xla/operation_semantics#element-wise_unary_functions.
   }];
 }
+def LHLO_RoundNearestEvenOp: LHLO_UnaryElementwiseOp<"round_nearest_even", LHLO_FpBuffer> {
+  let summary = "Round nearest even operator";
+  let description = [{
+    Returns `Round(operand)` element-wise, rounding to nearest integer with
+    half-way cases rounding towards even numbers.
+
+
+    See
+    https://www.tensorflow.org/xla/operation_semantics#element-wise_unary_functions.
+  }];
+}
 def LHLO_RsqrtOp: LHLO_UnaryElementwiseOp<"rsqrt", LHLO_FpOrComplexBuffer> {
   let summary = "Reciprocal Square-root operator";
   let description = [{
@@ -485,7 +496,7 @@ def LHLO_ShiftRightLogicalOp : LHLO_BinaryElementwiseOp<"shift_right_logical", L
     https://www.tensorflow.org/xla/operation_semantics#element-wise_binary_arithmetic_operations.
   }];
 }
-def LHLO_SubOp : LHLO_BinaryElementwiseOp<"subtract"> {
+def LHLO_SubtractOp : LHLO_BinaryElementwiseOp<"subtract"> {
   let summary = "Subtraction operator";
   let description = [{
     Returns `lhs - rhs` element-wise.

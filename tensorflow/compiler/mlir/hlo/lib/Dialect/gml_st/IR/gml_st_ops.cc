@@ -16,6 +16,9 @@ limitations under the License.
 #include "mlir-hlo/Dialect/gml_st/IR/gml_st_ops.h"
 
 #include <algorithm>
+#include <iterator>
+#include <memory>
+#include <utility>
 
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/TypeSwitch.h"
@@ -582,7 +585,7 @@ void ParallelOp::build(
     builder.setInsertionPointToStart(bodyBlock);
     bodyBuilderFn(builder, result.location,
                   bodyBlock->getArguments().take_front(numIvs));
-    LoopOp::ensureTerminator(*bodyRegion, builder, result.location);
+    ParallelOp::ensureTerminator(*bodyRegion, builder, result.location);
   }
 }
 
@@ -670,7 +673,7 @@ void ForOp::build(
     bodyBuilderFn(builder, result.location,
                   bodyBlock->getArguments().take_front(numIvs),
                   bodyBlock->getArguments().take_back(outputs.size()));
-    LoopOp::ensureTerminator(*bodyRegion, builder, result.location);
+    ForOp::ensureTerminator(*bodyRegion, builder, result.location);
   }
 }
 
@@ -781,7 +784,7 @@ static bool isShapePreserving(LoopOp loopOp, int64_t arg) {
     using tensor::InsertSliceOp;
     value = llvm::TypeSwitch<Operation *, Value>(opResult.getOwner())
                 .template Case<InsertSliceOp>(
-                    [&](InsertSliceOp op) { return op.dest(); })
+                    [&](InsertSliceOp op) { return op.getDest(); })
                 .template Case<LoopOp>([&](LoopOp loopOp) {
                   return isShapePreserving(loopOp, opResult.getResultNumber())
                              ? loopOp.outputs()[opResult.getResultNumber()]
@@ -817,7 +820,7 @@ struct DimOfLoopInsOutsFolder : public OpRewritePattern<OpTy> {
 
   LogicalResult matchAndRewrite(OpTy dimOp,
                                 PatternRewriter &rewriter) const final {
-    auto src = dimOp.source().template dyn_cast<BlockArgument>();
+    auto src = dimOp.getSource().template dyn_cast<BlockArgument>();
     if (!src) return failure();
     auto loopOp = dyn_cast<LoopOp>(src.getOwner()->getParent()->getParentOp());
     if (!loopOp) return failure();
@@ -832,7 +835,8 @@ struct DimOfLoopInsOutsFolder : public OpRewritePattern<OpTy> {
     auto it1 = llvm::find(inputArgs, src);
     if (it1 != inputArgs.end()) {
       rewriter.updateRootInPlace(dimOp, [&] {
-        dimOp.sourceMutable().assign(loopOp.inputs()[it1 - inputArgs.begin()]);
+        dimOp.getSourceMutable().assign(
+            loopOp.inputs()[it1 - inputArgs.begin()]);
       });
       return success();
     }
@@ -841,7 +845,7 @@ struct DimOfLoopInsOutsFolder : public OpRewritePattern<OpTy> {
     auto it2 = llvm::find(outputArgs, src);
     if (it2 != outputArgs.end()) {
       rewriter.updateRootInPlace(dimOp, [&] {
-        dimOp.sourceMutable().assign(
+        dimOp.getSourceMutable().assign(
             loopOp.outputs()[it2 - outputArgs.begin()]);
       });
       return success();
@@ -876,13 +880,13 @@ struct DimOfLoopResultFolder : public OpRewritePattern<OpTy> {
 
   LogicalResult matchAndRewrite(OpTy dimOp,
                                 PatternRewriter &rewriter) const final {
-    auto loopOp = dimOp.source().template getDefiningOp<LoopOp>();
+    auto loopOp = dimOp.getSource().template getDefiningOp<LoopOp>();
     if (!loopOp) return failure();
-    auto opResult = dimOp.source().template cast<OpResult>();
+    auto opResult = dimOp.getSource().template cast<OpResult>();
     unsigned resultNumber = opResult.getResultNumber();
     if (!isShapePreserving(loopOp, resultNumber)) return failure();
     rewriter.updateRootInPlace(dimOp, [&]() {
-      dimOp.sourceMutable().assign(loopOp.outputs()[resultNumber]);
+      dimOp.getSourceMutable().assign(loopOp.outputs()[resultNumber]);
     });
     return success();
   }
@@ -1049,7 +1053,7 @@ struct TensorCastOfLoopInsOutsFolder : public OpRewritePattern<LoopOp> {
     for (auto arg : args) {
       if (auto cast = arg.getDefiningOp<tensor::CastOp>()) {
         result.ops.push_back(cast);
-        result.updatedArgs.push_back(cast.source());
+        result.updatedArgs.push_back(cast.getSource());
         result.castFound = true;
         continue;
       }
@@ -1120,7 +1124,7 @@ struct TensorCastOfLoopInsOutsFolder : public OpRewritePattern<LoopOp> {
         continue;
       }
       newYieldArgs.push_back(innerBuilder.create<tensor::CastOp>(
-          loc, argCast.source().getType(), bvm.lookup(yieldArg)));
+          loc, argCast.getSource().getType(), bvm.lookup(yieldArg)));
     }
     innerBuilder.create<YieldOp>(loc, newYieldArgs);
     return newResults;
@@ -1206,7 +1210,15 @@ LogicalResult LoopOp::fold(ArrayRef<Attribute>,
 
 LogicalResult YieldOp::verify() {
   auto *parentOp = getOperation()->getParentOp();
-  auto loopOp = dyn_cast<LoopOp>(parentOp);
+
+  if (auto setYield = dyn_cast<SetYieldOp>(parentOp)) {
+    if (values().size() != 1)
+      return emitOpError(
+          "expected a single argument for the terminator of accumulator "
+          "region");
+    return success();
+  }
+  auto loopOp = cast<LoopOp>(parentOp);
   // Check if output args with tensor types match results types.
   SmallVector<Value, 2> tensorOuts;
   llvm::copy_if(
@@ -1717,22 +1729,126 @@ LogicalResult TransposeTileOp::verify() {
 // SetYieldOp
 //===----------------------------------------------------------------------===//
 
-LogicalResult SetYieldOp::verify() { return success(); }
+using AccumulatorRegionBuilderFn =
+    function_ref<void(OpBuilder &, Location, Value, Value)>;
+
+void SetYieldOp::build(OpBuilder &builder, OperationState &result) {
+  build(builder, result, llvm::None, llvm::None, llvm::None);
+}
+
+void SetYieldOp::build(OpBuilder &builder, OperationState &result,
+                       ValueRange srcs, ValueRange dsts, ValueRange sets) {
+  SmallVector<bool, 2> accumulatorFlags(srcs.size(), false);
+  build(builder, result, srcs, dsts, sets,
+        builder.getBoolArrayAttr(accumulatorFlags), llvm::None);
+}
+
+void SetYieldOp::build(
+    OpBuilder &builder, OperationState &result, ValueRange srcs,
+    ValueRange dsts, ValueRange sets, ArrayAttr accumulatorFlags,
+    ArrayRef<AccumulatorRegionBuilderFn> accumulatorBuilderFns) {
+  assert(dsts.size() == srcs.size() &&
+         "`dsts` and `srcs` should have the same size");
+  assert(sets.size() == srcs.size() &&
+         "`sets` and `srcs` should have the same size");
+  assert(accumulatorFlags.size() == srcs.size() &&
+         "`accumulatorFlags` and `srcs` should have the same size");
+
+  auto accumulatorCount = llvm::count_if(accumulatorFlags, [](Attribute attr) {
+    return attr.cast<BoolAttr>().getValue();
+  });
+  (void)accumulatorCount;
+  assert(accumulatorCount == accumulatorBuilderFns.size() &&
+         "the number of flags set in `accumulatorFlags` attribute should be "
+         "equal to the number of `accumulatorBuilderFns`");
+
+  result.addOperands(srcs);
+  result.addOperands(dsts);
+  result.addOperands(sets);
+  result.addAttribute(SetYieldOp::accumulatorFlagsAttrName(result.name),
+                      accumulatorFlags);
+
+  const auto *builderFnIt = accumulatorBuilderFns.begin();
+  for (auto item : llvm::zip(srcs, accumulatorFlags)) {
+    Value src = std::get<0>(item);
+    auto accumulatorFlag = std::get<1>(item).cast<BoolAttr>();
+
+    if (!accumulatorFlag.getValue()) continue;
+    Region *region = result.addRegion();
+    OpBuilder::InsertionGuard g(builder);
+    SmallVector<Type, 2> argTypes(2, src.getType());
+    builder.createBlock(region);
+    Block &bodyBlock = region->front();
+    bodyBlock.addArguments(argTypes, {result.location, result.location});
+
+    builder.setInsertionPointToStart(&bodyBlock);
+    (*builderFnIt)(builder, result.location, bodyBlock.getArgument(0),
+                   bodyBlock.getArgument(1));
+    std::next(builderFnIt);
+  }
+}
+
+LogicalResult SetYieldOp::verify() {
+  auto accumulatorCount = llvm::count_if(
+      accumulatorFlags(),
+      [](Attribute attr) { return attr.cast<BoolAttr>().getValue(); });
+  if (accumulatorCount != accumulators().size())
+    return emitOpError("expected the number of accumulator regions ")
+           << accumulators().size()
+           << " to match the number of set accumulator flags "
+           << accumulatorCount;
+
+  auto *regionIt = accumulators().begin();
+  for (auto item : llvm::zip(srcs(), accumulatorFlags())) {
+    Type srcType = std::get<0>(item).getType();
+    BoolAttr accumulatorFlag = std::get<1>(item).cast<BoolAttr>();
+    if (!accumulatorFlag.getValue()) continue;
+
+    Block &block = regionIt->front();
+    if (block.getArgumentTypes() != SmallVector<Type>{srcType, srcType})
+      return emitOpError()
+             << "expected accumulator region to have 2 arguments of type "
+             << srcType;
+    std::next(regionIt);
+  }
+  return success();
+}
 
 void SetYieldOp::print(OpAsmPrinter &p) {
-  p.printOptionalAttrDict(getOperation()->getAttrs());
+  p.printOptionalAttrDict(getOperation()->getAttrs(), /*elidedAttrs = */
+                          {accumulatorFlagsAttrName().str()});
 
-  for (auto zip : llvm::zip(srcs(), dsts(), sets())) {
-    Value src, dst, set;
-    std::tie(src, dst, set) = zip;
-    p << ' ' << src << " into " << dst << '[' << set << "] : " << src.getType()
-      << " into " << dst.getType() << '[' << set.getType() << ']';
+  auto *regionIt = getOperation()->getRegions().begin();
+  for (auto &en :
+       llvm::enumerate(llvm::zip(srcs(), dsts(), sets(), accumulatorFlags()))) {
+    if (en.index() > 0) p.printNewline();
+    Value src = std::get<0>(en.value());
+    Value dst = std::get<1>(en.value());
+    Value set = std::get<2>(en.value());
+    auto accumulatorFlag = std::get<3>(en.value()).cast<BoolAttr>();
+
+    p << ' ' << src << " into " << dst << '[' << set << ']';
+
+    if (accumulatorFlag.getValue()) {
+      auto &block = regionIt->getBlocks().front();
+      Value newValue = block.getArgument(0);
+      Value oldValue = block.getArgument(1);
+      p << " acc (" << newValue << ", " << oldValue << ": "
+        << oldValue.getType() << ") ";
+
+      p.printRegion(*regionIt, false);
+      std::next(regionIt);
+    }
+
+    p << " : " << src.getType() << " into " << dst.getType() << '['
+      << set.getType() << ']';
   }
 }
 
 ParseResult SetYieldOp::parse(OpAsmParser &parser, OperationState &result) {
   if (parser.parseOptionalAttrDict(result.attributes)) return failure();
 
+  SmallVector<bool, 2> accumulatorFlags;
   SmallVector<OpAsmParser::UnresolvedOperand, 4> srcs, dsts, sets;
   SmallVector<Type, 4> srcTypes, dstTypes, setTypes;
 
@@ -1748,11 +1864,34 @@ ParseResult SetYieldOp::parse(OpAsmParser &parser, OperationState &result) {
         parser.parseOperand(sets.emplace_back()) || parser.parseRSquare())
       return failure();
 
+    OpBuilder b(parser.getBuilder().getContext());
+    bool hasAccumulatorRegion = succeeded(parser.parseOptionalKeyword("acc"));
+    accumulatorFlags.push_back(hasAccumulatorRegion);
+    if (hasAccumulatorRegion) {
+      auto region = std::make_unique<Region>();
+      OpAsmParser::UnresolvedOperand newValue, oldValue;
+      Type argType;
+      if (parser.parseLParen() || parser.parseOperand(newValue) ||
+          parser.parseComma() || parser.parseOperand(oldValue) ||
+          parser.parseColonType(argType) || parser.parseRParen())
+        return failure();
+
+      SmallVector<OpAsmParser::Argument, 4> regionArgs;
+      for (auto value : {newValue, oldValue}) {
+        auto &arg = regionArgs.emplace_back();
+        arg.ssaName = value;
+        arg.type = argType;
+      }
+
+      if (parser.parseRegion(*region, regionArgs)) return failure();
+      result.addRegion(std::move(region));
+    }
     if (parser.parseColon() || parser.parseType(srcTypes.emplace_back()) ||
         parser.parseKeyword("into") ||
         parser.parseType(dstTypes.emplace_back()) || parser.parseLSquare() ||
         parser.parseType(setTypes.emplace_back()) || parser.parseRSquare())
       return failure();
+
     return success();
   };
   if (parser.parseCommaSeparatedList(AsmParser::Delimiter::None, parseElt))
@@ -1766,6 +1905,8 @@ ParseResult SetYieldOp::parse(OpAsmParser &parser, OperationState &result) {
                              result.operands))
     return failure();
 
+  result.addAttribute(SetYieldOp::accumulatorFlagsAttrName(result.name),
+                      parser.getBuilder().getBoolArrayAttr(accumulatorFlags));
   return success();
 }
 
