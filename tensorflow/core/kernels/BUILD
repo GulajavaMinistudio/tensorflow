@@ -6653,6 +6653,7 @@ filegroup(
         "//tensorflow/core/kernels/image:encode_jpeg_op.cc",
         "//tensorflow/core/kernels/image:encode_png_op.cc",
         "//tensorflow/core/kernels/image:colorspace_op.cc",
+        "//tensorflow/core/kernels/uniform_quant_ops:uniform_quantized_dot_ops.cc",
     ] + select({
         ":xsmm_convolutions": [
             "xsmm_conv2d.h",
@@ -6870,6 +6871,7 @@ filegroup(
         "//tensorflow/core/kernels/linalg:qr_op_complex64.cc",
         "//tensorflow/core/kernels/linalg:qr_op_double.cc",
         "//tensorflow/core/kernels/linalg:qr_op_float.cc",
+        "//tensorflow/core/kernels/linalg:qr_op_half.cc",
     ],
 )
 

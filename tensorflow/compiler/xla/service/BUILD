@@ -3933,7 +3933,6 @@ cc_library(
         "//tensorflow/compiler/xla:xla_data_proto_cc",
         "//tensorflow/core:lib",
         "//tensorflow/core:lib_internal",
-        "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:span",
     ],
 )
@@ -4524,6 +4523,7 @@ tf_cc_test(
     deps = [
         ":hlo",
         ":hlo_matchers",
+        ":instruction_hoister",
         ":memory_space_assignment",
         ":memory_space_assignment_utils",
         "//tensorflow/compiler/xla:test",
@@ -6548,6 +6548,16 @@ cc_library(
         "//tensorflow/stream_executor/lib",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/strings",
+    ],
+)
+
+cc_library(
+    name = "instruction_hoister",
+    srcs = ["instruction_hoister.cc"],
+    hdrs = ["instruction_hoister.h"],
+    deps = [
+        ":hlo",
+        ":hlo_pass",
     ],
 )
 
