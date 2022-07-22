@@ -592,20 +592,14 @@ class ConvOpLowering : public OpRewritePattern<Conv> {
 
     // Copy attributes specific for fused convolutions.
     if (auto fused = dyn_cast<ConvForwardFusedOp>(op.getOperation())) {
-      auto activation_mode =
-          ConvertConvActivationMode(fused.getActivationMode());
-      if (!activation_mode.ok())
-        return op.emitOpError("failed to convert activation mode");
-      set_i64("activation_mode", static_cast<int64_t>(*activation_mode));
+      call->setAttr(b.getStringAttr("activation_mode"),
+                    fused.getActivationModeAttr());
     }
 
     // Copy attributes specific for fused convolutions with side input.
     if (auto fused = dyn_cast<ConvForwardFusedSideInputOp>(op.getOperation())) {
-      auto activation_mode =
-          ConvertConvActivationMode(fused.getActivationMode());
-      if (!activation_mode.ok())
-        return op.emitOpError("failed to convert activation mode");
-      set_i64("activation_mode", static_cast<int64_t>(*activation_mode));
+      call->setAttr(b.getStringAttr("activation_mode"),
+                    fused.getActivationModeAttr());
       set_attr("side_input_scale", fused.getSideInputScaleAttr());
     }
 
@@ -967,8 +961,7 @@ class FftOpLowering : public OpRewritePattern<FftOp> {
 
     // Copy backend specific attributes.
     call->setAttr(b.getStringAttr("fft_length"), op.getFftLengthAttr());
-    call->setAttr(b.getStringAttr("fft_type"),
-                  b.getI32IntegerAttr(static_cast<int32_t>(op.getFftType())));
+    call->setAttr(b.getStringAttr("fft_type"), op.getFftTypeAttr());
 
     // Erase the original Fft operation.
     rewriter.eraseOp(op);
@@ -1025,8 +1018,7 @@ class CholeskyOpLowering : public OpRewritePattern<CholeskyOp> {
     call->setAttr(b.getStringAttr("batch_size"),
                   b.getI64IntegerAttr(batch_size));
     call->setAttr(b.getStringAttr("n"), b.getI64IntegerAttr(n));
-    call->setAttr(b.getStringAttr("uplo"),
-                  b.getI64IntegerAttr(op.getIsLower()));
+    call->setAttr(b.getStringAttr("is_lower"), op.getIsLowerAttr());
 
     // Erase the original Cholesky operation.
     rewriter.eraseOp(op);

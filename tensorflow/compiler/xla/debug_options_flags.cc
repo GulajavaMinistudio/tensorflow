@@ -51,6 +51,7 @@ DebugOptions DefaultDebugOptionsIgnoringFlags() {
 #ifdef XLA_CPU_USE_ACL
   opts.set_xla_cpu_use_acl(true);
 #endif
+  opts.set_xla_cpu_use_jitrt(false);
   opts.set_xla_gpu_max_kernel_unroll_factor(4);
 
   // Run all GPU work on one stream by default.  Using multiple streams
@@ -449,6 +450,10 @@ static void AllocateFlags() {
       flag_values->xla_cpu_use_acl(),
       "Generate calls to ACL (Arm Compute Library) in the CPU backend."));
   flag_objects->push_back(tensorflow::Flag(
+      "xla_cpu_use_jitrt",
+      bool_setter_for(&DebugOptions::set_xla_cpu_use_jitrt),
+      flag_values->xla_cpu_use_jitrt(), "Enable JitRt in the CPU backend."));
+  flag_objects->push_back(tensorflow::Flag(
       "xla_gpu_crash_on_verification_failures",
       bool_setter_for(
           &DebugOptions::set_xla_gpu_crash_on_verification_failures),
@@ -671,6 +676,11 @@ static void AllocateFlags() {
       bool_setter_for(&DebugOptions::set_xla_gpu_deterministic_ops),
       flag_values->xla_gpu_deterministic_ops(),
       "Guarantees run-to-run determinism on GPU."));
+  flag_objects->push_back(tensorflow::Flag(
+      "xla_gpu_simplify_scatters",
+      bool_setter_for(&DebugOptions::set_xla_gpu_simplify_scatters),
+      flag_values->xla_gpu_simplify_scatters(),
+      "Simplifies all Scatters to a canonical form."));
   flag_objects->push_back(tensorflow::Flag(
       "xla_gpu_enable_async_all_reduce",
       bool_setter_for(&DebugOptions::set_xla_gpu_enable_async_all_reduce),
