@@ -18,7 +18,6 @@ limitations under the License.
 
 #include <memory>
 
-#include "absl/strings/str_cat.h"
 #include "tensorflow/compiler/xla/array2d.h"
 #include "tensorflow/compiler/xla/array4d.h"
 #include "tensorflow/compiler/xla/client/global_data.h"
@@ -27,13 +26,11 @@ limitations under the License.
 #include "tensorflow/compiler/xla/client/xla_builder.h"
 #include "tensorflow/compiler/xla/layout_util.h"
 #include "tensorflow/compiler/xla/literal.h"
-#include "tensorflow/compiler/xla/reference_util.h"
 #include "tensorflow/compiler/xla/service/gpu/gpu_executable.h"
 #include "tensorflow/compiler/xla/shape_util.h"
 #include "tensorflow/compiler/xla/statusor.h"
 #include "tensorflow/compiler/xla/tests/client_library_test_base.h"
 #include "tensorflow/compiler/xla/tests/hlo_test_base.h"
-#include "tensorflow/compiler/xla/tests/literal_test_util.h"
 #include "tensorflow/compiler/xla/tests/test_macros.h"
 #include "tensorflow/compiler/xla/xla_data.pb.h"
 #include "tensorflow/core/platform/test.h"
@@ -1797,15 +1794,11 @@ ENTRY TestComputation {
 })";
   auto result = RunAndCompare(kHlo, ErrorSpec{0.01, 0.01});
   if (isCudaPlatform) {
-    // TODO(b/235531081): add support for boolean convolutions on GPU
     EXPECT_FALSE(result);
-    // TODO(b/237663051): fix error message propagation for JitRt
-    if (!gpu::IsJitRtExecutableEnabled(GetModuleConfigForTest())) {
-      EXPECT_THAT(result.message(),
-                  ::testing::HasSubstr(
-                      isAutotuneDisabled ? "Unimplemented convolution"
+    EXPECT_THAT(result.message(),
+                ::testing::HasSubstr(isAutotuneDisabled
+                                         ? "Unimplemented convolution"
                                          : "Unsupported convolution datatype"));
-    }
   } else if (isROCmPlatform) {
     EXPECT_FALSE(result);
   } else {

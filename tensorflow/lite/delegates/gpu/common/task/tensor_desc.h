@@ -17,6 +17,7 @@ limitations under the License.
 #define TENSORFLOW_LITE_DELEGATES_GPU_COMMON_TASK_TENSOR_DESC_H_
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -92,6 +93,10 @@ class TensorDescriptor : public GPUObjectDescriptor {
   void UploadData(const tflite::gpu::Tensor<BHWC, T>& src);
   template <DataType T>
   void DownloadData(tflite::gpu::Tensor<BHWC, T>* dst);
+  template <DataType T>
+  void UploadData(const tflite::gpu::Tensor<BHWDC, T>& src);
+  template <DataType T>
+  void DownloadData(tflite::gpu::Tensor<BHWDC, T>* dst);
 
   void UploadData(const tflite::gpu::Tensor<HWC, DataType::FLOAT32>& src);
   void UploadData(const tflite::gpu::Tensor<Linear, DataType::FLOAT32>& src);
@@ -125,6 +130,9 @@ class TensorDescriptor : public GPUObjectDescriptor {
   // with old storage type
   absl::Status UpdateToSupportedStorageType(const GpuInfo& gpu_info,
                                             const BHWC& shape);
+
+  std::vector<uint64_t> GetStorageDims() const;
+  int GetElementSize() const;
 
   void SetUseBufferForWriteOnlyTexture2d(bool value) {
     use_buffer_for_write_only_2d_texture_ = value;
@@ -283,6 +291,19 @@ void TensorDescriptor::UploadData(const tflite::gpu::Tensor<BHWC, T>& src) {
 template <DataType T>
 void TensorDescriptor::DownloadData(tflite::gpu::Tensor<BHWC, T>* dst) {
   dst->shape = BHWC(shape_.b, shape_.h, shape_.w, shape_.c);
+  dst->data.resize(dst->shape.DimensionsProduct(), 0.0f);
+  DownloadData(dst->data.data());
+}
+
+template <DataType T>
+void TensorDescriptor::UploadData(const tflite::gpu::Tensor<BHWDC, T>& src) {
+  shape_ = src.shape;
+  UploadData(src.data.data());
+}
+
+template <DataType T>
+void TensorDescriptor::DownloadData(tflite::gpu::Tensor<BHWDC, T>* dst) {
+  dst->shape = shape_;
   dst->data.resize(dst->shape.DimensionsProduct(), 0.0f);
   DownloadData(dst->data.data());
 }
