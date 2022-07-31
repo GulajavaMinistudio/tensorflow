@@ -152,6 +152,7 @@ cc_library(
     hdrs = ["pjrt_client.h"],
     visibility = ["//tensorflow/compiler/xla:friends"],
     deps = [
+        ":pjrt_executable",
         ":pjrt_future",
         "//tensorflow/compiler/xla:literal",
         "//tensorflow/compiler/xla:shape_util",
@@ -208,6 +209,43 @@ tf_cc_test(
         "//tensorflow/compiler/xla/tests:literal_test_util",
         "//tensorflow/core:test_main",
         "@com_google_absl//absl/synchronization",
+    ],
+)
+
+cc_library(
+    name = "pjrt_executable",
+    hdrs = ["pjrt_executable.h"],
+    visibility = [":friends"],
+    deps = [
+        "//tensorflow/compiler/xla:statusor",
+        "//tensorflow/compiler/xla:util",
+        "//tensorflow/compiler/xla/service:hlo",
+        "@com_google_absl//absl/strings",
+    ],
+)
+
+cc_library(
+    name = "pjrt_compiler",
+    srcs = ["pjrt_compiler.cc"],
+    hdrs = ["pjrt_compiler.h"],
+    visibility = [":friends"],
+    deps = [
+        ":pjrt_client",
+        ":pjrt_executable",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/synchronization",
+    ],
+)
+
+tf_cc_test(
+    name = "pjrt_compiler_test",
+    srcs = ["pjrt_compiler_test.cc"],
+    deps = [
+        ":pjrt_client",
+        ":pjrt_compiler",
+        "//tensorflow/compiler/xla/client:xla_computation",
+        "@com_google_googletest//:gtest_main",
     ],
 )
 
@@ -450,13 +488,13 @@ cc_library(
     hdrs = ["mlir_to_hlo.h"],
     visibility = [":friends"],
     deps = [
-        "//tensorflow/compiler/mlir/hlo",
-        "//tensorflow/compiler/mlir/hlo:all_passes",
-        "//tensorflow/compiler/mlir/hlo:legalize_trigonometric_to_approximation",
         "//tensorflow/compiler/mlir/tensorflow:error_util",
         "//tensorflow/compiler/mlir/xla:mlir_hlo_to_hlo",
         "//tensorflow/compiler/xla:status",
         "//tensorflow/compiler/xla/client:xla_computation",
+        "//tensorflow/compiler/xla/mlir_hlo",
+        "//tensorflow/compiler/xla/mlir_hlo:all_passes",
+        "//tensorflow/compiler/xla/mlir_hlo:legalize_trigonometric_to_approximation",
         "@com_google_absl//absl/strings",
         "@llvm-project//mlir:FuncDialect",
         "@llvm-project//mlir:IR",
@@ -614,6 +652,7 @@ cc_library(
     hdrs = ["pjrt_c_api_client.h"],
     deps = [
         ":pjrt_client",
+        "//tensorflow/compiler/mlir/tensorflow:serialize_mlir_module_utils",
         "//tensorflow/compiler/xla:shape_util",
         "//tensorflow/compiler/xla:util",
         "//tensorflow/compiler/xla:xla_data_proto_cc",
