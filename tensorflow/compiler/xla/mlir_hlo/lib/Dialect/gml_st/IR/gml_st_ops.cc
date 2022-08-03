@@ -24,6 +24,7 @@ limitations under the License.
 #include "llvm/ADT/TypeSwitch.h"
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tensor/Utils/Utils.h"
 #include "mlir/IR/BlockAndValueMapping.h"
@@ -203,6 +204,103 @@ void GmlStDialect::initialize() {
 #define GET_TYPEDEF_LIST
 #include "mlir-hlo/Dialect/gml_st/IR/gml_st_types.cc.inc"
       >();
+}
+
+//===----------------------------------------------------------------------===//
+// ConcatenateOp
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+Value fuseConcatenateOpThroughPointRecursively(
+    OpBuilder &builder, Location loc, RankedTensorType rankedTy,
+    uint64_t concatDim, const SmallVector<Value> &remainingOffsets,
+    ValueRange remainingOperands) {
+  // Bail if called for no operands.
+  if (remainingOperands.empty()) {
+    return {};
+  }
+  Value leadingOperand = remainingOperands.front();
+
+  // Terminal case of exactly one operand.
+  if (remainingOperands.size() == 1) {
+    // Create operand space.
+    const SmallVector<Value> dynamicDims =
+        tensor::createDynamicDimValues(builder, loc, leadingOperand);
+    const ArrayAttr staticDims = builder.getI64ArrayAttr(rankedTy.getShape());
+    const Value operandSpace =
+        builder.create<SpaceOp>(loc, dynamicDims, staticDims);
+
+    // Create operand point.
+    const SmallVector<int64_t> allDynamicOffsets(
+        rankedTy.getRank(), ShapedType::kDynamicStrideOrOffset);
+    const Value operandPoint =
+        builder.create<PointOp>(loc, operandSpace, remainingOffsets,
+                                builder.getI64ArrayAttr(allDynamicOffsets));
+
+    return builder.create<MaterializeOp>(loc, leadingOperand, operandPoint);
+  }
+
+  // For more than 1 operand, distinguish between the leading operand and the
+  // remainder.
+  assert(remainingOperands.size() > 1 &&
+         "expect more than 1 operand at this point");
+  const Value leadingOperandConcatDim =
+      builder.create<tensor::DimOp>(loc, leadingOperand, concatDim);
+  const Value leadingOperandPredicate = builder.create<arith::CmpIOp>(
+      loc, arith::CmpIPredicate::ult, remainingOffsets[concatDim],
+      leadingOperandConcatDim);
+  auto ifOp = builder.create<scf::IfOp>(
+      loc, rankedTy.getElementType(), leadingOperandPredicate,
+      [&](OpBuilder &builder, Location loc) {
+        // For the leading operand, recur with the current offsets.
+        const Value fused = fuseConcatenateOpThroughPointRecursively(
+            builder, loc, rankedTy, concatDim, remainingOffsets,
+            leadingOperand);
+        builder.create<scf::YieldOp>(loc, fused);
+      },
+      [&](OpBuilder &builder, Location loc) {
+        // For the remaining operands, substract the leading operand's size from
+        // the remaining offsets in the concatenation dimension.
+        SmallVector<Value> thenRemainingOffsets(remainingOffsets.begin(),
+                                                remainingOffsets.end());
+        thenRemainingOffsets[concatDim] = builder.create<arith::SubIOp>(
+            loc, remainingOffsets[concatDim], leadingOperandConcatDim);
+        const Value fused = fuseConcatenateOpThroughPointRecursively(
+            builder, loc, rankedTy, concatDim, thenRemainingOffsets,
+            remainingOperands.drop_front());
+        builder.create<scf::YieldOp>(loc, fused);
+      });
+  return ifOp.getResults().front();
+}
+
+Value fuseConcatenateOpThroughPoint(ConcatenateOp op, OpBuilder &builder,
+                                    Location loc, Value subset) {
+  auto resultTy = op.getType().cast<RankedTensorType>();
+  const int64_t resultRank = resultTy.getRank();
+  const uint64_t concatDim = op.dimension();
+
+  // Materialize initial offsets.
+  SmallVector<Value> initialOffsets;
+  initialOffsets.reserve(resultRank);
+  for (int64_t i = 0; i < resultRank; ++i) {
+    initialOffsets.push_back(builder.create<OffsetOp>(
+        loc, subset, builder.create<arith::ConstantIndexOp>(loc, i)));
+  }
+
+  const ValueRange initialOperands = op.operands();
+  return fuseConcatenateOpThroughPointRecursively(
+      builder, loc, resultTy, concatDim, initialOffsets, initialOperands);
+}
+
+}  // namespace
+
+Value ConcatenateOp::fuse(Location loc, Value subset, OpBuilder &builder) {
+  const Type subsetTy = subset.getType();
+  if (subsetTy.isa<PointType>()) {
+    return fuseConcatenateOpThroughPoint(*this, builder, loc, subset);
+  }
+  return {};
 }
 
 //===----------------------------------------------------------------------===//
@@ -1799,7 +1897,7 @@ LogicalResult TransposeDimsOp::verify() {
   SmallVector<int64_t> position(rank, -1);
   for (const auto &it : llvm::enumerate(permutation())) {
     int64_t dim = it.value();
-    if (dim < 0 || dim >= rank) {
+    if (dim < 0 || dim >= static_cast<int64_t>(rank)) {
       return emitOpError("permutation[")
              << it.index() << "] = " << dim << " is outside of range [0, "
              << rank - 1 << "]";
@@ -1861,7 +1959,8 @@ void SetYieldOp::build(
     return attr.cast<BoolAttr>().getValue();
   });
   (void)accumulatorCount;
-  assert(accumulatorCount == accumulatorBuilderFns.size() &&
+  assert(accumulatorCount ==
+             static_cast<int64_t>(accumulatorBuilderFns.size()) &&
          "the number of flags set in `accumulatorFlags` attribute should be "
          "equal to the number of `accumulatorBuilderFns`");
 
@@ -1887,7 +1986,7 @@ void SetYieldOp::build(
     builder.setInsertionPointToStart(&bodyBlock);
     (*builderFnIt)(builder, result.location, bodyBlock.getArgument(0),
                    bodyBlock.getArgument(1));
-    std::next(builderFnIt);
+    ++builderFnIt;
   }
 }
 
@@ -1895,7 +1994,7 @@ LogicalResult SetYieldOp::verify() {
   auto accumulatorCount = llvm::count_if(
       accumulatorFlags(),
       [](Attribute attr) { return attr.cast<BoolAttr>().getValue(); });
-  if (accumulatorCount != accumulators().size())
+  if (accumulatorCount != static_cast<int64_t>(accumulators().size()))
     return emitOpError("expected the number of accumulator regions ")
            << accumulators().size()
            << " to match the number of set accumulator flags "
@@ -1912,7 +2011,7 @@ LogicalResult SetYieldOp::verify() {
       return emitOpError()
              << "expected accumulator region to have 2 arguments of type "
              << srcType;
-    std::next(regionIt);
+    ++regionIt;
   }
   return success();
 }
@@ -1924,7 +2023,10 @@ void SetYieldOp::print(OpAsmPrinter &p) {
   auto *regionIt = getOperation()->getRegions().begin();
   for (auto &en :
        llvm::enumerate(llvm::zip(srcs(), dsts(), sets(), accumulatorFlags()))) {
-    if (en.index() > 0) p.printNewline();
+    if (en.index() > 0) {
+      p << ',';
+      p.printNewline();
+    }
     Value src = std::get<0>(en.value());
     Value dst = std::get<1>(en.value());
     Value set = std::get<2>(en.value());
@@ -1940,7 +2042,7 @@ void SetYieldOp::print(OpAsmPrinter &p) {
         << oldValue.getType() << ") ";
 
       p.printRegion(*regionIt, false);
-      std::next(regionIt);
+      ++regionIt;
     }
 
     p << " : " << src.getType() << " into " << dst.getType() << '['
