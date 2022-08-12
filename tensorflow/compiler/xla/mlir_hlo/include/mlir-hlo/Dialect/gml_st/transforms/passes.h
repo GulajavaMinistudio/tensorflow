@@ -24,14 +24,15 @@ limitations under the License.
 namespace mlir {
 namespace gml_st {
 
-/// Pass to lower MHLO to destination-style ops in GML and linalg.
-std::unique_ptr<OperationPass<func::FuncOp>> createLegalizeMHLOToGMLPass();
-
 /// Pass to fuse producers into `gml_st.materialize` ops.
 std::unique_ptr<OperationPass<func::FuncOp>> createFusionPass();
 
 /// Pass to tile operations.
 std::unique_ptr<OperationPass<func::FuncOp>> createTilingPass(
+    ArrayRef<int64_t> tileSizes = {});
+
+/// Pass to tile ops using TilingInterface and gml_st::ForOp.
+std::unique_ptr<OperationPass<func::FuncOp>> createTileToForPass(
     ArrayRef<int64_t> tileSizes = {});
 
 /// Pass to compose set operations.

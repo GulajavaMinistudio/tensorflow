@@ -15,11 +15,6 @@ limitations under the License.
 
 include "mlir/Pass/PassBase.td"
 
-def LegalizeMHLOToGMLPass : Pass<"legalize-mhlo-to-gml", "mlir::func::FuncOp"> {
-  let summary = "TBD";
-  let constructor = "::mlir::gml_st::createLegalizeMHLOToGMLPass()";
-}
-
 def FusionPass : Pass<"gml-fusion", "mlir::func::FuncOp"> {
   let summary = "Fuse producers in into `gml_st.materialize` operations";
   let constructor = "::mlir::gml_st::createFusionPass()";
@@ -28,6 +23,15 @@ def FusionPass : Pass<"gml-fusion", "mlir::func::FuncOp"> {
 def TilingPass : Pass<"gml-tiling", "mlir::func::FuncOp"> {
   let summary = "Tile operations to produce gml_st.parallel or gml_st.for";
   let constructor = "::mlir::gml_st::createTilingPass()";
+  let options = [
+    ListOption<"tileSizes", "tile-sizes", "int64_t", "Tile sizes",
+               "llvm::cl::ZeroOrMore">,
+  ];
+}
+
+def TileToForPass : Pass<"gml-tile-to-for", "mlir::func::FuncOp"> {
+  let summary = "Tile operations using TilingInterface to produce gml_st.for";
+  let constructor = "::mlir::gml_st::createTileToForPass()";
   let options = [
     ListOption<"tileSizes", "tile-sizes", "int64_t", "Tile sizes",
                "llvm::cl::ZeroOrMore">,

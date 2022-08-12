@@ -728,8 +728,10 @@ cc_library(
         "//tensorflow/core/profiler/protobuf:xplane_proto_cc",
         "//tensorflow/core/profiler/utils:xplane_schema",
         "//tensorflow/core/profiler/utils:xplane_utils",
+        "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/types:variant",
     ],
 )
 
@@ -873,5 +875,19 @@ tf_cc_test(
         ":xla_op_utils",
         "//tensorflow/core:test",
         "//tensorflow/core:test_main",
+    ],
+)
+
+cc_library(
+    name = "hlo_proto_to_graph_view",
+    srcs = ["hlo_proto_to_graph_view.cc"],
+    hdrs = ["hlo_proto_to_graph_view.h"],
+    deps = [
+        "//tensorflow/compiler/xla/service:hlo",
+        "//tensorflow/compiler/xla/service:hlo_graph_dumper",
+        "//tensorflow/compiler/xla/service:hlo_proto_cc",
+        "//tensorflow/core/platform:errors",
+        "//tensorflow/core/platform:statusor",
+        "//tensorflow/core/profiler/utils:hlo_proto_to_module",
     ],
 )

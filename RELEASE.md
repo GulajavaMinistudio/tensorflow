@@ -2,7 +2,8 @@
 
 <INSERT SMALL BLURB ABOUT RELEASE FOCUS AREA AND POTENTIAL TOOLCHAIN CHANGES>
 
-# Breaking Changes
+* `tensorflow::StatusOr::ConsumeValueOrDie`, deprecated in TF 2.10 has been
+  removed.
 
 * <DOCUMENT BREAKING CHANGES HERE>
 * <THIS SECTION SHOULD CONTAIN API, ABI AND BEHAVIORAL BREAKING CHANGES>
@@ -15,8 +16,13 @@
 
 # Major Features and Improvements
 
-*   <INSERT MAJOR FEATURE HERE, USING MARKDOWN SYNTAX>
-*   <IF RELEASE CONTAINS MULTIPLE FEATURES FROM SAME AREA, GROUP THEM TOGETHER>
+*   `tf.lite`:
+
+    *   New operations supported:
+          * tf.unsortedsegmentmin op is supported.
+          * tf.atan2 op is supported.
+    *   Updates to existing operations:
+          * tfl.mul now supports complex32 inputs.
 
 # Bug Fixes and Other Changes
 

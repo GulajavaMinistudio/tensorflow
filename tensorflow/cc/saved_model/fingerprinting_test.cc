@@ -20,6 +20,7 @@ limitations under the License.
 #include "tensorflow/cc/framework/scope.h"
 #include "tensorflow/core/framework/graph.pb.h"
 #include "tensorflow/core/framework/node_def.pb.h"
+#include "tensorflow/core/framework/versions.pb.h"
 #include "tensorflow/core/lib/core/status_test_util.h"
 #include "tensorflow/core/platform/errors.h"
 #include "tensorflow/core/platform/path.h"
@@ -70,6 +71,7 @@ TEST(FingerprintingTest, TestCreateFingerprint) {
       CreateFingerprintDef(saved_model_pb.meta_graphs(0));
 
   EXPECT_GT(fingerprint_def.graph_def_checksum(), 0);
+  EXPECT_EQ(fingerprint_def.graph_def_program_hash(), 10127142238652115842U);
   EXPECT_EQ(fingerprint_def.signature_def_hash(), 5693392539583495303);
   EXPECT_EQ(fingerprint_def.saved_object_graph_hash(), 3678101440349108924);
 }
@@ -142,6 +144,17 @@ TEST(FingerprintingTest, TestFingerprintComputationDoesNotMutateModel) {
 
   EXPECT_EQ(fingerprint_def.graph_def_checksum(),
             fingerprint_def2.graph_def_checksum());
+}
+
+TEST(FingerprintingTest, TestFingerprintHasVersion) {
+  const std::string export_dir =
+      io::JoinPath(testing::TensorFlowSrcRoot(), "cc/saved_model/testdata",
+                   "bert1", "saved_model.pb");
+  TF_ASSERT_OK_AND_ASSIGN(SavedModel saved_model_pb,
+                          ReadSavedModel(export_dir));
+  FingerprintDef fingerprint_def =
+      CreateFingerprintDef(saved_model_pb.meta_graphs(0));
+  EXPECT_EQ(fingerprint_def.version().producer(), 0);
 }
 
 }  // namespace
