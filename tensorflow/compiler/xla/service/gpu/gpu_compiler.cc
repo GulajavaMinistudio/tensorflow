@@ -188,8 +188,8 @@ limitations under the License.
 
 #if XLA_ENABLE_XLIR
 #include "tensorflow/compiler/mlir/tfrt/transforms/lmhlo_to_gpu/pass_utils.h"
+#include "tensorflow/compiler/xla/runtime/jit_executable.h"
 #include "tensorflow/compiler/xla/service/gpu/jitrt_custom_calls.h"
-#include "tfrt/jitrt/jitrt.h"  // from @tf_runtime
 #include "tfrt/jitrt/jitrt_compiler.h"  // from @tf_runtime
 namespace jitrt = ::tfrt::jitrt;
 #endif  // XLA_ENABLE_XLIR
@@ -1435,26 +1435,27 @@ GpuCompiler::CompileAheadOfTime(std::unique_ptr<HloModuleGroup> module_group,
     copts.num_worker_threads = 1;
 
     // Options for constructing JitRt JitExecutable.
-    jitrt::CompilationOptions opts;
-    opts.specialization = jitrt::CompilationOptions::Specialization::kDisabled;
-    opts.register_dialects = jitrt::RegisterDefaultJitRtDialects;
+    runtime::JitExecutable::Options opts;
+    opts.specialization = runtime::JitExecutable::Specialization::kDisabled;
+    opts.compiler.register_dialects = jitrt::RegisterDefaultJitRtDialects;
 
     // Register JitRt Gpu runtime custom calls with the linker.
-    opts.runtime_symbol_map = jitrt::GetSymbolsBinding(JitRtGpuCustomCalls());
+    opts.compiler.symbols_binding = runtime::ToSymbolsBinding(
+        JitRtGpuCustomCalls(), PopulateXlaTypeIdNames);
 
-    opts.create_compilation_pipeline = [copts](mlir::PassManager& pm) {
+    opts.compiler.create_compilation_pipeline = [copts](mlir::PassManager& pm) {
       jitrt::CreateDefaultJitRtCompilationPipeline(pm, copts);
     };
 
     // Instantiate new JitExecutable from the MLIR source.
-    auto jit_executable = jitrt::JitExecutable::Instantiate(
+    auto jit_executable = runtime::JitExecutable::Instantiate(
         program->module, program->entry_point, opts);
     if (auto err = jit_executable.takeError())
       return InternalError("Failed to compile JitRt program: %s",
                            tfrt::StrCat(err));
 
     // For static shapes we can always serialize only the default executable.
-    jitrt::Executable& executable = jit_executable->DefaultExecutable().get();
+    runtime::Executable& executable = jit_executable->DefaultExecutable().get();
 
     // Check if JitRt executable saved the compilation result.
     std::unique_ptr<llvm::MemoryBuffer> obj_file = executable.obj_file();

@@ -23,8 +23,10 @@ limitations under the License.
 #include "llvm/Support/ErrorOr.h"
 #include "tensorflow/compiler/xla/mlir/utils/runtime/async_runtime_api.h"
 #include "tensorflow/compiler/xla/mlir/utils/runtime/c_runner_utils.h"
+#include "tensorflow/compiler/xla/runtime/custom_call.h"
 #include "tensorflow/compiler/xla/runtime/custom_call_registry.h"
 #include "tensorflow/compiler/xla/runtime/runtime.h"
+#include "tensorflow/compiler/xla/runtime/type_id.h"
 #include "tfrt/support/error_util.h"  // from @tf_runtime
 
 namespace xla {
@@ -62,17 +64,33 @@ struct KernelContext {
 };
 
 //===----------------------------------------------------------------------===//
-// Converts a custom call library into the execution engine symbols binding.
+// Conversion from custom calls library and type id registry to symbols binding.
 //===----------------------------------------------------------------------===//
 
-ExecutionEngine::SymbolsBinding GetSymbolsBinding(DirectCustomCallLibrary lib) {
-  return [lib = std::move(lib)](MangleAndInterner mangle) {
+ExecutionEngine::SymbolsBinding ToSymbolsBinding(
+    DirectCustomCallLibrary lib, TypeIDNameRegistry::RegistrationFn types) {
+  return [=](MangleAndInterner mangle) {
     SymbolMap symbol_map;
 
+    // Always register canonical custom call types with the registry.
+    TypeIDNameRegistry registry;
+    PopulateCustomCallTypeIdNames(registry);
+    if (types) types(registry);
+
+    // Register direct custom calls.
     using DirectCustomCall = DirectCustomCallLibrary::DirectCustomCall;
     lib.ForEach([&](llvm::StringRef name, DirectCustomCall custom_call) {
       symbol_map[mangle(name)] = llvm::JITEvaluatedSymbol(
           llvm::pointerToJITTargetAddress(custom_call), llvm::JITSymbolFlags());
+    });
+
+    // Register type id symbols.
+    registry.ForEach([&](llvm::StringRef name, TypeID type_id) {
+      auto type_id_ptr =
+          reinterpret_cast<std::uintptr_t>(type_id.getAsOpaquePointer());
+      symbol_map[mangle(name)] = llvm::JITEvaluatedSymbol(
+          static_cast<llvm::JITTargetAddress>(type_id_ptr),
+          llvm::JITSymbolFlags());
     });
 
     return symbol_map;
@@ -91,18 +109,17 @@ static SymbolMap RuntimeApiSymbolMap(MangleAndInterner);
 
 ExecutionEngine::SymbolsBinding RuntimeSymbolsBinding(
     ExecutionEngine::SymbolsBinding custom_binding) {
-  return ExecutionEngine::BindAll({
-      // Register MLIR C Runner API intrinsics (defined in CRunnerUtils).
-      CRunnerUtilsSymbolMap,
-      // Register Async Runtime API intrinsics.
-      AsyncRuntimeApiSymbolMap,
-      // Register memory allocation functions (malloc, free, ...).
-      AsyncRuntimeMemoryAllocationSymbolMap,
-      // Register Runtime API intrinsics (returning results and errors).
-      RuntimeApiSymbolMap,
-      // Register any additional user-defined APIs.
-      std::move(custom_binding),
-  });
+  return ExecutionEngine::BindAll(
+      {// Register MLIR C Runner API intrinsics (defined in CRunnerUtils).
+       CRunnerUtilsSymbolMap,
+       // Register Async Runtime API intrinsics.
+       AsyncRuntimeApiSymbolMap,
+       // Register memory allocation functions (malloc, free, ...).
+       AsyncRuntimeMemoryAllocationSymbolMap,
+       // Register Runtime API intrinsics (returning results and errors).
+       RuntimeApiSymbolMap,
+       // Register any additional user-defined symbol bindings
+       std::move(custom_binding)});
 }
 
 //===----------------------------------------------------------------------===//
@@ -340,7 +357,7 @@ Error Executable::ReturnResults(const ResultConverter& results,
     llvm::StringRef name, std::unique_ptr<llvm::MemoryBuffer> obj_file,
     llvm::StringRef entrypoint, FunctionType signature,
     FunctionType runtime_signature,
-    ExecutionEngine::SymbolsBinding runtime_symbol_map,
+    ExecutionEngine::SymbolsBinding symbols_binding,
     llvm::StringRef memory_region_name) {
   // Memory region name to mmap executable code.
   std::string mapper_name = llvm::formatv(
@@ -351,14 +368,10 @@ Error Executable::ReturnResults(const ResultConverter& results,
   std::unique_ptr<XlaRuntimeMemoryMapper> memory_mapper =
       XlaRuntimeMemoryMapper::Create(std::move(mapper_name));
 
-  // Register symbols required for running XLA executable.
-  ExecutionEngine::SymbolsBinding symbols =
-      RuntimeSymbolsBinding(std::move(runtime_symbol_map));
-
   // Construct options for the XLA execution engine.
   ExecutionEngine::AotOptions options;
   options.section_memory_mapper = memory_mapper.get();
-  options.symbols_binding = std::move(symbols);
+  options.symbols_binding = RuntimeSymbolsBinding(std::move(symbols_binding));
 
   auto engine = ExecutionEngine::CreateFromObjFile(std::move(obj_file),
                                                    entrypoint, options);

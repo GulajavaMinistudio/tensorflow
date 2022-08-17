@@ -20,7 +20,7 @@ limitations under the License.
 #include <stdint.h>
 
 // TODO(b/238999986): Remove this.
-#include "tensorflow/stream_executor/tpu/c_api_decl.h"
+#include "tensorflow/compiler/xla/stream_executor/tpu/c_api_decl.h"
 
 #define PJRT_STRUCT_SIZE(struct_type, last_field) \
   offsetof(struct_type, last_field) + sizeof(((struct_type*)0)->last_field)
@@ -608,6 +608,7 @@ typedef struct {
   int element_type;             // out
   Int64List dimensions;         // out
   BoolList dynamic_dimensions;  // out
+  bool has_layout;
   XLA_Layout layout;            // out
 } PJRT_Buffer_OnDeviceTrimmedShape_Args;
 const size_t PJRT_Buffer_OnDeviceTrimmedShape_Args_STRUCT_SIZE =
@@ -699,6 +700,27 @@ const size_t PJRT_Buffer_Device_Args_STRUCT_SIZE =
 // Returns this buffer's storage device.
 typedef PJRT_Error* PJRT_Buffer_Device(PJRT_Buffer_Device_Args* args);
 
+typedef struct {
+  size_t struct_size;
+  void* priv;
+  PJRT_Buffer* buffer;
+  // The caller is responsible for calling PJRT_Event_Destroy on `event`.
+  PJRT_Event* event;  // out
+} PJRT_Buffer_ReadyEvent_Args;
+const size_t PJRT_Buffer_ReadyEvent_Args_STRUCT_SIZE =
+    PJRT_STRUCT_SIZE(PJRT_Buffer_ReadyEvent_Args, event);
+
+// Returns an event that is triggered when either of the following happens:
+// * the data in the PJRT_Buffer becomes ready, or
+// * an error has occurred.
+//
+// TODO(b/241967811): change these weird semantics
+// If the buffer has been deleted or donated, the returned event will
+// immediately indicate an error. However, if PJRT_Buffer_ReadyEvent() is
+// called on the buffer before PJRT_Buffer_Delete() is, the returned event will
+// not transition to an error state after PJRT_Buffer_Delete() is called.
+typedef PJRT_Error* PJRT_Buffer_ReadyEvent(PJRT_Buffer_ReadyEvent_Args* args);
+
 // -------------------------------- API access ---------------------------------
 
 #define _PJRT_API_STRUCT_FIELD(fn_type) fn_type* fn_type
@@ -752,10 +774,11 @@ typedef struct {
   _PJRT_API_STRUCT_FIELD(PJRT_Buffer_IsDeleted);
   _PJRT_API_STRUCT_FIELD(PJRT_Buffer_CopyToDevice);
   _PJRT_API_STRUCT_FIELD(PJRT_Buffer_IsOnCpu);
+  _PJRT_API_STRUCT_FIELD(PJRT_Buffer_ReadyEvent);
 } PJRT_Api;
 
 const size_t PJRT_Api_STRUCT_SIZE =
-    PJRT_STRUCT_SIZE(PJRT_Api, PJRT_Buffer_IsOnCpu);
+    PJRT_STRUCT_SIZE(PJRT_Api, PJRT_Buffer_ReadyEvent);
 
 #undef _PJRT_API_STRUCT_FIELD
 

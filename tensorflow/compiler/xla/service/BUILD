@@ -22,7 +22,7 @@ load("//tensorflow:tensorflow.bzl", "internal_hlo_deps")
 # buildifier: disable=same-origin-load
 load("//tensorflow:tensorflow.bzl", "internal_cuda_deps")
 load(
-    "//tensorflow/core/platform/default:cuda_build_defs.bzl",
+    "//tensorflow/tsl/platform/default:cuda_build_defs.bzl",
     "if_cuda_is_configured",
 )
 load(
@@ -651,7 +651,7 @@ cc_library(
         ":hlo",
         "//tensorflow/compiler/xla:array",
         "//tensorflow/compiler/xla:literal_util",
-        "//tensorflow/compiler/xla:shape_util",
+        "//tensorflow/compiler/xla:protobuf_util",
         "//tensorflow/compiler/xla:util",
         "//tensorflow/compiler/xla:xla_data_proto_cc",
         "@com_google_absl//absl/algorithm:container",
@@ -1260,10 +1260,10 @@ cc_library(
         "//tensorflow/core/platform:stream_executor_no_cuda",
     ]) + if_cuda_is_configured([
         "//tensorflow/compiler/xla/service/gpu:nvptx_compiler",
-        "//tensorflow/core/platform/default/build_config:stream_executor_cuda",
+        "//tensorflow/tsl/platform/default/build_config:stream_executor_cuda",
     ]) + if_rocm_is_configured([
         "//tensorflow/compiler/xla/service/gpu:amdgpu_compiler",
-        "//tensorflow/core/platform/default/build_config:stream_executor_rocm",
+        "//tensorflow/tsl/platform/default/build_config:stream_executor_rocm",
     ]) + internal_cuda_deps(),
 )
 
