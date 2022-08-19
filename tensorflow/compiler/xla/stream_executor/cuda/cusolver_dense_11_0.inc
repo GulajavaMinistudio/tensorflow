@@ -24,9 +24,23 @@ cusolverStatus_t CUSOLVERAPI cusolverDnCreate(cusolverDnHandle_t *handle) {
   return func_ptr(handle);
 }
 
+cusolverStatus_t CUSOLVERAPI cusolverSpCreate(cusolverSpHandle_t *handle) {
+  using FuncPtr = cusolverStatus_t(CUSOLVERAPI *)(cusolverSpHandle_t *);
+  static auto func_ptr = LoadSymbol<FuncPtr>("cusolverSpCreate");
+  if (!func_ptr) return GetSymbolNotFoundError();
+  return func_ptr(handle);
+}
+
 cusolverStatus_t CUSOLVERAPI cusolverDnDestroy(cusolverDnHandle_t handle) {
   using FuncPtr = cusolverStatus_t(CUSOLVERAPI *)(cusolverDnHandle_t);
   static auto func_ptr = LoadSymbol<FuncPtr>("cusolverDnDestroy");
+  if (!func_ptr) return GetSymbolNotFoundError();
+  return func_ptr(handle);
+}
+
+cusolverStatus_t CUSOLVERAPI cusolverSpDestroy(cusolverSpHandle_t handle) {
+  using FuncPtr = cusolverStatus_t(CUSOLVERAPI *)(cusolverSpHandle_t);
+  static auto func_ptr = LoadSymbol<FuncPtr>("cusolverSpDestroy");
   if (!func_ptr) return GetSymbolNotFoundError();
   return func_ptr(handle);
 }
@@ -36,6 +50,15 @@ cusolverStatus_t CUSOLVERAPI cusolverDnSetStream(cusolverDnHandle_t handle,
   using FuncPtr =
       cusolverStatus_t(CUSOLVERAPI *)(cusolverDnHandle_t, cudaStream_t);
   static auto func_ptr = LoadSymbol<FuncPtr>("cusolverDnSetStream");
+  if (!func_ptr) return GetSymbolNotFoundError();
+  return func_ptr(handle, streamId);
+}
+
+cusolverStatus_t CUSOLVERAPI cusolverSpSetStream(cusolverSpHandle_t handle,
+                                                 cudaStream_t streamId) {
+  using FuncPtr =
+      cusolverStatus_t(CUSOLVERAPI *)(cusolverSpHandle_t, cudaStream_t);
+  static auto func_ptr = LoadSymbol<FuncPtr>("cusolverSpSetStream");
   if (!func_ptr) return GetSymbolNotFoundError();
   return func_ptr(handle, streamId);
 }
