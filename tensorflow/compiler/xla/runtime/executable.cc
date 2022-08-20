@@ -25,9 +25,9 @@ limitations under the License.
 #include "tensorflow/compiler/xla/mlir/utils/runtime/c_runner_utils.h"
 #include "tensorflow/compiler/xla/runtime/custom_call.h"
 #include "tensorflow/compiler/xla/runtime/custom_call_registry.h"
+#include "tensorflow/compiler/xla/runtime/errors.h"
 #include "tensorflow/compiler/xla/runtime/runtime.h"
 #include "tensorflow/compiler/xla/runtime/type_id.h"
-#include "tfrt/support/error_util.h"  // from @tf_runtime
 
 namespace xla {
 namespace runtime {
@@ -41,7 +41,6 @@ using llvm::Expected;
 using llvm::orc::MangleAndInterner;
 using llvm::orc::SymbolMap;
 
-using tfrt::MakeStringError;
 
 // KernelContext encapsulates all the data that is required to implement XLA
 // Runtime <-> XLA Executable integration API.
@@ -246,8 +245,8 @@ Error Executable::InitializeCallFrame(ArgumentsRef arguments,
   call_frame->results.resize_for_overwrite(results_memory_layout_.size);
 
   // Mark results memory initialized to supress potential msan errors.
-  TFRT_MSAN_MEMORY_IS_INITIALIZED(call_frame->results.data(),
-                                  call_frame->results.size());
+  ABSL_ANNOTATE_MEMORY_IS_INITIALIZED(call_frame->results.data(),
+                                      call_frame->results.size());
 
   return Error::success();
 }

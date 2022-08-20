@@ -19,8 +19,6 @@ limitations under the License.
 #include <stddef.h>
 #include <stdint.h>
 
-#include <cmath>
-
 #include "tensorflow/c/tf_attrtype.h"
 #include "tensorflow/core/tpu/libtftpu.h"
 
@@ -181,6 +179,14 @@ typedef struct SE_MaybeOwningDeviceMemory {
   SE_DeviceMemoryAllocator allocator;
 } SE_MaybeOwningDeviceMemory;
 
+struct IntList {
+  union {
+    int* heap;  // owned
+    int inlined[TPU_C_API_MAX_INLINED];
+  };
+  int64_t size;
+};
+
 struct Int64List {
   union {
     int64_t* heap;  // owned
@@ -191,8 +197,8 @@ struct Int64List {
 
 struct FloatList {
   union {
-    float_t* heap;  // owned
-    float_t inlined[TPU_C_API_MAX_INLINED];
+    float* heap;  // owned
+    float inlined[TPU_C_API_MAX_INLINED];
   };
   int64_t size;
 };
@@ -206,7 +212,7 @@ struct BoolList {
 };
 
 struct FloatListRef {
-  float_t* ptr;  // not owned
+  float* ptr;  // not owned
   int64_t size;
 };
 
@@ -229,6 +235,7 @@ struct TileList {
 
 typedef struct XLA_Layout {
   Int64List minor_to_major;
+  IntList dim_level_types;
   TileList tiles;
   int64_t element_size_in_bits;
   int64_t memory_space;

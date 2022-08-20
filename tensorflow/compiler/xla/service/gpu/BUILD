@@ -1641,6 +1641,7 @@ cc_library(
         ":gpu_reduce_scatter_creator",
         ":gpu_sanitize_constant_names",
         ":gpu_scatter_expander",
+        ":gpu_shape_verifier",
         ":matmul_utils",
         "@llvm-project//mlir:FuncDialect",
         "//tensorflow/compiler/xla/service/spmd:stateful_rng_spmd_partitioner",
@@ -1893,27 +1894,30 @@ tf_cc_test(
     ],
 )
 
-tf_cc_test(
-    name = "gpu_aot_compilation_test",
-    srcs = [
-        "gpu_aot_compilation_test.cc",
-    ],
-    env = {
-        "XLA_FLAGS": "--xla_gpu_jitrt_executable",
-    },
-    tags = [
-        "gpu",
-        "no_oss",
-        "no_rocm",
-        "nomsan",  # Pulls in precompiled NVIDIA libraries which cause false positives in msan.
-        "requires-gpu-nvidia",
-    ],
-    deps = [
-        ":nvptx_compiler_impl",
-        "//tensorflow/compiler/xla/tests:hlo_test_base",
-        "//tensorflow/compiler/xla/tests:xla_internal_test_main",  # build_cleaner: keep
-    ],
-)
+# TODO(ezhulenev): This test breaks MacOS build, try to re-enable it later.
+# copybara:uncomment_begin
+# tf_cc_test(
+#     name = "gpu_aot_compilation_test",
+#     srcs = [
+#         "gpu_aot_compilation_test.cc",
+#     ],
+#     env = {
+#         "XLA_FLAGS": "--xla_gpu_jitrt_executable",
+#     },
+#     tags = [
+#         "gpu",
+#         "no_oss",
+#         "no_rocm",
+#         "nomsan",  # Pulls in precompiled NVIDIA libraries which cause false positives in msan.
+#         "requires-gpu-nvidia",
+#     ],
+#     deps = [
+#         ":nvptx_compiler_impl",
+#         "//tensorflow/compiler/xla/tests:hlo_test_base",
+#         "//tensorflow/compiler/xla/tests:xla_internal_test_main",  # build_cleaner: keep
+#     ],
+# )
+# copybara:uncomment_end
 
 cc_library(
     name = "amdgpu_compiler",
@@ -2029,6 +2033,15 @@ cc_library(
         "//tensorflow/stream_executor/gpu:gpu_executor_header",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/memory",
+    ],
+)
+
+cc_library(
+    name = "gpu_shape_verifier",
+    srcs = ["gpu_shape_verifier.cc"],
+    hdrs = ["gpu_shape_verifier.h"],
+    deps = [
+        "//tensorflow/compiler/xla/service:hlo_verifier",
     ],
 )
 
@@ -2636,7 +2649,7 @@ test_suite(
         "//tensorflow/compiler/xla/python:xla_client_test_gpu",
         "//tensorflow/compiler/xla/service/gpu:cudnn_fused_conv_rewriter_test",
         "//tensorflow/compiler/xla/service/gpu:custom_call_test",
-        "//tensorflow/compiler/xla/service/gpu:gpu_aot_compilation_test",
+        # copybara:uncomment "//tensorflow/compiler/xla/service/gpu:gpu_aot_compilation_test",
         "//tensorflow/compiler/xla/service/gpu/tests:add_preds.hlo.test",
         "//tensorflow/compiler/xla/service/gpu/tests:all_reduce.hlo.test",
         "//tensorflow/compiler/xla/service/gpu/tests:concat.hlo.test",
