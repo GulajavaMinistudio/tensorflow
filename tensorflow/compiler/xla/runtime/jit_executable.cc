@@ -21,6 +21,7 @@ limitations under the License.
 
 #include "llvm/ADT/Optional.h"
 #include "tensorflow/compiler/xla/mlir/utils/runtime/constraints.h"
+#include "tensorflow/compiler/xla/runtime/errors.h"
 
 namespace xla {
 namespace runtime {
@@ -36,7 +37,6 @@ using llvm::Optional;
 
 using tfrt::MakeAvailableAsyncValueRef;
 using tfrt::MakeErrorAsyncValueRef;
-using tfrt::MakeStringError;
 
 using Specialization = JitExecutable::Specialization;
 
@@ -54,7 +54,7 @@ static bool HasValueConstraints(ArrayRef<ArgumentConstraint> constraints) {
 
 // Returns true if all function operands have statically known shape.
 static bool HasStaticShapeOperands(const FunctionType& signature) {
-  auto is_dynamic = [](ArrayRef<int64_t> sizes) -> bool {
+  auto is_dynamic = [](absl::Span<const int64_t> sizes) -> bool {
     return llvm::any_of(sizes, mlir::ShapedType::isDynamic);
   };
 
@@ -197,7 +197,7 @@ static llvm::hash_code CombineWithValueConstraineOperands(
     size_t rank = memref.rank();
     assert(rank == 0 || rank == 1);
     size_t num_values = rank == 0 ? 1 : memref.size(0);
-    int64_t len = num_values * GetHostSize(memref.dtype());
+    int64_t len = num_values * primitive_util::ByteWidth(memref.dtype());
     hash = llvm::hash_combine(hash, llvm::hash_combine_range(data, data + len));
   }
   return hash;

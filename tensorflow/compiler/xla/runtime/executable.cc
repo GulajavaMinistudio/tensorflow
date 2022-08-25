@@ -32,6 +32,8 @@ limitations under the License.
 namespace xla {
 namespace runtime {
 
+using absl::StatusOr;
+
 using llvm::dyn_cast;
 
 using llvm::Error;
@@ -134,7 +136,7 @@ Executable::GetArgumentsMemoryLayout(const FunctionType& signature) {
     const Type* type = signature.operand(i);
 
     // Check if the type defines the ABI for passing it as an argument.
-    if (ErrorOr<Type::ArgumentAbi> abi = type->AsArgument()) {
+    if (StatusOr<Type::ArgumentAbi> abi = type->AsArgument(); abi.ok()) {
       layout.num_args_ptrs += abi->num_ptrs;
       continue;
     }
@@ -161,7 +163,7 @@ Executable::GetResultsMemoryLayout(const FunctionType& signature) {
     layout.has_async_results |= llvm::isa<AsyncTokenType, AsyncValueType>(type);
 
     // Check if the type defines the ABI for returning it as a result.
-    if (ErrorOr<Type::ResultAbi> abi = type->AsResult()) {
+    if (StatusOr<Type::ResultAbi> abi = type->AsResult(); abi.ok()) {
       layout.offsets.emplace_back(layout.size);
       layout.size += abi->size;
       continue;
@@ -278,7 +280,7 @@ Error Executable::Execute(ArgumentsRef arguments,
     auto* memref = dyn_cast<MemrefDesc>(&arguments[i]);
     if (!memref) continue;
 
-    int64_t size_in_bytes = GetHostSize(memref->dtype());
+    int64_t size_in_bytes = primitive_util::ByteWidth(memref->dtype());
     for (int64_t size : memref->sizes()) size_in_bytes *= size;
 
     uint8_t* data = static_cast<uint8_t*>(memref->data());

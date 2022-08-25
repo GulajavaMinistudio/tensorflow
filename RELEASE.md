@@ -24,12 +24,22 @@
     *   Updates to existing operations:
           * tfl.mul now supports complex32 inputs.
 
+*   `tf.experimental.StructuredTensor`
+    *   Introduced `tf.experimental.StructuredTensor`, which provides a flexible
+        and Tensorflow-native way to encode structured data such as protocol
+        buffers or pandas dataframes.
+
 # Bug Fixes and Other Changes
 
 *   `tf.image`
     *   Added an optional parameter `return_index_map` to `tf.image.ssim` which
         causes the returned value to be the local SSIM map instead of the global
         mean.
+
+*   TF Core:
+
+    *   `tf.custom_gradient` can now be applied to functions that accept
+        "composite" tensors, such as `tf.RaggedTensor`, as inputs.
 
 # Thanks to our Contributors
 
