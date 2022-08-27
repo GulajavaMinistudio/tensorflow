@@ -119,13 +119,13 @@ Value createNestedPloopTilingRecursively(
                                          steps, nestedTileSizes.front());
         Value innerResult = b.create<MaterializeOp>(loc, source, subset);
 
-        // Recur if needed.
-        if (nestedTileSizes.size() >= 2) {
+        // Recur if there are more tile sizes, and it's not a point yet.
+        nestedTileSizes = nestedTileSizes.drop_front();
+        if (!nestedTileSizes.empty() && subset.getType().isa<TileType>()) {
           auto materializedInitSubset =
               b.create<MaterializeOp>(loc, init, subset);
           innerResult = createNestedPloopTilingRecursively(
-              b, loc, materializedInitSubset, innerResult,
-              nestedTileSizes.drop_front());
+              b, loc, materializedInitSubset, innerResult, nestedTileSizes);
         }
 
         b.create<SetYieldOp>(loc, ValueRange{innerResult}, ValueRange{init},
@@ -247,17 +247,20 @@ llvm::Optional<SmallVector<SmallVector<int64_t>>> parseNestedTileSizes(
   return parseNestedTileSizes(istream);
 }
 
-struct TilingPass : public TilingPassBase<TilingPass> {
-  TilingPass() : TilingPassBase<TilingPass>() {
+struct DeprecatedTilingPass
+    : public DeprecatedTilingPassBase<DeprecatedTilingPass> {
+  DeprecatedTilingPass() : DeprecatedTilingPassBase<DeprecatedTilingPass>() {
     tileSizesOpt.setCallback(
         [&](const std::string &str) { tileSizes = parseNestedTileSizes(str); });
   }
-  explicit TilingPass(const std::string &tileSizesStr)
-      : TilingPassBase<TilingPass>() {
+  explicit DeprecatedTilingPass(const std::string &tileSizesStr)
+      : DeprecatedTilingPassBase<DeprecatedTilingPass>() {
     tileSizes = parseNestedTileSizes(tileSizesStr);
   }
-  explicit TilingPass(const SmallVector<SmallVector<int64_t>> &tileSizes)
-      : TilingPassBase<TilingPass>(), tileSizes(tileSizes) {}
+  explicit DeprecatedTilingPass(
+      const SmallVector<SmallVector<int64_t>> &tileSizes)
+      : DeprecatedTilingPassBase<DeprecatedTilingPass>(),
+        tileSizes(tileSizes) {}
 
   void getDependentDialects(DialectRegistry &registry) const final {
     registry
@@ -334,18 +337,18 @@ struct TileToForPass : public TileToForPassBase<TileToForPass> {
 
 }  // namespace
 
-std::unique_ptr<OperationPass<func::FuncOp>> createTilingPass() {
-  return std::make_unique<TilingPass>();
+std::unique_ptr<OperationPass<func::FuncOp>> createDeprecatedTilingPass() {
+  return std::make_unique<DeprecatedTilingPass>();
 }
 
-std::unique_ptr<OperationPass<func::FuncOp>> createTilingPass(
+std::unique_ptr<OperationPass<func::FuncOp>> createDeprecatedTilingPass(
     const SmallVector<SmallVector<int64_t>> &tileSizes) {
-  return std::make_unique<TilingPass>(tileSizes);
+  return std::make_unique<DeprecatedTilingPass>(tileSizes);
 }
 
-std::unique_ptr<OperationPass<func::FuncOp>> createTilingPass(
+std::unique_ptr<OperationPass<func::FuncOp>> createDeprecatedTilingPass(
     const std::string &tileSizes) {
-  return std::make_unique<TilingPass>(tileSizes);
+  return std::make_unique<DeprecatedTilingPass>(tileSizes);
 }
 
 std::unique_ptr<OperationPass<func::FuncOp>> createTileToForPass(
