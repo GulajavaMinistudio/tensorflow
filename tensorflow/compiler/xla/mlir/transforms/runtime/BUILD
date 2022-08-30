@@ -1,3 +1,4 @@
+load("//tensorflow:tensorflow.bzl", "tf_cc_test")
 load("//tensorflow/core/platform:rules_cc.bzl", "cc_library")
 load("//tensorflow:tensorflow.bzl", "get_compatible_with_cloud")
 load("@llvm-project//mlir:tblgen.bzl", "gentbl_cc_library")
@@ -70,6 +71,22 @@ cc_library(
     ],
 )
 
+tf_cc_test(
+    name = "calling_convention_test",
+    srcs = ["calling_convention_test.cc"],
+    compatible_with = get_compatible_with_cloud(),
+    deps = [
+        ":calling_convention",
+        "//tensorflow/compiler/xla/mlir/ir/runtime:rt_ops",
+        "//tensorflow/core:test",
+        "//tensorflow/core:test_main",
+        "@llvm-project//mlir:FuncDialect",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:MemRefDialect",
+        "@llvm-project//mlir:Transforms",
+    ],
+)
+
 cc_library(
     name = "compilation_pipeline",
     srcs = ["compilation_pipeline.cc"],
@@ -122,7 +139,6 @@ cc_library(
         ":passes",
         ":specialization",
         ":type_converter",
-        "//tensorflow/compiler/xla/mlir/utils:to_string",
         "//tensorflow/compiler/xla/runtime:arguments",
         "//tensorflow/compiler/xla/runtime:constraints",
         "//tensorflow/compiler/xla/runtime:errors",
@@ -148,7 +164,6 @@ cc_library(
     compatible_with = get_compatible_with_cloud(),
     deps = [
         "//tensorflow/compiler/xla/mlir/transforms/runtime:type_converter",
-        "//tensorflow/compiler/xla/mlir/utils:to_string",
         "//tensorflow/compiler/xla/mlir/utils/runtime:constraints",
         "//tensorflow/compiler/xla/runtime:arguments",
         "//tensorflow/compiler/xla/runtime:constraints",
@@ -162,6 +177,7 @@ cc_library(
         "@llvm-project//mlir:ArithmeticDialect",
         "@llvm-project//mlir:FuncDialect",
         "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Support",
         "@llvm-project//mlir:TensorDialect",
     ],
 )
@@ -173,7 +189,6 @@ cc_library(
     compatible_with = get_compatible_with_cloud(),
     deps = [
         "//tensorflow/compiler/xla/mlir/ir/runtime:rt_ops",
-        "//tensorflow/compiler/xla/mlir/utils:to_string",
         "//tensorflow/compiler/xla/runtime:errors",
         "//tensorflow/compiler/xla/runtime:types",
         "@com_google_absl//absl/status",
@@ -181,5 +196,6 @@ cc_library(
         "@com_google_absl//absl/strings:str_format",
         "@llvm-project//mlir:AsyncDialect",
         "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Support",
     ],
 )

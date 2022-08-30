@@ -48,9 +48,7 @@ cc_library(
     hdrs = ["async_runtime.h"],
     compatible_with = get_compatible_with_cloud(),
     deps = [
-        "//tensorflow/core/platform:mutex",
         "//tensorflow/core/platform:platform_port",
-        "//tensorflow/core/platform:types",
         "//third_party/eigen3",
         "@com_google_absl//absl/base:dynamic_annotations",
         "@llvm-project//llvm:Support",
@@ -207,6 +205,7 @@ cc_library(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
         "@llvm-project//llvm:Support",
         "@tf_runtime//:hostcontext",
     ],

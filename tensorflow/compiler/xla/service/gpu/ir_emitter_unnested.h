@@ -19,6 +19,8 @@ limitations under the License.
 #include <array>
 #include <functional>
 #include <string>
+#include <tuple>
+#include <vector>
 
 #include "absl/container/inlined_vector.h"
 #include "tensorflow/compiler/mlir/xla/transforms/mhlo_to_lhlo_with_xla.h"
@@ -125,6 +127,7 @@ class IrEmitterUnnested : public IrEmitter {
   }
 
   using ValueVector3 = std::array<llvm::Value*, 3>;
+  using ValueVector2 = std::array<llvm::Value*, 2>;
 
   // A function object to generate code to process one element in a tile.
   //
@@ -145,7 +148,7 @@ class IrEmitterUnnested : public IrEmitter {
   // tile_dimensions: Size of the tile
   using TileElementGenerator = std::function<void(
       const ThreadIdInfo& thread_id_info, const llvm_ir::IrArray::Index& index,
-      ValueVector3 tile_dimensions)>;
+      ValueVector2 tile_dimensions)>;
 
   // Fusion root -> array of indexes, one per reduction output.
   using ReductionOutputMap =
@@ -436,7 +439,8 @@ class IrEmitterUnnested : public IrEmitter {
   // complicating the index calculation in the code generation of the reduce
   // instructions. In other words, a block_id_y is assigned to a group and so
   // different groups can be run in parallel.
-  Status EmitUnnestedReduction(mlir::lmhlo::FusionOp fusion);
+  Status EmitUnnestedReduction(mlir::lmhlo::FusionOp fusion,
+                               HloComputation* fused_computation);
 
   // Computes the KernelMappingScheme for the reduce HLO and indicates whether
   // the reduction is a row reduction. For an un-fused reduce op, unnested_hlo
@@ -444,7 +448,8 @@ class IrEmitterUnnested : public IrEmitter {
   // unnested_hlo is the fusion instruction while first_reduce is the first
   // reduce op.
   StatusOr<ReductionCodegenInfo> ComputeReductionCodegenInfo(
-      mlir::lmhlo::FusionOp fusion, mlir::mhlo::ReduceOp first_reduce);
+      mlir::lmhlo::FusionOp fusion, HloComputation* fused_computation,
+      HloInstruction* first_reduce);
 
   // Generates code for input-fusible slices.
   //
@@ -540,7 +545,7 @@ class IrEmitterUnnested : public IrEmitter {
 
   struct TilingKernelInfo {
     // Tiling bounds.
-    ValueVector3 output_tile_bounds;
+    ValueVector2 output_tile_bounds;
 
     // Starting tile, as calculated from block id only.
     llvm_ir::IrArray::Index tile_origin;
@@ -567,8 +572,8 @@ class IrEmitterUnnested : public IrEmitter {
   //
   // Given: tile_dimensions, x_offset, y_offset
   //
-  // for (y = 0; y < tile_dimensions[Y]; y += num_threads_y) {
-  //   for (x = 0; x < tile_dimensions[X]; x++) {
+  // for (y = 0; y < tile_dimensions[0]; y += num_threads_y) {
+  //   for (x = 0; x < tile_dimensions[1]; x++) {
   //
   //     y_pos = y_offset + y
   //     x_pos = x_offset + x * stride
@@ -582,7 +587,7 @@ class IrEmitterUnnested : public IrEmitter {
   void EmitTile(
       const TilingScheme& tiling_scheme,
       const llvm_ir::IrArray::Index& tile_origin_index,
-      const ThreadIdInfo& thread_id_info, ValueVector3 tile_dimensions,
+      const ThreadIdInfo& thread_id_info, ValueVector2 tile_dimensions,
       const IrEmitterUnnested::EmitElementFunction& emit_elem_function);
 
   // Emits code to process a tensor element in a tile for the given kLoop
@@ -673,9 +678,14 @@ class IrEmitterUnnested : public IrEmitter {
       absl::Span<int64_t const> dimensions_major_to_minor,
       absl::string_view buffer_name = "");
 
+  struct KernelArgument {
+    int order;
+    mlir::Value value;
+    BufferSlice slice;
+  };
   StatusOr<std::unique_ptr<Thunk>> BuildKernelThunkImpl(
       absl::string_view name, Thunk::ThunkInfo thunk_info,
-      absl::Span<const BufferSlice> slices,
+      std::vector<KernelArgument> value_slice_tuples,
       std::vector<llvm_ir::IrArray>* ir_arrays,
       const LaunchDimensions& launch_dimensions);
 
@@ -693,7 +703,8 @@ class IrEmitterUnnested : public IrEmitter {
   // initializes its memory to the appropriate initial value.
   std::unique_ptr<Thunk> BuildConstantInitializerThunk(
       mlir::Operation* op, absl::Span<const uint8_t> init_value,
-      const BufferAllocation::Slice& dest, const Shape& output_shape);
+      mlir::Value dest, const BufferAllocation::Slice& dest_slice,
+      const Shape& output_shape);
 
   StatusOr<std::unique_ptr<Thunk>> TryBuildConstantInitializerThunk(
       mlir::Operation* op, mlir::Value init_value, mlir::Value dest);
@@ -749,6 +760,12 @@ class IrEmitterUnnested : public IrEmitter {
   // to only given thread and/or block id.
   void EmitPrintfWithThreadId(
       absl::string_view fmt, absl::Span<llvm::Value* const> arguments,
+      std::optional<int64_t> thread_id_filter = std::nullopt,
+      std::optional<int64_t> block_id_filter = std::nullopt);
+
+  // Prints the given index.
+  void EmitPrintfForIndex(
+      absl::string_view fmt, const llvm_ir::IrArray::Index& index,
       std::optional<int64_t> thread_id_filter = std::nullopt,
       std::optional<int64_t> block_id_filter = std::nullopt);
 

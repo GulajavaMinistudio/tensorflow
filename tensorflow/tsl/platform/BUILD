@@ -8,6 +8,8 @@
 load("//tensorflow:tensorflow.bzl", "get_compatible_with_portable")
 load(
     "//tensorflow/core/platform:build_config.bzl",
+    "tf_logging_deps",
+    "tf_platform_deps",
     "tf_protobuf_compiler_deps",
     "tf_testing_deps",
     "tf_windows_aware_platform_deps",
@@ -36,14 +38,48 @@ cc_library(
 )
 
 cc_library(
+    name = "regexp",
+    hdrs = ["regexp.h"],
+    compatible_with = get_compatible_with_portable(),
+    deps = [
+        ":platform",
+        "@com_googlesource_code_re2//:re2",
+    ],
+)
+
+cc_library(
     name = "stack_frame",
     hdrs = ["stack_frame.h"],
+    compatible_with = get_compatible_with_portable(),
+)
+
+cc_library(
+    name = "tstring",
+    hdrs = [
+        "ctstring.h",
+        "ctstring_internal.h",
+        "tstring.h",
+    ],
+    compatible_with = get_compatible_with_portable(),
+    deps = [
+        ":cord",
+        ":stringpiece",
+    ],
+)
+
+filegroup(
+    name = "ctstring",
+    srcs = [
+        "ctstring.h",
+        "ctstring_internal.h",
+    ],
     compatible_with = get_compatible_with_portable(),
 )
 
 filegroup(
     name = "lib_hdrs",
     srcs = [
+        "bfloat16.h",
         "init_main.h",
         "net.h",
         "stack_frame.h",
@@ -67,6 +103,7 @@ filegroup(
 filegroup(
     name = "framework_lite_hdrs",
     srcs = [
+        "bfloat16.h",
         "byte_order.h",
         "macros.h",
         "platform.h",
@@ -78,12 +115,14 @@ filegroup(
 filegroup(
     name = "mobile_srcs_no_runtime",
     srcs = [
+        "bfloat16.h",
         "byte_order.h",
         "init_main.h",
         "intrusive_ptr.h",
         "macros.h",
         "platform.h",
         "platform_strings_computed.h",
+        "regexp.h",
         "stringpiece.h",
         "threadpool_interface.h",
     ],
@@ -122,6 +161,8 @@ exports_files(
         "net.h",
         "resource_loader.h",
         "stacktrace_handler.h",
+        "bfloat16.h",
+        "logging.h",
     ],
     visibility = ["//tensorflow:__subpackages__"],
 )
@@ -193,6 +234,7 @@ cc_library(
 filegroup(
     name = "tflite_portable_logging_hdrs",
     srcs = [
+        "bfloat16.h",
         "macros.h",
         "platform.h",
     ],
@@ -206,6 +248,7 @@ filegroup(
 filegroup(
     name = "jpeg_internal_hdrs",
     srcs = [
+        "bfloat16.h",
         "macros.h",
         "platform.h",
         "stringpiece.h",
@@ -220,6 +263,7 @@ filegroup(
 filegroup(
     name = "gif_internal_hdrs",
     srcs = [
+        "bfloat16.h",
         "macros.h",
         "platform.h",
     ],
@@ -307,6 +351,16 @@ cc_library(
 )
 
 cc_library(
+    name = "cord",
+    hdrs = ["cord.h"],
+    compatible_with = get_compatible_with_portable(),
+    deps = [
+        ":platform",
+        "@com_google_absl//absl/strings:cord",
+    ] + tf_platform_deps("cord"),
+)
+
+cc_library(
     name = "threadpool_interface",
     hdrs = ["threadpool_interface.h"],
     compatible_with = get_compatible_with_portable(),
@@ -321,6 +375,7 @@ cc_library(
 cc_library(
     name = "build_test",
     testonly = 1,
+    compatible_with = get_compatible_with_portable(),
     visibility = [
         "//tensorflow/core/platform:__pkg__",
     ],
@@ -337,4 +392,33 @@ cc_library(
         ":stringpiece",
         ":threadpool_interface",
     ],
+)
+
+cc_library(
+    name = "bfloat16",
+    hdrs = ["bfloat16.h"],
+    compatible_with = get_compatible_with_portable(),
+    deps = [
+        ":byte_order",
+        "//third_party/eigen3",
+    ],
+)
+
+cc_library(
+    name = "logging",
+    compatible_with = get_compatible_with_portable(),
+    textual_hdrs = ["logging.h"],
+    visibility = [
+        "//visibility:public",
+    ],
+    deps = tf_logging_deps(),
+)
+
+filegroup(
+    name = "lib_internal_private_hdrs",
+    srcs = [
+        "bfloat16.h",
+    ],
+    compatible_with = get_compatible_with_portable(),
+    visibility = ["//tensorflow/core:__pkg__"],
 )

@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef TENSORFLOW_COMPILER_XLA_SERVICE_GPU_XLA_RUNTIME_CUSTOM_CALLS_H_
-#define TENSORFLOW_COMPILER_XLA_SERVICE_GPU_XLA_RUNTIME_CUSTOM_CALLS_H_
+#ifndef TENSORFLOW_COMPILER_XLA_SERVICE_GPU_JITRT_CUSTOM_CALLS_H_
+#define TENSORFLOW_COMPILER_XLA_SERVICE_GPU_JITRT_CUSTOM_CALLS_H_
 
 #include <cstdint>
 #include <memory>
@@ -122,6 +122,12 @@ XLA_RUNTIME_DECLARE_EXPLICIT_DENSE_TYPE_ID(
     xla::runtime::CustomCall, const xla::ServiceExecutableRunOptions);
 XLA_RUNTIME_DECLARE_EXPLICIT_DENSE_TYPE_ID(xla::runtime::CustomCall,
                                            const xla::DebugOptions);
+XLA_RUNTIME_DECLARE_EXPLICIT_DENSE_TYPE_ID(xla::runtime::CustomCall,
+                                           const std::string);  // ptx
+XLA_RUNTIME_DECLARE_EXPLICIT_DENSE_TYPE_ID(
+    xla::runtime::CustomCall, const std::vector<uint8_t>);  // cubin
+XLA_RUNTIME_DECLARE_EXPLICIT_DENSE_TYPE_ID(
+    xla::runtime::CustomCall, se::DeviceMemoryBase);  // temp buffer
 
 namespace xla {
 namespace gpu {
@@ -223,4 +229,4 @@ xla::runtime::DirectCustomCallLibrary JitRtGpuCustomCalls();
 }  // namespace gpu
 }  // namespace xla
 
-#endif  // TENSORFLOW_COMPILER_XLA_SERVICE_GPU_XLA_RUNTIME_CUSTOM_CALLS_H_
+#endif  // TENSORFLOW_COMPILER_XLA_SERVICE_GPU_JITRT_CUSTOM_CALLS_H_

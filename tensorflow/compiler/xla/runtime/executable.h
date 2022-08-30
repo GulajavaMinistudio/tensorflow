@@ -13,8 +13,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef XLA_RUNTIME_EXECUTABLE_H_
-#define XLA_RUNTIME_EXECUTABLE_H_
+#ifndef TENSORFLOW_COMPILER_XLA_RUNTIME_EXECUTABLE_H_
+#define TENSORFLOW_COMPILER_XLA_RUNTIME_EXECUTABLE_H_
 
 #include <memory>
 #include <optional>
@@ -27,6 +27,7 @@ limitations under the License.
 #include "tensorflow/compiler/xla/runtime/arguments.h"
 #include "tensorflow/compiler/xla/runtime/async_runtime.h"
 #include "tensorflow/compiler/xla/runtime/custom_call.h"
+#include "tensorflow/compiler/xla/runtime/custom_call_registry.h"
 #include "tensorflow/compiler/xla/runtime/diagnostics.h"
 #include "tensorflow/compiler/xla/runtime/execution_engine.h"
 #include "tensorflow/compiler/xla/runtime/logical_result.h"
@@ -188,6 +189,12 @@ class Executable {
     // handlers. Must outlive all async tasks launched by this executable.
     CustomCall::UserData* custom_call_data = nullptr;
 
+    // Dynamically registered custom calls library. These custom calls resolved
+    // at run time by name. In contrast to custom calls defined by the
+    // `DirectCustomCallLibrary` which are linked directly with the executable
+    // at compile time.
+    CustomCallRegistry* custom_call_registry = nullptr;
+
     // Diagnostic engine is responsible for passing runtime diagnostics back
     // to the caller through the diagnostic handler.
     DiagnosticEngine* diagnostic_engine = nullptr;
@@ -312,4 +319,4 @@ inline std::string EscapeMemRegionName(std::string_view memory_region_name) {
 }  // namespace runtime
 }  // namespace xla
 
-#endif  // XLA_RUNTIME_EXECUTABLE_H_
+#endif  // TENSORFLOW_COMPILER_XLA_RUNTIME_EXECUTABLE_H_
