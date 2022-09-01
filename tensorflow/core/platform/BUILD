@@ -216,6 +216,7 @@ cc_library(
     name = "casts",
     hdrs = ["casts.h"],
     deps = [
+        "//tensorflow/tsl/platform:casts",
         ":platform",
     ] + tf_platform_deps("casts"),
 )
@@ -382,6 +383,7 @@ cc_library(
     compatible_with = get_compatible_with_portable(),
     textual_hdrs = ["logging.h"],
     deps = [
+        "//tensorflow/core/platform:types",
         "//tensorflow/tsl/platform:logging",
     ],
 )
@@ -909,6 +911,8 @@ cc_library(
     ],
     compatible_with = get_compatible_with_portable(),
     deps = [
+        "//tensorflow/core/platform:cord",
+        "//tensorflow/core/platform:stringpiece",
         "//tensorflow/tsl/platform:tstring",
     ],
 )
@@ -928,10 +932,11 @@ cc_library(
     hdrs = ["types.h"],
     compatible_with = get_compatible_with_portable(),
     deps = [
-        ":platform",
         ":bfloat16",
+        ":platform",
         ":tstring",
-    ] + tf_platform_deps("types"),
+        "//tensorflow/tsl/platform:types",
+    ],
 )
 
 cc_library(

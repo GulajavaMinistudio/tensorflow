@@ -41,6 +41,11 @@ std::unique_ptr<OperationPass<func::FuncOp>>
 CreateExecutorDialectToFunctionalConversionPass();
 
 namespace TF {
+// Creates a pass that canonicalizes legacy compilation and replication
+// attributes.
+std::unique_ptr<OperationPass<func::FuncOp>>
+CreateCanonicalizeCompileAndReplicateAttributesPass();
+
 // Creates a pass that drops `shape_invariant` attribute from While/WhileRegion
 // ops.
 std::unique_ptr<OperationPass<func::FuncOp>>
@@ -275,6 +280,11 @@ std::unique_ptr<Pass> CreateOrderByDialectPass();
 
 // Groups ops into functions that only contain one dialect.
 std::unique_ptr<Pass> CreateGroupByDialectPass();
+
+// Populates the supplied passmanager with the passes required to run the
+// CPU/GPU bridge.
+void CreateTFXLABridgePipeline(OpPassManager& pm);
+
 }  // namespace TF
 
 namespace tf_executor {
@@ -282,6 +292,9 @@ namespace tf_executor {
 // Creates a pass to chain control outputs of while loop body.
 std::unique_ptr<OperationPass<ModuleOp>>
 CreateTFExecutorConvertControlToDataOutputsPass();
+
+std::unique_ptr<OperationPass<ModuleOp>>
+CreateTFExecutorCheckControlDependenciesPass();
 
 // Creates a pass to merge IslandOps from TFExecutor dialect.
 std::unique_ptr<OperationPass<func::FuncOp>>
@@ -419,11 +432,6 @@ std::unique_ptr<OperationPass<ModuleOp>> CreateXlaInlineDeviceOpsPass();
 }  // namespace TFDevice
 
 namespace TFTPU {
-// Creates a pass that canonicalizes legacy compilation and replication
-// attributes.
-std::unique_ptr<OperationPass<func::FuncOp>>
-CreateCanonicalizeCompileAndReplicateAttributesPass();
-
 // Creates a pass that converts unified compilation and replication
 // attributes back to legacy attributes.
 std::unique_ptr<OperationPass<func::FuncOp>>

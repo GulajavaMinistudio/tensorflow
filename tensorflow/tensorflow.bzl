@@ -881,7 +881,7 @@ def _tf_cc_shared_library(
     cc_shared_library(
         name = name,
         roots = [cc_library_name] + roots,
-        exports_filter = if_rocm(None, exports_filter),  # b/230048163
+        exports_filter = exports_filter,
         dynamic_deps = dynamic_deps,
         static_deps = static_deps,
         shared_lib_name = shared_lib_name,
@@ -2933,9 +2933,6 @@ def pybind_extension(
     )
 
     if static_deps:
-        if link_in_framework:
-            deps += [clean_dep("//tensorflow:libtensorflow_framework_import_lib")]  # buildifier: disable=list-append
-
         cc_library_name = so_file + "_cclib"
         cc_library(
             name = cc_library_name,

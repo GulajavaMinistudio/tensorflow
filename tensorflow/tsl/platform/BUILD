@@ -80,6 +80,7 @@ filegroup(
     name = "lib_hdrs",
     srcs = [
         "bfloat16.h",
+        "casts.h",
         "init_main.h",
         "net.h",
         "stack_frame.h",
@@ -117,6 +118,7 @@ filegroup(
     srcs = [
         "bfloat16.h",
         "byte_order.h",
+        "casts.h",
         "init_main.h",
         "intrusive_ptr.h",
         "macros.h",
@@ -373,6 +375,17 @@ cc_library(
 )
 
 cc_library(
+    name = "types",
+    hdrs = ["types.h"],
+    compatible_with = get_compatible_with_portable(),
+    deps = [
+        ":platform",
+        ":bfloat16",
+        ":tstring",
+    ] + tf_platform_deps("types"),
+)
+
+cc_library(
     name = "build_test",
     testonly = 1,
     compatible_with = get_compatible_with_portable(),
@@ -421,4 +434,13 @@ filegroup(
     ],
     compatible_with = get_compatible_with_portable(),
     visibility = ["//tensorflow/core:__pkg__"],
+)
+
+cc_library(
+    name = "casts",
+    hdrs = ["casts.h"],
+    compatible_with = get_compatible_with_portable(),
+    deps = [
+        ":platform",
+    ] + tf_platform_deps("casts"),
 )

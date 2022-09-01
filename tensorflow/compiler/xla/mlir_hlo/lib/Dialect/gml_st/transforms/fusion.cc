@@ -19,8 +19,8 @@ limitations under the License.
 #include "mlir-hlo/Dialect/gml_st/IR/gml_st_ops.h"
 #include "mlir-hlo/Dialect/gml_st/transforms/fusion_interface.h"
 #include "mlir-hlo/Dialect/gml_st/transforms/fusion_interface_impl.h"
-#include "mlir-hlo/Dialect/gml_st/transforms/pass_detail.h"
 #include "mlir-hlo/Dialect/gml_st/transforms/passes.h"
+#include "mlir-hlo/Dialect/gml_st/transforms/rewriters.h"
 #include "mlir-hlo/Dialect/gml_st/transforms/tiling_interface.h"
 #include "mlir-hlo/Dialect/gml_st/transforms/tiling_interface_impl.h"
 #include "mlir-hlo/Dialect/gml_st/transforms/transforms.h"
@@ -37,6 +37,10 @@ limitations under the License.
 namespace mlir {
 namespace gml_st {
 namespace {
+
+#define GEN_PASS_DEF_DEPRECATEDFUSIONPASS
+#define GEN_PASS_DEF_FUSIONPASS
+#include "mlir-hlo/Dialect/gml_st/transforms/passes.h.inc"
 
 // TODO(frgossen): Move this to the shape reification pass.
 struct DimOpFissionPattern : public OpRewritePattern<tensor::ExtractOp> {
@@ -143,7 +147,7 @@ struct DeprecatedFusionPattern : public OpRewritePattern<MaterializeOp> {
 };
 
 class DeprecatedFusionPass
-    : public DeprecatedFusionPassBase<DeprecatedFusionPass> {
+    : public impl::DeprecatedFusionPassBase<DeprecatedFusionPass> {
   void getDependentDialects(DialectRegistry& registry) const final {
     registry.insert<scf::SCFDialect>();
     registerFusionInterfaceExternalModels(registry);
@@ -193,26 +197,13 @@ FailureOr<TilingInterface> fuseIntoMaterializeOp(OpBuilder& b,
 
 class FusionPattern : public OpRewritePattern<MaterializeOp> {
  public:
-  FusionPattern(StringRef producer, StringRef consumer, MLIRContext* context,
+  FusionPattern(MLIRContext* context, OpFilterFn filterFn,
                 mlir::PatternBenefit benefit = 1)
-      : OpRewritePattern<MaterializeOp>(context, benefit),
-        producer(producer),
-        consumer(consumer) {}
+      : OpRewritePattern<MaterializeOp>(context, benefit), filterFn(filterFn) {}
 
   LogicalResult matchAndRewrite(MaterializeOp materializeOp,
                                 PatternRewriter& rewriter) const override {
-    Operation* producerOp = materializeOp.source().getDefiningOp();
-    if (!producerOp || !hasMatchingLabel(producerOp, producer))
-      return failure();
-
-    Operation* consumerOp = nullptr;
-    for (Operation* user : materializeOp.getResult().getUsers()) {
-      if (hasMatchingLabel(user, consumer)) {
-        consumerOp = user;
-        break;
-      }
-    }
-    if (!consumerOp) return failure();
+    if (!filterFn || failed(filterFn(materializeOp))) return failure();
 
     auto fusedOpOr = fuseIntoMaterializeOp(rewriter, materializeOp);
     if (failed(fusedOpOr)) return failure();
@@ -223,11 +214,10 @@ class FusionPattern : public OpRewritePattern<MaterializeOp> {
   }
 
  private:
-  StringRef producer;
-  StringRef consumer;
+  OpFilterFn filterFn;
 };
 
-struct FusionPass : public FusionPassBase<FusionPass> {
+struct FusionPass : public impl::FusionPassBase<FusionPass> {
   FusionPass(StringRef producerLabel, StringRef consumerLabel) {
     this->producer = producerLabel.str();
     this->consumer = consumerLabel.str();
@@ -241,9 +231,25 @@ struct FusionPass : public FusionPassBase<FusionPass> {
   void runOnOperation() final {
     MLIRContext* ctx = &getContext();
 
+    auto filterFn = [&](Operation* op) {
+      auto materializeOp = cast<MaterializeOp>(op);
+      Operation* producerOp = materializeOp.source().getDefiningOp();
+      if (!producerOp || !hasMatchingLabel(producerOp, producer))
+        return failure();
+
+      Operation* consumerOp = nullptr;
+      for (Operation* user : materializeOp.getResult().getUsers()) {
+        if (hasMatchingLabel(user, consumer)) {
+          consumerOp = user;
+          break;
+        }
+      }
+      return success(consumerOp != nullptr);
+    };
+
     // Populate patterns.
     RewritePatternSet patterns(ctx);
-    patterns.insert<FusionPattern>(producer, consumer, ctx);
+    populateFusionPatterns(ctx, filterFn, &patterns);
 
     if (failed(applyPatternsAndFoldGreedily(getOperation(),
                                             std::move(patterns)))) {
@@ -256,6 +262,11 @@ struct FusionPass : public FusionPassBase<FusionPass> {
 
 std::unique_ptr<OperationPass<func::FuncOp>> createDeprecatedFusionPass() {
   return std::make_unique<DeprecatedFusionPass>();
+}
+
+void populateFusionPatterns(MLIRContext* context, OpFilterFn filterFn,
+                            RewritePatternSet* patterns) {
+  patterns->insert<FusionPattern>(context, filterFn);
 }
 
 std::unique_ptr<OperationPass<func::FuncOp>> createFusionPass(

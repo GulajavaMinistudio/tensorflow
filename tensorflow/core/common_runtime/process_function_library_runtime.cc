@@ -44,12 +44,12 @@ limitations under the License.
 #include "tensorflow/core/graph/graph.h"
 #include "tensorflow/core/graph/graph_node_util.h"
 #include "tensorflow/core/graph/graph_partition.h"
-#include "tensorflow/core/lib/core/blocking_counter.h"
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/lib/gtl/cleanup.h"
 #include "tensorflow/core/lib/gtl/inlined_vector.h"
 #include "tensorflow/core/lib/gtl/map_util.h"
 #include "tensorflow/core/lib/random/random.h"
+#include "tensorflow/core/platform/blocking_counter.h"
 #include "tensorflow/core/platform/notification.h"
 #include "tensorflow/core/util/device_name_utils.h"
 #include "tensorflow/core/util/dump_graph.h"
@@ -1006,8 +1006,8 @@ Status ProcessFunctionLibraryRuntime::InstantiateMultiDevice(
     }
   }
   const uint64 optimization_end_time_usecs = Env::Default()->NowMicros();
-  metrics::UpdateGraphOptimizationTime(optimization_end_time_usecs -
-                                       optimization_start_time_usecs);
+  metrics::UpdateFunctionGraphOptimizationTime(optimization_end_time_usecs -
+                                               optimization_start_time_usecs);
 
   if (options.graph_collector != nullptr) {
     for (const auto& pair : subgraphs) {

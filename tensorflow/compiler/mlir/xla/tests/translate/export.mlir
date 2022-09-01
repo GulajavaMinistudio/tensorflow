@@ -147,7 +147,7 @@ func.func @main(%arg0: tensor<10xf32>) -> tensor<10xf32> {
       handle = 5,
       type = 2
     >,
-    use_global_device_ids 
+    use_global_device_ids
   } : (tensor<10xf32>) -> tensor<10xf32>
   func.return %0 : tensor<10xf32>
 }
@@ -860,6 +860,44 @@ func.func @main(%data: tensor<3xi32>, %token: !mhlo.token) -> !mhlo.token {
 // CHECK-DAG: [[DATATUPLE:%.*]] = (s32[3]) tuple(s32[3] [[DATA]])
 // CHECK-DAG:  [[TOKEN:%.*]] = token[] parameter(1)
 // CHECK:  ROOT %[[RESULT:.*]] = token[] outfeed((s32[3]) [[DATATUPLE]], token[] [[TOKEN]]), outfeed_shape=(s32[3]{0}), outfeed_config="foobar"
+
+// -----
+
+// The following op sharding is used:
+// Proto debug string:
+//   type: TUPLE
+//   tuple_shardings {
+//     type: OTHER
+//     tile_assignment_dimensions: 2
+//     tile_assignment_dimensions: 1
+//     tile_assignment_devices: 0
+//     tile_assignment_devices: 1
+//   }
+// Serialized string:
+//   "\08\03\1A\02\02\01\22\02\00\01"
+
+// CHECK:  HloModule
+func.func @main(%data: tensor<3x2xi32>, %token: !mhlo.token) -> !mhlo.token {
+  %shard = "mhlo.custom_call"(%data) {api_version = 1 : i32, backend_config = "", call_target_name = "Sharding",  mhlo.sharding = "\08\03\1A\02\01\02\22\02\00\01"} : (tensor<3x2xi32>) -> tensor<3x2xi32>
+  %full_shaped_data = "mhlo.custom_call"(%shard) {api_version = 1 : i32, backend_config = "", call_target_name = "SPMDShardToFullShape",  mhlo.sharding = "\08\03\1A\02\01\02\22\02\00\01"} : (tensor<3x2xi32>) -> tensor<6x2xi32>
+  %0 = "mhlo.outfeed"(%full_shaped_data, %token) {mhlo.sharding = "\08\02*\0A\08\03\1A\02\02\01\22\02\00\01*\08\08\01\1A\01\01\22\01\00", outfeed_config = "foobar"} : (tensor<6x2xi32>, !mhlo.token) -> !mhlo.token
+  func.return %0 : !mhlo.token
+}
+
+// CHECK:  ENTRY
+// CHECK:  [[DATA:%.*]] = s32[3,2] parameter(0)
+// CHECK:  [[SHARD:%.*]] = s32[3,2] custom-call(s32[3,2] [[DATA]])
+// CHECK-SAME: custom_call_target="Sharding"
+// CHECK-SAME: sharding={devices=[1,2]0,1}
+// CHECK:  [[FULL:%.*]] = s32[6,2] custom-call(s32[3,2] [[SHARD]])
+// CHECK-SAME: custom_call_target="SPMDShardToFullShape"
+// CHECK-SAME: sharding={devices=[1,2]0,1}
+// CHECK-DAG: [[DATATUPLE:%.*]] = (s32[6,2]) tuple(s32[6,2] [[FULL]])
+// CHECK-DAG:  [[TOKEN:%.*]] = token[] parameter(1)
+// CHECK:  ROOT %[[RESULT:.*]] = token[] outfeed((s32[6,2]) [[DATATUPLE]], token[] [[TOKEN]]), outfeed_shape=(s32[6,2]{1,0}), outfeed_config="foobar",
+// CHECK-SAME: sharding={
+// CHECK-SAME: {devices=[2,1]0,1}, {maximal device=0}
+// CHECK-SAME: }
 
 // -----
 
@@ -1666,6 +1704,22 @@ func.func @main(%arg0: tensor<2xf32>) -> tensor<2xf32> {
   %0 = "mhlo.round_nearest_even"(%arg0) {} : (tensor<2xf32>) -> tensor<2xf32>
   // CHECK: round-nearest-even(f32[2] %[[ARG0]])
   func.return %0 : tensor<2xf32>
+}
+
+// -----
+
+// CHECK: HloModule
+// CHECK{LITERAL}: output_to_operand_aliasing={{0}: (0, {1})}
+func.func @main(%arg0: tuple<tensor<1x1xf32>, tensor<2x3xf32>>, %arg1: tensor<5x5xf32>) {
+  %0 = "mhlo.custom_call"(%arg0, %arg1) {
+    call_target_name = "foo",
+    output_operand_aliases = [
+      #mhlo.output_operand_alias<output_tuple_indices = [0],
+                                 operand_index = 0,
+                                 operand_tuple_indices = [1]>
+    ]
+  } : (tuple<tensor<1x1xf32>, tensor<2x3xf32>>, tensor<5x5xf32>) -> tuple<tensor<2x3xf32>>
+  func.return
 }
 
 // -----

@@ -151,8 +151,7 @@ void HloFunctionImporter::ReplaceBlockArgumentsWithImplicitOperands(
       assert(implicit_operand_index < implicit_operands.size());
       arg.replaceAllUsesWith(implicit_operands[implicit_operand_index++]);
     }
-    region.front().eraseArguments(
-        llvm::BitVector(region.getNumArguments(), true));
+    region.front().eraseArguments(0, region.getNumArguments());
   }
 }
 
@@ -508,7 +507,7 @@ StatusOr<mlir::Operation*> HloFunctionImporter::ImportInstructionImpl(
       auto attr = CreateDenseElementsAttrFromLiteral(literal, *builder_);
       if (!attr.ok()) return attr.status();
       mlir::Operation* new_operation =
-          func_builder->create<mlir::mhlo::ConstantOp>(loc, attr.ValueOrDie());
+          func_builder->create<mlir::mhlo::ConstantOp>(loc, attr.value());
       for (auto attr : attributes) {
         new_operation->setAttr(attr.getName(), attr.getValue());
       }
@@ -662,6 +661,10 @@ StatusOr<mlir::Operation*> HloFunctionImporter::ImportInstructionImpl(
       attributes.push_back(builder_->getNamedAttr(
           "api_version", mlir::mhlo::CustomCallApiVersionAttr::get(
                              builder_->getContext(), mlir_api_version)));
+      attributes.push_back(builder_->getNamedAttr(
+          "custom_call_output_operand_aliasing",
+          ConvertCustomCallOutputOperandAliasing(
+              instruction->custom_call_output_operand_aliasing(), builder_)));
       return func_builder
           ->create<mlir::mhlo::CustomCallOp>(loc, result_type, operands,
                                              attributes)

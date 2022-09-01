@@ -137,16 +137,16 @@ build --config=short_logs
 # TODO(mihaimaruseac): Document this option or remove if no longer needed
 build --config=v2
 
-# Disable AWS/HDFS support by default
+# Disables AWS/HDFS support by default
 build --define=no_aws_support=true
 build --define=no_hdfs_support=true
 
-# TF now has `cc_shared_library` targets, so it needs the experimental flag
-# TODO(rostam): Remove when `cc_shared_library` is enabled by default
-build --experimental_cc_shared_library
+# Sets no limit to the size of the stdout/stderr files printed to the console.
+build --experimental_ui_max_stdouterr_bytes=-1
 
-# cc_shared_library ensures no library is linked statically more than once.
-build --experimental_link_static_libraries_once=false
+# TF uses `cc_shared_library` targets, so it needs the experimental flag
+build --experimental_cc_shared_library
+build --experimental_link_static_libraries_once=true
 
 # Default options should come above this line.
 
@@ -270,7 +270,6 @@ build:rocm --crosstool_top=@local_config_rocm//crosstool:toolchain
 build:rocm --define=using_rocm_hipcc=true
 build:rocm --define=tensorflow_mkldnn_contraction_kernel=0
 build:rocm --repo_env TF_NEED_ROCM=1
-build:rocm --experimental_link_static_libraries_once=false  # b/230048163
 # Disable unused-result on rocm builds.
 build:rocm --copt="-Wno-error=unused-result"
 

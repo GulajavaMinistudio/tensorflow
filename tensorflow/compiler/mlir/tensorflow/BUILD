@@ -1134,6 +1134,7 @@ cc_library(
         "transforms/batchmatmul_to_einsum.cc",
         "transforms/bridge.cc",
         "transforms/canonicalize_compile_and_replicate_attributes.cc",
+        "transforms/check_control_dependencies.cc",
         "transforms/cluster_formation.cc",
         "transforms/cluster_ops_by_policy.cc",
         "transforms/cluster_outlining.cc",
@@ -2601,6 +2602,42 @@ cc_library(
         "//tensorflow/compiler/mlir/tensorflow",
         "//tensorflow/compiler/mlir/xla:adjust_layout",
         "@llvm-project//mlir:FuncDialect",
+        "@llvm-project//mlir:IR",
+    ],
+)
+
+cc_library(
+    name = "mlprogram_util",
+    srcs = ["utils/mlprogram_util.cc"],
+    hdrs = ["utils/mlprogram_util.h"],
+    deps = [
+        ":compile_mlir_util_no_tf_dialect_passes",
+        ":import_model",
+        ":tensorflow_passes",
+        ":tf_saved_model_passes",
+        "//tensorflow/cc/saved_model:loader",
+        "//tensorflow/cc/saved_model:tag_constants",
+        "//tensorflow/compiler/mlir/xla:legalize_tf",
+        "@llvm-project//llvm:Support",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Support",
+        "@llvm-project//mlir:Transforms",
+    ],
+)
+
+tf_cc_test(
+    name = "mlprogram_util_test",
+    size = "small",
+    srcs = ["utils/mlprogram_util_test.cc"],
+    data = [
+        "//tensorflow/cc/saved_model:saved_model_test_files",
+    ],
+    deps = [
+        ":mlprogram_util",
+        ":tensorflow_types",
+        "//tensorflow/core:test",
+        "//tensorflow/core:test_main",
+        "//tensorflow/core/platform:path",
         "@llvm-project//mlir:IR",
     ],
 )
