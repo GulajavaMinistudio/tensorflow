@@ -37,6 +37,10 @@ namespace gpu {
 // some extra space for cache.
 inline constexpr int64_t kSharedMemoryBudgetInBytes = 48 * 1024;
 
+// If a dimensions is smaller than this, untiled transposition may be more
+// efficient.
+inline constexpr int64_t kMinDimensionToTransposeTiled = 16;
+
 // Matrix multiplication before the rewrite.
 //
 // This function should never return "true" on instructions after
@@ -84,7 +88,7 @@ struct ReductionDimensions {
   //
   // For row reduction, we do: [D, H, W] -> [D, H].
   // For column reduction, we do: [D, H, W] -> [D, W].
-  std::array<int64_t, 3> dimensions;
+  Vector3 dimensions;
 };
 
 // Given the input shape and dimensions to reduce for a reduction, returns
@@ -97,9 +101,8 @@ ReductionDimensions GetReductionKindAndContiguousComponents(
     const HloInstruction& reduce);
 
 // Get tiling per thread for the given reduction in dimensions [D, H, W].
-std::array<int64_t, 3> GetReductionTiling(
-    const ReductionDimensions& reduction_dimensions,
-    se::CudaComputeCapability cuda_compute_capability);
+Vector3 GetReductionTiling(const ReductionDimensions& reduction_dimensions,
+                           se::CudaComputeCapability cuda_compute_capability);
 
 // Emits call to "vprintf" with given format and arguments.
 llvm::Value* EmitPrintf(absl::string_view fmt,
@@ -177,7 +180,7 @@ Shape GetShape(mlir::Value value);
 // Returns whether the given reduction can be safely generated without atomics:
 // that is, at most one block will write to every output element.
 bool ReductionIsRaceFree(const ReductionDimensions& reduction_dimensions,
-                         const std::array<int64_t, 3>& reduction_tiling);
+                         const Vector3& reduction_tiling);
 
 // Description of how to emit a given transposition.
 //
@@ -207,13 +210,6 @@ struct TransposeDimsAndParams {
   }
 };
 
-// Attempts to match 021 transpose on the given fusion and return a
-// transposition description.
-//
-// Precondition: input is a fused computation, with kCopy as a root.
-std::optional<TransposeDimsAndParams> Match021Transpose(
-    const HloComputation* fused_computation);
-
 // Returns instructions which are roots of the fusion, following the operands of
 // GTE instructions in the root tuple. Groups multiple subsequent instructions
 // with the same root. CHECKs that the fusion never outputs the same instruction
@@ -236,6 +232,12 @@ std::vector<HloInstruction*> GetFusionRoots(HloComputation* computation);
 // Returns whether the computation has at least one root triggering unnested
 // reduction emitter.
 bool HasAnyUnnestedReductionRoot(HloComputation* computation);
+
+// Whether there is a fusion root triggering transposition emitter.
+bool HasAnyTiledTransposeRoot(HloComputation* computation);
+
+// Returns whether the given instruction is a tiled transposition.
+bool IsTiledTranspose(const HloInstruction& instr);
 
 }  // namespace gpu
 }  // namespace xla

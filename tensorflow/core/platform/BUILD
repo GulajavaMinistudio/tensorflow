@@ -18,15 +18,12 @@ load(
     "tf_additional_lib_hdrs",
     "tf_additional_tensor_coding_deps",
     "tf_additional_test_srcs",
-    "tf_cuda_libdevice_path_deps",
-    "tf_fingerprint_deps",
     "tf_google_mobile_srcs_no_runtime",
     "tf_google_mobile_srcs_only_runtime",
     "tf_kernel_tests_linkstatic",
     "tf_platform_alias",
     "tf_platform_deps",
     "tf_protobuf_deps",
-    "tf_resource_deps",
     "tf_testing_deps",
     "tf_windows_aware_platform_deps",
 )
@@ -81,7 +78,6 @@ exports_files(
         "context.h",
         "cpu_info.cc",
         "cpu_info.h",
-        "cuda_libdevice_path.h",
         "bfloat16.h",
         "demangle.h",
         "env.cc",
@@ -196,7 +192,8 @@ cc_library(
     compatible_with = get_compatible_with_portable(),
     deps = [
         ":platform",
-    ] + tf_platform_deps("crash_analysis"),
+        "//tensorflow/tsl/platform:crash_analysis",
+    ],
 )
 
 cc_library(
@@ -228,13 +225,8 @@ cc_library(
     deps = [
         ":platform",
         "//tensorflow/compiler/xla/stream_executor/cuda:cuda_activation_header",
+        "//tensorflow/tsl/platform:cuda",
     ],
-)
-
-cc_library(
-    name = "cuda_libdevice_path",
-    textual_hdrs = ["cuda_libdevice_path.h"],
-    deps = tf_cuda_libdevice_path_deps(),
 )
 
 cc_library(
@@ -266,7 +258,8 @@ cc_library(
     compatible_with = get_compatible_with_portable(),
     deps = [
         ":platform",
-    ] + tf_platform_deps("dynamic_annotations"),
+        "//tensorflow/tsl/platform:dynamic_annotations",
+    ],
 )
 
 cc_library(
@@ -321,7 +314,8 @@ cc_library(
     deps = [
         ":stringpiece",
         ":types",
-    ] + tf_fingerprint_deps(),
+        "//tensorflow/tsl/platform:fingerprint",
+    ],
 )
 
 cc_library(
@@ -334,13 +328,13 @@ cc_library(
 
 cc_library(
     name = "hash",
-    srcs = ["hash.cc"],
     hdrs = ["hash.h"],
     deps = [
         ":macros",
         ":raw_coding",
         ":stringpiece",
         ":types",
+        "//tensorflow/tsl/platform:hash",
     ],
 )
 
@@ -505,6 +499,8 @@ cc_library(
         "snappy.h",
     ],
     deps = [
+        "//tensorflow/core/platform:dynamic_annotations",
+        "//tensorflow/core/platform:types",
         "//tensorflow/tsl/platform:platform_port",
     ],
 )
@@ -533,7 +529,7 @@ cc_library(
 cc_library(
     name = "prefetch",
     hdrs = ["prefetch.h"],
-    deps = [":platform"],
+    deps = ["//tensorflow/tsl/platform:prefetch"],
 )
 
 cc_library(
@@ -576,6 +572,7 @@ cc_library(
     deps = [
         ":byte_order",
         ":types",
+        "//tensorflow/tsl/platform:raw_coding",
     ],
 )
 
@@ -636,7 +633,8 @@ cc_library(
     textual_hdrs = ["resource.h"],
     deps = [
         ":stringpiece",
-    ] + tf_resource_deps(),
+        "//tensorflow/tsl/platform:resource",
+    ],
 )
 
 cc_library(
@@ -689,7 +687,8 @@ cc_library(
     hdrs = ["stacktrace.h"],
     deps = [
         ":platform",
-    ] + tf_windows_aware_platform_deps("stacktrace"),
+        "//tensorflow/tsl/platform:stacktrace",
+    ],
 )
 
 filegroup(
@@ -772,14 +771,12 @@ cc_library(
 
 cc_library(
     name = "str_util",
-    srcs = ["str_util.cc"],
     hdrs = ["str_util.h"],
     deps = [
-        ":logging",
         ":macros",
         ":stringpiece",
         ":types",
-        "@com_google_absl//absl/strings",
+        "//tensorflow/tsl/platform:str_util",
     ],
 )
 
@@ -808,11 +805,11 @@ cc_library(
 
 cc_library(
     name = "stringprintf",
-    srcs = ["stringprintf.cc"],
     hdrs = ["stringprintf.h"],
     deps = [
         ":macros",
         ":types",
+        "//tensorflow/tsl/platform:stringprintf",
     ],
 )
 
@@ -1094,6 +1091,7 @@ tf_cuda_library(
     ],
     features = ["-parse_headers"],
     deps = [
+        "//tensorflow/tsl/platform:cuda",
         "//tensorflow/tsl/platform/default/build_config:stream_executor",
     ],
 )
@@ -1210,7 +1208,6 @@ tf_cc_tests(
     name = "low_level_library_tests",
     size = "small",
     srcs = [
-        "fingerprint_test.cc",
         "integral_types_test.cc",
         "logging_test.cc",
         "mutex_test.cc",
@@ -1633,6 +1630,7 @@ filegroup(
         "//tensorflow/core/platform/profile_utils:cpu_utils.h",
         "//tensorflow/core/platform/profile_utils:i_cpu_utils_helper.h",
         "//tensorflow/tsl/platform:base_hdrs",
+        "//tensorflow/tsl/platform:lib_hdrs",
         # copybara:uncomment(GoogleFileSystem) "//tensorflow/tsl/platform/google:env.h",
     ],
     visibility = ["//tensorflow/core:__pkg__"],
@@ -1774,6 +1772,7 @@ filegroup(
         "tstring.h",
         "types.h",
         ":ctstring",
+        "//tensorflow/tsl/platform:jpeg_internal_hdrs",
     ],
     visibility = [
         "//tensorflow/core:__pkg__",
@@ -1793,6 +1792,7 @@ filegroup(
         "tstring.h",
         "types.h",
         ":ctstring",
+        "//tensorflow/tsl/platform:gif_internal_hdrs",
     ],
     visibility = [
         "//tensorflow/core:__pkg__",
@@ -1830,7 +1830,6 @@ filegroup(
         "file_system.cc",
         "file_system.h",
         "file_system_helper.h",
-        "hash.cc",
         "hash.h",
         "host_info.h",
         "init_main.h",
@@ -1867,12 +1866,10 @@ filegroup(
         "statusor.h",
         "statusor_internals.h",
         "statusor.cc",
-        "str_util.cc",
         "str_util.h",
         "strcat.cc",
         "strcat.h",
         "stringpiece.h",
-        "stringprintf.cc",
         "stringprintf.h",
         "tensor_coding.cc",
         "tensor_coding.h",
@@ -1882,6 +1879,7 @@ filegroup(
         "tracing.h",
         "tstring.h",
         "types.h",
+        "//tensorflow/tsl/platform:mobile_srcs_no_runtime",
     ] + selects.with_or({
         "//tensorflow:fuchsia": tf_google_mobile_srcs_no_runtime(),
         "//conditions:default": [
@@ -1907,11 +1905,6 @@ filegroup(
         "platform_strings.h",
         "platform_strings_computed.h",
         "png.h",
-        "//tensorflow/core/platform/profile_utils:android_armv7a_cpu_utils_helper.cc",
-        "//tensorflow/core/platform/profile_utils:android_armv7a_cpu_utils_helper.h",
-        "//tensorflow/core/platform/profile_utils:cpu_utils.cc",
-        "//tensorflow/core/platform/profile_utils:cpu_utils.h",
-        "//tensorflow/core/platform/profile_utils:i_cpu_utils_helper.h",
         "protobuf_internal.h",
         "random.cc",
         "random.h",
@@ -1919,6 +1912,12 @@ filegroup(
         "test_benchmark.h",
         "threadpool_options.h",
         "unbounded_work_queue.h",
+        "//tensorflow/core/platform/profile_utils:android_armv7a_cpu_utils_helper.cc",
+        "//tensorflow/core/platform/profile_utils:android_armv7a_cpu_utils_helper.h",
+        "//tensorflow/core/platform/profile_utils:cpu_utils.cc",
+        "//tensorflow/core/platform/profile_utils:cpu_utils.h",
+        "//tensorflow/core/platform/profile_utils:i_cpu_utils_helper.h",
+        "//tensorflow/tsl/platform:mobile_srcs_only_runtime",
         "//tensorflow/tsl/platform/default:mobile_srcs_only_runtime",
     ] + tf_google_mobile_srcs_only_runtime(),
     visibility = ["//tensorflow/core:__pkg__"],

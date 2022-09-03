@@ -621,27 +621,8 @@ py_library(
     srcs_version = "PY3",
     visibility = ["//tensorflow:internal"],
     deps = [
-        ":context",
-        ":core",
-        ":execute",
-        ":forwardprop_util",
-        ":function_context",
-        ":function_saved_model_utils",
-        ":function_spec",
-        ":graph_only_ops",
-        ":tape",
-        "//tensorflow/core/function/polymorphism:function_cache",
-        "//tensorflow/python:dtypes",
-        "//tensorflow/python:errors",
-        "//tensorflow/python:framework_ops",
-        "//tensorflow/python:func_graph",
-        "//tensorflow/python:gradients_impl",
-        "//tensorflow/python:graph_to_function_def",
-        "//tensorflow/python:handle_data_util",
-        "//tensorflow/python:pywrap_tf_session",
-        "//tensorflow/python:util",
-        "//tensorflow/python/ops/numpy_ops:numpy",
-        "//third_party/py/numpy",
+        "//tensorflow/python/eager/polymorphic_function",
+        "//tensorflow/python/eager/polymorphic_function:monomorphic_function",
     ],
 )
 
@@ -925,7 +906,6 @@ py_library(
     visibility = ["//tensorflow:internal"],
     deps = [
         ":context",
-        ":function",
         ":function_spec",
         ":lift_to_graph",
         "//tensorflow/python:cond_v2",  # TODO(b/118513001): Imported via control_flow_ops; remove.
@@ -937,6 +917,8 @@ py_library(
         "//tensorflow/python:variable_scope",
         "//tensorflow/python:while_v2",  # TODO(b/118513001): Imported via control_flow_ops; remove.
         "//tensorflow/python/distribute/parallel_device",
+        "//tensorflow/python/eager/polymorphic_function",
+        "//tensorflow/python/eager/polymorphic_function:monomorphic_function",
         "//tensorflow/python/profiler:trace",
         "//tensorflow/python/trackable:base",
     ],

@@ -135,11 +135,12 @@ class PjRtCApiClient : public PjRtClient {
 
   absl::string_view platform_version() const override;
 
+  // TODO(b/244756954): Rethink this function altogether
   PjRtRuntimeType runtime_type() const override {
 #ifdef PJRT_C_API_BYPASS
     return wrapped_->runtime_type();
 #endif  // PJRT_C_API_BYPASS
-    CHECK(false) << "PJRT C API does not support runtime_type.";
+    return PjRtRuntimeType::kTfrt;
   }
 
   StatusOr<DeviceAssignment> GetDefaultDeviceAssignment(
@@ -153,13 +154,7 @@ class PjRtCApiClient : public PjRtClient {
   }
 
   StatusOr<std::unique_ptr<PjRtLoadedExecutable>> Compile(
-      const XlaComputation& computation, CompileOptions options) override {
-#ifdef PJRT_C_API_BYPASS
-    return WrapExecutable(wrapped_->Compile(computation, options));
-#endif  // PJRT_C_API_BYPASS
-    return Unimplemented(
-        "PJRT C API does not support Compile with XlaComputation");
-  }
+      const XlaComputation& computation, CompileOptions options) override;
 
   StatusOr<std::unique_ptr<PjRtLoadedExecutable>> Compile(
       mlir::ModuleOp module, CompileOptions options) override;

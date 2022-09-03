@@ -3,7 +3,7 @@
 #  ":platform" - Low-level and platform-specific Python code.
 
 load("//tensorflow:tensorflow.bzl", "py_strict_library")
-load("//tensorflow:tensorflow.bzl", "VERSION", "cc_header_only_library", "clean_dep", "if_google", "if_mlir", "if_oss", "if_xla_available", "py_test", "tf_enable_mlir_bridge")
+load("//tensorflow:tensorflow.bzl", "VERSION", "cc_header_only_library", "clean_dep", "if_google", "if_mlir", "if_oss", "if_windows", "if_xla_available", "py_test", "tf_enable_mlir_bridge", "tf_python_pybind_static_deps")
 
 # buildifier: disable=same-origin-load
 load("//tensorflow:tensorflow.bzl", "get_compatible_with_portable")
@@ -386,9 +386,14 @@ tf_python_pybind_extension(
         "//tensorflow/c/eager:headers",
         "//tensorflow/python/lib/core:py_exception_registry_hdr",
     ],
-    # TODO(rostam): Why does enabling cc_shared_library bloat the pip package?
-    # static_deps = tf_python_pybind_static_deps(),
+    dynamic_deps = [":_pywrap_tensorflow_internal.so"] + select({
+        "//tensorflow:macos": ["//tensorflow:libtensorflow_framework.%s.dylib" % VERSION],
+        "//conditions:default": ["//tensorflow:libtensorflow_framework.so.%s" % VERSION],
+        "//tensorflow:windows": [],
+    }),
+    static_deps = tf_python_pybind_static_deps(),
     deps = [
+        ":py_exception_registry",
         "//tensorflow/core:protos_all_cc",
         "//tensorflow/core/platform:status",
         "//third_party/python_runtime:headers",
@@ -3290,6 +3295,20 @@ pywrap_tensorflow_macro(
         "//conditions:default": ["//tensorflow:libtensorflow_framework.so.%s" % VERSION],
         "//tensorflow:windows": [],
     }),
+    exports_filter = [
+        "@pybind11//:pybind11",
+        "@local_config_python//:python_headers",
+    ] + if_windows([
+        "//:__subpackages__",
+        "@nsync//:__subpackages__",
+        "@com_google_absl//:__subpackages__",
+        "@com_google_protobuf//:__subpackages__",
+        "@double_conversion//:__subpackages__",
+        "@eigen_archive//:__subpackages__",
+    ]),
+    roots = [
+        ":py_exception_registry",
+    ],
     static_deps = [
         "@arm_neon_2_x86_sse//:__subpackages__",
         "@bazel_tools//:__subpackages__",
@@ -3352,9 +3371,7 @@ pywrap_tensorflow_macro(
         "@XNNPACK//:__subpackages__",
         "@zlib//:__subpackages__",
     ],
-    # copybara:comment_begin(OSS Windows only: DEF file for exported symbols)
     win_def_file = ":pywrap_tensorflow_filtered_def_file",
-    # copybara:comment_end
     deps = [
         ":bfloat16_lib",
         "//tensorflow/python/grappler:cost_analyzer_lib",
@@ -3365,7 +3382,6 @@ pywrap_tensorflow_macro(
         "//tensorflow/python/util:kernel_registry",
         ":numpy_lib",
         ":safe_ptr",
-        ":py_exception_registry",
         "//tensorflow/python/lib/core:py_func_lib",
         "//tensorflow/python/lib/core:pybind11_absl",
         "//tensorflow/python/lib/core:pybind11_lib",

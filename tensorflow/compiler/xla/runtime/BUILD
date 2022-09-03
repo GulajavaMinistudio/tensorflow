@@ -106,6 +106,7 @@ tf_cc_test(
         ":async_runtime",
         ":custom_call",
         ":custom_call_registry",
+        ":diagnostics",
         ":executable",
         ":jit_executable",
         "//tensorflow/compiler/xla/mlir/transforms/runtime:compilation_pipeline",
@@ -132,6 +133,7 @@ cc_library(
     compatible_with = get_compatible_with_cloud(),
     deps = [
         ":logical_result",
+        "//tensorflow/tsl/platform:logging",
         "@llvm-project//llvm:Support",
     ],
 )

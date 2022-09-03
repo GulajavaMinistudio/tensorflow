@@ -7,12 +7,24 @@
 # buildifier: disable=same-origin-load
 load("//tensorflow:tensorflow.bzl", "get_compatible_with_portable")
 load(
+    "//tensorflow:tensorflow.bzl",
+    "tf_cc_test",
+    "tf_cuda_library",
+)
+load(
     "//tensorflow/core/platform:build_config.bzl",
+    "tf_cuda_libdevice_path_deps",
+    "tf_fingerprint_deps",
     "tf_logging_deps",
     "tf_platform_deps",
     "tf_protobuf_compiler_deps",
+    "tf_resource_deps",
     "tf_testing_deps",
     "tf_windows_aware_platform_deps",
+)
+load(
+    "//tensorflow/core/platform:rules_cc.bzl",
+    "cc_library",
 )
 
 package(
@@ -29,9 +41,17 @@ cc_library(
 )
 
 cc_library(
+    name = "dynamic_annotations",
+    hdrs = ["dynamic_annotations.h"],
+    compatible_with = get_compatible_with_portable(),
+    deps = [
+        ":platform",
+    ] + tf_platform_deps("dynamic_annotations"),
+)
+
+cc_library(
     name = "gif",
     hdrs = ["gif.h"],
-    compatible_with = get_compatible_with_portable(),
     deps = [
         "@gif",
     ],
@@ -40,11 +60,18 @@ cc_library(
 cc_library(
     name = "regexp",
     hdrs = ["regexp.h"],
-    compatible_with = get_compatible_with_portable(),
     deps = [
         ":platform",
         "@com_googlesource_code_re2//:re2",
     ],
+)
+
+cc_library(
+    name = "resource",
+    textual_hdrs = ["resource.h"],
+    deps = [
+        ":stringpiece",
+    ] + tf_resource_deps(),
 )
 
 cc_library(
@@ -81,11 +108,20 @@ filegroup(
     srcs = [
         "bfloat16.h",
         "casts.h",
+        "crash_analysis.h",
+        "dynamic_annotations.h",
+        "fingerprint.h",
         "init_main.h",
+        "mem.h",
         "net.h",
+        "prefetch.h",
+        "resource.h",
         "stack_frame.h",
+        "stacktrace.h",
         "stacktrace_handler.h",
+        "str_util.h",
         "stringpiece.h",
+        "stringprintf.h",
     ],
     compatible_with = get_compatible_with_portable(),
 )
@@ -106,8 +142,10 @@ filegroup(
     srcs = [
         "bfloat16.h",
         "byte_order.h",
+        "dynamic_annotations.h",
         "macros.h",
         "platform.h",
+        "prefetch.h",
     ],
     compatible_with = get_compatible_with_portable(),
 )
@@ -119,16 +157,38 @@ filegroup(
         "bfloat16.h",
         "byte_order.h",
         "casts.h",
+        "dynamic_annotations.h",
+        "fingerprint.h",
+        "hash.cc",
+        "hash.h",
         "init_main.h",
         "intrusive_ptr.h",
         "macros.h",
+        "mem.h",
         "platform.h",
         "platform_strings_computed.h",
+        "prefetch.h",
+        "raw_coding.h",
         "regexp.h",
+        "resource.h",
+        "stacktrace.h",
+        "str_util.cc",
+        "str_util.h",
         "stringpiece.h",
+        "stringprintf.cc",
+        "stringprintf.h",
         "threadpool_interface.h",
     ],
     compatible_with = get_compatible_with_portable(),
+)
+
+filegroup(
+    name = "mobile_srcs_only_runtime",
+    srcs = [
+        "fingerprint.h",
+    ],
+    compatible_with = get_compatible_with_portable(),
+    visibility = ["//tensorflow/core/platform:__pkg__"],
 )
 
 filegroup(
@@ -150,6 +210,7 @@ filegroup(
             "*.h",
         ],
         exclude = [
+            "dynamic_annotations.h",
             "gif.h",
             "jpeg.h",
         ],
@@ -161,10 +222,14 @@ exports_files(
     [
         "init_main.h",
         "net.h",
+        "crash_analysis.h",
         "resource_loader.h",
+        "resource.h",
         "stacktrace_handler.h",
+        "cuda_libdevice_path.h",
         "bfloat16.h",
         "logging.h",
+        "mem.h",
     ],
     visibility = ["//tensorflow:__subpackages__"],
 )
@@ -174,6 +239,7 @@ cc_library(
     compatible_with = get_compatible_with_portable(),
     textual_hdrs = [
         "init_main.h",
+        "mem.h",
     ],
     deps = tf_windows_aware_platform_deps("platform_port"),
 )
@@ -195,7 +261,6 @@ filegroup(
 cc_library(
     name = "intrusive_ptr",
     hdrs = ["intrusive_ptr.h"],
-    compatible_with = get_compatible_with_portable(),
     deps = [],
 )
 
@@ -227,7 +292,6 @@ filegroup(
 cc_library(
     name = "jpeg",
     hdrs = ["jpeg.h"],
-    compatible_with = get_compatible_with_portable(),
     deps = [
         "@libjpeg_turbo//:jpeg",
     ],
@@ -251,7 +315,9 @@ filegroup(
     name = "jpeg_internal_hdrs",
     srcs = [
         "bfloat16.h",
+        "dynamic_annotations.h",
         "macros.h",
+        "mem.h",
         "platform.h",
         "stringpiece.h",
     ],
@@ -259,6 +325,7 @@ filegroup(
     visibility = [
         "//tensorflow/core:__pkg__",
         "//tensorflow/core/lib/jpeg:__pkg__",
+        "//tensorflow/core/platform:__pkg__",
     ],
 )
 
@@ -266,13 +333,16 @@ filegroup(
     name = "gif_internal_hdrs",
     srcs = [
         "bfloat16.h",
+        "dynamic_annotations.h",
         "macros.h",
+        "mem.h",
         "platform.h",
     ],
     compatible_with = get_compatible_with_portable(),
     visibility = [
         "//tensorflow/core:__pkg__",
         "//tensorflow/core/lib/gif:__pkg__",
+        "//tensorflow/core/platform:__pkg__",
     ],
 )
 
@@ -285,6 +355,7 @@ cc_library(
 filegroup(
     name = "xla_cpu_runtime_srcs",
     srcs = [
+        "dynamic_annotations.h",
         "macros.h",
         "platform.h",
     ],
@@ -293,7 +364,6 @@ filegroup(
 
 cc_library(
     name = "net",
-    compatible_with = get_compatible_with_portable(),
     textual_hdrs = ["net.h"],
     deps = tf_windows_aware_platform_deps("net"),
 )
@@ -309,20 +379,17 @@ cc_library(
     srcs = [
         "platform_strings_computed.h",
     ],
-    compatible_with = get_compatible_with_portable(),
 )
 
 cc_library(
     name = "protobuf_compiler",
     hdrs = ["protobuf_compiler.h"],
-    compatible_with = get_compatible_with_portable(),
     deps = tf_protobuf_compiler_deps(),
 )
 
 cc_library(
     name = "resource_loader",
     testonly = 1,
-    compatible_with = get_compatible_with_portable(),
     textual_hdrs = ["resource_loader.h"],
     deps = tf_testing_deps("resource_loader"),
 )
@@ -337,10 +404,22 @@ filegroup(
 
 cc_library(
     name = "stacktrace_handler",
-    compatible_with = get_compatible_with_portable(),
     textual_hdrs = ["stacktrace_handler.h"],
     deps = tf_windows_aware_platform_deps("stacktrace_handler"),
     alwayslink = 1,
+)
+
+cc_library(
+    name = "str_util",
+    srcs = ["str_util.cc"],
+    hdrs = ["str_util.h"],
+    deps = [
+        ":logging",
+        ":macros",
+        ":stringpiece",
+        ":types",
+        "@com_google_absl//absl/strings",
+    ],
 )
 
 cc_library(
@@ -349,6 +428,25 @@ cc_library(
     compatible_with = get_compatible_with_portable(),
     deps = [
         "@com_google_absl//absl/strings",
+    ],
+)
+
+cc_library(
+    name = "crash_analysis",
+    hdrs = ["crash_analysis.h"],
+    compatible_with = get_compatible_with_portable(),
+    deps = [
+        ":platform",
+    ] + tf_platform_deps("crash_analysis"),
+)
+
+cc_library(
+    name = "stringprintf",
+    srcs = ["stringprintf.cc"],
+    hdrs = ["stringprintf.h"],
+    deps = [
+        ":macros",
+        ":types",
     ],
 )
 
@@ -388,12 +486,12 @@ cc_library(
 cc_library(
     name = "build_test",
     testonly = 1,
-    compatible_with = get_compatible_with_portable(),
     visibility = [
         "//tensorflow/core/platform:__pkg__",
     ],
     deps = [
         ":byte_order",
+        ":fingerprint",
         ":gif",
         ":jpeg",
         ":macros",
@@ -427,10 +525,44 @@ cc_library(
     deps = tf_logging_deps(),
 )
 
+cc_library(
+    name = "prefetch",
+    hdrs = ["prefetch.h"],
+    compatible_with = get_compatible_with_portable(),
+    deps = [
+        ":platform",
+    ],
+)
+
+cc_library(
+    name = "hash",
+    srcs = ["hash.cc"],
+    hdrs = ["hash.h"],
+    compatible_with = get_compatible_with_portable(),
+    deps = [
+        ":macros",
+        ":raw_coding",
+        ":stringpiece",
+        ":types",
+    ],
+)
+
+cc_library(
+    name = "raw_coding",
+    hdrs = ["raw_coding.h"],
+    compatible_with = get_compatible_with_portable(),
+    deps = [
+        ":byte_order",
+        ":types",
+    ],
+)
+
 filegroup(
     name = "lib_internal_private_hdrs",
     srcs = [
         "bfloat16.h",
+        "raw_coding.h",
+        "str_util.h",
     ],
     compatible_with = get_compatible_with_portable(),
     visibility = ["//tensorflow/core:__pkg__"],
@@ -439,8 +571,66 @@ filegroup(
 cc_library(
     name = "casts",
     hdrs = ["casts.h"],
-    compatible_with = get_compatible_with_portable(),
     deps = [
         ":platform",
     ] + tf_platform_deps("casts"),
+)
+
+cc_library(
+    name = "stacktrace",
+    hdrs = ["stacktrace.h"],
+    compatible_with = get_compatible_with_portable(),
+    deps = [
+        ":platform",
+    ] + tf_windows_aware_platform_deps("stacktrace"),
+)
+
+cc_library(
+    name = "cuda_libdevice_path",
+    compatible_with = get_compatible_with_portable(),
+    textual_hdrs = ["cuda_libdevice_path.h"],
+    deps = tf_cuda_libdevice_path_deps(),
+)
+
+cc_library(
+    name = "fingerprint",
+    hdrs = ["fingerprint.h"],
+    compatible_with = get_compatible_with_portable(),
+    deps = [
+        ":stringpiece",
+        ":types",
+    ] + tf_fingerprint_deps(),
+)
+
+tf_cc_test(
+    name = "fingerprint_test",
+    size = "small",
+    srcs = ["fingerprint_test.cc"],
+    deps = [
+        ":fingerprint",
+        ":types",
+        "//tensorflow/core:test",
+        "//tensorflow/core:test_main",
+    ],
+)
+
+cc_library(
+    name = "cuda",
+    hdrs = ["cuda.h"],
+    deps = [
+        ":platform",
+        "//tensorflow/compiler/xla/stream_executor/cuda:cuda_activation_header",
+    ],
+)
+
+tf_cuda_library(
+    name = "stream_executor",
+    srcs = ["stream_executor.h"],
+    hdrs = [
+        "cuda.h",
+    ],
+    features = ["-parse_headers"],
+    deps = [
+        "//tensorflow/tsl/platform/default/build_config:stream_executor",
+    ],
 )
