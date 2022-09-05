@@ -25,21 +25,19 @@ limitations under the License.
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Sequence.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/TypeSwitch.h"
 #include "mlir-hlo/Dialect/gml_st/IR/gml_st_ops.h"
 #include "mlir-hlo/Dialect/gml_st/transforms/tiling_interface.h"
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Arithmetic/Utils/Utils.h"
+#include "mlir/Dialect/Linalg/Utils/Utils.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tensor/Utils/Utils.h"
 #include "mlir/Dialect/Utils/StructuredOpsUtils.h"
 #include "mlir/IR/BlockAndValueMapping.h"
 #include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/OpImplementation.h"
-#include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/Interfaces/ViewLikeInterface.h"
 
@@ -183,6 +181,35 @@ void printDenseI64ArrayAttr(OpAsmPrinter &p, StringRef attributeName,
 
 bool dimensionsMatch(int64_t d1, int64_t d2) {
   return ShapedType::isDynamic(d1) || ShapedType::isDynamic(d2) || d1 == d2;
+}
+
+SmallVector<StringRef> getParallelIteratorTypesForTensor(
+    TypedValue<RankedTensorType> tensor) {
+  SmallVector<StringRef> allParallel(tensor.getType().getRank(),
+                                     getParallelIteratorTypeName());
+  return allParallel;
+}
+
+SmallVector<Range> getIterationDomainForTensor(OpBuilder &b, Location loc,
+                                               Value tensor) {
+  auto dimValues = tensor::createDimValues(b, loc, tensor);
+  return llvm::to_vector(llvm::map_range(dimValues, [&](Value d) {
+    return Range{b.getIndexAttr(0), d, b.getIndexAttr(1)};
+  }));
+}
+
+Value getMaterializedTile(OpBuilder &b, Location loc,
+                          TypedValue<TensorType> tensor,
+                          ArrayRef<OpFoldResult> offsets,
+                          ArrayRef<OpFoldResult> sizes) {
+  SmallVector<Value> dynamicDims =
+      tensor::createDynamicDimValues(b, loc, tensor);
+  ArrayAttr staticDims = b.getI64ArrayAttr(tensor.getType().getShape());
+  Value space = b.create<gml_st::SpaceOp>(loc, dynamicDims, staticDims);
+
+  SmallVector<OpFoldResult> strides(offsets.size(), b.getIndexAttr(1));
+  Value tile = b.create<gml_st::TileOp>(loc, space, offsets, sizes, strides);
+  return b.create<gml_st::MaterializeOp>(loc, tensor, tile);
 }
 
 }  // namespace
@@ -446,10 +473,7 @@ LogicalResult DynamicBroadcastInDimOp::verify() {
 }
 
 SmallVector<StringRef> DynamicBroadcastInDimOp::getLoopIteratorTypes() {
-  auto initTy = init().getType().cast<RankedTensorType>();
-  SmallVector<StringRef> allParallel(initTy.getRank(),
-                                     getParallelIteratorTypeName());
-  return allParallel;
+  return getParallelIteratorTypesForTensor(init());
 }
 
 SmallVector<Value> DynamicBroadcastInDimOp::getDestinationOperands(
@@ -458,20 +482,12 @@ SmallVector<Value> DynamicBroadcastInDimOp::getDestinationOperands(
 }
 
 SmallVector<Range> DynamicBroadcastInDimOp::getIterationDomain(OpBuilder &b) {
-  // Simple iteration domain defined on the result space. This way, tiling and
-  // fusion rely directly on the same implementation.
-  auto dimValues = tensor::createDimValues(b, getLoc(), init());
-  return llvm::to_vector(llvm::map_range(dimValues, [&](auto d) -> Range {
-    return {b.getIndexAttr(0), d, b.getIndexAttr(1)};
-  }));
+  return getIterationDomainForTensor(b, getLoc(), init());
 }
 
 gml_st::TilingInterface DynamicBroadcastInDimOp::getTiledImplementation(
-    OpBuilder &b, ValueRange dest, ArrayRef<OpFoldResult> offsets,
-    ArrayRef<OpFoldResult> sizes, bool tileDestOperands) {
-  assert(tileDestOperands && "not tiling dst operands is not implemented");
-  assert(dest.size() == 1 && dest.front() == init() && "expect init operand");
-
+    OpBuilder &b, ArrayRef<OpFoldResult> offsets,
+    ArrayRef<OpFoldResult> sizes) {
   // Create tile subset.
   auto loc = getLoc();
   auto initTy = init().getType().cast<RankedTensorType>();
@@ -584,13 +600,10 @@ gml_st::TilingInterface DynamicBroadcastInDimOp::getTiledImplementation(
 }
 
 FailureOr<Value> DynamicBroadcastInDimOp::generateResultTileValue(
-    OpBuilder &b, unsigned resultNumber, ValueRange dest,
-    ArrayRef<OpFoldResult> offsets, ArrayRef<OpFoldResult> sizes,
-    bool tileDestOperands) {
+    OpBuilder &b, unsigned resultNumber, ArrayRef<OpFoldResult> offsets,
+    ArrayRef<OpFoldResult> sizes) {
   assert(resultNumber == 0 && "expect unique result idx");
-  return getTiledImplementation(b, dest, offsets, sizes, tileDestOperands)
-      ->getResults()
-      .front();
+  return getTiledImplementation(b, offsets, sizes)->getResults().front();
 }
 
 Value DynamicBroadcastInDimOp::fuse(Location loc, Value subset,
@@ -726,6 +739,129 @@ LogicalResult ScatterOp::verify() {
   return verifyDestinationStyleOp(getOperation(), getNumOutputs());
 }
 
+SmallVector<StringRef> ScatterOp::getLoopIteratorTypes() {
+  return getParallelIteratorTypesForTensor(init());
+}
+
+SmallVector<Value> ScatterOp::getDestinationOperands(OpBuilder &) {
+  return {init()};
+}
+
+SmallVector<Range> ScatterOp::getIterationDomain(OpBuilder &b) {
+  auto initRank = init().getType().cast<ShapedType>().getRank();
+  auto indexVectorDimSize = indices().getType().getShape().back();
+  (void)initRank;
+  (void)indexVectorDimSize;
+  // TODO(jreiffers): Lift this restriction.
+  assert(
+      initRank == indexVectorDimSize &&
+      "the index_vector dimension's size and init's rank must be identical.");
+  return getIterationDomainForTensor(b, getLoc(), init());
+}
+
+mlir::gml_st::TilingInterface ScatterOp::getTiledImplementation(
+    OpBuilder &b, ArrayRef<OpFoldResult> offsets,
+    ArrayRef<OpFoldResult> sizes) {
+  // TODO(jreiffers): Verify that all sizes are 1 once the sizes are statically
+  // known here.
+  // We iterate over all indices for each output point. This is obviously very
+  // inefficient, but for now only correctness is the goal.
+  auto loc = getLoc();
+  TensorType indicesTy = indices().getType();
+  auto initTy = init().getType().cast<ShapedType>();
+
+  // We accumulate all the updates for the current point.
+  Type elementTy = initTy.getElementType();
+  Value accumulatedUpdates =
+      (elementTy.isIntOrIndex()
+           ? b.create<arith::ConstantOp>(loc, b.getIntegerAttr(elementTy, 0))
+           : b.create<arith::ConstantOp>(loc, b.getFloatAttr(elementTy, 0)))
+          .getResult();
+
+  // The index vector dim is the last dimension of `indices`, so we generate
+  // loops for all the others.
+  Value zero = b.create<arith::ConstantIndexOp>(loc, 0);
+  Value one = b.create<arith::ConstantIndexOp>(loc, 1);
+  SmallVector<scf::ForOp> forOps;
+  SmallVector<Value> ivs;
+  for (int64_t i = 0; i < indicesTy.getRank() - 1; ++i) {
+    Value ub = b.createOrFold<tensor::DimOp>(loc, indices(), i);
+    auto &forOp = forOps.emplace_back(b.create<scf::ForOp>(
+        loc, zero, ub, one, ValueRange{accumulatedUpdates}));
+    ivs.push_back(forOp.getInductionVar());
+    b.setInsertionPointToStart(forOp.getBody());
+    // Pass the accumulator down the for loops.
+    accumulatedUpdates = forOp.getBody()->getArgument(1);
+  }
+
+  SmallVector<Value> materializedOffsets;
+  for (auto &offset : offsets)
+    materializedOffsets.push_back(
+        linalg::materializeOpFoldResult(b, loc, offset));
+  Value isCorrectIndex =
+      b.create<arith::ConstantOp>(getLoc(), b.getIntegerAttr(b.getI1Type(), 1));
+  auto indexInIndices = ivs;
+  indexInIndices.emplace_back();
+  int64_t indexVectorDimSize = indicesTy.getShape().back();
+  // Check if the coordinates from `indices` match the point we're currently
+  // computing.
+  for (int64_t i = 0; i < indexVectorDimSize; ++i) {
+    indexInIndices.back() = b.create<arith::ConstantIndexOp>(loc, i);
+    Value updateIndex = b.create<arith::IndexCastOp>(
+        getLoc(), b.getIndexType(),
+        b.create<tensor::ExtractOp>(loc, indices(), indexInIndices));
+    isCorrectIndex = b.createOrFold<arith::AndIOp>(
+        getLoc(), isCorrectIndex,
+        b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq, updateIndex,
+                                materializedOffsets[i]));
+  }
+
+  // If the coordinates match, accumulate the corresponding update. Otherwise,
+  // keep the current value.
+  auto ifOp = b.create<scf::IfOp>(
+      loc, TypeRange{elementTy}, isCorrectIndex,
+      [&](OpBuilder &builder, Location loc) {
+        Value update = builder.create<tensor::ExtractOp>(loc, updates(), ivs);
+        builder.create<scf::YieldOp>(
+            loc, ArithBuilder(builder, loc).add(accumulatedUpdates, update));
+      },
+      [&](OpBuilder &builder, Location loc) {
+        builder.create<scf::YieldOp>(loc, ValueRange{accumulatedUpdates});
+      });
+
+  accumulatedUpdates = ifOp.getResult(0);
+
+  // Pass the accumulated update back up through the loops.
+  for (auto &forOp : llvm::reverse(forOps)) {
+    b.setInsertionPointToEnd(forOp.getBody());
+    b.create<scf::YieldOp>(loc, accumulatedUpdates);
+    accumulatedUpdates = forOp.getResult(0);
+  }
+  b.setInsertionPointAfter(forOps.front().getOperation());
+
+  // Construct a unit scatter.
+  SmallVector<int64_t> allOnes(offsets.size(), 1);
+  Value zeroIndexVector = b.create<arith::ConstantOp>(
+      getLoc(),
+      SplatElementsAttr::get(RankedTensorType::get(allOnes, b.getI32Type()),
+                             b.getI32IntegerAttr(0)));
+  Value updateScalar = b.create<tensor::FromElementsOp>(
+      getLoc(), RankedTensorType::get({}, elementTy), accumulatedUpdates);
+  Value initSlice = getMaterializedTile(b, loc, init(), offsets, sizes);
+
+  return b
+      .create<ScatterOp>(getLoc(), TypeRange{initSlice.getType()},
+                         ValueRange{zeroIndexVector, updateScalar, initSlice})
+      .getOperation();
+}
+
+FailureOr<Value> ScatterOp::generateResultTileValue(
+    OpBuilder &b, unsigned resultNumber, ArrayRef<OpFoldResult> offsets,
+    ArrayRef<OpFoldResult> sizes) {
+  assert(resultNumber == 0 && "variadic scatter is not implemented");
+  return getTiledImplementation(b, offsets, sizes)->getResult(0);
+}
+
 //===----------------------------------------------------------------------===//
 // GatherOp
 //===----------------------------------------------------------------------===//
@@ -738,6 +874,53 @@ void GatherOp::print(OpAsmPrinter &p) { printDstStyleOp(*this, p); }
 
 LogicalResult GatherOp::verify() {
   return verifyDestinationStyleOp(getOperation(), getNumOutputs());
+}
+
+SmallVector<StringRef> GatherOp::getLoopIteratorTypes() {
+  // Currently, `offset_dims` is empty, so the iteration domain is just the
+  // entire output.
+  return getParallelIteratorTypesForTensor(init());
+}
+
+SmallVector<Value> GatherOp::getDestinationOperands(OpBuilder &) {
+  return {init()};
+}
+
+SmallVector<Range> GatherOp::getIterationDomain(OpBuilder &b) {
+  // Currently, `offset_dims` is empty, so the iteration domain is just the
+  // entire output.
+  return getIterationDomainForTensor(b, getLoc(), init());
+}
+
+mlir::gml_st::TilingInterface GatherOp::getTiledImplementation(
+    OpBuilder &b, ArrayRef<OpFoldResult> offsets,
+    ArrayRef<OpFoldResult> sizes) {
+  auto offsetsWithVectorDim = offsets.vec();
+  auto sizesWithVectorDim = sizes.vec();
+
+  offsetsWithVectorDim.emplace_back(b.getIndexAttr(0));
+  sizesWithVectorDim.emplace_back(
+      b.getIndexAttr(start_indices().getType().getShape().back()));
+
+  llvm::SmallVector<OpFoldResult> strides(offsets.size() + 1,
+                                          b.getIndexAttr(1));
+
+  auto subStartIndices = b.create<tensor::ExtractSliceOp>(
+      getLoc(), start_indices(), offsetsWithVectorDim, sizesWithVectorDim,
+      strides);
+  Value initSlice = getMaterializedTile(b, getLoc(), init(), offsets, sizes);
+
+  return b
+      .create<GatherOp>(getLoc(), TypeRange{initSlice.getType()},
+                        ValueRange{operand(), subStartIndices, initSlice})
+      .getOperation();
+}
+
+FailureOr<Value> GatherOp::generateResultTileValue(
+    OpBuilder &b, unsigned resultNumber, ArrayRef<OpFoldResult> offsets,
+    ArrayRef<OpFoldResult> sizes) {
+  assert(resultNumber == 0 && "resultNumber > 0 not implemented");
+  return getTiledImplementation(b, offsets, sizes)->getResult(0);
 }
 
 //===----------------------------------------------------------------------===//

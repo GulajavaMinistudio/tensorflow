@@ -90,7 +90,8 @@ def THLO_DynamicBroadcastInDimOp : THLO_DstStyleOp<"dynamic_broadcast_in_dim", [
   let extraClassDeclaration = extraBaseClassDeclaration;
 }
 
-def THLO_GatherOp : THLO_DstStyleOp<"gather", []> {
+def THLO_GatherOp : THLO_DstStyleOp<"gather", [
+    DeclareOpInterfaceMethods<TilingInterface>]> {
   let summary = "Destination-style twin for `mhlo.gather`";
   let description = [{
     Does not currently support the full interface of mhlo.gather. In particular:
@@ -112,7 +113,8 @@ def THLO_GatherOp : THLO_DstStyleOp<"gather", []> {
   let extraClassDeclaration = extraBaseClassDeclaration;
 }
 
-def THLO_ScatterOp : THLO_DstStyleOp<"scatter", []> {
+def THLO_ScatterOp : THLO_DstStyleOp<"scatter", [
+    DeclareOpInterfaceMethods<TilingInterface>]> {
   let summary = "Destination-style twin for `mhlo.scatter`";
   let description = [{
     Caveats:
