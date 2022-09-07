@@ -58,7 +58,7 @@ limitations under the License.
 #include "tensorflow/core/lib/gtl/map_util.h"
 #include "tensorflow/core/platform/errors.h"
 #include "tensorflow/core/platform/human_readable_json.h"
-#include "tensorflow/core/platform/logging.h"
+#include "tensorflow/tsl/platform/logging.h"
 
 namespace xla {
 
@@ -3425,6 +3425,12 @@ bool HloInstruction::IsFused() const {
 
 bool HloInstruction::IsCustomCall(absl::string_view target) const {
   return opcode() == HloOpcode::kCustomCall && custom_call_target() == target;
+}
+
+bool HloInstruction::IsCustomCall(
+    absl::Span<const absl::string_view> targets) const {
+  return opcode() == HloOpcode::kCustomCall &&
+         absl::c_linear_search(targets, custom_call_target());
 }
 
 bool HloInstruction::IsInputFusion() const {

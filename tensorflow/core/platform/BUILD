@@ -24,7 +24,7 @@ load(
     "tf_platform_alias",
     "tf_platform_deps",
     "tf_protobuf_deps",
-    "tf_testing_deps",
+    "tf_testing_deps",  # @unused
     "tf_windows_aware_platform_deps",
 )
 load(
@@ -76,7 +76,6 @@ package_group(
 exports_files(
     [
         "context.h",
-        "cpu_info.cc",
         "cpu_info.h",
         "bfloat16.h",
         "demangle.h",
@@ -449,16 +448,11 @@ py_test(
 
 cc_library(
     name = "numbers",
-    srcs = ["numbers.cc"],
     hdrs = ["numbers.h"],
     deps = [
-        ":logging",
-        ":macros",
-        ":str_util",
         ":stringpiece",
-        ":stringprintf",
         ":types",
-        "@double_conversion//:double-conversion",
+        "//tensorflow/tsl/platform:numbers",
     ],
 )
 
@@ -500,6 +494,7 @@ cc_library(
     ],
     deps = [
         "//tensorflow/core/platform:dynamic_annotations",
+        "//tensorflow/core/platform:logging",
         "//tensorflow/core/platform:types",
         "//tensorflow/tsl/platform:platform_port",
     ],
@@ -849,12 +844,10 @@ cc_library(
 cc_library(
     name = "test",
     testonly = True,
+    compatible_with = get_compatible_with_portable(),
     textual_hdrs = ["test.h"],
-    deps = tf_testing_deps("test") + [
-        ":macros",
-        ":platform",
-        "@com_google_googletest//:gtest",
-        "//tensorflow/core:tflite_portable_logging",
+    deps = [
+        "//tensorflow/tsl/platform:test",
     ],
 )
 
@@ -863,8 +856,7 @@ cc_library(
     testonly = True,
     hdrs = ["test_benchmark.h"],
     deps = [
-        ":platform",
-        "@com_google_benchmark//:benchmark",
+        "//tensorflow/tsl/platform:test_benchmark",
     ],
 )
 
@@ -1134,7 +1126,9 @@ cc_library(
     srcs = ["tensor_float_32_utils.cc"],
     hdrs = ["tensor_float_32_utils.h"],
     copts = tf_copts(),
-    alwayslink = 1,
+    deps = [
+        "//tensorflow/tsl/platform:tensor_float_32_utils",
+    ],
 )
 
 cc_library(
@@ -1165,7 +1159,10 @@ alias(
 
 filegroup(
     name = "tensor_float_32_hdr",
-    srcs = ["tensor_float_32_utils.h"],
+    srcs = [
+        "tensor_float_32_utils.h",
+        "//tensorflow/tsl/platform:tensor_float_32_hdr",
+    ],
     compatible_with = get_compatible_with_portable(),
 )
 
@@ -1658,6 +1655,7 @@ filegroup(
     srcs = [
         "test.h",
         "test_benchmark.h",
+        "//tensorflow/tsl/platform:test_hdrs",
     ],
     visibility = ["//tensorflow/core:__pkg__"],
 )
@@ -1667,6 +1665,7 @@ filegroup(
     testonly = 1,
     srcs = [
         "test.h",
+        "//tensorflow/tsl/platform:android_test_srcs",
     ],
     visibility = ["//tensorflow/core:__pkg__"],
 )
@@ -1814,7 +1813,6 @@ filegroup(
         "coding.h",
         "context.h",
         "cord.h",
-        "cpu_info.cc",
         "cpu_info.h",
         ":ctstring",
         "demangle.h",
@@ -1840,7 +1838,6 @@ filegroup(
         "mem.h",
         "mutex.h",
         "numa.h",
-        "numbers.cc",
         "numbers.h",
         "path.cc",
         "path.h",

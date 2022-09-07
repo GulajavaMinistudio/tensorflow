@@ -49,11 +49,11 @@ limitations under the License.
 #include "tensorflow/compiler/xla/stream_executor/platform.h"
 #include "tensorflow/compiler/xla/util.h"
 #include "tensorflow/core/lib/gtl/map_util.h"
-#include "tensorflow/core/platform/casts.h"
 #include "tensorflow/core/platform/errors.h"
-#include "tensorflow/core/platform/logging.h"
 #include "tensorflow/core/profiler/lib/scoped_annotation.h"
 #include "tensorflow/core/profiler/lib/traceme.h"
+#include "tensorflow/tsl/platform/casts.h"
+#include "tensorflow/tsl/platform/logging.h"
 
 #if XLA_ENABLE_XLIR
 #include "tensorflow/compiler/xla/mlir/transforms/runtime/compilation_pipeline.h"
@@ -69,10 +69,10 @@ namespace gpu {
 
 bool IsJitRtExecutableEnabled(const HloModuleConfig& config) {
 #if !XLA_ENABLE_XLIR
-  CHECK(!config.debug_options().xla_gpu_jitrt_executable())
-      << "Failed to enable JitRt backend, because it was not compiled.";
+  CHECK(!config.debug_options().xla_gpu_enable_xla_runtime_executable())
+      << "Failed to enable XLA Runtime backend, because it was not compiled.";
 #endif  // !XLA_ENABLE_XLIR
-  return config.debug_options().xla_gpu_jitrt_executable();
+  return config.debug_options().xla_gpu_enable_xla_runtime_executable();
 }
 
 namespace {
@@ -671,7 +671,7 @@ static Status ExecuteJitRt(const std::string& module_name,
   runtime::DiagnosticEngine diagnostic_engine;
   std::string diagnostic;
   diagnostic_engine.AddHandler([&](runtime::Diagnostic& d) {
-    llvm::raw_string_ostream(diagnostic) << d.str();
+    llvm::raw_string_ostream(diagnostic) << d.status().message();
     return mlir::success();
   });
 

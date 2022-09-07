@@ -47,8 +47,8 @@ limitations under the License.
 #include "tensorflow/compiler/xla/util.h"
 #include "tensorflow/compiler/xla/xla_data.pb.h"
 #include "tensorflow/core/lib/core/errors.h"
-#include "tensorflow/core/platform/logging.h"
 #include "tensorflow/core/platform/statusor.h"
+#include "tensorflow/tsl/platform/logging.h"
 
 namespace xla {
 namespace {
@@ -149,10 +149,7 @@ bool IsConvolutionKernelSmall(const HloInstruction* instruction) {
 }
 
 bool IsPassthroughCustomOps(const HloInstruction* hlo) {
-  if (hlo->IsCustomCall("Sharding")) {
-    return true;
-  }
-  if (hlo->IsCustomCall("X64Combine")) {
+  if (hlo->IsCustomCall({"Sharding", "X64Combine"})) {
     return true;
   }
   if (hlo->operand_count() != 1 || !hlo->shape().IsArray() ||
@@ -160,11 +157,9 @@ bool IsPassthroughCustomOps(const HloInstruction* hlo) {
       hlo->operand(0)->shape().rank() != hlo->shape().rank()) {
     return false;
   }
-  return hlo->IsCustomCall("ResizeNearest") ||
-         hlo->IsCustomCall("ResizeBilinear") ||
-         hlo->IsCustomCall("ResizeNearestGrad") ||
-         hlo->IsCustomCall("ResizeBilinearGrad") ||
-         hlo->IsCustomCall("Cholesky");
+  return hlo->IsCustomCall({"ResizeNearest", "ResizeBilinear",
+                            "ResizeNearestGrad", "ResizeBilinearGrad",
+                            "Cholesky"});
 }
 
 // Return the operand which is the most suitable for determining the sharding

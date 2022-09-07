@@ -1223,6 +1223,7 @@ cc_library(
         ":mlir_hlo",
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:ArithmeticDialect",
+        "@llvm-project//mlir:ArithmeticUtils",
         "@llvm-project//mlir:BufferizationDialect",
         "@llvm-project//mlir:ControlFlowDialect",
         "@llvm-project//mlir:FuncDialect",
@@ -2901,7 +2902,10 @@ gentbl_cc_library(
         "include/mlir-hlo/Dialect/gml_st/transforms/fusion_interface.td",
         "include/mlir-hlo/Dialect/gml_st/transforms/tiling_interface.td",
     ],
-    deps = [":thlo_ops_td_files"],
+    deps = [
+        ":thlo_ops_td_files",
+        "@llvm-project//mlir:LinalgStructuredOpsTdFiles",
+    ],
 )
 
 cc_library(
@@ -2925,6 +2929,7 @@ cc_library(
         "@llvm-project//mlir:DialectUtils",
         "@llvm-project//mlir:IR",
         "@llvm-project//mlir:InferTypeOpInterface",
+        "@llvm-project//mlir:LinalgDialect",
         "@llvm-project//mlir:LinalgUtils",
         "@llvm-project//mlir:LoopLikeInterface",
         "@llvm-project//mlir:MemRefDialect",

@@ -9,6 +9,7 @@ load("//tensorflow:tensorflow.bzl", "get_compatible_with_portable")
 load(
     "//tensorflow:tensorflow.bzl",
     "tf_cc_test",
+    "tf_copts",
     "tf_cuda_library",
 )
 load(
@@ -58,6 +59,21 @@ cc_library(
 )
 
 cc_library(
+    name = "numbers",
+    srcs = ["numbers.cc"],
+    hdrs = ["numbers.h"],
+    deps = [
+        ":logging",
+        ":macros",
+        ":str_util",
+        ":stringpiece",
+        ":stringprintf",
+        ":types",
+        "@double_conversion//:double-conversion",
+    ],
+)
+
+cc_library(
     name = "regexp",
     hdrs = ["regexp.h"],
     deps = [
@@ -78,6 +94,57 @@ cc_library(
     name = "stack_frame",
     hdrs = ["stack_frame.h"],
     compatible_with = get_compatible_with_portable(),
+)
+
+cc_library(
+    name = "test",
+    testonly = True,
+    compatible_with = get_compatible_with_portable(),
+    textual_hdrs = ["test.h"],
+    deps = tf_testing_deps("test") + [
+        ":macros",
+        ":platform",
+        "@com_google_googletest//:gtest",
+        "//tensorflow/core:tflite_portable_logging",
+    ],
+)
+
+cc_library(
+    name = "test_benchmark",
+    testonly = True,
+    hdrs = ["test_benchmark.h"],
+    compatible_with = get_compatible_with_portable(),
+    deps = [
+        ":platform",
+        "@com_google_benchmark//:benchmark",
+    ],
+)
+
+filegroup(
+    name = "test_hdrs",
+    testonly = 1,
+    srcs = [
+        "test.h",
+        "test_benchmark.h",
+    ],
+    compatible_with = get_compatible_with_portable(),
+    visibility = [
+        "//tensorflow/core:__pkg__",
+        "//tensorflow/core/platform:__pkg__",
+    ],
+)
+
+filegroup(
+    name = "android_test_srcs",
+    testonly = 1,
+    srcs = [
+        "test.h",
+    ],
+    compatible_with = get_compatible_with_portable(),
+    visibility = [
+        "//tensorflow/core:__pkg__",
+        "//tensorflow/core/platform:__pkg__",
+    ],
 )
 
 cc_library(
@@ -108,12 +175,14 @@ filegroup(
     srcs = [
         "bfloat16.h",
         "casts.h",
+        "cpu_info.h",
         "crash_analysis.h",
         "dynamic_annotations.h",
         "fingerprint.h",
         "init_main.h",
         "mem.h",
         "net.h",
+        "numa.h",
         "prefetch.h",
         "resource.h",
         "stack_frame.h",
@@ -142,6 +211,7 @@ filegroup(
     srcs = [
         "bfloat16.h",
         "byte_order.h",
+        "cpu_info.h",
         "dynamic_annotations.h",
         "macros.h",
         "platform.h",
@@ -157,20 +227,27 @@ filegroup(
         "bfloat16.h",
         "byte_order.h",
         "casts.h",
+        "cpu_info.cc",
+        "cpu_info.h",
+        "demangle.h",
         "dynamic_annotations.h",
-        "fingerprint.h",
         "hash.cc",
         "hash.h",
+        "host_info.h",
         "init_main.h",
         "intrusive_ptr.h",
         "macros.h",
         "mem.h",
+        "numa.h",
+        "numbers.cc",
+        "numbers.h",
         "platform.h",
         "platform_strings_computed.h",
         "prefetch.h",
         "raw_coding.h",
         "regexp.h",
         "resource.h",
+        "snappy.h",
         "stacktrace.h",
         "str_util.cc",
         "str_util.h",
@@ -186,9 +263,13 @@ filegroup(
     name = "mobile_srcs_only_runtime",
     srcs = [
         "fingerprint.h",
+        "test_benchmark.h",
     ],
     compatible_with = get_compatible_with_portable(),
-    visibility = ["//tensorflow/core/platform:__pkg__"],
+    visibility = [
+        "//tensorflow/core:__pkg__",
+        "//tensorflow/core/platform:__pkg__",
+    ],
 )
 
 filegroup(
@@ -220,28 +301,28 @@ filegroup(
 
 exports_files(
     [
-        "init_main.h",
-        "net.h",
-        "crash_analysis.h",
-        "resource_loader.h",
-        "resource.h",
-        "stacktrace_handler.h",
-        "cuda_libdevice_path.h",
+        "host_info.h",
         "bfloat16.h",
+        "cpu_info.h",
+        "cpu_info.cc",
+        "crash_analysis.h",
+        "cuda_libdevice_path.h",
+        "demangle.h",
+        "init_main.h",
         "logging.h",
         "mem.h",
+        "net.h",
+        "numa.h",
+        "resource_loader.h",
+        "resource.h",
+        "snappy.h",
+        "stacktrace_handler.h",
+        "cuda_libdevice_path.h",
+        "test.h",
+        "bfloat16.h",
+        "logging.h",
     ],
     visibility = ["//tensorflow:__subpackages__"],
-)
-
-cc_library(
-    name = "platform_port",
-    compatible_with = get_compatible_with_portable(),
-    textual_hdrs = [
-        "init_main.h",
-        "mem.h",
-    ],
-    deps = tf_windows_aware_platform_deps("platform_port"),
 )
 
 filegroup(
@@ -267,8 +348,11 @@ cc_library(
 filegroup(
     name = "lib_internal_public_hdrs",
     srcs = [
+        "demangle.h",
+        "host_info.h",
         "intrusive_ptr.h",
         "platform.h",
+        "snappy.h",
     ],
     compatible_with = get_compatible_with_portable(),
     visibility = [
@@ -372,6 +456,21 @@ cc_library(
     name = "platform",
     hdrs = ["platform.h"],
     compatible_with = get_compatible_with_portable(),
+)
+
+cc_library(
+    name = "platform_port",
+    compatible_with = get_compatible_with_portable(),
+    textual_hdrs = [
+        "cpu_info.h",
+        "demangle.h",
+        "host_info.h",
+        "init_main.h",
+        "mem.h",
+        "numa.h",
+        "snappy.h",
+    ],
+    deps = tf_windows_aware_platform_deps("platform_port"),
 )
 
 cc_library(
@@ -633,4 +732,24 @@ tf_cuda_library(
     deps = [
         "//tensorflow/tsl/platform/default/build_config:stream_executor",
     ],
+)
+
+cc_library(
+    name = "tensor_float_32_utils",
+    srcs = ["tensor_float_32_utils.cc"],
+    hdrs = ["tensor_float_32_utils.h"],
+    copts = tf_copts(),
+    alwayslink = 1,
+)
+
+filegroup(
+    name = "tensor_float_32_hdr",
+    srcs = ["tensor_float_32_utils.h"],
+    compatible_with = get_compatible_with_portable(),
+)
+
+cc_library(
+    name = "tensor_float_32_hdr_lib",
+    hdrs = [":tensor_float_32_hdr"],
+    compatible_with = get_compatible_with_portable(),
 )

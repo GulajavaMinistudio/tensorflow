@@ -57,8 +57,8 @@ limitations under the License.
 #include "tensorflow/compiler/xla/xla_data.pb.h"
 #include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/lib/gtl/iterator_range.h"
-#include "tensorflow/core/platform/logging.h"
 #include "tensorflow/core/platform/protobuf.h"
+#include "tensorflow/tsl/platform/logging.h"
 
 namespace xla {
 
@@ -1549,6 +1549,7 @@ class HloInstruction {
   bool IsFusible() const;
 
   bool IsCustomCall(absl::string_view target) const;
+  bool IsCustomCall(absl::Span<const absl::string_view> targets) const;
 
   // Returns the sharding applied to this operator.
   // REQUIRES: has_sharding() is true.
