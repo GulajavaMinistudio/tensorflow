@@ -19,6 +19,7 @@ load(
     "tf_logging_deps",
     "tf_platform_deps",
     "tf_protobuf_compiler_deps",
+    "tf_protobuf_deps",
     "tf_resource_deps",
     "tf_testing_deps",
     "tf_windows_aware_platform_deps",
@@ -35,10 +36,66 @@ package(
     licenses = ["notice"],
 )
 
+exports_files(
+    [
+        "mutex.h",
+    ],
+    visibility = ["//tensorflow/tsl:__subpackages__"],
+)
+
+cc_library(
+    name = "base64",
+    srcs = ["base64.cc"],
+    hdrs = ["base64.h"],
+    deps = [
+        ":status",
+        ":stringpiece",
+        "//tensorflow/core/platform:errors",
+    ],
+)
+
+cc_library(
+    name = "blocking_counter",
+    hdrs = ["blocking_counter.h"],
+    deps = [
+        ":logging",
+        ":mutex",
+    ],
+)
+
 cc_library(
     name = "byte_order",
     hdrs = ["byte_order.h"],
     compatible_with = get_compatible_with_portable(),
+)
+
+cc_library(
+    name = "denormal",
+    srcs = ["denormal.cc"],
+    hdrs = ["denormal.h"],
+    deps = [
+        ":macros",
+        ":platform",
+        ":platform_port",
+        "//tensorflow/core/platform:platform_port",
+    ],
+)
+
+cc_library(
+    name = "errors",
+    srcs = ["errors.cc"],
+    hdrs = ["errors.h"],
+    deps = [
+        ":logging",
+        ":macros",
+        ":platform",
+        ":status",
+        ":str_util",
+        ":strcat",
+        ":types",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/strings",
+    ],
 )
 
 cc_library(
@@ -59,6 +116,13 @@ cc_library(
 )
 
 cc_library(
+    name = "mutex",
+    compatible_with = get_compatible_with_portable(),
+    textual_hdrs = ["mutex.h"],
+    deps = tf_platform_deps("mutex"),
+)
+
+cc_library(
     name = "numbers",
     srcs = ["numbers.cc"],
     hdrs = ["numbers.h"],
@@ -71,6 +135,35 @@ cc_library(
         ":types",
         "@double_conversion//:double-conversion",
     ],
+)
+
+cc_library(
+    name = "path",
+    srcs = ["path.cc"],
+    hdrs = ["path.h"],
+    deps = [
+        ":logging",
+        ":mutex",
+        ":strcat",
+        ":stringpiece",
+        ":types",
+        "//tensorflow/core/platform:scanner",
+        "@com_google_absl//absl/algorithm:container",
+    ],
+    alwayslink = True,
+)
+
+cc_library(
+    name = "protobuf",
+    srcs = [
+        "protobuf.cc",
+        "protobuf_util.cc",
+    ],
+    hdrs = ["protobuf.h"],
+    deps = [
+        ":platform",
+        ":types",
+    ] + tf_protobuf_deps(),
 )
 
 cc_library(
@@ -93,6 +186,68 @@ cc_library(
 cc_library(
     name = "stack_frame",
     hdrs = ["stack_frame.h"],
+    compatible_with = get_compatible_with_portable(),
+)
+
+cc_library(
+    name = "status",
+    srcs = ["status.cc"],
+    hdrs = ["status.h"],
+    deps = [
+        ":logging",
+        ":macros",
+        ":mutex",
+        ":stack_frame",
+        ":stacktrace",
+        ":str_util",
+        ":strcat",
+        ":stringprintf",
+        ":types",
+        "//tensorflow/core/protobuf:error_codes_proto_impl_cc",
+        "//tensorflow/core/protobuf:for_core_protos_cc",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:cord",
+        "@com_google_absl//absl/types:optional",
+    ],
+)
+
+cc_library(
+    name = "status_matchers",
+    testonly = 1,
+    srcs = ["status_matchers.cc"],
+    hdrs = ["status_matchers.h"],
+    deps = [
+        "//tensorflow/core:protos_all_cc",
+        "//tensorflow/core:test",
+        "//tensorflow/core/platform:statusor",
+        "//tensorflow/tsl/platform:status",
+    ],
+)
+
+cc_library(
+    name = "statusor",
+    srcs = [
+        "statusor.cc",
+        "statusor_internals.h",
+    ],
+    hdrs = ["statusor.h"],
+    deps = [
+        ":errors",
+        ":logging",
+        ":macros",
+        ":status",
+        "//tensorflow/core/lib/core:errors",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/types:span",
+    ],
+)
+
+cc_library(
+    name = "thread_annotations",
+    hdrs = ["thread_annotations.h"],
     compatible_with = get_compatible_with_portable(),
 )
 
@@ -178,19 +333,25 @@ filegroup(
         "cpu_info.h",
         "crash_analysis.h",
         "dynamic_annotations.h",
+        "errors.h",
         "fingerprint.h",
         "init_main.h",
+        "logger.h",
         "mem.h",
         "net.h",
         "numa.h",
+        "path.h",
         "prefetch.h",
+        "protobuf.h",
         "resource.h",
         "stack_frame.h",
         "stacktrace.h",
         "stacktrace_handler.h",
+        "statusor.h",
         "str_util.h",
         "stringpiece.h",
         "stringprintf.h",
+        "thread_annotations.h",
     ],
     compatible_with = get_compatible_with_portable(),
 )
@@ -216,6 +377,8 @@ filegroup(
         "macros.h",
         "platform.h",
         "prefetch.h",
+        "protobuf.h",
+        "thread_annotations.h",
     ],
     compatible_with = get_compatible_with_portable(),
 )
@@ -224,13 +387,20 @@ filegroup(
 filegroup(
     name = "mobile_srcs_no_runtime",
     srcs = [
+        "base64.cc",
+        "base64.h",
         "bfloat16.h",
+        "blocking_counter.h",
         "byte_order.h",
         "casts.h",
         "cpu_info.cc",
         "cpu_info.h",
         "demangle.h",
+        "denormal.cc",
+        "denormal.h",
         "dynamic_annotations.h",
+        "errors.cc",
+        "errors.h",
         "hash.cc",
         "hash.h",
         "host_info.h",
@@ -241,19 +411,34 @@ filegroup(
         "numa.h",
         "numbers.cc",
         "numbers.h",
+        "path.cc",
+        "path.h",
         "platform.h",
         "platform_strings_computed.h",
         "prefetch.h",
+        "protobuf.cc",
+        "protobuf.h",
+        "protobuf_util.cc",
         "raw_coding.h",
         "regexp.h",
         "resource.h",
+        "setround.cc",
+        "setround.h",
         "snappy.h",
         "stacktrace.h",
+        "status.cc",
+        "status.h",
+        "statusor.cc",
+        "statusor.h",
+        "statusor_internals.h",
         "str_util.cc",
         "str_util.h",
+        "strcat.cc",
+        "strcat.h",
         "stringpiece.h",
         "stringprintf.cc",
         "stringprintf.h",
+        "thread_annotations.h",
         "threadpool_interface.h",
     ],
     compatible_with = get_compatible_with_portable(),
@@ -321,6 +506,7 @@ exports_files(
         "test.h",
         "bfloat16.h",
         "logging.h",
+        "rocm_rocdl_path.h",
     ],
     visibility = ["//tensorflow:__subpackages__"],
 )
@@ -331,6 +517,7 @@ filegroup(
         "init_main.h",
         "macros.h",
         "platform.h",
+        "protobuf.h",
         "stringpiece.h",
     ],
     compatible_with = get_compatible_with_portable(),
@@ -348,10 +535,13 @@ cc_library(
 filegroup(
     name = "lib_internal_public_hdrs",
     srcs = [
+        "blocking_counter.h",
         "demangle.h",
+        "denormal.h",
         "host_info.h",
         "intrusive_ptr.h",
         "platform.h",
+        "setround.h",
         "snappy.h",
     ],
     compatible_with = get_compatible_with_portable(),
@@ -493,6 +683,12 @@ cc_library(
     deps = tf_testing_deps("resource_loader"),
 )
 
+cc_library(
+    name = "rocm_rocdl_path",
+    textual_hdrs = ["rocm_rocdl_path.h"],
+    deps = tf_platform_deps("rocm_rocdl_path"),
+)
+
 filegroup(
     name = "stacktrace_handler_hdrs",
     srcs = [
@@ -518,6 +714,20 @@ cc_library(
         ":stringpiece",
         ":types",
         "@com_google_absl//absl/strings",
+    ],
+)
+
+cc_library(
+    name = "strcat",
+    srcs = ["strcat.cc"],
+    hdrs = ["strcat.h"],
+    deps = [
+        ":logging",
+        ":macros",
+        ":numbers",
+        ":stringpiece",
+        ":types",
+        "@com_google_absl//absl/meta:type_traits",
     ],
 )
 
@@ -615,6 +825,20 @@ cc_library(
 )
 
 cc_library(
+    name = "logger",
+    srcs = ["logger.cc"],
+    hdrs = ["logger.h"],
+    deps = [
+        ":logging",
+        ":protobuf",
+        "//tensorflow/core/platform:env",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/synchronization",
+    ],
+    alwayslink = 1,
+)
+
+cc_library(
     name = "logging",
     compatible_with = get_compatible_with_portable(),
     textual_hdrs = ["logging.h"],
@@ -673,6 +897,16 @@ cc_library(
     deps = [
         ":platform",
     ] + tf_platform_deps("casts"),
+)
+
+cc_library(
+    name = "setround",
+    srcs = ["setround.cc"],
+    hdrs = ["setround.h"],
+    deps = [
+        ":logging",
+        ":macros",
+    ],
 )
 
 cc_library(

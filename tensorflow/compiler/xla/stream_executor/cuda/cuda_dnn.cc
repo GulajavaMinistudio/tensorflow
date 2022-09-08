@@ -49,10 +49,10 @@ limitations under the License.
 #include "tensorflow/compiler/xla/stream_executor/stream_executor_internal.h"
 #include "tensorflow/compiler/xla/stream_executor/stream_executor_pimpl.h"
 #include "tensorflow/core/lib/core/errors.h"
-#include "tensorflow/core/platform/tensor_float_32_utils.h"
 #include "tensorflow/core/util/determinism.h"
 #include "tensorflow/core/util/env_var.h"
 #include "tensorflow/core/util/use_cudnn.h"
+#include "tensorflow/tsl/platform/tensor_float_32_utils.h"
 // clang-format off
 #include "third_party/gpus/cudnn/cudnn.h"
 #if CUDNN_VERSION >= 8100 && TF_ENABLE_CUDNN_FRONTEND
@@ -923,7 +923,7 @@ static bool IsTensorMathEnabled(Stream* stream, dnn::DataType input_type) {
 #if CUDNN_VERSION < 8000
     return false;
 #else
-    if (!tensorflow::tensor_float_32_execution_enabled()) {
+    if (!tsl::tensor_float_32_execution_enabled()) {
       return false;
     }
 #endif
@@ -1290,7 +1290,7 @@ class CudnnRnnDescriptor : public dnn::RnnDescriptor {
     // TODO(csigg): Minimal support cuDNN version is 7.3, clean up.
     bool allow_tensor_ops = data_type == CUDNN_DATA_HALF;
     if (data_type == CUDNN_DATA_FLOAT)
-      allow_tensor_ops = tensorflow::tensor_float_32_execution_enabled();
+      allow_tensor_ops = tsl::tensor_float_32_execution_enabled();
     bool use_tensor_ops =
         algorithm_config.algorithm().has_value()
             ? algorithm_config.algorithm()->tensor_ops_enabled()
@@ -3987,29 +3987,36 @@ GetCudnnFusedMatmulGraph(dnn::DataType input_type, dnn::DataType bias_type,
   absl::InlinedVector<cudnn_frontend::Operation const*, 3> ops = {&matmul_op,
                                                                   &bias_add_op};
 
-  std::optional<cudnn_frontend::PointWiseDesc_v8> act_desc;
-  std::optional<cudnn_frontend::Operation_v8> act_op;
+  cudnnPointwiseMode_t cudnn_activation_mode;
   switch (activation_mode) {
     case dnn::ActivationMode::kGeluExact:
-      act_desc.emplace(cudnn_frontend::PointWiseDescBuilder()
-                           .setMode(CUDNN_POINTWISE_GELU_FWD)
-                           .setMathPrecision(cudnn_activation_type)
-                           .build());
-      RETURN_MSG_IF_CUDNN_ERROR(*act_desc);
-      act_op.emplace(cudnn_frontend::OperationBuilder(
-                         CUDNN_BACKEND_OPERATION_POINTWISE_DESCRIPTOR)
-                         .setxDesc(tensor_bias)
-                         .setyDesc(tensor_c)
-                         .setpwDesc(*act_desc)
-                         .build());
-      RETURN_MSG_IF_CUDNN_ERROR(*act_op);
-      ops.push_back(&*act_op);
+      cudnn_activation_mode = CUDNN_POINTWISE_GELU_FWD;
+      break;
+    case dnn::ActivationMode::kTanh:
+      cudnn_activation_mode = CUDNN_POINTWISE_TANH_FWD;
+      break;
+    case dnn::ActivationMode::kSigmoid:
+      cudnn_activation_mode = CUDNN_POINTWISE_SIGMOID_FWD;
       break;
     default:
       return port::InternalError(
           absl::StrCat("Unimplemented activation mode ",
                        dnn::ActivationModeString(activation_mode)));
   }
+
+  auto act_desc = cudnn_frontend::PointWiseDescBuilder()
+                      .setMode(cudnn_activation_mode)
+                      .setMathPrecision(cudnn_activation_type)
+                      .build();
+  RETURN_MSG_IF_CUDNN_ERROR(act_desc);
+  auto act_op = cudnn_frontend::OperationBuilder(
+                    CUDNN_BACKEND_OPERATION_POINTWISE_DESCRIPTOR)
+                    .setxDesc(tensor_bias)
+                    .setyDesc(tensor_c)
+                    .setpwDesc(act_desc)
+                    .build();
+  RETURN_MSG_IF_CUDNN_ERROR(act_op);
+  ops.push_back(&act_op);
 
   auto op_graph = cudnn_frontend::OperationGraphBuilder()
                       .setHandle(cudnn.handle())
@@ -4025,12 +4032,10 @@ GetCudnnFusedMatmulGraph(dnn::DataType input_type, dnn::DataType bias_type,
           << "\nTensor_bias: " << tensor_bias.describe()
           << "\nMatmul: " << matmul_desc.describe()
           << "\nBiasAdd: " << bias_add_desc.describe()  //
-          << "\nActivation: "
-          << (act_desc.has_value() ? act_desc->describe() : "(unsupported)")
+          << "\nActivation: " << act_desc.describe()
           << "\nMatmulOp: " << matmul_op.describe()
           << "\nBiasAddOp: " << bias_add_op.describe()  //
-          << "\nActOp: "
-          << (act_op.has_value() ? act_op->describe() : "(unsupported)")
+          << "\nActOp: " << act_op.describe()
           << "\nOpGraph: " << op_graph.describe();
 
   return std::make_unique<cudnn_frontend::OperationGraph>(std::move(op_graph));
