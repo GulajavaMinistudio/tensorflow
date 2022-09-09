@@ -14,13 +14,18 @@ limitations under the License.
 ==============================================================================*/
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"  // from @llvm-project
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"  // from @llvm-project
 #include "mlir/Dialect/MemRef/IR/MemRef.h"  // from @llvm-project
 #include "mlir/Tools/mlir-opt/MlirOptMain.h"  // from @llvm-project
 #include "tensorflow/compiler/xla/mlir/transforms/gpu/passes.h"
+#include "tensorflow/compiler/xla/mlir_hlo/include/mlir-hlo/Dialect/lhlo/IR/lhlo_ops.h"
+#include "tensorflow/compiler/xla/mlir_hlo/include/mlir-hlo/Dialect/lhlo_gpu/IR/lhlo_gpu_ops.h"
 
 int main(int argc, char **argv) {
   mlir::DialectRegistry registry;
-  registry.insert<mlir::memref::MemRefDialect, mlir::func::FuncDialect>();
+  registry.insert<mlir::memref::MemRefDialect, mlir::func::FuncDialect,
+                  mlir::gpu::GPUDialect, mlir::lmhlo::LmhloDialect,
+                  mlir::lmhlo_gpu::LmhloGpuDialect>();
 
   xla::gpu::registerGpuTransformsPasses();
 

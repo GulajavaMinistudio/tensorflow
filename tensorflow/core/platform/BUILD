@@ -237,17 +237,6 @@ cc_library(
     ],
 )
 
-tf_cc_test(
-    name = "denormal_test",
-    size = "small",
-    srcs = ["denormal_test.cc"],
-    deps = [
-        ":denormal",
-        "//tensorflow/core:test",
-        "//tensorflow/core:test_main",
-    ],
-)
-
 cc_library(
     name = "dynamic_annotations",
     hdrs = ["dynamic_annotations.h"],
@@ -337,7 +326,9 @@ cc_library(
 cc_library(
     name = "human_readable_json",
     textual_hdrs = ["human_readable_json.h"],
-    deps = tf_platform_deps("human_readable_json"),
+    deps = [
+        "//tensorflow/tsl/platform:human_readable_json",
+    ],
 )
 
 cc_library(
@@ -547,11 +538,11 @@ cc_library(
 
 cc_library(
     name = "random",
-    srcs = ["random.cc"],
     hdrs = ["random.h"],
     deps = [
         ":mutex",
         ":types",
+        "//tensorflow/tsl/platform:random",
     ],
 )
 
@@ -654,12 +645,9 @@ cc_library(
 
 cc_library(
     name = "scanner",
-    srcs = ["scanner.cc"],
     hdrs = ["scanner.h"],
     deps = [
-        ":macros",
-        ":str_util",
-        ":stringpiece",
+        "//tensorflow/tsl/platform:scanner",
     ],
 )
 
@@ -804,7 +792,9 @@ cc_library(
     textual_hdrs = [
         "subprocess.h",
     ],
-    deps = tf_windows_aware_platform_deps("subprocess"),
+    deps = [
+        "//tensorflow/tsl/platform:subprocess",
+    ],
 )
 
 cc_library(
@@ -1108,9 +1098,7 @@ cc_library(
 
 cc_library(
     name = "tensor_float_32_utils",
-    srcs = ["tensor_float_32_utils.cc"],
     hdrs = ["tensor_float_32_utils.h"],
-    copts = tf_copts(),
     deps = [
         "//tensorflow/tsl/platform:tensor_float_32_utils",
     ],
@@ -1201,7 +1189,7 @@ tf_cc_tests(
         "stringpiece_test.cc",
         "stringprintf_test.cc",
         "vmodule_benchmark_test.cc",
-        "//tensorflow/core/platform/profile_utils:cpu_utils_test.cc",
+        "//tensorflow/tsl/platform/profile_utils:cpu_utils_test.cc",
     ],
     create_named_test_suite = True,
     deps = [
@@ -1217,6 +1205,7 @@ tf_cc_tests(
         "//tensorflow/core:protos_all_cc",
         "//tensorflow/core:test",
         "//tensorflow/core:test_main",
+        "//tensorflow/tsl/platform:logging",
         "//third_party/eigen3",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/synchronization",
@@ -1833,7 +1822,6 @@ filegroup(
         "refcount.h",
         "resource.h",
         "regexp.h",
-        "scanner.cc",
         "scanner.h",
         "setround.h",
         "snappy.h",
@@ -1879,15 +1867,12 @@ filegroup(
         "platform_strings_computed.h",
         "png.h",
         "protobuf_internal.h",
-        "random.cc",
         "random.h",
         "subprocess.h",
         "test_benchmark.h",
         "threadpool_options.h",
         "unbounded_work_queue.h",
-        "//tensorflow/core/platform/profile_utils:android_armv7a_cpu_utils_helper.cc",
         "//tensorflow/core/platform/profile_utils:android_armv7a_cpu_utils_helper.h",
-        "//tensorflow/core/platform/profile_utils:cpu_utils.cc",
         "//tensorflow/core/platform/profile_utils:cpu_utils.h",
         "//tensorflow/core/platform/profile_utils:i_cpu_utils_helper.h",
         "//tensorflow/tsl/platform:mobile_srcs_only_runtime",
@@ -1922,6 +1907,7 @@ filegroup(
         "//tensorflow/core/platform/profile_utils:cpu_utils.h",
         "//tensorflow/core/platform/profile_utils:i_cpu_utils_helper.h",
         "//tensorflow/core/platform/profile_utils:clock_cycle_profiler.h",
+        "//tensorflow/tsl/platform:legacy_lib_internal_headers",
     ],
     visibility = ["//tensorflow/core:__pkg__"],
 )

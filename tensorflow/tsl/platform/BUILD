@@ -81,6 +81,17 @@ cc_library(
     ],
 )
 
+tf_cc_test(
+    name = "denormal_test",
+    size = "small",
+    srcs = ["denormal_test.cc"],
+    deps = [
+        ":denormal",
+        "//tensorflow/core:test",
+        "//tensorflow/core:test_main",
+    ],
+)
+
 cc_library(
     name = "errors",
     srcs = ["errors.cc"],
@@ -239,6 +250,7 @@ cc_library(
         ":macros",
         ":status",
         "//tensorflow/core/lib/core:errors",
+        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/types:span",
@@ -343,6 +355,7 @@ filegroup(
         "path.h",
         "prefetch.h",
         "protobuf.h",
+        "random.h",
         "resource.h",
         "stack_frame.h",
         "stacktrace.h",
@@ -351,7 +364,12 @@ filegroup(
         "str_util.h",
         "stringpiece.h",
         "stringprintf.h",
+        "subprocess.h",
         "thread_annotations.h",
+        "//tensorflow/tsl/platform/profile_utils:android_armv7a_cpu_utils_helper.h",
+        "//tensorflow/tsl/platform/profile_utils:clock_cycle_profiler.h",
+        "//tensorflow/tsl/platform/profile_utils:cpu_utils.h",
+        "//tensorflow/tsl/platform/profile_utils:i_cpu_utils_helper.h",
     ],
     compatible_with = get_compatible_with_portable(),
 )
@@ -422,6 +440,8 @@ filegroup(
         "raw_coding.h",
         "regexp.h",
         "resource.h",
+        "scanner.cc",
+        "scanner.h",
         "setround.cc",
         "setround.h",
         "snappy.h",
@@ -448,7 +468,15 @@ filegroup(
     name = "mobile_srcs_only_runtime",
     srcs = [
         "fingerprint.h",
+        "random.cc",
+        "random.h",
+        "subprocess.h",
         "test_benchmark.h",
+        "//tensorflow/tsl/platform/profile_utils:android_armv7a_cpu_utils_helper.cc",
+        "//tensorflow/tsl/platform/profile_utils:android_armv7a_cpu_utils_helper.h",
+        "//tensorflow/tsl/platform/profile_utils:cpu_utils.cc",
+        "//tensorflow/tsl/platform/profile_utils:cpu_utils.h",
+        "//tensorflow/tsl/platform/profile_utils:i_cpu_utils_helper.h",
     ],
     compatible_with = get_compatible_with_portable(),
     visibility = [
@@ -480,13 +508,19 @@ filegroup(
             "gif.h",
             "jpeg.h",
         ],
-    ),
+    ) + [
+        "//tensorflow/tsl/platform/profile_utils:android_armv7a_cpu_utils_helper.h",
+        "//tensorflow/tsl/platform/profile_utils:cpu_utils.h",
+        "//tensorflow/tsl/platform/profile_utils:i_cpu_utils_helper.h",
+        "//tensorflow/tsl/platform/profile_utils:clock_cycle_profiler.h",
+    ],
     compatible_with = get_compatible_with_portable(),
 )
 
 exports_files(
     [
         "host_info.h",
+        "human_readable_json.h",
         "bfloat16.h",
         "cpu_info.h",
         "cpu_info.cc",
@@ -507,6 +541,7 @@ exports_files(
         "bfloat16.h",
         "logging.h",
         "rocm_rocdl_path.h",
+        "subprocess.h",
     ],
     visibility = ["//tensorflow:__subpackages__"],
 )
@@ -677,6 +712,16 @@ cc_library(
 )
 
 cc_library(
+    name = "random",
+    srcs = ["random.cc"],
+    hdrs = ["random.h"],
+    deps = [
+        ":mutex",
+        ":types",
+    ],
+)
+
+cc_library(
     name = "resource_loader",
     testonly = 1,
     textual_hdrs = ["resource_loader.h"],
@@ -757,6 +802,14 @@ cc_library(
         ":macros",
         ":types",
     ],
+)
+
+cc_library(
+    name = "subprocess",
+    textual_hdrs = [
+        "subprocess.h",
+    ],
+    deps = tf_windows_aware_platform_deps("subprocess"),
 )
 
 cc_library(
@@ -871,6 +924,12 @@ cc_library(
 )
 
 cc_library(
+    name = "human_readable_json",
+    textual_hdrs = ["human_readable_json.h"],
+    deps = tf_platform_deps("human_readable_json"),
+)
+
+cc_library(
     name = "raw_coding",
     hdrs = ["raw_coding.h"],
     compatible_with = get_compatible_with_portable(),
@@ -885,6 +944,7 @@ filegroup(
     srcs = [
         "bfloat16.h",
         "raw_coding.h",
+        "scanner.h",
         "str_util.h",
     ],
     compatible_with = get_compatible_with_portable(),
@@ -974,6 +1034,17 @@ cc_library(
     hdrs = ["tensor_float_32_utils.h"],
     copts = tf_copts(),
     alwayslink = 1,
+)
+
+cc_library(
+    name = "scanner",
+    srcs = ["scanner.cc"],
+    hdrs = ["scanner.h"],
+    deps = [
+        ":macros",
+        ":str_util",
+        ":stringpiece",
+    ],
 )
 
 filegroup(

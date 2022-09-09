@@ -17,7 +17,7 @@ load(
 # buildifier: disable=same-origin-load
 load("//tensorflow:tensorflow.bzl", "filegroup")
 load(":build_defs.bzl", "runtime_copts")
-load("//tensorflow/core/platform:build_config.bzl", "if_llvm_system_z_available")
+load("//tensorflow/core/platform:build_config.bzl", "if_llvm_system_z_available", "tf_proto_library")
 load("//tensorflow/core/platform:rules_cc.bzl", "cc_library")
 
 package(
@@ -319,8 +319,8 @@ cc_library(
         "//tensorflow/compiler/xla/service/llvm_ir:llvm_command_line_options",
         "//tensorflow/compiler/xla/stream_executor/host:host_platform_id",
         "//tensorflow/compiler/xla/stream_executor/host:host_platform",
-        "//tensorflow/core/platform:errors",
-        "//tensorflow/core/platform:status",
+        "//tensorflow/tsl/platform:errors",
+        "//tensorflow/tsl/platform:status",
         "//tensorflow/core/protobuf:error_codes_proto_impl_cc",
         "//tensorflow/compiler/xla/service/llvm_ir:llvm_util",
         "//tensorflow/compiler/xla/stream_executor",
@@ -476,6 +476,7 @@ cc_library(
         "ir_emitter.h",
     ],
     deps = [
+        ":backend_config_proto_cc",
         ":cpu_options",
         ":cpu_runtime",
         ":dot_op_emitter",
@@ -613,6 +614,7 @@ cc_library(
         "dot_op_emitter.h",
     ],
     deps = [
+        ":backend_config_proto_cc",
         ":cpu_options",
         ":cpu_runtime",
         ":ir_emission_utils",
@@ -638,7 +640,6 @@ cc_library(
         "@llvm-project//mlir:ArithmeticUtils",
         "@llvm-project//mlir:FuncDialect",
         "@llvm-project//mlir:IR",
-        "@llvm-project//mlir:LinalgDialect",
         "@llvm-project//mlir:LinalgTransforms",
         "@llvm-project//mlir:Pass",
     ],
@@ -717,10 +718,10 @@ cc_library(
         "//tensorflow/compiler/xla/service/llvm_ir:llvm_util",
         "//tensorflow/compiler/xla/stream_executor",
         "//tensorflow/core/platform:mutex",
-        "//tensorflow/core/platform:status",
         "//tensorflow/core/profiler/lib:traceme",
         "//tensorflow/tsl/platform:logging",
         "//tensorflow/tsl/platform:platform_port",
+        "//tensorflow/tsl/platform:status",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:dynamic_annotations",
         "@com_google_absl//absl/container:flat_hash_map",
@@ -1039,7 +1040,7 @@ cc_library(
     deps = [
         "//tensorflow/compiler/xla:executable_run_options",
         "//tensorflow/compiler/xla/service:custom_call_status_internal",
-        "//tensorflow/core/platform:blocking_counter",
+        "//tensorflow/tsl/platform:blocking_counter",
         "//tensorflow/tsl/platform:logging",
         "//third_party/eigen3",
         "@com_google_absl//absl/base:core_headers",
@@ -1284,7 +1285,7 @@ cc_library(
     srcs = ["parallel_task_assignment.cc"],
     hdrs = ["parallel_task_assignment.h"],
     deps = [
-        ":dot_op_emitter",
+        ":backend_config_proto_cc",
         ":ir_emission_utils",
         ":shape_partition",
         ":target_machine_features",
@@ -1293,7 +1294,6 @@ cc_library(
         "//tensorflow/compiler/xla/service:hlo_pass",
         "//tensorflow/compiler/xla/service/llvm_ir:dynamic_update_slice_util",
         "@com_google_absl//absl/container:flat_hash_map",
-        "@com_google_absl//absl/memory",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -1421,4 +1421,11 @@ cc_library(
         "@llvm-project//mlir:Transforms",
         "@llvm-project//mlir:VectorToLLVM",
     ],
+)
+
+tf_proto_library(
+    name = "backend_config_proto",
+    srcs = ["backend_config.proto"],
+    cc_api_version = 2,
+    protodeps = ["//tensorflow/compiler/xla:xla_data_proto"],
 )

@@ -23,6 +23,8 @@ limitations under the License.
 #include <type_traits>
 #include <utility>
 
+#include "absl/container/flat_hash_set.h"
+#include "absl/strings/match.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
@@ -243,6 +245,25 @@ static FailureOr<TFOp> ReplaceOpWithIdentity(OpBuilder &builder, TFOp owner,
   if (!owner.device().empty())
     TFOp(identity_op).setRequestedDevice(owner.deviceAttr());
   return TFOp(identity_op);
+}
+
+static FailureOr<TFOp> ReplaceOpWithNoOp(OpBuilder &builder, TFOp op) {
+  OperationState state(op->getLoc(), "tfg.NoOp");
+  // Op may not have non-control results
+  if (TFOp(op)->getNumResults() > 1) return failure();
+
+  state.addTypes({ControlType::get(builder.getContext())});
+
+  for (Value value : op->getOperands()) {
+    Value control = GetControlDependency(builder, value);
+    if (!llvm::is_contained(state.operands, control))
+      state.addOperands(control);
+  }
+
+  TFOp noop_op = builder.create(state);
+  noop_op.setName(op.nameAttr());
+  if (!op.device().empty()) noop_op.setRequestedDevice(op.device());
+  return noop_op;
 }
 
 static FailureOr<TFOp> ReplaceOpWithConstant(OpBuilder &builder, Operation *op,
@@ -679,17 +700,13 @@ class EvaluateConstant : public FolderPatternBase<EvaluateConstant> {
                                 PatternRewriter &rewriter) const override {
     if (!helper_.IsFoldable(op)) return failure();
 
-    // TODO(chiahungduan): Switch folding needs to delete dead values.
-    if (dialect_->IsSwitch(op)) return failure();
-
     // The op has been folded but it has multiple results which we can just
     // replace it with a constant op and it also has control edges which prevent
     // it from removing. Use the attr to avoid evaluating them again.
     if (op->hasAttr(folded_attr_name_)) return failure();
 
     // If the op has no users, don't invoke the eager runtime.
-    if (op->getNumResults() > 2 &&
-        llvm::all_of(op->getResults().drop_back(),
+    if (llvm::all_of(op->getResults().drop_back(),
                      [](Value v) { return v.use_empty(); })) {
       return failure();
     }
@@ -711,23 +728,34 @@ class EvaluateConstant : public FolderPatternBase<EvaluateConstant> {
       return failure();
     }
 
+    // Check if CreateConstantTensorNode ops can fail before creating any nodes
+    // TODO(tlongeri): Is CreateConstantTensorNode check correct? Shouldn't it
+    // always be a ShapedType?
+    for (TypedAttr r : result)
+      if (r && r.getType().isa<VariantType>()) return failure();
+
     StringAttr name_attr = static_cast<TFGraphDialect *>(op->getDialect())
                                ->getNameAttrIdentifier();
     SmallVector<Value> control_operands(
         OperandControlRetRange(op->getOperands()));
 
-    StringAttr device_attr = TFOp(op).deviceAttr();
-    SmallVector<TFOp> const_ops;
+    SmallVector<TFOp> const_ops(result.size());
     for (auto &it : llvm::enumerate(result)) {
       TypedAttr attr = it.value();
-      FailureOr<TFOp> const_op = CreateConstantTensorOp(
+      // Null values represent dead outputs. They can result from evaluating a
+      // switch op.
+      if (!attr) continue;
+      if (op->getResult(it.index()).use_empty()) continue;
+      // CreateConstantTensorOp cannot return failure, we checked failure
+      // conditions above.
+      TFOp const_op = *CreateConstantTensorOp(
           rewriter, op->getLoc(),
           (Twine(TFOp(op).name(), "/eval_") + Twine(it.index())).str(),
-          attr.getType().cast<ShapedType>(), control_operands, attr,
+          attr.getType(), control_operands, attr,
           NamedAttribute(name_attr, TFOp(op).nameAttr()));
-      if (failed(const_op)) return failure();
-      if (device_attr) (*const_op).setRequestedDevice(device_attr);
-      const_ops.emplace_back(*const_op);
+      if (StringAttr device_attr = TFOp(op).deviceAttr())
+        const_op.setRequestedDevice(device_attr);
+      const_ops[it.index()] = const_op;
     }
 
     // If this is single output, just replace the op.
@@ -735,21 +763,27 @@ class EvaluateConstant : public FolderPatternBase<EvaluateConstant> {
       // Use the same node name for the replacement. Note that even this is not
       // in nodes_to_preserve, certain cases may still expect the op has the
       // same name after folding.
-      const_ops[0].setName(TFOp(op).nameAttr());
-      rewriter.replaceOp(op, const_ops[0]->getResults());
+      TFOp const_op = const_ops[0];
+      assert(const_op);
+      const_op.setName(TFOp(op).nameAttr());
+      rewriter.replaceOp(op, const_op->getResults());
     } else {
       for (auto &it : llvm::enumerate(const_ops)) {
-        for (OpOperand &user :
+        if (!it.value()) continue;
+        for (OpOperand &use :
              llvm::make_early_inc_range(op->getResult(it.index()).getUses())) {
-          rewriter.startRootUpdate(user.getOwner());
-          user.set(it.value()->getResult(0));
-          rewriter.finalizeRootUpdate(user.getOwner());
+          rewriter.startRootUpdate(use.getOwner());
+          use.set(it.value()->getResult(0));
+          rewriter.finalizeRootUpdate(use.getOwner());
         }
       }
-
-      // Now all the non-control operands are replaced with constant ops, remove
-      // the op if it doesn't have control operand either.
-      if (TFOp(op).controlRet().use_empty()) {
+      // All the non-control outputs are replaced with constant ops, except for
+      // dead outputs (in the case of a switch op).
+      // If the op has no dead outputs and no uses of its control output, then
+      // it can be removed.
+      // Dead code removal for switches with dead outputs (because of a constant
+      // pred) is handled in Grappler's LoopOptimizer pass.
+      if (op->use_empty()) {
         rewriter.eraseOp(op);
       } else {
         // We can't remove it directly. To avoid folding it again, add an attr
@@ -3194,7 +3228,7 @@ class ConstantPushDownBiasAdd
 
     if (!hasRank(op->getOperand(0)) || !hasRank(op->getOperand(1)) ||
         !hasRank(add_child->getOperand(0)) ||
-        !hasRank(add_child->getOperand(0))) {
+        !hasRank(add_child->getOperand(1))) {
       return failure();
     }
 
@@ -3353,6 +3387,67 @@ class ConstantPushDownAdd : public ConstantPushDownBase<ConstantPushDownAdd> {
     rewriter.finalizeRootUpdate(add_child);
 
     return success();
+  }
+};
+
+// This implementation is mapped with
+// ConstantFolding::RemoveRedundantVariableUpdates in
+// grappler/optimizers/constant_folding.cc
+class RemoveRedundantVariableUpdates
+    : public FolderPatternBase<RemoveRedundantVariableUpdates> {
+ public:
+  explicit RemoveRedundantVariableUpdates(OpPropertyHelper &helper)
+      : FolderPatternBase<RemoveRedundantVariableUpdates>(MatchAnyOpTypeTag(),
+                                                          helper) {}
+  LogicalResult matchAndRewrite(Operation *op,
+                                PatternRewriter &rewriter) const override {
+    static const auto *kVariableReadOps =
+        new absl::flat_hash_set<std::string>{"AssignAddVariableOp",
+                                             "AssignSubVariableOp",
+                                             "AssignAdd",
+                                             "AssignSub",
+                                             "ScatterAdd",
+                                             "ScatterSub",
+                                             "ScatterMul",
+                                             "ScatterDiv",
+                                             "ScatterNdAdd",
+                                             "ScatterNdSub",
+                                             "ScatterNdMul",
+                                             "ScatterNdDiv",
+                                             "ResourceScatterAdd",
+                                             "ResourceScatterSub",
+                                             "ResourceScatterMul",
+                                             "ResourceScatterDiv",
+                                             "ResourceScatterNdAdd",
+                                             "ResourceScatterNdSub",
+                                             "ResourceScatterNdMul",
+                                             "ResourceScatterNdDiv"};
+    StringRef op_name = op->getName().stripDialect();
+    if (kVariableReadOps == nullptr ||
+        kVariableReadOps->find({op_name.data(), op_name.size()}) ==
+            kVariableReadOps->end())
+      return failure();
+    const int value_index = op_name.contains("Scatter") ? 2 : 1;
+    Operation *delta_op = op->getOpOperand(value_index).get().getDefiningOp();
+    if (delta_op == nullptr) return failure();
+    const bool is_add_or_sub =
+        op_name.contains("Add") || op_name.contains("Sub");
+    if ((is_add_or_sub && helper_.IsZeros(delta_op)) ||
+        (!is_add_or_sub && helper_.IsOnes(delta_op))) {
+      if (op_name.contains("Variable") || op_name.contains("Resource")) {
+        FailureOr<TFOp> no_op = ReplaceOpWithNoOp(rewriter, op);
+        if (failed(no_op)) return failure();
+        rewriter.replaceOp(op, (*no_op)->getResults());
+        return success();
+      } else {
+        FailureOr<TFOp> identity =
+            ReplaceOpWithIdentity(rewriter, op, /*idx*/ 0);
+        if (failed(identity)) return failure();
+        rewriter.replaceOp(op, (*identity)->getResults());
+        return success();
+      }
+    }
+    return failure();
   }
 };
 
@@ -3518,11 +3613,11 @@ void RegisterPatterns(::mlir::RewritePatternSet &patterns,
       RemoveReverse, SimplifyStridedSlice, SimplifyTileOp, SimplifySqueezeOp,
       SimplifySliceOp, RemoveTransposeOp, RemoveRandomShuffleOp,
       RemoveShuffleOp, SimplifyPackOp, SimplifyReductionOp, SimplifyPadOp,
-      SimplifyPadV2Op, RemoveSplitOp, RemoveSplitVOp, MaterializeFillNode,
-      MaterializeConstantValuedNode, MaterializeShapeOp, MaterializeRankOp,
-      MaterializeSizeOp, MaterializeTensorArraySizeV3Op, MergeConcatOp,
-      SimplifyCaseOp, SimplifySelectOp,
-      SimplifySelectV2Op>::type>::Register(patterns, helper);
+      SimplifyPadV2Op, RemoveRedundantVariableUpdates, RemoveSplitOp,
+      RemoveSplitVOp, MaterializeFillNode, MaterializeConstantValuedNode,
+      MaterializeShapeOp, MaterializeRankOp, MaterializeSizeOp,
+      MaterializeTensorArraySizeV3Op, MergeConcatOp, SimplifyCaseOp,
+      SimplifySelectOp, SimplifySelectV2Op>::type>::Register(patterns, helper);
 }
 }  // namespace
 

@@ -43,10 +43,10 @@ profiler = _xla.profiler
 
 # Just an internal arbitrary increasing number to help with backward-compatible
 # changes.
-_version = 91
+_version = 92
 
 # Version number for MLIR:Python components.
-mlir_api_version = 33
+mlir_api_version = 34
 
 xla_platform_names = {
     'cpu': 'Host',
@@ -404,6 +404,7 @@ FftType = _xla.FftType
 Client = _xla.Client
 Buffer = _xla.Buffer
 ShardedBuffer = _xla.ShardedBuffer
+Array = _xla.Array
 DeviceArrayBase = _xla.DeviceArrayBase
 Executable = _xla.Executable
 OpSharding = _xla.OpSharding

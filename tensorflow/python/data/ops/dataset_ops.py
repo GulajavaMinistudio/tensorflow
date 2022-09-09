@@ -1254,7 +1254,7 @@ class DatasetV2(
       name: (Optional.) A name for the tf.data operation.
 
     Returns:
-      Dataset: A `Dataset`.
+      A new `Dataset` with the transformation applied as described above.
     """
     return ZipDataset(datasets, name=name)
 
@@ -1284,7 +1284,7 @@ class DatasetV2(
       name: (Optional.) A name for the tf.data operation.
 
     Returns:
-      Dataset: A `Dataset`.
+      A new `Dataset` with the transformation applied as described above.
     """
     return ConcatenateDataset(self, dataset, name=name)
 
@@ -1354,7 +1354,7 @@ class DatasetV2(
       name: Optional. A name for the tf.data transformation.
 
     Returns:
-      Dataset: A `Dataset`.
+      A new `Dataset` with the transformation applied as described above.
     """
     if DEBUG_MODE:
       return self
@@ -1456,7 +1456,7 @@ class DatasetV2(
       name: (Optional.) A name for the tf.data operation.
 
     Returns:
-      Dataset: A `Dataset`.
+      A new `Dataset` with the transformation applied as described above.
     """
     return RepeatDataset(self, count, name=name)
 
@@ -1488,7 +1488,7 @@ class DatasetV2(
       name: Optional. A name for the tf.data operations used by `enumerate`.
 
     Returns:
-      Dataset: A `Dataset`.
+      A new `Dataset` with the transformation applied as described above.
     """
 
     max_value = np.iinfo(dtypes.int64.as_numpy_dtype).max
@@ -1566,7 +1566,7 @@ class DatasetV2(
       name: (Optional.) A name for the tf.data operation.
 
     Returns:
-      Dataset: A `Dataset`.
+      A new `Dataset` with the transformation applied as described above.
     """
     return ShuffleDataset(
         self, buffer_size, seed, reshuffle_each_iteration, name=name)
@@ -1620,7 +1620,7 @@ class DatasetV2(
       name: (Optional.) A name for the tf.data operation.
 
     Returns:
-      Dataset: A `Dataset`.
+      A new `Dataset` with the transformation applied as described above.
     """
     return CacheDataset(self, filename, name=name)
 
@@ -1640,7 +1640,7 @@ class DatasetV2(
       name: (Optional.) A name for the tf.data operation.
 
     Returns:
-      Dataset: A `Dataset`.
+      A new `Dataset` with the transformation applied as described above.
     """
     return TakeDataset(self, count, name=name)
 
@@ -1660,7 +1660,7 @@ class DatasetV2(
       name: (Optional.) A name for the tf.data operation.
 
     Returns:
-      Dataset: A `Dataset`.
+      A new `Dataset` with the transformation applied as described above.
     """
     return SkipDataset(self, count, name=name)
 
@@ -1721,7 +1721,7 @@ class DatasetV2(
       name: (Optional.) A name for the tf.data operation.
 
     Returns:
-      Dataset: A `Dataset`.
+      A new `Dataset` with the transformation applied as described above.
 
     Raises:
       InvalidArgumentError: if `num_shards` or `index` are illegal values.
@@ -1931,7 +1931,7 @@ class DatasetV2(
       name: (Optional.) A name for the tf.data operation.
 
     Returns:
-      Dataset: A `Dataset`.
+      A new `Dataset` with the transformation applied as described above.
     """
     if num_parallel_calls is None or DEBUG_MODE:
       if deterministic is not None and not DEBUG_MODE:
@@ -2058,7 +2058,7 @@ class DatasetV2(
       name: (Optional.) A name for the tf.data operation.
 
     Returns:
-      Dataset: A `Dataset`.
+      A new `Dataset` with the transformation applied as described above.
 
     Raises:
       ValueError: If a component has an unknown rank, and the `padded_shapes`
@@ -2233,7 +2233,7 @@ name=None))
       name: (Optional.) A name for the tf.data operation.
 
     Returns:
-      Dataset: A `Dataset`.
+      A new `Dataset` with the transformation applied as described above.
     """
     if num_parallel_calls is None or DEBUG_MODE:
       if deterministic is not None and not DEBUG_MODE:
@@ -2280,9 +2280,35 @@ name=None))
       name: (Optional.) A name for the tf.data operation.
 
     Returns:
-      Dataset: A `Dataset`.
+      A new `Dataset` with the transformation applied as described above.
     """
     return FlatMapDataset(self, map_func, name=name)
+
+  def ignore_errors(self, log_warning=False, name=None):
+    """Drops elements that cause errors.
+
+    >>> dataset = tf.data.Dataset.from_tensor_slices([1., 2., 0., 4.])
+    >>> dataset = dataset.map(lambda x: tf.debugging.check_numerics(1. / x, ""))
+    >>> list(dataset.as_numpy_iterator())
+    Traceback (most recent call last):
+    ...
+    InvalidArgumentError: ... Tensor had Inf values
+    >>> dataset = dataset.ignore_errors()
+    >>> list(dataset.as_numpy_iterator())
+    [1.0, 0.5, 0.25]
+
+    Args:
+      log_warning: (Optional.) A bool indicating whether or not ignored errors
+        should be logged to stderr. Defaults to `False`.
+      name: (Optional.) A string indicating a name for the `tf.data` operation.
+
+    Returns:
+      A new `Dataset` with the transformation applied as described above.
+    """
+    # Loaded lazily due to a circular dependency (dataset_ops ->
+    # ignore_errors_op -> dataset_ops).
+    from tensorflow.python.data.ops import ignore_errors_op  # pylint: disable=g-import-not-at-top
+    return ignore_errors_op.ignore_errors(self, log_warning, name)
 
   def interleave(self,
                  map_func,
@@ -2390,7 +2416,7 @@ name=None))
       name: (Optional.) A name for the tf.data operation.
 
     Returns:
-      Dataset: A `Dataset`.
+      A new `Dataset` with the transformation applied as described above.
     """
     if block_length is None:
       block_length = 1
@@ -2433,8 +2459,7 @@ name=None))
       name: (Optional.) A name for the tf.data operation.
 
     Returns:
-      Dataset: The `Dataset` containing the elements of this dataset for which
-          `predicate` is `True`.
+      A new `Dataset` with the transformation applied as described above.
     """
     # Loaded lazily due to a circular dependency (dataset_ops -> filter_op ->
     # dataset_ops).
@@ -2460,8 +2485,7 @@ name=None))
         returns a `Dataset`.
 
     Returns:
-      Dataset: The `Dataset` returned by applying `transformation_func` to this
-          dataset.
+      A new `Dataset` with the transformation applied as described above.
     """
     dataset = transformation_func(self)
     if not isinstance(dataset, DatasetV2):
@@ -2613,8 +2637,7 @@ name=None))
       name: (Optional.) A name for the tf.data operation.
 
     Returns:
-      Dataset: A `Dataset` of (nests of) windows. Each window is a finite
-        datasets of flat elements.
+      A new `Dataset` with the transformation applied as described above.
     """
     if shift is None:
       shift = size
@@ -2887,7 +2910,7 @@ name=None))
       name: (Optional.) A name for the tf.data operation.
 
     Returns:
-      A `Dataset`.
+      A new `Dataset` with the transformation applied as described above.
     """
     normalized_dataset = normalize_to_dense(self)
     return _UnbatchDataset(normalized_dataset, name=name)
@@ -2913,7 +2936,7 @@ name=None))
       name: (Optional.) A name for the tf.data operation.
 
     Returns:
-      Dataset: A `Dataset` with the given options.
+      A new `Dataset` with the transformation applied as described above.
 
     Raises:
       ValueError: when an option is set more than once to a non-default value
@@ -2995,7 +3018,7 @@ name=None))
       name: (Optional.) A name for the tf.data operation.
 
     Returns:
-      A `Dataset`.
+      A new `Dataset` with the transformation applied as described above.
 
     Raises:
       ValueError: if neither or both of {`window_size`, `window_size_func`} are
@@ -3086,7 +3109,7 @@ name=None))
       name: (Optional.) A name for the tf.data operation.
 
     Returns:
-      A `Dataset`.
+      A new `Dataset` with the transformation applied as described above.
 
     Raises:
       ValueError: if `len(bucket_batch_sizes) != len(bucket_boundaries) + 1`.
@@ -3265,7 +3288,7 @@ name=None))
       name: (Optional.) A name for the tf.data operation.
 
     Returns:
-      A `Dataset`.
+      A new `Dataset` with the transformation applied as described above.
     """
 
     project_func = None
@@ -3318,7 +3341,7 @@ name=None))
       name: (Optional.) A name for the tf.data operation.
 
     Returns:
-      A `Dataset`.
+      A new `Dataset` with the transformation applied as described above.
     """
 
     return _ScanDataset(
@@ -3339,7 +3362,7 @@ name=None))
       name: (Optional.) A name for the tf.data operation.
 
     Returns:
-      A `Dataset`.
+      A new `Dataset` with the transformation applied as described above.
     """
 
     return _TakeWhileDataset(self, predicate, name=name)
@@ -3362,7 +3385,7 @@ name=None))
       name: (Optional.) A name for the tf.data operation.
 
     Returns:
-      A `Dataset`.
+      A new `Dataset` with the transformation applied as described above.
     """
 
     return _UniqueDataset(self, name=name)
@@ -3373,32 +3396,29 @@ name=None))
                          initial_dist=None,
                          seed=None,
                          name=None):
-    """A transformation that resamples a dataset to a target distribution.
+    """Resamples elements to reach a target distribution.
 
-    Lets consider the following example where a dataset with an initial data
-    distribution of `init_dist` needs to be resampled into a dataset with
-    `target_dist` distribution.
+    Note: This implementation can reject **or repeat** elements in order to
+    reach the `target_dist`. So, in some cases, the output `Dataset` may be
+    larger than the input `Dataset`.
 
     >>> initial_dist = [0.6, 0.4]
-    >>> num_classes = len(initial_dist)
-    >>> num_samples = 1000
-    >>> data_np = np.random.choice(num_classes, num_samples, p=initial_dist)
-    >>> dataset = tf.data.Dataset.from_tensor_slices(data_np)
+    >>> n = 1000
+    >>> elems = np.random.choice(len(initial_dist), size=n, p=initial_dist)
+    >>> dataset = tf.data.Dataset.from_tensor_slices(elems)
+    >>> zero, one = np.bincount(list(dataset.as_numpy_iterator())) / n
 
-    The value of `x` will be close to `{0: 50000, 1: 50000}` as per the
-    `initial_dist` distribution.
+    Following from `initial_dist`, `zero` is ~0.6 and `one` is ~0.4.
 
     >>> target_dist = [0.5, 0.5]
-    >>> resampled_dataset = dataset.rejection_resample(
+    >>> dataset = dataset.rejection_resample(
     ...    class_func=lambda x: x,
     ...    target_dist=target_dist,
     ...    initial_dist=initial_dist)
-    >>> resampled_dataset = resampled_dataset.map(
-    ...     lambda class_func_result, data: data)
+    >>> dataset = dataset.map(lambda class_func_result, data: data)
+    >>> zero, one = np.bincount(list(dataset.as_numpy_iterator())) / n
 
-
-    The value distribution of classes in the resampled_distribution will be now
-    be close to the target distribution.
+    Following from `target_dist`, `zero` is ~0.5 and `one` is ~0.5.
 
     Args:
       class_func: A function mapping an element of the input dataset to a scalar
@@ -3411,8 +3431,10 @@ name=None))
       name: (Optional.) A name for the tf.data operation.
 
     Returns:
-      A `Dataset`
+      A new `Dataset` with the transformation applied as described above.
     """
+
+    # TODO(b/245793127): Consider switching back to the 'v1' implementation.
 
     target_dist_t = ops.convert_to_tensor(target_dist, name="target_dist")
     target_dist_t = math_ops.cast(target_dist_t, dtypes.float32)
@@ -3644,8 +3666,7 @@ name=None))
         Defaults to `True`.
 
     Returns:
-      A dataset that interleaves elements from `datasets` according to the
-      values of `choice_dataset`.
+      A new `Dataset` with the transformation applied as described above.
 
     Raises:
       TypeError: If `datasets` or `choice_dataset` has the wrong type.

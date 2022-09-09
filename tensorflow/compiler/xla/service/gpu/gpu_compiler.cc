@@ -182,19 +182,19 @@ limitations under the License.
 #include "tensorflow/compiler/xla/types.h"
 #include "tensorflow/compiler/xla/util.h"
 #include "tensorflow/core/lib/core/status.h"
-#include "tensorflow/core/platform/blocking_counter.h"
 #include "tensorflow/core/platform/env.h"
-#include "tensorflow/core/platform/statusor.h"
 #include "tensorflow/core/platform/threadpool.h"
 #include "tensorflow/core/profiler/lib/traceme.h"
 #include "tensorflow/core/util/env_var.h"
+#include "tensorflow/tsl/platform/blocking_counter.h"
 #include "tensorflow/tsl/platform/casts.h"
 #include "tensorflow/tsl/platform/logging.h"
 #include "tensorflow/tsl/platform/regexp.h"
+#include "tensorflow/tsl/platform/statusor.h"
 
 #if XLA_ENABLE_XLIR
 #include "tensorflow/compiler/mlir/tfrt/transforms/lmhlo_to_gpu/pass_utils.h"
-#include "tensorflow/compiler/xla/mlir/transforms/runtime/compilation_pipeline.h"
+#include "tensorflow/compiler/xla/mlir/transforms/runtime/compilation_pipeline_gpu.h"
 #include "tensorflow/compiler/xla/runtime/jit_executable.h"
 #include "tensorflow/compiler/xla/service/gpu/jitrt_custom_calls.h"
 #endif  // XLA_ENABLE_XLIR
@@ -1291,7 +1291,7 @@ GpuCompiler::CompileToTargetBinary(const HloModuleConfig& module_config,
 
   std::vector<StatusOr<BackendCompileResult>> compile_results(
       llvm_modules.size());
-  tensorflow::BlockingCounter counter(llvm_modules.size());
+  tsl::BlockingCounter counter(llvm_modules.size());
   for (int i = 0; i < llvm_modules.size(); i++) {
     thread_pool->Schedule(
         [&compile_results, compile_single_module, i, &llvm_modules, &counter] {
@@ -1511,14 +1511,14 @@ GpuCompiler::CompileAheadOfTime(std::unique_ptr<HloModuleGroup> module_group,
     runtime::JitExecutable::Options opts;
     opts.specialization = runtime::JitExecutable::Specialization::kDisabled;
     opts.compiler.register_dialects =
-        runtime::RegisterDefaultXlaRuntimeDialects;
+        runtime::RegisterDefaultXlaGpuRuntimeDialects;
 
     // Register JitRt Gpu runtime custom calls with the linker.
     opts.compiler.symbols_binding = runtime::ToSymbolsBinding(
         PopulateXlaGpuCustomCalls, PopulateXlaGpuTypeIdNames);
 
     opts.compiler.create_compilation_pipeline = [copts](mlir::PassManager& pm) {
-      runtime::CreateDefaultXlaRuntimeCompilationPipeline(pm, copts);
+      runtime::CreateDefaultXlaGpuRuntimeCompilationPipeline(pm, copts);
     };
 
     // Instantiate new JitExecutable from the MLIR source.

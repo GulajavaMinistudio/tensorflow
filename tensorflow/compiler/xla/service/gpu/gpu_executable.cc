@@ -49,14 +49,14 @@ limitations under the License.
 #include "tensorflow/compiler/xla/stream_executor/platform.h"
 #include "tensorflow/compiler/xla/util.h"
 #include "tensorflow/core/lib/gtl/map_util.h"
-#include "tensorflow/core/platform/errors.h"
 #include "tensorflow/core/profiler/lib/scoped_annotation.h"
 #include "tensorflow/core/profiler/lib/traceme.h"
 #include "tensorflow/tsl/platform/casts.h"
+#include "tensorflow/tsl/platform/errors.h"
 #include "tensorflow/tsl/platform/logging.h"
 
 #if XLA_ENABLE_XLIR
-#include "tensorflow/compiler/xla/mlir/transforms/runtime/compilation_pipeline.h"
+#include "tensorflow/compiler/xla/mlir/transforms/runtime/compilation_pipeline_gpu.h"
 #include "tensorflow/compiler/xla/runtime/diagnostics.h"
 #include "tensorflow/compiler/xla/runtime/executable.h"
 #include "tensorflow/compiler/xla/runtime/jit_executable.h"
@@ -109,7 +109,7 @@ class GpuExecutable::JitRtExecutable {
     runtime::JitExecutable::Options opts;
     opts.specialization = runtime::JitExecutable::Specialization::kDisabled;
     opts.compiler.register_dialects = [](mlir::DialectRegistry& registry) {
-      runtime::RegisterDefaultXlaRuntimeDialects(registry);
+      runtime::RegisterDefaultXlaGpuRuntimeDialects(registry);
       // For the encoding of attributes to custom calls.
       registry.insert<mlir::lmhlo_gpu::LmhloGpuDialect>();
     };
@@ -124,7 +124,7 @@ class GpuExecutable::JitRtExecutable {
     // starting from the LMHLO dialect. However this intermediate step helps
     // with debugging, by materializing IR with XLA runtime custom calls.
     opts.compiler.create_compilation_pipeline = [copts](mlir::PassManager& pm) {
-      runtime::CreateDefaultXlaRuntimeCompilationPipeline(pm, copts);
+      runtime::CreateDefaultXlaGpuRuntimeCompilationPipeline(pm, copts);
     };
 
     // TODO(b/241296710): LLVM optimizations interact badly with the memory
