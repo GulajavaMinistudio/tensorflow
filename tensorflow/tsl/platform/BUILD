@@ -257,6 +257,7 @@ cc_library(
         "//tensorflow/core/protobuf:error_codes_proto_impl_cc",
         "//tensorflow/core/protobuf:for_core_protos_cc",
         "@com_google_absl//absl/base",
+        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:cord",
@@ -312,7 +313,7 @@ cc_library(
         ":macros",
         ":platform",
         "@com_google_googletest//:gtest",
-        "//tensorflow/core:tflite_portable_logging",
+        # "//tensorflow/core:tflite_portable_logging",
     ],
 )
 
@@ -1180,6 +1181,18 @@ tf_cc_test(
 )
 
 tf_cc_test(
+    name = "random_test",
+    srcs = ["random_test.cc"],
+    deps = [
+        ":random",
+        ":test",
+        ":types",
+        "//tensorflow/core:test",
+        "//tensorflow/core:test_main",
+    ],
+)
+
+tf_cc_test(
     name = "tstring_test",
     size = "small",
     srcs = ["tstring_test.cc"],
@@ -1189,5 +1202,68 @@ tf_cc_test(
         ":tstring",
         "//tensorflow/core:test",
         "//tensorflow/core:test_main",
+    ],
+)
+
+cc_library(
+    name = "test_main",
+    testonly = 1,
+    srcs = ["test_main.cc"],
+    copts = tf_copts(),
+    linkopts = select({
+        "//tensorflow:windows": [],
+        "//conditions:default": ["-lm"],
+    }),
+    deps = [
+        ":platform",
+        ":stacktrace_handler",
+        ":test",
+        ":test_benchmark",
+        "@com_google_absl//absl/strings",
+    ],
+    alwayslink = 1,
+)
+
+tf_cc_test(
+    name = "status_test",
+    size = "small",
+    srcs = ["status_test.cc"],
+    deps = [
+        ":errors",
+        ":status",
+        ":test",
+        ":test_main",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings:cord",
+        "@com_google_absl//absl/strings:str_format",
+    ],
+)
+
+tf_cc_test(
+    name = "statusor_test",
+    size = "small",
+    srcs = ["statusor_test.cc"],
+    deps = [
+        ":errors",
+        ":macros",
+        ":statusor",
+        ":test",
+        ":test_benchmark",
+        ":test_main",
+    ],
+)
+
+tf_cc_test(
+    name = "status_matchers_test",
+    size = "small",
+    srcs = ["status_matchers_test.cc"],
+    deps = [
+        ":errors",
+        ":status",
+        ":status_matchers",
+        ":statusor",
+        ":test",
+        ":test_main",
+        "//tensorflow/core/protobuf:error_codes_proto_impl_cc",
     ],
 )
