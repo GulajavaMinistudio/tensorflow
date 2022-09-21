@@ -205,10 +205,10 @@ LogicalResult verifySubsetChain(Value set) {
   if (isa<SpaceOp>(definingOp)) return success();
 
   if (auto pt = dyn_cast<PointOp>(definingOp))
-    return success(pt.superset().getDefiningOp<SpaceOp>() != nullptr);
+    return success(pt.getSuperset().getDefiningOp<SpaceOp>() != nullptr);
 
   if (auto tile = dyn_cast<TileOp>(definingOp))
-    return success(tile.superset().getDefiningOp<SpaceOp>() != nullptr);
+    return success(tile.getSuperset().getDefiningOp<SpaceOp>() != nullptr);
   return failure();
 }
 
@@ -241,7 +241,15 @@ FailureOr<Value> materializeExtraction(OpBuilder &b, Value memref,
   Operation *setDefiningOp = set.getDefiningOp();
 
   Location loc = set.getLoc();
-  if (auto space = dyn_cast<SpaceOp>(setDefiningOp)) return memref;
+  if (auto space = dyn_cast<SpaceOp>(setDefiningOp)) {
+    if (!materializeOp.getType().isa<ShapedType>()) {
+      Value zero = b.create<arith::ConstantIndexOp>(loc, 0);
+      SmallVector<Value, 2> indices(
+          memref.getType().cast<MemRefType>().getRank(), zero);
+      return b.create<memref::LoadOp>(loc, memref, indices).getResult();
+    }
+    return memref;
+  }
   if (auto tile = dyn_cast<TileOp>(setDefiningOp)) {
     if (!materializeOp.getType().isa<ShapedType>()) {
       auto indices =

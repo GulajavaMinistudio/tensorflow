@@ -54,9 +54,9 @@ cc_library(
     srcs = ["base64.cc"],
     hdrs = ["base64.h"],
     deps = [
+        ":errors",
         ":status",
         ":stringpiece",
-        "//tensorflow/core/platform:errors",
     ],
 )
 
@@ -104,8 +104,8 @@ tf_cc_test(
     srcs = ["denormal_test.cc"],
     deps = [
         ":denormal",
-        "//tensorflow/core:test",
-        "//tensorflow/core:test_main",
+        ":test",
+        ":test_main",
     ],
 )
 
@@ -195,10 +195,10 @@ cc_library(
     deps = [
         ":logging",
         ":mutex",
+        ":scanner",
         ":strcat",
         ":stringpiece",
         ":types",
-        "//tensorflow/core/platform:scanner",
         "@com_google_absl//absl/algorithm:container",
     ],
     alwayslink = True,
@@ -271,10 +271,10 @@ cc_library(
     srcs = ["status_matchers.cc"],
     hdrs = ["status_matchers.h"],
     deps = [
+        ":status",
+        ":statusor",
+        ":test",
         "//tensorflow/core:protos_all_cc",
-        "//tensorflow/core:test",
-        "//tensorflow/core/platform:statusor",
-        "//tensorflow/tsl/platform:status",
     ],
 )
 
@@ -290,7 +290,6 @@ cc_library(
         ":logging",
         ":macros",
         ":status",
-        "//tensorflow/core/lib/core:errors",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
@@ -313,7 +312,6 @@ cc_library(
         ":macros",
         ":platform",
         "@com_google_googletest//:gtest",
-        # "//tensorflow/core:tflite_portable_logging",
     ],
 )
 
@@ -390,6 +388,7 @@ filegroup(
         "bfloat16.h",
         "casts.h",
         "coding.h",
+        "context.h",
         "cpu_info.h",
         "crash_analysis.h",
         "dynamic_annotations.h",
@@ -403,6 +402,7 @@ filegroup(
         "logger.h",
         "mem.h",
         "net.h",
+        "notification.h",
         "numa.h",
         "path.h",
         "prefetch.h",
@@ -436,6 +436,7 @@ filegroup(
         "macros.h",
         "threadpool.h",
         "threadpool_interface.h",
+        "threadpool_options.h",
     ],
     compatible_with = get_compatible_with_portable(),
 )
@@ -468,6 +469,7 @@ filegroup(
         "casts.h",
         "coding.cc",
         "coding.h",
+        "context.h",
         "cpu_info.cc",
         "cpu_info.h",
         "demangle.h",
@@ -543,10 +545,14 @@ filegroup(
     name = "mobile_srcs_only_runtime",
     srcs = [
         "fingerprint.h",
+        "notification.h",
+        "png.h",
         "random.cc",
         "random.h",
         "subprocess.h",
         "test_benchmark.h",
+        "threadpool_options.h",
+        "unbounded_work_queue.h",
         "//tensorflow/tsl/platform/profile_utils:android_armv7a_cpu_utils_helper.cc",
         "//tensorflow/tsl/platform/profile_utils:android_armv7a_cpu_utils_helper.h",
         "//tensorflow/tsl/platform/profile_utils:cpu_utils.cc",
@@ -581,6 +587,7 @@ filegroup(
         exclude = [
             "dynamic_annotations.h",
             "gif.h",
+            "png.h",
             "jpeg.h",
         ],
     ) + [
@@ -594,6 +601,7 @@ filegroup(
 
 exports_files(
     [
+        "context.h",
         "host_info.h",
         "human_readable_json.h",
         "bfloat16.h",
@@ -666,6 +674,7 @@ filegroup(
         "setround.h",
         "snappy.h",
         "tracing.h",
+        "unbounded_work_queue.h",
     ],
     compatible_with = get_compatible_with_portable(),
     visibility = [
@@ -917,7 +926,8 @@ cc_library(
     compatible_with = get_compatible_with_portable(),
     deps = [
         "//third_party/eigen3",
-        # TODO(jakeharmon): Remove deps on core once mutex and types are migrated
+        # TODO(ddunleavy) these can't be moved because internal Eigen
+        # actually depends on these. Need to update Eigen to depend on TSL
         "//tensorflow/core/platform:mutex",
         "//tensorflow/core/platform:types",
     ],
@@ -971,9 +981,9 @@ cc_library(
     srcs = ["logger.cc"],
     hdrs = ["logger.h"],
     deps = [
+        "env",
         ":logging",
         ":protobuf",
-        "//tensorflow/tsl/platform:env",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/synchronization",
     ],
@@ -1098,9 +1108,9 @@ tf_cc_test(
     srcs = ["fingerprint_test.cc"],
     deps = [
         ":fingerprint",
+        ":test",
+        ":test_main",
         ":types",
-        "//tensorflow/core:test",
-        "//tensorflow/core:test_main",
     ],
 )
 
@@ -1161,9 +1171,9 @@ tf_cc_test(
     size = "small",
     srcs = ["ctstring_test.cc"],
     deps = [
+        ":test",
+        ":test_main",
         ":tstring",
-        "//tensorflow/core:test",
-        "//tensorflow/core:test_main",
     ],
 )
 
@@ -1176,7 +1186,7 @@ tf_cc_test(
         ":logging",
         ":test",
         ":test_benchmark",
-        "//tensorflow/core:test_main",
+        ":test_main",
     ],
 )
 
@@ -1186,9 +1196,8 @@ tf_cc_test(
     deps = [
         ":random",
         ":test",
+        ":test_main",
         ":types",
-        "//tensorflow/core:test",
-        "//tensorflow/core:test_main",
     ],
 )
 
@@ -1199,9 +1208,9 @@ tf_cc_test(
     deps = [
         ":cord",
         ":stringpiece",
+        ":test",
+        ":test_main",
         ":tstring",
-        "//tensorflow/core:test",
-        "//tensorflow/core:test_main",
     ],
 )
 
@@ -1266,4 +1275,63 @@ tf_cc_test(
         ":test_main",
         "//tensorflow/core/protobuf:error_codes_proto_impl_cc",
     ],
+)
+
+cc_library(
+    name = "notification",
+    hdrs = ["notification.h"],
+    compatible_with = get_compatible_with_portable(),
+    deps = [
+        ":platform",
+    ] + tf_platform_deps("notification"),
+)
+
+cc_library(
+    name = "png",
+    hdrs = ["png.h"],
+    compatible_with = get_compatible_with_portable(),
+    deps = [
+        ":platform",
+        "@png",
+    ],
+)
+
+cc_library(
+    name = "threadpool_options",
+    hdrs = ["threadpool_options.h"],
+    compatible_with = get_compatible_with_portable(),
+    deps = [
+        ":threadpool_interface",
+    ],
+)
+
+cc_library(
+    name = "unbounded_work_queue",
+    hdrs = ["unbounded_work_queue.h"],
+    compatible_with = get_compatible_with_portable(),
+    deps = [
+        ":platform",
+    ] + tf_platform_deps("unbounded_work_queue"),
+)
+
+tf_cc_test(
+    name = "unbounded_work_queue_test",
+    srcs = ["unbounded_work_queue_test.cc"],
+    deps = [
+        ":blocking_counter",
+        ":env",
+        ":env_impl",
+        ":random",
+        ":test",
+        ":test_main",
+        ":unbounded_work_queue",
+        "@com_google_absl//absl/memory",
+    ],
+)
+
+cc_library(
+    name = "context",
+    compatible_with = get_compatible_with_portable(),
+    textual_hdrs = ["context.h"],
+    deps = tf_platform_deps("context"),
 )

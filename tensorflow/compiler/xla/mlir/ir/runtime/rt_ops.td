@@ -23,8 +23,13 @@ limitations under the License.
 #else
 #define RT_OPS
 
+include "mlir/Interfaces/SideEffectInterfaces.td"
+include "mlir/Interfaces/ControlFlowInterfaces.td"
+include "mlir/IR/OpAsmInterface.td"
 include "mlir/IR/OpBase.td"
-include "tensorflow/compiler/xla/mlir/ir/runtime/rt_base.td"
+
+include "tensorflow/compiler/xla/mlir/ir/runtime/rt_dialect.td"
+include "tensorflow/compiler/xla/mlir/ir/runtime/rt_interfaces.td"
 
 //===----------------------------------------------------------------------===//
 // Op definitions.
@@ -210,6 +215,84 @@ def RT_CustomCallOp : RT_Op<"custom_call"> {
     (`dynamic` $dynamic^)? $ctx `[` $callee `]`  `(` $operands `)`
     attr-dict `:` functional-type($operands, $results)
   }];
+}
+
+//===----------------------------------------------------------------------===//
+// TraceOp
+//===----------------------------------------------------------------------===//
+
+def RT_TraceOp : RT_Op<"trace",
+    [AutomaticAllocationScope, OpAsmOpInterface,
+     DeclareOpInterfaceMethods<RegionBranchOpInterface>,
+     SingleBlockImplicitTerminator<"YieldOp">]> {
+  let summary = "Trace operation";
+
+  let description = [{
+    Traces execution of the attached region using provided annotation.
+
+    Example: trace gemm with a corresponding HLO operation annotation
+
+    ```mlir
+    %0 = rt.trace %ctx, #rt.hlo<op=gemm, module=foo> -> !tensor<?x?xf32> {
+      %1 = call @xla.gemm(...) : (...) -> tensor<?x?xf32>
+      yield %1 : tensor<?x?xf32>
+    }
+    ```
+  }];
+
+  let arguments = (ins
+    ExecutionContextType:$ctx,
+    RT_TraceAnnotationAttrInterface:$annotation
+  );
+
+  let results = (outs Variadic<AnyType>:$results);
+
+  let regions = (region SizedRegion<1>:$body);
+
+  let assemblyFormat = [{
+    qualified($annotation) `,` $ctx (`->` type($results)^)? $body attr-dict
+  }];
+
+  let hasVerifier = 1;
+
+  let extraClassDeclaration = [{
+    // OpAsmOpInterface: Allow the dialect prefix to be omitted.
+    static llvm::StringRef getDefaultDialect() { return "rt"; }
+  }];
+
+  let skipDefaultBuilders = 1;
+
+  let builders = [
+    OpBuilder<(ins
+      "mlir::TypeRange":$results,
+      "mlir::Value":$exec_ctx,
+      "TraceAnnotationAttrInterface":$annotation,
+      CArg<"llvm::function_ref<void(mlir::OpBuilder&, mlir::Location)>",
+           "nullptr">:$bodyBuilder)>,
+  ];
+}
+
+//===----------------------------------------------------------------------===//
+// YieldOp
+//===----------------------------------------------------------------------===//
+
+def RT_YieldOp : RT_Op<"yield",
+    [HasParent<"TraceOp">, NoSideEffect, Terminator,
+     DeclareOpInterfaceMethods<RegionBranchTerminatorOpInterface>]> {
+  let summary = "terminator for rt.trace operation";
+
+  let description = [{
+    The `rt.yield` is a special terminator operation for the block inside
+    `rt.trace` operation that returns values defined inside the body block to
+    the users of `rt.trace` operation results.
+  }];
+
+  let arguments = (ins Variadic<AnyType>:$operands);
+
+  let assemblyFormat = "($operands^ `:` type($operands))? attr-dict";
+
+  // Default builder needed for ensureTerminator
+  let builders = [OpBuilder<(ins), "build($_builder, $_state, {});">];
 }
 
 //===----------------------------------------------------------------------===//
