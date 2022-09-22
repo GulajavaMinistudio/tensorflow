@@ -16,6 +16,7 @@ package(
         "//tensorflow/core/lib/histogram:__pkg__",
         # tensorflow/core/framework uses array_slice, map_util, and flatmap
         "//tensorflow/core/framework:__pkg__",
+        "//tensorflow/tsl/framework:__pkg__",
         # tensorflow/core/util uses array_slice, inlined_vector
         "//tensorflow/core/util:__pkg__",
         # tensorflow/core/tfrt/utils uses array_slice, inlined_vector
@@ -24,6 +25,7 @@ package(
         "//tensorflow/examples/custom_ops_doc/simple_hash_table:__pkg__",
         "//tensorflow/compiler/xla/stream_executor:__subpackages__",
         "//tensorflow/core/lib/gtl:__subpackages__",
+        "//tensorflow/tsl/profiler/utils:__pkg__",
     ],
     licenses = ["notice"],
 )
@@ -145,6 +147,7 @@ filegroup(
     visibility = [
         "//tensorflow/core:__pkg__",
         "//tensorflow/core/lib/gtl:__pkg__",
+        "//tensorflow/tsl:__subpackages__",
     ],
 )
 

@@ -399,6 +399,30 @@ cc_library(
 )
 
 cc_library(
+    name = "custom_call_sharding",
+    srcs = ["custom_call_sharding.cc"],
+    hdrs = ["custom_call_sharding.h"],
+    compatible_with = [],
+    copts = [
+        "-fexceptions",
+        "-fno-strict-aliasing",
+    ],
+    features = ["-use_header_modules"],
+    visibility = ["//visibility:private"],
+    deps = [
+        "//tensorflow/compiler/xla/client:xla_computation",
+        "//tensorflow/compiler/xla/python:status_casters",
+        "//tensorflow/compiler/xla/service:custom_call_sharding_helper",
+        "//tensorflow/compiler/xla/service:hlo",
+        "//tensorflow/compiler/xla/service:hlo_sharding_util",
+        "//tensorflow/compiler/xla/service/spmd:spmd_partitioner",
+        "@com_google_absl//absl/cleanup",
+        "@com_google_absl//absl/synchronization",
+        "@pybind11",
+    ],
+)
+
+cc_library(
     name = "ops",
     srcs = ["ops.cc"],
     hdrs = ["ops.h"],
@@ -444,6 +468,27 @@ cc_library(
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/strings:str_format",
+    ],
+)
+
+cc_library(
+    name = "pjit",
+    srcs = ["pjit.cc"],
+    hdrs = ["pjit.h"],
+    compatible_with = [],
+    copts = [
+        "-fexceptions",
+        "-fno-strict-aliasing",
+    ],
+    features = ["-use_header_modules"],
+    visibility = ["//visibility:private"],
+    deps = [
+        ":jax_jit",
+        ":py_client",
+        ":status_casters",
+        "//tensorflow/core/profiler/lib:traceme",
+        "@com_google_absl//absl/synchronization",
+        "@pybind11",
     ],
 )
 
@@ -760,10 +805,12 @@ pybind_extension(
     visibility = ["//visibility:public"],
     deps = [
         ":dlpack",
+        ":custom_call_sharding",
         ":jax_jit",
         ":mlir",
         ":ops",
         ":pmap_lib",
+        ":pjit",
         ":weakref_lru_cache",
         ":pprof_profile_builder",
         ":profiler",

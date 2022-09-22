@@ -2365,7 +2365,7 @@ def OrderByDialectPass : Pass<"tf-order-by-dialect", "mlir::func::FuncOp"> {
   let constructor = "TF::CreateOrderByDialectPass()";
 }
 
-def GroupByDialectPass : Pass<"tf-group-by-dialect", "mlir::func::FuncOp"> {
+def GroupByDialectPass : Pass<"tf-group-by-dialect", "mlir::ModuleOp"> {
   let summary = "Groups ops into functions that only contain one dialect.";
   let description = [{
       Factors operations into subroutines such that all functions only
@@ -2407,4 +2407,55 @@ def RemoveUnusedArgumentsPass : Pass<"tf-remove-unused-arguments", "ModuleOp"> {
         call @x_1(x)
   }];
   let constructor = "TF::CreateRemoveUnusedArgumentsPass()";
+}
+
+def RemoveUnusedWhileResultsPass : Pass<"tf-remove-unused-while-results", "mlir::func::FuncOp"> {
+  let summary = "Removes unused results from tf.WhileRegion ops";
+   let description = [{
+      Removes unused results from `tf.WhileRegion` ops along with the defining
+      ops in the body, if it is safe to do so.
+      Currently, the pass detects results with following properties:
+      - the result is unused outside of the `tf.WhileRegion` op
+      - the defining op of the result in the body can be safely removed
+      - the operand corresponding to the result is not used by any other op in
+        the condition or body (in particular, there must not be intermediate
+        pass-through ops like `tf.Identity`)
+
+
+      For example, the following pseudo MLIR code (types are left out for
+      brevity)
+      ```mlir
+        func.func @remove_first_result(%arg0, %arg1) {
+          %0:2 = "tf.WhileRegion"(%arg0, %arg1) ({
+          ^bb0(%arg2, %arg3):
+            %1 = "tf.OpA"() {is_stateless = true}
+            "tf.Yield"(%1)
+          }, {
+          ^bb0(%arg2, %arg3):
+            %1 = "tf.OpB"(%arg2) {is_stateless = true}
+            %2 = "tf.OpC"(%arg3) {is_stateless = true}
+            "tf.Yield"(%1, %2)
+          }) {is_stateless = true}
+          return %0#1
+        }
+      ```
+      would be transformed to
+      ```mlir
+        func.func @remove_first_result(%arg0, %arg1) {
+          %0 = "tf.WhileRegion"(%arg1) ({
+          ^bb0(%arg3):
+            %1 = "tf.OpA"() {is_stateless = true}
+            "tf.Yield"(%1)
+          }, {
+          ^bb0(%arg3):
+            %1 = "tf.OpC"(%arg3) {is_stateless = true}
+            "tf.Yield"(%1)
+          }) {is_stateless = true}
+          return %0
+        }
+      ```
+      (the first result can be removed along with its defining op `tf.OpB`).
+
+  }];
+  let constructor = "TF::CreateRemoveUnusedWhileResultsPass()";
 }
