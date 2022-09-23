@@ -107,9 +107,10 @@ exports_files(["rocm_rocdl_path.h"])
 
 cc_library(
     name = "abi",
-    srcs = ["abi.cc"],
     hdrs = ["abi.h"],
-    deps = [":types"],
+    deps = [
+        "//tensorflow/tsl/platform:abi",
+    ],
 )
 
 cc_library(
@@ -369,7 +370,9 @@ cc_library(
 cc_library(
     name = "load_library",
     textual_hdrs = ["load_library.h"],
-    deps = tf_windows_aware_platform_deps("load_library"),
+    deps = [
+        "//tensorflow/tsl/platform:load_library",
+    ],
 )
 
 cc_library(
@@ -454,7 +457,7 @@ cc_library(
     name = "null_file_system",
     hdrs = ["null_file_system.h"],
     deps = [
-        ":env",
+        "//tensorflow/tsl/platform:null_file_system",
     ],
 )
 
@@ -588,23 +591,8 @@ cc_library(
     name = "refcount",
     hdrs = ["refcount.h"],
     deps = [
-        ":logging",
         ":mutex",
-        ":thread_annotations",
-    ],
-)
-
-tf_cc_test(
-    name = "refcount_test",
-    size = "small",
-    srcs = [
-        "refcount_test.cc",
-    ],
-    deps = [
-        ":env",
-        ":refcount",
-        "//tensorflow/core:test",
-        "//tensorflow/core:test_main",
+        "//tensorflow/tsl/platform:refcount",
     ],
 )
 
@@ -612,20 +600,6 @@ cc_library(
     name = "intrusive_ptr",
     hdrs = ["intrusive_ptr.h"],
     deps = ["//tensorflow/tsl/platform:intrusive_ptr"],
-)
-
-tf_cc_test(
-    name = "intrusive_ptr_test",
-    size = "small",
-    srcs = [
-        "intrusive_ptr_test.cc",
-    ],
-    deps = [
-        ":intrusive_ptr",
-        ":refcount",
-        "//tensorflow/core:test",
-        "//tensorflow/core:test_main",
-    ],
 )
 
 cc_library(
@@ -1210,21 +1184,6 @@ tf_cc_tests(
 )
 
 tf_cc_test(
-    name = "stacktrace_test",
-    size = "small",
-    srcs = [
-        "stacktrace_test.cc",
-    ],
-    tags = ["no_windows"],
-    deps = [
-        ":logging",
-        ":stacktrace",
-        "//tensorflow/core:test",
-        "//tensorflow/core:test_main",
-    ],
-)
-
-tf_cc_test(
     name = "enable_tf2_utils_test",
     size = "small",
     srcs = [
@@ -1235,42 +1194,6 @@ tf_cc_test(
         "//tensorflow/core:test",
         "//tensorflow/core:test_main",
         "//tensorflow/core/util:env_var",
-    ],
-)
-
-tf_cc_tests(
-    name = "stacktrace_handler_test",
-    size = "small",
-    srcs = [
-        "stacktrace_handler_test.cc",
-    ],
-    tags = ["no_windows"],
-    deps = [
-        ":logging",
-        ":stacktrace",
-        ":stacktrace_handler",
-        "//tensorflow/core:test",
-        "//tensorflow/core:test_main",
-    ],
-)
-
-tf_cc_test(
-    name = "subprocess_test",
-    size = "small",
-    srcs = ["subprocess_test.cc"],
-    data = [
-        "//tensorflow/core/platform/testdata:test_echo",
-        "//tensorflow/core/platform/testdata:test_echo_argv_1",
-        "//tensorflow/core/platform/testdata:test_noop",
-        "//tensorflow/core/platform/testdata:test_stderr",
-    ],
-    deps = [
-        ":path",
-        ":resource_loader",
-        ":strcat",
-        ":subprocess",
-        "//tensorflow/core:test",
-        "//tensorflow/core:test_main",
     ],
 )
 
@@ -1303,36 +1226,6 @@ tf_cc_test(
 )
 
 tf_cc_test(
-    name = "env_test",
-    size = "small",
-    srcs = ["env_test.cc"],
-    deps = [
-        "//tensorflow/core:lib",
-        "//tensorflow/core:lib_internal",
-        "//tensorflow/core:lib_test_internal",
-        "//tensorflow/core:protos_all_cc",
-        "//tensorflow/core:test",
-        "//tensorflow/core:test_main",
-        "//third_party/eigen3",
-    ],
-)
-
-tf_cc_test(
-    name = "errors_test",
-    size = "small",
-    srcs = ["errors_test.cc"],
-    deps = [
-        "//tensorflow/core:lib",
-        "//tensorflow/core:lib_internal",
-        "//tensorflow/core:lib_test_internal",
-        "//tensorflow/core:protos_all_cc",
-        "//tensorflow/core:test",
-        "//tensorflow/core:test_main",
-        "//third_party/eigen3",
-    ],
-)
-
-tf_cc_test(
     name = "fake_python_env_test",
     size = "small",
     srcs = ["fake_python_env_test.cc"],
@@ -1351,63 +1244,6 @@ tf_cc_test(
         "//tensorflow/core:lib_internal",
         "//tensorflow/core:lib_test_internal",
         "//tensorflow/core:test",
-    ],
-)
-
-tf_cc_test(
-    name = "abi_test",
-    size = "small",
-    srcs = ["abi_test.cc"],
-    deps = [
-        "//tensorflow/core:framework",
-        "//tensorflow/core:lib",
-        "//tensorflow/core:lib_internal",
-        "//tensorflow/core:lib_test_internal",
-        "//tensorflow/core:protos_all_cc",
-        "//tensorflow/core:test",
-        "//tensorflow/core:test_main",
-        "//third_party/eigen3",
-    ],
-)
-
-tf_cc_test(
-    name = "numa_test",
-    size = "small",
-    srcs = ["numa_test.cc"],
-    tags = [
-        # This test will not pass unless it has access to all NUMA nodes
-        # on the executing machine.
-        "manual",
-        "notap",
-    ],
-    deps = [
-        "//tensorflow/core:framework",
-        "//tensorflow/core:lib",
-        "//tensorflow/core:lib_internal",
-        "//tensorflow/core:lib_test_internal",
-        "//tensorflow/core:protos_all_cc",
-        "//tensorflow/core:test",
-        "//tensorflow/core:test_main",
-        "//third_party/eigen3",
-    ],
-)
-
-tf_cc_test(
-    name = "setround_test",
-    size = "small",
-    srcs = ["setround_test.cc"],
-    tags = [
-        "noasan",
-        "noclang",
-        "nomsan",
-        "notsan",
-    ],
-    deps = [
-        "//tensorflow/core:lib",
-        "//tensorflow/core:lib_internal",
-        "//tensorflow/core:lib_test_internal",
-        "//tensorflow/core:test",
-        "//tensorflow/core:test_main",
     ],
 )
 
@@ -1721,7 +1557,6 @@ filegroup(
 filegroup(
     name = "mobile_srcs_no_runtime",
     srcs = [
-        "abi.cc",
         "abi.h",
         "bfloat16.h",
         "blocking_counter.h",

@@ -10,6 +10,7 @@ load("//tensorflow:tensorflow.bzl", "get_compatible_with_portable")
 load(
     "//tensorflow:tensorflow.bzl",
     "tf_cc_test",
+    "tf_cc_tests",
     "tf_copts",
     "tf_cuda_library",
 )
@@ -41,6 +42,7 @@ package(
 exports_files(
     [
         "mutex.h",
+        "load_library.h",
         "stringpiece_test.cc",
     ],
     visibility = [
@@ -385,6 +387,7 @@ filegroup(
 filegroup(
     name = "lib_hdrs",
     srcs = [
+        "abi.h",
         "bfloat16.h",
         "casts.h",
         "coding.h",
@@ -403,6 +406,7 @@ filegroup(
         "mem.h",
         "net.h",
         "notification.h",
+        "null_file_system.h",
         "numa.h",
         "path.h",
         "prefetch.h",
@@ -461,6 +465,8 @@ filegroup(
 filegroup(
     name = "mobile_srcs_no_runtime",
     srcs = [
+        "abi.h",
+        "abi.cc",
         "base64.cc",
         "base64.h",
         "bfloat16.h",
@@ -490,6 +496,7 @@ filegroup(
         "host_info.h",
         "init_main.h",
         "intrusive_ptr.h",
+        "load_library.h",
         "macros.h",
         "mem.h",
         "numa.h",
@@ -506,6 +513,7 @@ filegroup(
         "ram_file_system.h",
         "raw_coding.h",
         "regexp.h",
+        "refcount.h",
         "resource.h",
         "scanner.cc",
         "scanner.h",
@@ -671,6 +679,7 @@ filegroup(
         "host_info.h",
         "intrusive_ptr.h",
         "platform.h",
+        "refcount.h",
         "setround.h",
         "snappy.h",
         "tracing.h",
@@ -845,6 +854,22 @@ cc_library(
     textual_hdrs = ["stacktrace_handler.h"],
     deps = tf_windows_aware_platform_deps("stacktrace_handler"),
     alwayslink = 1,
+)
+
+tf_cc_tests(
+    name = "stacktrace_handler_test",
+    size = "small",
+    srcs = [
+        "stacktrace_handler_test.cc",
+    ],
+    tags = ["no_windows"],
+    deps = [
+        ":logging",
+        ":stacktrace",
+        ":stacktrace_handler",
+        ":test",
+        ":test_main",
+    ],
 )
 
 cc_library(
@@ -1075,6 +1100,21 @@ cc_library(
     deps = [
         ":platform",
     ] + tf_windows_aware_platform_deps("stacktrace"),
+)
+
+tf_cc_test(
+    name = "stacktrace_test",
+    size = "small",
+    srcs = [
+        "stacktrace_test.cc",
+    ],
+    tags = ["no_windows"],
+    deps = [
+        ":logging",
+        ":stacktrace",
+        ":test",
+        ":test_main",
+    ],
 )
 
 cc_library(
@@ -1334,4 +1374,39 @@ cc_library(
     compatible_with = get_compatible_with_portable(),
     textual_hdrs = ["context.h"],
     deps = tf_platform_deps("context"),
+)
+
+cc_library(
+    name = "load_library",
+    textual_hdrs = ["load_library.h"],
+    deps = [
+        ":status",
+    ] + tf_windows_aware_platform_deps("load_library"),
+)
+
+cc_library(
+    name = "abi",
+    srcs = ["abi.cc"],
+    hdrs = ["abi.h"],
+    deps = [
+        ":types",
+    ],
+)
+
+cc_library(
+    name = "refcount",
+    hdrs = ["refcount.h"],
+    deps = [
+        ":logging",
+        ":mutex",
+        ":thread_annotations",
+    ],
+)
+
+cc_library(
+    name = "null_file_system",
+    hdrs = ["null_file_system.h"],
+    deps = [
+        ":env",
+    ],
 )

@@ -327,9 +327,6 @@ cc_library(
 cc_library(
     name = "test",
     testonly = 1,
-    srcs = [
-        "//tensorflow/core/platform:legacy_test_srcs",
-    ],
     hdrs = [
         "//tensorflow/core/lib/core:legacy_lib_core_status_test_util_header",
         "//tensorflow/core/platform:test_hdrs",
@@ -350,7 +347,8 @@ cc_library(
         ":protos_all_cc",
         "//tensorflow/tsl/platform/default/build_config:gtest",
         "//tensorflow/core/kernels:required",
-        "@com_google_benchmark//:benchmark",
+        "//tensorflow/tsl/platform:test",
+        "//tensorflow/tsl/platform:test_benchmark",
         "@com_google_googletest//:gtest",
     ] + tf_additional_test_deps(),
 )
@@ -1670,6 +1668,8 @@ tf_cuda_library(
         "//tensorflow/core/platform:env_impl",
         "//tensorflow/core/platform:fingerprint",
         "//tensorflow/tsl/platform/default/build_config:platformlib",
+        "//tensorflow/tsl/platform:stringpiece",
+        "//tensorflow/tsl/platform:logging",
         "//tensorflow/core/profiler/lib:annotated_traceme",
         "//tensorflow/core/profiler/lib:scoped_memory_debug_annotation",
         "//tensorflow/core/profiler/lib:traceme",
@@ -1836,7 +1836,6 @@ tf_cc_tests(
     srcs = [
         "//tensorflow/core/lib/core:legacy_lib_core_all_tests",
         "//tensorflow/core/lib/gtl:legacy_lib_gtl_tests",
-        "//tensorflow/core/lib/histogram:legacy_lib_histogram_all_tests",
         "//tensorflow/core/lib/io:legacy_lib_io_all_tests",
         "//tensorflow/core/lib/monitoring:collection_registry_test.cc",
         "//tensorflow/core/lib/monitoring:counter_test.cc",

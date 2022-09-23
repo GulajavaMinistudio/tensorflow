@@ -48,12 +48,10 @@ cc_library(
     hdrs = ["async_runtime.h"],
     compatible_with = get_compatible_with_cloud(),
     deps = [
-        "//tensorflow/core/platform:mutex",  # TODO(aminim): migrate eigen3/unsupported/Eigen/CXX11/ThreadPool:70 to TSL
+        "//tensorflow/tsl/platform:env",
         "//tensorflow/tsl/platform:platform_port",
-        "//third_party/eigen3",
         "@com_google_absl//absl/base:dynamic_annotations",
         "@com_google_absl//absl/status",
-        "@llvm-project//llvm:Support",
         "@tf_runtime//:hostcontext",
     ],
 )
