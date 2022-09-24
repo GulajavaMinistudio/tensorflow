@@ -867,5 +867,5 @@ pybind_extension(
             "//tensorflow/compiler/xla/pjrt:pjrt_plugin_device_client",
         ],
         "//conditions:default": [],
-    }),
+    }) + if_cuda(["//tensorflow/compiler/xla/stream_executor:cuda_platform"]),
 )

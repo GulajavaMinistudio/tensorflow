@@ -200,6 +200,7 @@ def THLO_TransposeOp : THLO_DstStyleOp<"transpose", []> {
 }
 
 def THLO_ReductionOp : THLO_DstStyleOp<"reduction", [
+      DeclareOpInterfaceMethods<LinalgStructuredInterface, ["iterator_types"]>,
       SameVariadicOperandSize, SingleBlockImplicitTerminator<"YieldOp">
     ]> {
   let summary = "Destination-style twin for `mhlo.reduce`";
@@ -238,12 +239,18 @@ def THLO_ReductionOp : THLO_DstStyleOp<"reduction", [
     mlir::ValueRange outputs() { return getInits(); }
     unsigned getNumInputs() { return getInputs().size(); };
     unsigned getNumOutputs() { return getInits().size(); };
+    static std::function<void(mlir::ImplicitLocOpBuilder &, mlir::Block &,
+                              mlir::ArrayRef<mlir::NamedAttribute>)>
+    getRegionBuilder() {
+      return nullptr;
+    }
   }];
 }
 
 def THLO_MapOp : THLO_DstStyleOp<"map", [
     SameOperandsAndResultShape,
-    SingleBlockImplicitTerminator<"YieldOp">
+    SingleBlockImplicitTerminator<"YieldOp">,
+    DeclareOpInterfaceMethods<LinalgStructuredInterface, ["iterator_types"]>
 ]> {
   let summary = "Destination-style twin for elementwise operations";
   let description = [{
@@ -276,6 +283,14 @@ def THLO_MapOp : THLO_DstStyleOp<"map", [
     // Implement functions necessary for DestinationStyleOpInterface.
     mlir::ValueRange inputs() { return getInputs(); }
     mlir::ValueRange outputs() { return getOperands().take_back(1); }
+    linalg::OpOperandVector getOpOperandsMatchingBBargs() { return getInputOperands(); }
+
+    static std::function<void(mlir::ImplicitLocOpBuilder &, mlir::Block &,
+                              mlir::ArrayRef<mlir::NamedAttribute>)>
+    getRegionBuilder() {
+      return nullptr;
+    }
+
   }];
 }
 

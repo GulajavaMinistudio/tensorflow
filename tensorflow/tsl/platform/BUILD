@@ -12,7 +12,6 @@ load(
     "tf_cc_test",
     "tf_cc_tests",
     "tf_copts",
-    "tf_cuda_library",
 )
 load(
     "//tensorflow/core/platform:build_config.bzl",
@@ -1163,18 +1162,6 @@ cc_library(
     ],
 )
 
-tf_cuda_library(
-    name = "stream_executor",
-    srcs = ["stream_executor.h"],
-    hdrs = [
-        "cuda.h",
-    ],
-    features = ["-parse_headers"],
-    deps = [
-        "//tensorflow/tsl/platform/default/build_config:stream_executor",
-    ],
-)
-
 cc_library(
     name = "tensor_float_32_utils",
     srcs = ["tensor_float_32_utils.cc"],
@@ -1408,5 +1395,163 @@ cc_library(
     hdrs = ["null_file_system.h"],
     deps = [
         ":env",
+    ],
+)
+
+tf_cc_test(
+    name = "subprocess_test",
+    size = "small",
+    srcs = ["subprocess_test.cc"],
+    data = [
+        "//tensorflow/tsl/platform/testdata:test_echo",
+        "//tensorflow/tsl/platform/testdata:test_echo_argv_1",
+        "//tensorflow/tsl/platform/testdata:test_noop",
+        "//tensorflow/tsl/platform/testdata:test_stderr",
+    ],
+    deps = [
+        ":path",
+        ":resource_loader",
+        ":strcat",
+        ":subprocess",
+        ":test",
+        ":test_main",
+        "//tensorflow/tsl/lib/core:status_test_util",
+    ],
+)
+
+tf_cc_test(
+    name = "env_test",
+    size = "small",
+    srcs = ["env_test.cc"],
+    deps = [
+        ":cord",
+        ":env",
+        ":env_impl",
+        ":null_file_system",
+        ":path",
+        ":protobuf",
+        ":str_util",
+        ":strcat",
+        ":stringpiece",
+        ":test",
+        ":test_main",
+        "//tensorflow/core:protos_all_cc",
+        "//tensorflow/tsl/lib/core:status_test_util",
+        "//third_party/eigen3",
+    ],
+)
+
+tf_cc_test(
+    name = "errors_test",
+    size = "small",
+    srcs = ["errors_test.cc"],
+    deps = [
+        ":errors",
+        ":test",
+        ":test_main",
+    ],
+)
+
+tf_cc_test(
+    name = "intrusive_ptr_test",
+    size = "small",
+    srcs = [
+        "intrusive_ptr_test.cc",
+    ],
+    deps = [
+        ":intrusive_ptr",
+        ":refcount",
+        ":test",
+        ":test_main",
+    ],
+)
+
+tf_cc_test(
+    name = "numa_test",
+    size = "small",
+    srcs = ["numa_test.cc"],
+    tags = [
+        # This test will not pass unless it has access to all NUMA nodes
+        # on the executing machine.
+        "manual",
+        "notap",
+    ],
+    deps = [
+        ":logging",
+        ":test",
+        ":test_main",
+    ],
+)
+
+tf_cc_test(
+    name = "setround_test",
+    size = "small",
+    srcs = ["setround_test.cc"],
+    tags = [
+        "noasan",
+        "noclang",
+        "nomsan",
+        "notsan",
+    ],
+    deps = [
+        ":setround",
+        ":test",
+        ":test_main",
+    ],
+)
+
+tf_cc_test(
+    name = "refcount_test",
+    size = "small",
+    srcs = [
+        "refcount_test.cc",
+    ],
+    deps = [
+        ":env",
+        ":env_impl",
+        ":refcount",
+        ":test",
+        ":test_main",
+    ],
+)
+
+tf_cc_tests(
+    name = "low_level_library_tests",
+    size = "small",
+    srcs = [
+        "integral_types_test.cc",
+        "logging_test.cc",
+        "mutex_test.cc",
+        "net_test.cc",
+        "port_test.cc",
+        "scanner_test.cc",
+        "str_util_test.cc",
+        "strcat_test.cc",
+        "stringpiece_test.cc",
+        "stringprintf_test.cc",
+    ],
+    create_named_test_suite = True,
+    deps = [
+        ":env",
+        ":env_impl",
+        ":env_time",
+        ":logging",
+        ":mutex",
+        ":net",
+        ":platform_port",
+        ":scanner",
+        ":str_util",
+        ":strcat",
+        ":stringpiece",
+        ":stringprintf",
+        ":test",
+        ":test_main",
+        ":types",
+        "//tensorflow/core:protos_all_cc",
+        "//third_party/eigen3",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/types:optional",
+        "@zlib",
     ],
 )
