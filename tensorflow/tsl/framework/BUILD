@@ -18,11 +18,21 @@ load(
     "cc_library",
 )
 
+# buildifier: disable=same-origin-load
+load("//tensorflow:tensorflow.bzl", "get_compatible_with_portable")
+
 package(
     default_visibility = [
         "//visibility:public",
     ],
     licenses = ["notice"],
+)
+
+filegroup(
+    name = "framework_internal_impl_srcs",
+    srcs = [
+        "metrics.cc",
+    ],
 )
 
 # Files needed for core:framework_internal_impl.
@@ -32,6 +42,8 @@ filegroup(
         "allocator.h",
         "allocator_registry.h",
         "cancellation.h",
+        "device_type.h",
+        "metrics.h",
         "numeric_types.h",
         "tracking_allocator.h",
         "type_traits.h",
@@ -47,6 +59,7 @@ filegroup(
         "allocator_registry.cc",
         "allocator_registry.h",
         "cpu_allocator_impl.cc",
+        "device_type.h",
         "numeric_types.h",
         "tracking_allocator.cc",
         "tracking_allocator.h",
@@ -60,6 +73,8 @@ filegroup(
     srcs = [
         "cancellation.cc",
         "cancellation.h",
+        "metrics.cc",
+        "metrics.h",
     ],
 )
 
@@ -162,6 +177,90 @@ cc_library(
 )
 
 cc_library(
+    name = "bfc_allocator",
+    srcs = [
+        "allocator_retry.cc",
+        "allocator_retry.h",
+        "bfc_allocator.cc",
+    ],
+    hdrs = ["bfc_allocator.h"],
+    features = ["parse_headers"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":allocator",
+        ":shared_counter",
+        "//tensorflow/core:framework",  # core/framework/metrics.h
+        "//tensorflow/core:protos_all_cc",
+        "//tensorflow/core/profiler/lib:scoped_memory_debug_annotation",
+        "//tensorflow/core/profiler/lib:traceme",
+        "//tensorflow/tsl/lib/core:bits",
+        "//tensorflow/tsl/platform:env",
+        "//tensorflow/tsl/platform:logging",
+        "//tensorflow/tsl/platform:macros",
+        "//tensorflow/tsl/platform:mutex",
+        "//tensorflow/tsl/platform:numbers",
+        "//tensorflow/tsl/platform:str_util",
+        "//tensorflow/tsl/platform:strcat",
+        "//tensorflow/tsl/platform:thread_annotations",
+        "//tensorflow/tsl/platform:types",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:optional",
+    ],
+)
+
+cc_library(
+    name = "device_type",
+    srcs = ["device_type.cc"],
+    hdrs = ["device_type.h"],
+    compatible_with = get_compatible_with_portable(),
+    visibility = ["//visibility:public"],
+    deps = [
+        "@com_google_absl//absl/strings",
+    ],
+)
+
+cc_library(
+    name = "device_id",
+    textual_hdrs = [
+        "device_id.h",
+        "device_id_manager.h",
+    ],
+    deps = [
+        "//tensorflow/core/platform:types",
+    ] + if_static([
+        ":device_id_impl",
+    ]),
+)
+
+cc_library(
+    name = "device_id_impl",
+    srcs = ["device_id_manager.cc"],
+    hdrs = [
+        "device_id.h",
+        "device_id_manager.h",
+    ],
+    deps = [
+        ":device_type",
+        "//tensorflow/tsl/lib/gtl:int_type",
+        "//tensorflow/tsl/platform:errors",
+        "//tensorflow/tsl/platform:logging",
+        "//tensorflow/tsl/platform:macros",
+        "//tensorflow/tsl/platform:mutex",
+        "//tensorflow/tsl/platform:status",
+        "//tensorflow/tsl/platform:types",
+    ],
+)
+
+filegroup(
+    name = "device_runtime_headers",
+    srcs = [
+        "device_id.h",
+        "device_id_manager.h",
+    ],
+)
+
+cc_library(
     name = "numeric_types",
     hdrs = ["numeric_types.h"],
     visibility = [
@@ -171,6 +270,34 @@ cc_library(
     deps = [
         "//tensorflow/tsl/platform:types",
         "//third_party/eigen3",
+    ],
+)
+
+cc_library(
+    name = "shared_counter",
+    hdrs = ["shared_counter.h"],
+    features = ["parse_headers"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//tensorflow/tsl/platform:types",
+    ],
+)
+
+cc_library(
+    name = "metrics",
+    srcs = ["metrics.cc"],
+    hdrs = ["metrics.h"],
+    deps = [
+        "//tensorflow/core:protos_all_cc",
+        "//tensorflow/core/protobuf:for_core_protos_cc",
+        "//tensorflow/tsl/lib/monitoring:counter",
+        "//tensorflow/tsl/lib/monitoring:gauge",
+        "//tensorflow/tsl/lib/monitoring:sampler",
+        "//tensorflow/tsl/platform:env",
+        "//tensorflow/tsl/platform:statusor",
+        "//tensorflow/tsl/platform:types",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/strings",
     ],
 )
 
@@ -238,11 +365,20 @@ tf_cc_tests(
 exports_files(
     srcs = [
         "allocator_registry.h",
+        "allocator_retry.cc",
+        "allocator_retry.h",
+        "bfc_allocator.cc",
+        "bfc_allocator.h",
+        "device_type.h",
+        "metrics.h",
+        "shared_counter.h",
         "tracking_allocator.h",
     ],
     visibility = [
         "//tensorflow/core:__pkg__",
         "//tensorflow/core/common_runtime:__pkg__",
+        "//tensorflow/core/common_runtime/gpu:__pkg__",
+        "//tensorflow/core/framework:__pkg__",
     ],
 )
 

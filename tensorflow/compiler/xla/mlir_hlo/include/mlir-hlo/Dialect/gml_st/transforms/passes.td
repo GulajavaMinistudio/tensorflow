@@ -91,8 +91,10 @@ def GmlStToScf : Pass<"gml-st-to-scf", "mlir::func::FuncOp"> {
 
 def GmlStToGpuPass : Pass<"gml-st-to-gpu", "mlir::func::FuncOp"> {
   let summary = "Lower nested `gml_st.parallel` to `gpu.launch`";
-  let dependentDialects = ["::mlir::gpu::GPUDialect", "::mlir::AffineDialect",
-                           "::mlir::scf::SCFDialect"];
+  let dependentDialects = ["::mlir::AffineDialect",
+                           "::mlir::arith::ArithDialect",
+                           "::mlir::gpu::GPUDialect", "::mlir::scf::SCFDialect",
+                           "::mlir::vector::VectorDialect"];
 }
 
 def TiledLoopBufferizePass :
@@ -107,5 +109,9 @@ def VectorizeGmlStLoopsPass :
       "Pass to vectorize linalg.generic ops tiled to gml_st.parallel and " #
       "gml_st.for loops.";
   let constructor = "::mlir::gml_st::createVectorizeGmlStLoopsPass()";
+  let options = [
+    Option<"vectorizeGmlStOps", "vectorize-gml-st-ops", "bool", "false",
+           "If true, vectorizes GmlSt ops in addition to linalg ops">,
+  ];
   let dependentDialects = ["::mlir::vector::VectorDialect"];
 }

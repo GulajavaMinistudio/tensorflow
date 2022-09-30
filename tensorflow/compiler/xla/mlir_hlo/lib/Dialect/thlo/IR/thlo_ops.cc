@@ -25,7 +25,7 @@ limitations under the License.
 #include "llvm/ADT/SmallVector.h"
 #include "mlir-hlo/Dialect/gml_st/IR/gml_st_ops.h"
 #include "mlir-hlo/Dialect/gml_st/transforms/tiling_interface.h"
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Linalg/IR/LinalgInterfaces.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -147,8 +147,9 @@ bool dimensionsMatch(int64_t d1, int64_t d2) {
   return ShapedType::isDynamic(d1) || ShapedType::isDynamic(d2) || d1 == d2;
 }
 
-SmallVector<StringRef> getParallelIteratorTypes(int64_t dimCount) {
-  return SmallVector<StringRef>(dimCount, getParallelIteratorTypeName());
+SmallVector<utils::IteratorType> getParallelIteratorTypes(int64_t dimCount) {
+  return SmallVector<utils::IteratorType>(dimCount,
+                                          utils::IteratorType::parallel);
 }
 
 SmallVector<Range> getIterationDomainForTensor(OpBuilder &b, Location loc,
@@ -212,7 +213,7 @@ gml_st::TileOp createTileOp(OpBuilder &b, Location loc, Value tensor,
 
 }  // namespace
 
-SmallVector<StringRef> ConcatenateOp::getLoopIteratorTypes() {
+SmallVector<utils::IteratorType> ConcatenateOp::getLoopIteratorTypes() {
   return getParallelIteratorTypes(getInit().getType().getRank());
 }
 
@@ -484,7 +485,8 @@ LogicalResult DynamicBroadcastInDimOp::verify() {
   return verifyDestinationStyleOp(getOperation());
 }
 
-SmallVector<StringRef> DynamicBroadcastInDimOp::getLoopIteratorTypes() {
+SmallVector<utils::IteratorType>
+DynamicBroadcastInDimOp::getLoopIteratorTypes() {
   return getParallelIteratorTypes(getInit().getType().getRank());
 }
 
@@ -763,20 +765,47 @@ void ScatterOp::print(OpAsmPrinter &p) {
 LogicalResult ScatterOp::verify() {
   if (failed(verifyDestinationStyleOp(getOperation()))) return failure();
 
-  auto indicesShapeWithoutVectorDim =
-      getIndices().getType().getShape().drop_back(1);
-  if (indicesShapeWithoutVectorDim !=
-      getUpdates().getType().cast<ShapedType>().getShape()) {
-    return emitOpError(
-        "Expected indices.shape to be updates.shape + [index_vector_dim_size]");
+  auto indicesType = getIndices().getType().cast<RankedTensorType>();
+  int64_t indicesRank = indicesType.getRank();
+
+  if (indicesRank != 2)
+    return emitOpError() << "expected `indices` to be a 2D tensor";
+
+  auto updatesType = getUpdates().getType();
+  int64_t updatesRank = updatesType.getRank();
+
+  if (updatesType.getDimSize(0) != indicesType.getDimSize(0)) {
+    return emitOpError() << "expected major dimension of `indices` to match "
+                            "major dimension of `updates`";
+  }
+
+  int64_t indexVectorDim = indicesType.getDimSize(1);
+  if (ShapedType::isDynamic(indexVectorDim))
+    return emitOpError() << "expected index vector dimension size to be static";
+
+  auto initType = getInit().getType();
+  int64_t initRank = initType.getRank();
+
+  if (indexVectorDim > initRank) {
+    return emitOpError() << "expected index vector dimension size = "
+                         << indexVectorDim
+                         << " to be smaller or equal than `init` rank = "
+                         << initRank;
+  }
+
+  if (updatesRank - 1 != initRank)
+    return emitOpError() << "expected `updates` rank + 1 to match `init` rank";
+
+  if (updatesType.getElementType() != initType.getElementType()) {
+    return emitOpError()
+           << "expected `updates` element type to match `init` element type";
   }
 
   return success();
 }
 
-SmallVector<StringRef> ScatterOp::getLoopIteratorTypes() {
-  auto indicesRank = getIndices().getType().getRank();
-  return SmallVector<StringRef>(indicesRank - 1, getParallelIteratorTypeName());
+SmallVector<utils::IteratorType> ScatterOp::getLoopIteratorTypes() {
+  return {utils::IteratorType::reduction};
 }
 
 SmallVector<Value> ScatterOp::getDestinationOperands(OpBuilder &) {
@@ -784,7 +813,8 @@ SmallVector<Value> ScatterOp::getDestinationOperands(OpBuilder &) {
 }
 
 SmallVector<Range> ScatterOp::getIterationDomain(OpBuilder &b) {
-  return getIterationDomainForTensor(b, getLoc(), getUpdates());
+  Value indicesCount = b.create<tensor::DimOp>(getLoc(), getIndices(), 0);
+  return {Range{b.getIndexAttr(0), indicesCount, b.getIndexAttr(1)}};
 }
 
 static Value getSlice(OpBuilder &b, Location loc, Value tensor,
@@ -802,24 +832,44 @@ static Value getSlice(OpBuilder &b, Location loc, Value tensor,
   return b.create<gml_st::MaterializeOp>(loc, tensor, tile);
 }
 
+static Value getFullSpace(OpBuilder &b, Location loc, Value tensor) {
+  return getSlice(b, loc, tensor, llvm::None, llvm::None);
+}
+
 mlir::gml_st::TilingInterface ScatterOp::getTiledImplementation(
     OpBuilder &b, ArrayRef<OpFoldResult> offsets,
     ArrayRef<OpFoldResult> sizes) {
   Location loc = getLoc();
+  IntegerAttr zeroAttr = b.getIndexAttr(0);
 
+  OpFoldResult tileOffset = offsets.front();
+  OpFoldResult tileSize = sizes.front();
+
+  // Tile outer dimension of updates.
   Value update = this->getUpdates();
-  Value updateSlice = getSlice(b, loc, update, offsets, sizes);
+  auto updateType = update.getType().cast<RankedTensorType>();
 
+  SmallVector<OpFoldResult> updateOffsets(updateType.getRank(), zeroAttr);
+  updateOffsets.front() = tileOffset;
+  SmallVector<OpFoldResult> updateSizes = tensor::getMixedSizes(b, loc, update);
+  updateSizes.front() = tileSize;
+
+  Value updateSlice = getSlice(b, loc, update, updateOffsets, updateSizes);
+
+  // Tile outer dimension of indices.
   Value indices = this->getIndices();
-  auto indicesOffsets = to_vector(offsets);
-  indicesOffsets.push_back(b.getIndexAttr(0));
-  auto indicesSizes = to_vector(sizes);
-  auto indicesType = indices.getType().cast<RankedTensorType>();
-  indicesSizes.push_back(b.getIndexAttr(indicesType.getShape().back()));
+
+  SmallVector<OpFoldResult> indicesOffsets{offsets.front(), zeroAttr};
+  indicesOffsets.front() = tileOffset;
+  SmallVector<OpFoldResult> indicesSizes =
+      tensor::getMixedSizes(b, loc, indices);
+  indicesSizes.front() = tileSize;
+
   Value indicesSlice = getSlice(b, loc, indices, indicesOffsets, indicesSizes);
 
+  // Get full space of the `init` tensor.
   Value init = this->getInit();
-  Value initSlice = getSlice(b, loc, init, llvm::None, llvm::None);
+  Value initSlice = getFullSpace(b, loc, init);
 
   auto dpsInterface =
       cast<linalg::DestinationStyleOpInterface>(this->getOperation());
@@ -848,7 +898,7 @@ LogicalResult GatherOp::verify() {
   return verifyDestinationStyleOp(getOperation());
 }
 
-SmallVector<StringRef> GatherOp::getLoopIteratorTypes() {
+SmallVector<utils::IteratorType> GatherOp::getLoopIteratorTypes() {
   // Currently, `offset_dims` is empty, so the iteration domain is just the
   // entire output.
   return getParallelIteratorTypes(getInit().getType().getRank());
@@ -1220,7 +1270,7 @@ LogicalResult YieldOp::verify() {
 
   SmallVector<Value, 2> tensorOuts;
   llvm::copy_if(
-      parentOp.outputs(), std::back_inserter(tensorOuts),
+      parentOp.getOutputs(), std::back_inserter(tensorOuts),
       [&](Value out) { return out.getType().isa<RankedTensorType>(); });
   if (tensorOuts.size() != getValues().size())
     return emitOpError("expects number of tensor output args = ")

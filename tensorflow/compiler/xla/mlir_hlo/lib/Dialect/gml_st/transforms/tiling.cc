@@ -29,8 +29,8 @@ limitations under the License.
 #include "mlir-hlo/Dialect/gml_st/transforms/tiling_interface_impl.h"
 #include "mlir-hlo/Dialect/gml_st/transforms/transforms.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
-#include "mlir/Dialect/Arithmetic/Utils/Utils.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Arith/Utils/Utils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Utils/Utils.h"
@@ -122,7 +122,7 @@ Value createNestedPloopTilingRecursively(
 
   // Create ploop.
   auto ploop = b.create<ParallelOp>(
-      loc, sourceTy, lowerBounds, upperBounds, steps,
+      loc, sourceTy, lowerBounds, upperBounds, steps, llvm::None,
       [&](OpBuilder &b, Location loc, ValueRange ivs) {
         Value subset = createTileOrPoint(b, loc, sourceSpace, ivs, upperBounds,
                                          steps, nestedTileSizes.front());
@@ -386,6 +386,7 @@ Operation *generateTileLoopNest(OpBuilder &builder, Location loc,
                            getValueOrCreateConstantIndexOp(builder, loc, lbs),
                            getValueOrCreateConstantIndexOp(builder, loc, ubs),
                            getValueOrCreateConstantIndexOp(builder, loc, steps),
+                           llvm::None,
                            [&](OpBuilder &nestedBuilder, Location bodyLoc,
                                ValueRange ivs) {
                              buildBody(nestedBuilder, bodyLoc, ivs);
@@ -444,10 +445,8 @@ struct TilingPattern : public OpInterfaceRewritePattern<TilingInterface> {
     }
 
     // Implement adding accumulator to the gml_st.parallel terminator.
-    if (options.distribute &&
-        llvm::any_of(op.getLoopIteratorTypes(), [](StringRef type) {
-          return type == getReductionIteratorTypeName();
-        }))
+    if (options.distribute && llvm::count(op.getLoopIteratorTypes(),
+                                          utils::IteratorType::reduction) > 0)
       return failure();
 
     // 1. Get the range of the loops that are represented by the operation.

@@ -19,8 +19,8 @@ limitations under the License.
 #include <tuple>
 
 #include "mlir-hlo/Dialect/gml_st/IR/gml_st_ops.h"
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
-#include "mlir/Dialect/Arithmetic/Utils/Utils.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Arith/Utils/Utils.h"
 #include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -384,7 +384,7 @@ struct ParallelOpInterface
     // Create new TiledLoopOp.
     auto newLoopOp = rewriter.create<ParallelOp>(
         loopOp.getLoc(), TypeRange{llvm::None}, loopOp.getLowerBound(),
-        loopOp.getUpperBound(), loopOp.getStep(), nullptr);
+        loopOp.getUpperBound(), loopOp.getStep());
 
     // Move the old body into the new loop.
     rewriter.mergeBlocks(loopOp.getBody(), newLoopOp.getBody(),

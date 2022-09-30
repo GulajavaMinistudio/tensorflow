@@ -72,7 +72,7 @@ def THLO_ConcatenateOp : THLO_DstStyleOp<"concatenate", [
   let extraClassDeclaration = extraBaseClassDeclaration # [{
     // Implement functions necessary for DestinationStyleOpInterface.
     mlir::ValueRange inputs() { return getInputs(); }
-    mlir::ValueRange outputs() { return getOperands().take_back(1); }
+    mlir::ValueRange getOutputs() { return getOperands().take_back(1); }
   }];
 }
 
@@ -98,7 +98,7 @@ def THLO_DynamicBroadcastInDimOp : THLO_DstStyleOp<"dynamic_broadcast_in_dim", [
     // Implement functions necessary for DestinationStyleOpInterface.
     mlir::ValueRange inputs() { return getOperands().take_front(1); }
     mlir::ValueRange getInputs() { return inputs(); }
-    mlir::ValueRange outputs() { return getOperands().take_back(1); }
+    mlir::ValueRange getOutputs() { return getOperands().take_back(1); }
   }];
 }
 
@@ -128,7 +128,7 @@ def THLO_GatherOp : THLO_DstStyleOp<"gather", [
       return getOperands().drop_back(getNumOutputs());
     }
     mlir::ValueRange getInputs() { return inputs(); }
-    mlir::ValueRange outputs() { return getOperands().take_back(1); }
+    mlir::ValueRange getOutputs() { return getOperands().take_back(1); }
   }];
 }
 
@@ -137,13 +137,14 @@ def THLO_ScatterOp : THLO_DstStyleOp<"scatter", [
     SingleBlockImplicitTerminator<"YieldOp">]> {
   let summary = "Destination-style twin for `mhlo.scatter`";
   let description = [{
-    Caveats:
-    - the variadic case is not supported.
-    - Only point updates are supported
-      - update_window_dims is []
-      - inserted_window_dims is range(operand.shape.rank)
-      - scatter_dims_to_operand_dims is range(indices.shape.rank)
-      - index_vector_dim is indices.shape.rank-1
+    tHLO ScatterOp corresponds to the canonicalized mHLO ScatterOp, i.e.
+
+    - update_window_dims is range(1, rank(update_window_dims))
+    - inserted_window_dims is []
+    - scatter_dims_to_operand_dims is range(0, rank(indices))
+    - index_vector_dim is rank(indices) - 1
+
+    At the moment, the variadic case is not supported.
   }];
   let arguments = (ins
     // Input args
@@ -162,7 +163,13 @@ def THLO_ScatterOp : THLO_DstStyleOp<"scatter", [
       return getOperands().drop_back(getNumOutputs());
     }
     mlir::ValueRange getInputs() { return inputs(); }
-    mlir::ValueRange outputs() { return getOperands().take_back(1); }
+    mlir::ValueRange getOutputs() { return getOperands().take_back(1); }
+
+    // Returns index vector dimension size, which is always statically-known.
+    int64_t getIndexVectorDim() { return getIndices().getType().getDimSize(1); }
+
+    // Returns the number of indices, i.e. number of scalar/tensor updates.
+    int64_t getIndicesCount() { return getIndices().getType().getDimSize(0); }
   }];
 }
 
@@ -195,7 +202,7 @@ def THLO_TransposeOp : THLO_DstStyleOp<"transpose", []> {
     // Implement functions necessary for DestinationStyleOpInterface.
     mlir::ValueRange inputs() { return getOperands().take_front(1); }
     mlir::ValueRange getInputs() { return inputs(); }
-    mlir::ValueRange outputs() { return getOperands().take_back(1); }
+    mlir::ValueRange getOutputs() { return getOperands().take_back(1); }
   }];
 }
 
@@ -236,7 +243,7 @@ def THLO_ReductionOp : THLO_DstStyleOp<"reduction", [
   let extraClassDeclaration = [{
     // Implement functions necessary for DestinationStyleOpInterface.
     mlir::ValueRange inputs() { return getInputs(); }
-    mlir::ValueRange outputs() { return getInits(); }
+    mlir::ValueRange getOutputs() { return getInits(); }
     unsigned getNumInputs() { return getInputs().size(); };
     unsigned getNumOutputs() { return getInits().size(); };
     static std::function<void(mlir::ImplicitLocOpBuilder &, mlir::Block &,
@@ -282,7 +289,7 @@ def THLO_MapOp : THLO_DstStyleOp<"map", [
   let extraClassDeclaration = extraBaseClassDeclaration # [{
     // Implement functions necessary for DestinationStyleOpInterface.
     mlir::ValueRange inputs() { return getInputs(); }
-    mlir::ValueRange outputs() { return getOperands().take_back(1); }
+    mlir::ValueRange getOutputs() { return getOperands().take_back(1); }
     linalg::OpOperandVector getOpOperandsMatchingBBargs() { return getInputOperands(); }
 
     static std::function<void(mlir::ImplicitLocOpBuilder &, mlir::Block &,

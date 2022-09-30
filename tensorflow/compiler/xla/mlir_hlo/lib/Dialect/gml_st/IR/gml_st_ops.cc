@@ -27,7 +27,7 @@ limitations under the License.
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Casting.h"
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -137,30 +137,28 @@ Operation *GmlStDialect::materializeConstant(OpBuilder &builder, Attribute attr,
 // MaterializeOp
 //===----------------------------------------------------------------------===//
 
-static FailureOr<Type> inferReturnType(RankedTensorType sourceType,
-                                       Type setType) {
+static FailureOr<Type> inferReturnType(ShapedType sourceType, Type setType) {
   if (setType.isa<PointType>()) return sourceType.getElementType();
   if (auto tileType = setType.dyn_cast<TileType>()) {
-    return RankedTensorType::get(tileType.getShape(),
-                                 sourceType.getElementType());
+    return sourceType.clone(tileType.getShape(), sourceType.getElementType());
   }
   return failure();
 }
 
 void MaterializeOp::build(OpBuilder &builder, OperationState &result,
                           Value source, Value set) {
-  auto sourceType = source.getType().cast<RankedTensorType>();
+  auto sourceType = source.getType().cast<ShapedType>();
   auto resultTypeOr = inferReturnType(sourceType, set.getType());
   assert(resultTypeOr.hasValue() && "could not infer result type");
   build(builder, result, *resultTypeOr, source, set);
 }
 
 LogicalResult verifyCompatibleExtractedSubset(Operation *op,
-                                              RankedTensorType tensorType,
+                                              ShapedType shapedType,
                                               Type extractedType,
                                               Type setType) {
-  auto sourceRank = tensorType.getRank();
-  auto elementType = tensorType.getElementType();
+  auto sourceRank = shapedType.getRank();
+  auto elementType = shapedType.getElementType();
 
   // If the result is a scalar, check that the tile had a single element.
   if (!extractedType.isa<ShapedType>()) {
@@ -179,8 +177,8 @@ LogicalResult verifyCompatibleExtractedSubset(Operation *op,
            << tileType << " to have a single element shape";
   }
 
-  // If the result is a tensor, compare with the inferred type.
-  auto extractedTensorType = extractedType.cast<RankedTensorType>();
+  // If the result is a shaped type, compare with the inferred type.
+  auto extractedShapedType = extractedType.cast<ShapedType>();
   auto tileType = setType.cast<TileType>();
   int64_t tileRank = tileType.getRank();
   if (tileRank != sourceRank) {
@@ -189,10 +187,10 @@ LogicalResult verifyCompatibleExtractedSubset(Operation *op,
   }
 
   auto inferredType =
-      RankedTensorType::get(tileType.getShape(), tensorType.getElementType());
-  if (extractedTensorType != inferredType) {
+      shapedType.clone(tileType.getShape(), shapedType.getElementType());
+  if (extractedShapedType != inferredType) {
     return op->emitOpError("expected result type = ")
-           << extractedTensorType
+           << extractedShapedType
            << " to match the inferred type = " << inferredType;
   }
 
@@ -563,6 +561,18 @@ ParseResult parseLoopLikeOp(OpAsmParser &parser, OperationState &result) {
                                     static_cast<int32_t>(upper.size()),
                                     static_cast<int32_t>(steps.size())};
 
+  // Parse distribution type (only for ParallelOp)
+  if (std::is_same<LoopTy, ParallelOp>::value) {
+    if (succeeded(parser.parseOptionalKeyword("distribution"))) {
+      StringAttr distributionType;
+      if (parser.parseLParen() || parser.parseAttribute(distributionType) ||
+          parser.parseRParen())
+        return failure();
+      result.addAttribute(ParallelOp::getDistributionTypeAttrName(result.name),
+                          distributionType);
+    }
+  }
+
   // Parse the output tensors (only for ForOp) and the body.
   SmallVector<OpAsmParser::UnresolvedOperand, 4> regionOperands(ivs);
   SmallVector<Type, 4> regionTypes(ivs.size(), builder.getIndexType());
@@ -611,6 +621,7 @@ LogicalResult ParallelOp::verify() { return success(); }
 void ParallelOp::build(
     OpBuilder &builder, OperationState &result, TypeRange resultTypes,
     ValueRange lowerBounds, ValueRange upperBounds, ValueRange steps,
+    Optional<StringAttr> distributionType,
     function_ref<void(OpBuilder &, Location, ValueRange)> bodyBuilderFn) {
   result.addOperands(lowerBounds);
   result.addOperands(upperBounds);
@@ -621,6 +632,10 @@ void ParallelOp::build(
       builder.getDenseI32ArrayAttr({static_cast<int32_t>(lowerBounds.size()),
                                     static_cast<int32_t>(upperBounds.size()),
                                     static_cast<int32_t>(steps.size())}));
+
+  if (distributionType.has_value())
+    result.addAttribute(getDistributionTypeAttrName(result.name),
+                        distributionType.value());
 
   OpBuilder::InsertionGuard guard(builder);
   unsigned numIvs = steps.size();
@@ -641,10 +656,14 @@ void ParallelOp::print(OpAsmPrinter &p) {
   p << " (" << getInductionVars() << ") = (" << getLowerBound() << ") to ("
     << getUpperBound() << ") step (" << getStep() << ") ";
 
+  if (getDistributionType().has_value())
+    p << "distribution (" << getDistributionTypeAttr() << ") ";
+
   p.printRegion(getRegion(), /*printEntryBlockArgs=*/false);
   p.printOptionalAttrDict(
       getOperation()->getAttrs(),
-      /*elidedAttrs=*/{ParallelOp::getOperandSegmentSizeAttr()});
+      /*elidedAttrs=*/{ParallelOp::getOperandSegmentSizeAttr(),
+                       getDistributionTypeAttrName()});
 
   if (!getResultTypes().empty()) {
     p << " : ";
@@ -1880,9 +1899,9 @@ void SetYieldOp::build(
 LogicalResult SetYieldOp::verify() {
   for (const auto [dst, src, set] :
        llvm::zip(getDsts(), getSrcs(), getSets())) {
-    if (failed(verifyCompatibleExtractedSubset(
-            getOperation(), dst.getType().cast<RankedTensorType>(),
-            src.getType(), set.getType())))
+    if (failed(verifyCompatibleExtractedSubset(getOperation(),
+                                               dst.getType().cast<ShapedType>(),
+                                               src.getType(), set.getType())))
       return failure();
   }
   auto accumulatorCount = llvm::count_if(

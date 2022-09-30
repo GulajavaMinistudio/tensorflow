@@ -717,6 +717,17 @@ StatusOr<mlir::Operation*> HloFunctionImporter::ImportInstructionImpl(
                                                     attributes)
           .getOperation();
     }
+    case HloOpcode::kCollectivePermuteStart: {
+      attributes.push_back(ConvertSourceTargetPairs(
+          instruction->source_target_pairs(), builder_));
+      return ImportOldStyleAsyncStart<mlir::mhlo::CollectivePermuteOp>(
+          attributes, operands, loc, result_type, func_builder,
+          "collective_permute_", [&](auto) { return Status::OK(); });
+    }
+    case HloOpcode::kCollectivePermuteDone: {
+      return ImportOldStyleAsyncDone(attributes, operands, loc, result_type,
+                                     func_builder);
+    }
     case HloOpcode::kCustomCall: {
       auto custom_call = Cast<HloCustomCallInstruction>(instruction);
       const auto& called_computations = custom_call->called_computations();
@@ -996,6 +1007,15 @@ StatusOr<mlir::Operation*> HloFunctionImporter::ImportInstructionImpl(
       return func_builder
           ->create<mlir::mhlo::TupleOp>(loc, result_type, sort_op.getResults())
           .getOperation();
+    }
+    case HloOpcode::kCopyStart: {
+      return ImportOldStyleAsyncStart<mlir::mhlo::CopyOp>(
+          attributes, operands, loc, result_type, func_builder, "copy_",
+          [](auto) { return Status::OK(); });
+    }
+    case HloOpcode::kCopyDone: {
+      return ImportOldStyleAsyncDone(attributes, operands, loc, result_type,
+                                     func_builder);
     }
     case HloOpcode::kConditional: {
       llvm::SmallVector<Type, 4> rets;

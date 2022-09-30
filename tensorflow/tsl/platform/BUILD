@@ -95,7 +95,6 @@ cc_library(
         ":macros",
         ":platform",
         ":platform_port",
-        "//tensorflow/core/platform:platform_port",
     ],
 )
 
@@ -681,6 +680,7 @@ filegroup(
         "refcount.h",
         "setround.h",
         "snappy.h",
+        "status.h",
         "tracing.h",
         "unbounded_work_queue.h",
     ],
@@ -949,11 +949,9 @@ cc_library(
     hdrs = ["threadpool_interface.h"],
     compatible_with = get_compatible_with_portable(),
     deps = [
+        ":mutex",
+        ":types",
         "//third_party/eigen3",
-        # TODO(ddunleavy) these can't be moved because internal Eigen
-        # actually depends on these. Need to update Eigen to depend on TSL
-        "//tensorflow/core/platform:mutex",
-        "//tensorflow/core/platform:types",
     ],
 )
 
@@ -1154,15 +1152,6 @@ tf_cc_test(
 )
 
 cc_library(
-    name = "cuda",
-    hdrs = ["cuda.h"],
-    deps = [
-        ":platform",
-        "//tensorflow/compiler/xla/stream_executor/cuda:cuda_activation_header",
-    ],
-)
-
-cc_library(
     name = "tensor_float_32_utils",
     srcs = ["tensor_float_32_utils.cc"],
     hdrs = ["tensor_float_32_utils.h"],
@@ -1213,6 +1202,17 @@ tf_cc_test(
         ":logging",
         ":test",
         ":test_benchmark",
+        ":test_main",
+    ],
+)
+
+tf_cc_test(
+    name = "path_test",
+    size = "small",
+    srcs = ["path_test.cc"],
+    deps = [
+        ":path",
+        ":test",
         ":test_main",
     ],
 )

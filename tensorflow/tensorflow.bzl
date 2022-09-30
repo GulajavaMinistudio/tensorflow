@@ -1516,13 +1516,6 @@ def tf_gpu_only_cc_test(
         data = data + tf_binary_dynamic_kernel_dsos(),
         deps = [":" + gpu_lib_name],
         linkopts = if_not_windows(["-lpthread", "-lm"]) + linkopts + _rpath_linkopts(name),
-        linkstatic = linkstatic or select({
-            # cc_tests with ".so"s in srcs incorrectly link on Darwin
-            # unless linkstatic=1.
-            # TODO(allenl): Remove Mac static linking when Bazel 0.6 is out.
-            clean_dep("//tensorflow:macos"): 1,
-            "//conditions:default": 0,
-        }),
         tags = tags,
         exec_properties = tf_exec_properties({"tags": tags}),
     )
@@ -1848,7 +1841,7 @@ def tf_kernel_library(
         hdrs = hdrs,
         textual_hdrs = textual_hdrs,
         copts = copts,
-        cuda_deps = cuda_deps,
+        cuda_deps = cuda_deps + gpu_deps,
         linkstatic = 1,  # Needed since alwayslink is broken in bazel b/27630669
         alwayslink = alwayslink,
         deps = deps,
@@ -2144,9 +2137,20 @@ check_deps = rule(
     },
 )
 
-def tf_custom_op_library(name, srcs = [], gpu_srcs = [], deps = [], linkopts = [], copts = [], **kwargs):
-    """Helper to build a dynamic library (.so) from the sources containing implementations of custom ops and kernels.
-      """
+def tf_custom_op_library(
+        name,
+        srcs = [],
+        gpu_srcs = [],
+        deps = [],
+        gpu_deps = None,
+        linkopts = [],
+        copts = [],
+        **kwargs):
+    """Helper to build a dynamic library (.so) from the sources containing implementations of custom ops and kernels."""
+
+    if not gpu_deps:
+        gpu_deps = []
+
     deps = deps + if_cuda_or_rocm([
         clean_dep("//tensorflow/core:stream_executor_headers_lib"),
     ]) + if_cuda([
@@ -2168,7 +2172,7 @@ def tf_custom_op_library(name, srcs = [], gpu_srcs = [], deps = [], linkopts = [
             srcs = gpu_srcs,
             copts = copts + tf_copts() + _cuda_copts() + rocm_copts() +
                     if_tensorrt(["-DGOOGLE_TENSORRT=1"]),
-            deps = deps,
+            deps = deps + gpu_deps,
             **kwargs
         )
         deps = deps + [":" + basename + "_gpu"]
