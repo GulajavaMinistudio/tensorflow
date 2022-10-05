@@ -1,7 +1,4 @@
-# buildifier: disable=same-origin-load
-load("//tensorflow:tensorflow.bzl", "filegroup", "get_compatible_with_cloud")
-
-# buildifier: disable=same-origin-load
+load("//tensorflow:tensorflow.default.bzl", "filegroup", "get_compatible_with_cloud")
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("//tensorflow/core/platform:rules_cc.bzl", "cc_library")
 load("@llvm-project//mlir:tblgen.bzl", "gentbl_cc_library", "td_library")
@@ -1195,6 +1192,7 @@ cc_library(
         "transforms/init_text_file_to_import.cc",
         "transforms/launch_to_device_attribute.cc",
         "transforms/layout_optimization.cc",
+        "transforms/localize_var_handles.cc",
         "transforms/lower_quantized.cc",
         "transforms/mark_input_output_aliases.cc",
         "transforms/mark_ops_for_outside_compilation.cc",
@@ -1266,8 +1264,6 @@ cc_library(
     includes = ["include"],
     textual_hdrs = [
         "transforms/passes_detail.h",
-        "transforms/savedmodel_passes_detail.h",
-        "transforms/tf_device_passes_detail.h",
         "transforms/tf_device_passes.h.inc",
         "transforms/tf_passes.h.inc",
         "transforms/tf_savedmodel_passes.h.inc",
@@ -1421,7 +1417,6 @@ cc_library(
     ],
     hdrs = [
         "transforms/test_passes.h",
-        "transforms/test_passes_detail.h",
     ],
     deps = [
         ":error_util",

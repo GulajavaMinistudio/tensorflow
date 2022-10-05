@@ -3,11 +3,11 @@
 
 load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
 load(
-    "//tensorflow/core/platform:build_config.bzl",
+    "//tensorflow/tsl/platform:build_config.bzl",
     "tf_proto_library",
 )
 load(
-    "//tensorflow/core/platform:build_config_root.bzl",
+    "//tensorflow/tsl/platform:build_config_root.bzl",
     "tf_cuda_tests_tags",
 )
 load(
@@ -30,13 +30,13 @@ load(
 )
 
 # buildifier: disable=same-origin-load
-load("//tensorflow:tensorflow.bzl", "filegroup")
+load("//tensorflow:tensorflow.default.bzl", "filegroup")
 
 # buildifier: disable=same-origin-load
-load("//tensorflow:tensorflow.bzl", "get_compatible_with_cloud")
+load("//tensorflow:tensorflow.default.bzl", "get_compatible_with_cloud")
 
 # buildifier: disable=same-origin-load
-load("//tensorflow:tensorflow.bzl", "if_nccl")
+load("//tensorflow:tensorflow.default.bzl", "if_nccl")
 
 package(
     default_visibility = [":friends"],
@@ -284,7 +284,7 @@ cc_library(
         "//tensorflow/compiler/xla/mlir_hlo",
         "//tensorflow/compiler/xla/mlir_hlo:lhlo",
         "//tensorflow/compiler/xla/mlir_hlo:lhlo_gpu",
-        "//tensorflow/compiler/xla/mlir_hlo:gpu_fusion_rewrite",
+        "//tensorflow/compiler/xla/mlir_hlo:gpu_passes",
         "//tensorflow/compiler/mlir/xla:attribute_exporter",
         "//tensorflow/compiler/mlir/xla:hlo_module_importer",
         "//tensorflow/compiler/mlir/xla:hlo_utils",
@@ -1559,6 +1559,15 @@ tf_cc_test(
     ],
 )
 
+tf_proto_library(
+    name = "executable_proto",
+    srcs = ["executable.proto"],
+    cc_api_version = 2,
+    protodeps = [
+        "//tensorflow/compiler/xla/service:hlo_proto",
+    ],
+)
+
 cc_library(
     name = "target_constants",
     hdrs = ["target_constants.h"],
@@ -1619,6 +1628,7 @@ cc_library(
     deps = [
         ":alias_passthrough_params",
         ":all_reduce_blueconnect",
+        ":executable_proto_cc",
         ":fusion_bitcast_lift",
         ":fusion_merger",
         ":gemm_broadcast_folding_rewriter",
@@ -1669,7 +1679,7 @@ cc_library(
         "//tensorflow/compiler/xla:util",
         "//tensorflow/compiler/xla/mlir/transforms/gpu:passes",
         "//tensorflow/compiler/xla/mlir/transforms/runtime:compilation_pipeline_gpu",
-        "//tensorflow/compiler/xla/mlir_hlo:gpu_fusion_rewrite",
+        "//tensorflow/compiler/xla/mlir_hlo:gpu_passes",
         "//tensorflow/compiler/xla/runtime:jit_executable",
         "//tensorflow/compiler/xla/service:algebraic_simplifier",
         "//tensorflow/compiler/xla/service:all_gather_broadcast_reorder",
@@ -1735,7 +1745,6 @@ cc_library(
         "//tensorflow/compiler/xla/service:result_caster",
         "//tensorflow/compiler/xla/service:rng_bit_generator_expander",
         "//tensorflow/compiler/xla/service:rng_expander",
-        "//tensorflow/compiler/xla/service:runtime",
         "//tensorflow/compiler/xla/service:scatter_expander",
         "//tensorflow/compiler/xla/service:scatter_simplifier",
         "//tensorflow/compiler/xla/service:sharding_propagation",
@@ -1779,6 +1788,19 @@ cc_library(
         "@llvm-project//mlir:IR",
         "@llvm-project//mlir:Pass",
         "@llvm-project//mlir:Transforms",
+    ],
+)
+
+tf_cc_test(
+    name = "gpu_compiler_test",
+    srcs = ["gpu_compiler_test.cc"],
+    tags = tf_cuda_tests_tags(),
+    deps = [
+        ":horizontal_loop_fusion",
+        "//tensorflow/compiler/xla/service:gpu_plugin",
+        "//tensorflow/compiler/xla/service:hlo_matchers",
+        "//tensorflow/compiler/xla/tests:hlo_test_base",
+        "//tensorflow/compiler/xla/tests:xla_internal_test_main",
     ],
 )
 
@@ -2494,6 +2516,7 @@ tf_cc_test(
         "//tensorflow/compiler/xla/tests:filecheck",
         "//tensorflow/compiler/xla/tests:hlo_test_base",
         "//tensorflow/compiler/xla/tests:xla_internal_test_main",
+        "//tensorflow/tsl/lib/core:status_test_util",
     ],
 )
 

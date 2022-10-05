@@ -6,7 +6,7 @@
 
 # buildifier: disable=same-origin-load
 load("@bazel_skylib//lib:selects.bzl", "selects")
-load("//tensorflow:tensorflow.bzl", "get_compatible_with_portable")
+load("//tensorflow:tensorflow.default.bzl", "get_compatible_with_portable")
 load(
     "//tensorflow:tensorflow.bzl",
     "tf_cc_test",
@@ -14,7 +14,7 @@ load(
     "tf_copts",
 )
 load(
-    "//tensorflow/core/platform:build_config.bzl",
+    "//tensorflow/tsl/platform:build_config.bzl",
     "tf_cuda_libdevice_path_deps",
     "tf_fingerprint_deps",
     "tf_google_mobile_srcs_no_runtime",
@@ -27,7 +27,7 @@ load(
     "tf_windows_aware_platform_deps",
 )
 load(
-    "//tensorflow/core/platform:rules_cc.bzl",
+    "//tensorflow/tsl/platform:rules_cc.bzl",
     "cc_library",
 )
 
@@ -995,6 +995,13 @@ cc_library(
     deps = [
         ":byte_order",
         "//third_party/eigen3",
+    ],
+)
+
+cc_library(
+    name = "cuda",
+    deps = [
+        "//tensorflow/tsl/platform/default/build_config:cuda",
     ],
 )
 

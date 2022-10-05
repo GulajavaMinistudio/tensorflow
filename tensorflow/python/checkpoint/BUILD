@@ -5,12 +5,7 @@ load(
     "//tensorflow/tools/test:performance.bzl",
     "tf_py_logged_benchmark",
 )
-
-# buildifier: disable=same-origin-load
-load("//tensorflow:tensorflow.bzl", "cuda_py_test")
-
-# buildifier: disable=same-origin-load
-load("//tensorflow:tensorflow.bzl", "tf_py_test")
+load("//tensorflow:tensorflow.default.bzl", "cuda_py_test", "tf_py_test")
 
 package(
     default_visibility = [
@@ -286,6 +281,7 @@ py_library(
     srcs = ["restore.py"],
     srcs_version = "PY3",
     deps = [
+        ":checkpoint_view",
         ":saveable_compat",
         "//tensorflow/python:array_ops",
         "//tensorflow/python:framework_ops",
@@ -293,9 +289,11 @@ py_library(
         "//tensorflow/python:platform",
         "//tensorflow/python/eager:context",
         "//tensorflow/python/saved_model/registration",
+        "//tensorflow/python/trackable:base",
         "//tensorflow/python/trackable:constants",
         "//tensorflow/python/trackable:python_state",
         "//tensorflow/python/trackable:trackable_utils",
+        "//tensorflow/python/training/saving:saveable_object_util",
     ],
 )
 
