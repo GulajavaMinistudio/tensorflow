@@ -28,6 +28,29 @@ def get_var_name(d):
   return [var.name for var in d]
 
 
+class GetSelfObjFromClosureTest(parameterized.TestCase):
+
+  def test_single_enclosing_class(self):
+
+    class Foo():
+
+      def __init__(self):
+        self.val = 1
+
+      def bar(self):
+        x = 2
+
+        def fn():
+          return self.val + x
+
+        return fn
+
+    foo = Foo()
+    fn = foo.bar()
+    self_obj = free_vars_detect._get_self_obj_from_closure(fn)
+    self.assertIs(self_obj, foo)
+
+
 class FreeVarDetectionTest(parameterized.TestCase):
 
   def test_func_arg(self):
@@ -208,7 +231,7 @@ class FreeVarDetectionTest(parameterized.TestCase):
     free_vars = get_var_name(func_map["Foo.f"])
     self.assertSequenceEqual(free_vars, ["x"])
 
-  def test_classmethod_w_method_call(self):
+  def test_method_w_method_call(self):
     x = 0
 
     class Foo():
@@ -231,7 +254,129 @@ class FreeVarDetectionTest(parameterized.TestCase):
     free_vars = get_var_name(func_map["Foo.g"])
     self.assertSequenceEqual(free_vars, ["x"])
 
-  def test_classmethod_w_multiple_attributes(self):
+  def test_method_w_self_as_arg(self):
+    x = 1
+
+    class Foo():
+
+      def f(self):
+        return self.g(self)
+
+      def g(self, obj):
+        if obj != self:
+          return x
+        else:
+          return -x
+
+    foo = Foo()
+    func_map = free_vars_detect._detect_function_free_vars(foo.f)
+    self.assertLen(func_map.keys(), 2)
+
+    self.assertIn("Foo.f", func_map.keys())
+    free_vars = get_var_name(func_map["Foo.f"])
+    self.assertSequenceEqual(free_vars, ["self.g"])
+
+    self.assertIn("Foo.g", func_map.keys())
+    free_vars = get_var_name(func_map["Foo.g"])
+    self.assertSequenceEqual(free_vars, ["x"])
+
+  def test_self_inside_method(self):
+    x = 1
+
+    class Foo():
+
+      def __init__(self):
+        self.val = 2
+
+      def bar(self):
+
+        def tf_func():
+          return self.val + x
+
+        return tf_func
+
+    foo = Foo()
+    func_map = free_vars_detect._detect_function_free_vars(foo.bar())
+    self.assertLen(func_map.keys(), 1)
+
+    self.assertIn("tf_func", func_map.keys())
+    free_vars = get_var_name(func_map["tf_func"])
+    self.assertSequenceEqual(free_vars, ["self", "self.val", "x"])
+
+  def test_self_inside_function_w_multiple_closures(self):
+    # Test when a function contins multiple closures
+
+    class Foo():
+
+      def method(self):
+
+        class Baz():
+
+          def baz_str(self):
+            return "Baz"
+
+        baz = Baz()
+        x = "x"
+
+        class Bar():
+
+          def bar_str(self):
+            return x + "Bar"
+
+          def method(self):
+
+            def fn():
+              return self.bar_str() + baz.baz_str()
+
+            return fn
+
+        bar = Bar()
+        return bar.method()
+
+    foo = Foo()
+    fn = foo.method()
+    # cells for `self.bar_str()`, `baz.baz_str()`
+    self.assertLen(fn.__closure__, 2)
+
+    func_map = free_vars_detect._detect_function_free_vars(fn)
+    self.assertLen(func_map.keys(), 2)
+
+    self.assertIn("fn", func_map.keys())
+    free_vars = get_var_name(func_map["fn"])
+    self.assertSequenceEqual(free_vars, ["baz", "self", "self.bar_str"])
+
+    self.assertIn("Bar.bar_str", func_map.keys())
+    free_vars = get_var_name(func_map["Bar.bar_str"])
+    self.assertSequenceEqual(free_vars, ["x"])
+
+  def test_method_w_self_attribute(self):
+    x = 0
+
+    class Foo():
+
+      def __init__(self):
+        self.x = 1
+        self.y = 2
+
+      def f(self):
+        return self.g + self.x + self.y
+
+      def g(self):
+        return x
+
+    foo = Foo()
+    func_map = free_vars_detect._detect_function_free_vars(foo.f)
+    self.assertLen(func_map.keys(), 2)
+
+    self.assertIn("Foo.f", func_map.keys())
+    free_vars = get_var_name(func_map["Foo.f"])
+    self.assertSequenceEqual(free_vars, ["self.g", "self.x", "self.y"])
+
+    self.assertIn("Foo.g", func_map.keys())
+    free_vars = get_var_name(func_map["Foo.g"])
+    self.assertSequenceEqual(free_vars, ["x"])
+
+  def test_method_w_multiple_attributes(self):
     glob = "dummy_value"
 
     class Foo():
