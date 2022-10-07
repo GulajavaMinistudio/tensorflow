@@ -1096,6 +1096,39 @@ tf_cc_test(
     ],
 )
 
+cc_library(
+    name = "hlo_computation_deduplicator",
+    srcs = ["hlo_computation_deduplicator.cc"],
+    hdrs = ["hlo_computation_deduplicator.h"],
+    deps = [
+        ":hlo",
+        ":hlo_pass",
+    ],
+)
+
+tf_cc_test(
+    name = "hlo_computation_deduplicator_test",
+    size = "small",
+    srcs = ["hlo_computation_deduplicator_test.cc"],
+    deps = [
+        ":hlo",
+        ":hlo_computation_deduplicator",
+        ":hlo_matchers",
+        ":hlo_pass",
+        "//tensorflow/compiler/xla:literal",
+        "//tensorflow/compiler/xla:shape_util",
+        "//tensorflow/compiler/xla:test",
+        "//tensorflow/compiler/xla:types",
+        "//tensorflow/compiler/xla:xla_data_proto_cc",
+        "//tensorflow/compiler/xla/tests:hlo_test_base",
+        "//tensorflow/compiler/xla/tests:xla_internal_test_main",
+        "//tensorflow/tsl/lib/core:status_test_util",
+        "//tensorflow/tsl/platform:test",
+        "//tensorflow/tsl/platform:test_main",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
 tf_cc_test(
     name = "flatten_call_graph_test",
     srcs = ["flatten_call_graph_test.cc"],
@@ -2077,6 +2110,8 @@ tf_cc_test(
         ":hlo",
         ":hlo_creation_utils",
         ":hlo_evaluator",
+        ":pattern_matcher",
+        ":pattern_matcher_gmock",
         "//tensorflow/compiler/xla:shape_util",
         "//tensorflow/compiler/xla:test",
         "//tensorflow/compiler/xla:xla_data_proto_cc",
@@ -4069,8 +4104,6 @@ cc_library(
         "//tensorflow/tsl/platform:logging",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/container:flat_hash_map",
-        "@com_google_absl//absl/memory",
-        "@com_google_absl//absl/types:span",
     ],
 )
 
@@ -5492,29 +5525,6 @@ cc_library(
 )
 
 cc_library(
-    name = "hlo_subcomputation_unification",
-    srcs = ["hlo_subcomputation_unification.cc"],
-    hdrs = ["hlo_subcomputation_unification.h"],
-    deps = [
-        ":hlo_pass",
-    ],
-)
-
-tf_cc_test(
-    name = "hlo_subcomputation_unification_test",
-    srcs = ["hlo_subcomputation_unification_test.cc"],
-    deps = [
-        ":hlo",
-        ":hlo_graph_dumper",
-        ":hlo_subcomputation_unification",
-        "//tensorflow/compiler/xla:shape_util",
-        "//tensorflow/compiler/xla/tests:hlo_test_base",
-        "//tensorflow/compiler/xla/tests:test_utils",
-        "//tensorflow/compiler/xla/tests:xla_internal_test_main",
-    ],
-)
-
-cc_library(
     name = "hlo_graph_dumper",
     srcs = ["hlo_graph_dumper.cc"],
     hdrs = ["hlo_graph_dumper.h"],
@@ -6920,6 +6930,7 @@ cc_library(
         "//tensorflow/compiler/xla:shape_util",
         "//tensorflow/compiler/xla:statusor",
         "//tensorflow/compiler/xla:util",
+        "//tensorflow/compiler/xla:window_util",
         "//tensorflow/compiler/xla:xla_data_proto_cc",
         "//tensorflow/compiler/xla/client:padding",
         "//tensorflow/compiler/xla/stream_executor/lib",

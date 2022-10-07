@@ -253,8 +253,8 @@ cc_library(
         ":strcat",
         ":stringprintf",
         ":types",
-        "//tensorflow/core/protobuf:error_codes_proto_impl_cc",
         "//tensorflow/core/protobuf:for_core_protos_cc",
+        "//tensorflow/tsl/protobuf:error_codes_proto_impl_cc",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/status",
@@ -273,7 +273,7 @@ cc_library(
         ":status",
         ":statusor",
         ":test",
-        "//tensorflow/core:protos_all_cc",
+        "//tensorflow/tsl/protobuf:error_codes_proto_impl_cc",
     ],
 )
 
@@ -1306,7 +1306,7 @@ tf_cc_test(
         ":statusor",
         ":test",
         ":test_main",
-        "//tensorflow/core/protobuf:error_codes_proto_impl_cc",
+        "//tensorflow/tsl/protobuf:error_codes_proto_impl_cc",
     ],
 )
 
@@ -1422,28 +1422,6 @@ tf_cc_test(
         ":test",
         ":test_main",
         "//tensorflow/tsl/lib/core:status_test_util",
-    ],
-)
-
-tf_cc_test(
-    name = "env_test",
-    size = "small",
-    srcs = ["env_test.cc"],
-    deps = [
-        ":cord",
-        ":env",
-        ":env_impl",
-        ":null_file_system",
-        ":path",
-        ":protobuf",
-        ":str_util",
-        ":strcat",
-        ":stringpiece",
-        ":test",
-        ":test_main",
-        "//tensorflow/core:protos_all_cc",
-        "//tensorflow/tsl/lib/core:status_test_util",
-        "//third_party/eigen3",
     ],
 )
 

@@ -1,4 +1,4 @@
-/* Copyright 2017 The TensorFlow Authors. All Rights Reserved.
+/* Copyright 2022 The TensorFlow Authors. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -13,19 +13,22 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef TENSORFLOW_COMPILER_XLA_SERVICE_HLO_SUBCOMPUTATION_UNIFICATION_H_
-#define TENSORFLOW_COMPILER_XLA_SERVICE_HLO_SUBCOMPUTATION_UNIFICATION_H_
+#ifndef TENSORFLOW_COMPILER_XLA_SERVICE_HLO_COMPUTATION_DEDUPLICATOR_H_
+#define TENSORFLOW_COMPILER_XLA_SERVICE_HLO_COMPUTATION_DEDUPLICATOR_H_
 
 #include "tensorflow/compiler/xla/service/hlo_pass_interface.h"
 
 namespace xla {
 
-// Unify subcomputations of a `HloModule`: if any computations are equal, choose
-// one arbitrarily to use and delete the others.
-class HloSubcomputationUnification : public HloModulePass {
+// Deduplicate computations inside a `HloModule`: If two computations are
+// identical then keep the first one (in postorder terms) and remove the rest.
+class HloComputationDeduplicator : public HloModulePass {
+ private:
+  bool ContainsLargeConstants(HloComputation* comp);
+
  public:
   absl::string_view name() const override {
-    return "subcomputation-unification";
+    return "computation-deduplicator ";
   }
 
   using HloPassInterface::Run;
@@ -36,4 +39,4 @@ class HloSubcomputationUnification : public HloModulePass {
 
 }  // namespace xla
 
-#endif  // TENSORFLOW_COMPILER_XLA_SERVICE_HLO_SUBCOMPUTATION_UNIFICATION_H_
+#endif  // TENSORFLOW_COMPILER_XLA_SERVICE_HLO_COMPUTATION_DEDUPLICATOR_H_

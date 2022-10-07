@@ -328,6 +328,24 @@ func.func @float_logistic(%arg0: tensor<2x2xf32>) -> tensor<2x2xf32> {
 
 // -----
 
+// CHECK-LABEL: func @complex_logistic
+func.func @complex_logistic(%arg0: tensor<2x2xcomplex<f32>>) -> tensor<2x2xcomplex<f32>> {
+  // CHECK-DAG: %[[C0:.*]] = arith.constant 0
+  // CHECK-DAG: %[[C1:.*]] = arith.constant 1
+  // CHECK: linalg.generic
+  // CHECK: ^bb0(%[[ARG:.*]]: complex<f32>, %{{.*}}: complex<f32>):
+  // CHECK: %[[NEG_ARG:.*]] = complex.neg %[[ARG]]
+  // CHECK: %[[EXP_NEG_ARG:.*]] = complex.exp %[[NEG_ARG]]
+  // CHECK: %[[CC1:.*]] = complex.create %[[C1]], %[[C0]] : complex<f32>
+  // CHECK: %[[ONE_ADD_EXP_NEG_ARG:.*]] = complex.add %[[EXP_NEG_ARG]], %[[CC1]]
+  // CHECK: %[[RESULT:.*]] = complex.div %[[CC1]], %[[ONE_ADD_EXP_NEG_ARG]]
+  // CHECK: linalg.yield %[[RESULT]]
+  %0 = "mhlo.logistic"(%arg0) : (tensor<2x2xcomplex<f32>>) -> tensor<2x2xcomplex<f32>>
+  func.return %0 : tensor<2x2xcomplex<f32>>
+}
+
+// -----
+
 // CHECK-LABEL: func @float_ceil
 func.func @float_ceil(%arg0: tensor<2x2xf32>) -> tensor<2x2xf32> {
   // CHECK: linalg.generic
@@ -3096,6 +3114,47 @@ func.func @conv_transpose_2d(%arg0: tensor<2x9x10x3xf32>,
 // CHECK-SAME:       strides = dense<1> : tensor<2xi64>}
 // CHECK-SAME:     ins(%[[LHS_PAD]], %[[ARG1]] : tensor<2x21x31x3xf32>, tensor<4x4x3x3xf32>)
 // CHECK-SAME:     outs(%[[FILL]] : tensor<2x15x25x3xf32>) -> tensor<2x15x25x3xf32>
+
+// -----
+
+func.func @conv_different_batch_dim_in_out(%arg0: tensor<1x1x1xf64>,
+                                           %arg1: tensor<1x1x1xf64>)
+  -> tensor<1x1x1xf64> {
+  %0 = mhlo.convolution(%arg0, %arg1)
+    dim_numbers = [f, 0, b]x[i, o, 0]->[f, b, 0],
+    window = {stride = [1], pad = [[0, 0]], lhs_dilate = [1],
+             rhs_dilate = [1]}
+    {
+      batch_group_count = 1 : i64,
+      feature_group_count = 1 : i64,
+      precision_config = [#mhlo<precision HIGHEST>, #mhlo<precision HIGHEST>]
+    } : (tensor<1x1x1xf64>, tensor<1x1x1xf64>) -> tensor<1x1x1xf64>
+  return %0 : tensor<1x1x1xf64>
+}
+
+// Just check that this lowers successfully.
+// CHECK-LABEL: func @conv_different_batch_dim_in_out
+
+// -----
+
+func.func @conv_different_batch_dim_in_out_with_feature_group_count(
+    %arg0: tensor<4x6x7x1xf64>, %arg1: tensor<2x6x3x2xf64>)
+  -> tensor<1x2x1x2xf64> {
+  %0 = mhlo.convolution(%arg0, %arg1)
+    dim_numbers = [f, 0, 1, b]x[i, 0, 1, o]->[0, 1, b, f],
+    window = {stride = [1, 1], pad = [[0, 0], [0, -1]],
+              lhs_dilate = [1, 1], rhs_dilate = [1, 2],
+              reverse = [0, 0]}
+    {
+      batch_group_count = 1 : i64,
+      feature_group_count = 2 : i64,
+      precision_config = [#mhlo<precision HIGHEST>, #mhlo<precision HIGHEST>]
+    } : (tensor<4x6x7x1xf64>, tensor<2x6x3x2xf64>) -> tensor<1x2x1x2xf64>
+  return %0 : tensor<1x2x1x2xf64>
+}
+
+// Just check that this lowers successfully.
+// CHECK-LABEL: func @conv_different_batch_dim_in_out_with_feature_group_count
 
 // -----
 
