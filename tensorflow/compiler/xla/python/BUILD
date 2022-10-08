@@ -30,10 +30,7 @@ pytype_library(
     pytype_srcs = ["xla_client.pyi"],
     srcs_version = "PY3",
     visibility = ["//visibility:public"],
-    deps = [
-        ":xla_extension",
-        "@absl_py//absl/logging",
-    ],
+    deps = [":xla_extension"],
 )
 
 exports_files(["xla_client.pyi"])
@@ -332,7 +329,7 @@ cc_library(
         "//tensorflow/compiler/xla/service:custom_call_target_registry",
         "//tensorflow/core/platform:fingerprint",
         "//tensorflow/tsl/platform:statusor",
-        "//tensorflow/tsl/profiler/lib:traceme",
+        "//tensorflow/core/profiler/lib:traceme",
         "//tensorflow/tsl/platform:fingerprint",
     ] + if_cuda([
         "@local_config_cuda//cuda:cuda_headers",
@@ -391,8 +388,8 @@ cc_library(
         "//tensorflow/compiler/xla:xla_data_proto_cc",
         "//tensorflow/compiler/xla/pjrt:lru_cache",
         "//tensorflow/compiler/xla/pjrt:pjrt_client",
+        "//tensorflow/core/profiler/lib:traceme",
         "//tensorflow/tsl/platform:status",
-        "//tensorflow/tsl/profiler/lib:traceme",
         "//third_party/python_runtime:headers",  # build_cleaner: keep
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:inlined_vector",
@@ -470,7 +467,7 @@ cc_library(
         "//tensorflow/compiler/xla/client:xla_builder",
         "//tensorflow/compiler/xla/client:xla_computation",
         "//tensorflow/compiler/xla/pjrt:pjrt_client",
-        "//tensorflow/tsl/profiler/lib:traceme",
+        "//tensorflow/core/profiler/lib:traceme",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/strings:str_format",
@@ -492,7 +489,7 @@ cc_library(
         ":jax_jit",
         ":py_client",
         ":status_casters",
-        "//tensorflow/tsl/profiler/lib:traceme",
+        "//tensorflow/core/profiler/lib:traceme",
         "@com_google_absl//absl/synchronization",
         "@pybind11",
     ],
@@ -517,8 +514,8 @@ cc_library(
         ":types",
         "//tensorflow/compiler/xla:xla_data_proto_cc",
         "//tensorflow/compiler/xla/pjrt:pjrt_client",
+        "//tensorflow/core/profiler/lib:traceme",
         "//tensorflow/tsl/platform:logging",
-        "//tensorflow/tsl/profiler/lib:traceme",
         "@com_google_absl//absl/hash",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
