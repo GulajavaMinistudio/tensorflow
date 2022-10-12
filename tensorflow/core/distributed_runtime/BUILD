@@ -149,6 +149,7 @@ cc_library(
         ":worker_cache_wrapper",
         ":worker_session",
         "//tensorflow/core:core_cpu_internal",
+        "//tensorflow/core:framework",
         "//tensorflow/core:lib",
         "//tensorflow/core:protos_all_cc",
         "//tensorflow/core:ptr_util",
@@ -426,10 +427,7 @@ cc_library(
     copts = tf_copts(),
     deps = [
         ":rendezvous_mgr_interface",
-        ":session_mgr",
-        ":worker_cache",
         ":worker_env",
-        ":worker_interface",
         ":worker_session",
         "//tensorflow/core:core_cpu_internal",
         "//tensorflow/core:framework",
