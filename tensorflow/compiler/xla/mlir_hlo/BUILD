@@ -594,6 +594,7 @@ cc_library(
         "lib/Dialect/mhlo/transforms/materialize_broadcasts.cc",
         "lib/Dialect/mhlo/transforms/materialize_broadcasts_pass.cc",
         "lib/Dialect/mhlo/transforms/merge_assuming_ops.cc",
+        "lib/Dialect/mhlo/transforms/mhlo_canonicalize_gather.cc",
         "lib/Dialect/mhlo/transforms/mhlo_canonicalize_reduction.cc",
         "lib/Dialect/mhlo/transforms/mhlo_canonicalize_scatter.cc",
         "lib/Dialect/mhlo/transforms/mhlo_flatten_tuple.cc",
@@ -629,7 +630,7 @@ cc_library(
         ":map_hlo_to_lhlo_op",
         ":map_mhlo_to_scalar_op",
         ":mhlo_pass_inc_gen",
-        ":mhlo_scatter_utils",
+        ":mhlo_scatter_gather_utils",
         ":mlir_hlo",
         ":stablehlo_legalize_to_hlo",
         ":thlo",
@@ -861,12 +862,13 @@ cc_library(
 )
 
 cc_library(
-    name = "mhlo_scatter_utils",
-    srcs = ["lib/Dialect/mhlo/transforms/mhlo_scatter_utils.cc"],
-    hdrs = ["include/mlir-hlo/Dialect/mhlo/transforms/mhlo_scatter_utils.h"],
+    name = "mhlo_scatter_gather_utils",
+    srcs = ["lib/Dialect/mhlo/transforms/mhlo_scatter_gather_utils.cc"],
+    hdrs = ["include/mlir-hlo/Dialect/mhlo/transforms/mhlo_scatter_gather_utils.h"],
     deps = [
         ":mlir_hlo",
-        "@llvm-project//llvm:Support",
+        "@llvm-project//mlir:DialectUtils",
+        "@llvm-project//mlir:TensorDialect",
     ],
 )
 
@@ -1049,6 +1051,7 @@ cc_library(
         "lib/Transforms/symbolic_shape_optimization.cc",
         "lib/Transforms/tile_loops_pass.cc",
         "lib/Transforms/unbufferize_pass.cc",
+        "lib/Transforms/unroll_loops.cc",
     ],
     hdrs = ["include/mlir-hlo/Transforms/passes.h"],
     deps = [
@@ -1302,6 +1305,7 @@ cc_library(
         "lib/Dialect/gml_st/transforms/tiling.cc",
         "lib/Dialect/gml_st/transforms/tiling_cwise.cc",
         "lib/Dialect/gml_st/transforms/tiling_reduction.cc",
+        "lib/Dialect/gml_st/transforms/tiling_softmax.cc",
         "lib/Dialect/gml_st/transforms/vectorization.cc",
     ],
     hdrs = [
@@ -1470,6 +1474,7 @@ td_library(
     includes = ["include"],
     deps = [
         "@llvm-project//mlir:ControlFlowInterfacesTdFiles",
+        "@llvm-project//mlir:DialectUtilsTdFiles",
         "@llvm-project//mlir:InferTypeOpInterfaceTdFiles",
         "@llvm-project//mlir:LoopLikeInterfaceTdFiles",
         "@llvm-project//mlir:OpBaseTdFiles",
@@ -1507,6 +1512,14 @@ gentbl_cc_library(
             ["-gen-typedef-defs"],
             "include/mlir-hlo/Dialect/gml_st/IR/gml_st_types.cc.inc",
         ),
+        (
+            ["-gen-attrdef-decls"],
+            "include/mlir-hlo/Dialect/gml_st/IR/gml_st_attrs.h.inc",
+        ),
+        (
+            ["-gen-attrdef-defs"],
+            "include/mlir-hlo/Dialect/gml_st/IR/gml_st_attrs.cc.inc",
+        ),
     ],
     tblgen = "@llvm-project//mlir:mlir-tblgen",
     td_file = "include/mlir-hlo/Dialect/gml_st/IR/gml_st_ops.td",
@@ -1529,6 +1542,7 @@ cc_library(
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:ArithDialect",
         "@llvm-project//mlir:ControlFlowInterfaces",
+        "@llvm-project//mlir:DialectUtils",
         "@llvm-project//mlir:IR",
         "@llvm-project//mlir:InferTypeOpInterface",
         "@llvm-project//mlir:LoopLikeInterface",

@@ -3,6 +3,7 @@
 load("@com_google_protobuf//:protobuf.bzl", "proto_gen")
 load("//tensorflow:tensorflow.bzl", "clean_dep", "if_libtpu", "if_not_windows")
 load("//tensorflow/tsl/platform:build_config_root.bzl", "if_static")
+load("//tensorflow/tsl:tsl.bzl", "if_tsl_link_protobuf")
 load("@local_config_cuda//cuda:build_defs.bzl", "if_cuda")
 load("@local_config_rocm//rocm:build_defs.bzl", "if_rocm")
 load(
@@ -275,7 +276,7 @@ def cc_proto_library(
         name = header_only_name,
         deps = [
             "@com_google_protobuf//:protobuf_headers",
-        ] + header_only_deps + if_static([impl_name]),
+        ] + header_only_deps + if_tsl_link_protobuf([impl_name]),
         hdrs = gen_hdrs,
         **kwargs
     )
@@ -482,7 +483,7 @@ def tf_proto_library_cc(
 
         native.cc_library(
             name = cc_name,
-            deps = cc_deps + ["@com_google_protobuf//:protobuf_headers"] + if_static([name + "_cc_impl"]),
+            deps = cc_deps + ["@com_google_protobuf//:protobuf_headers"] + if_tsl_link_protobuf([name + "_cc_impl"]),
             testonly = testonly,
             visibility = visibility,
         )
@@ -498,7 +499,7 @@ def tf_proto_library_cc(
         protolib_name = name,
         testonly = testonly,
         srcs = srcs,
-        cc_libs = cc_libs + if_static(
+        cc_libs = cc_libs + if_tsl_link_protobuf(
             ["@com_google_protobuf//:protobuf"],
             ["@com_google_protobuf//:protobuf_headers"],
         ),
@@ -800,6 +801,29 @@ def tf_protobuf_deps():
             clean_dep("@com_google_protobuf//:protobuf"),
         ],
         otherwise = [clean_dep("@com_google_protobuf//:protobuf_headers")],
+    )
+
+# Link protobuf, unless the tsl_link_protobuf build flag is explicitly set to false.
+def tsl_protobuf_deps():
+    return if_tsl_link_protobuf([clean_dep("@com_google_protobuf//:protobuf")], [clean_dep("@com_google_protobuf//:protobuf_headers")])
+
+# When tsl_protobuf_header_only is true, we need to add the protobuf library
+# back into our binaries explicitly.
+def tsl_cc_test(
+        name,
+        deps = [],
+        **kwargs):
+    native.cc_test(
+        name = name,
+        deps = deps + if_tsl_link_protobuf(
+            [],
+            [
+                clean_dep("@com_google_protobuf//:protobuf"),
+                "//tensorflow/tsl/protobuf:error_codes_proto_impl_cc_impl",
+                "//tensorflow/tsl/protobuf:histogram_proto_cc_impl",
+            ],
+        ),
+        **kwargs
     )
 
 def tf_portable_proto_lib():

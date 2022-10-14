@@ -996,11 +996,9 @@ LogicalResult TransposeOp::verify() {
   return verifyDestinationStyleOp(getOperation());
 }
 
-ArrayAttr TransposeOp::iterator_types() {
+SmallVector<StringRef> TransposeOp::getIteratorTypesArray() {
   int64_t rank = getInit().getType().getRank();
-  return Builder(getContext())
-      .getStrArrayAttr(
-          SmallVector<StringRef>(rank, getParallelIteratorTypeName()));
+  return SmallVector<StringRef>(rank, getParallelIteratorTypeName());
 }
 
 ArrayAttr TransposeOp::getIndexingMaps() {
@@ -1162,13 +1160,13 @@ LogicalResult ReductionOp::verify() {
   return verifyDestinationStyleOp(getOperation());
 }
 
-ArrayAttr ReductionOp::iterator_types() {
+SmallVector<StringRef> ReductionOp::getIteratorTypesArray() {
   int64_t inputRank = getInputs()[0].getType().cast<ShapedType>().getRank();
   SmallVector<StringRef> iteratorTypes(inputRank,
                                        getParallelIteratorTypeName());
   for (int64_t reductionDim : getDimensions())
     iteratorTypes[reductionDim] = getReductionIteratorTypeName();
-  return Builder(getContext()).getStrArrayAttr(iteratorTypes);
+  return iteratorTypes;
 }
 
 ArrayAttr ReductionOp::getIndexingMaps() {
@@ -1269,11 +1267,9 @@ LogicalResult MapOp::verify() {
   return verifyDestinationStyleOp(getOperation());
 }
 
-ArrayAttr MapOp::iterator_types() {
+SmallVector<StringRef> MapOp::getIteratorTypesArray() {
   int64_t rank = getInit().getType().getRank();
-  return Builder(getContext())
-      .getStrArrayAttr(
-          SmallVector<StringRef>(rank, getParallelIteratorTypeName()));
+  return SmallVector<StringRef>(rank, getParallelIteratorTypeName());
 }
 
 ArrayAttr MapOp::getIndexingMaps() {
@@ -1386,6 +1382,88 @@ LogicalResult SortOp::verify() {
   }
 
   return verifyDestinationStyleOp(getOperation());
+}
+
+SmallVector<utils::IteratorType> SortOp::getLoopIteratorTypes() {
+  return getParallelIteratorTypes(getType(0).cast<ShapedType>().getRank() - 1);
+}
+
+SmallVector<Value> SortOp::getDestinationOperands(OpBuilder &) {
+  return {getInits()};
+}
+
+SmallVector<Range> SortOp::getIterationDomain(OpBuilder &b) {
+  Location loc = getLoc();
+  auto oneInit = getInits().front();
+  auto operandsRank = oneInit.getType().cast<ShapedType>().getRank();
+
+  SmallVector<Range> iterationDomain(operandsRank - 1);
+
+  IntegerAttr zero = b.getIndexAttr(0);
+  IntegerAttr one = b.getIndexAttr(1);
+  int64_t sortDimension = getDimension();
+
+  for (auto axis : llvm::seq<int64_t>(0, operandsRank - 1)) {
+    int64_t operandAxis = (axis >= sortDimension) ? axis + 1 : axis;
+    iterationDomain[axis].offset = zero;
+    iterationDomain[axis].size =
+        b.createOrFold<tensor::DimOp>(loc, oneInit, operandAxis);
+    iterationDomain[axis].stride = one;
+  }
+  return iterationDomain;
+}
+
+mlir::gml_st::TilingInterface SortOp::getTiledImplementation(
+    OpBuilder &b, ArrayRef<OpFoldResult> offsets,
+    ArrayRef<OpFoldResult> sizes) {
+  auto loc = getLoc();
+  SmallVector<OpFoldResult> tileOffsets = llvm::to_vector(offsets);
+  SmallVector<OpFoldResult> tileSizes = llvm::to_vector(sizes);
+
+  size_t numOutputs = getNumOutputs();
+  int64_t sortDimension = getDimension();
+
+  Value oneInput = getInputs().front();
+
+  // Capture the entire sorting axis in each tile.
+  tileOffsets.insert(tileOffsets.begin() + sortDimension, b.getIndexAttr(0));
+
+  OpFoldResult sortDimensionSize =
+      b.createOrFold<tensor::DimOp>(loc, oneInput, sortDimension);
+  tileSizes.insert(tileSizes.begin() + sortDimension, sortDimensionSize);
+
+  gml_st::TileOp tile = createTileOp(b, loc, oneInput, tileOffsets, tileSizes);
+
+  // Materialize the tile for each input and init.
+  SmallVector<Value> tiledInputsAndInits;
+  SmallVector<Type> tiledResultTypes;
+  tiledInputsAndInits.reserve(numOutputs * 2);
+  tiledResultTypes.reserve(numOutputs);
+
+  auto oneInputShape = oneInput.getType().cast<ShapedType>().getShape();
+
+  for (const auto &input : getInputs()) {
+    tiledInputsAndInits.push_back(
+        b.create<gml_st::MaterializeOp>(loc, input, tile));
+    tiledResultTypes.push_back(RankedTensorType::get(
+        oneInputShape, input.getType().cast<ShapedType>().getElementType()));
+  }
+
+  for (const auto &init : getInits()) {
+    tiledInputsAndInits.push_back(
+        b.create<gml_st::MaterializeOp>(loc, init, tile));
+  }
+
+  auto dpsInterface =
+      cast<linalg::DestinationStyleOpInterface>(this->getOperation());
+  return dpsInterface.clone(b, loc, tiledResultTypes, tiledInputsAndInits);
+}
+
+FailureOr<Value> SortOp::generateResultTileValue(OpBuilder &b,
+                                                 unsigned resultNumber,
+                                                 ArrayRef<OpFoldResult> offsets,
+                                                 ArrayRef<OpFoldResult> sizes) {
+  return getTiledImplementation(b, offsets, sizes)->getResult(resultNumber);
 }
 
 }  // namespace thlo

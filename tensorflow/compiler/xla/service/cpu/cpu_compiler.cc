@@ -134,6 +134,7 @@ limitations under the License.
 #include "tensorflow/compiler/xla/service/cpu/ir_emitter.h"
 #include "tensorflow/compiler/xla/service/cpu/parallel_task_assignment.h"
 #include "tensorflow/compiler/xla/service/cpu/simple_orc_jit.h"
+#include "tensorflow/compiler/xla/service/cpu/xla_framework.h"
 #include "tensorflow/compiler/xla/service/dfs_hlo_visitor_with_default.h"
 #include "tensorflow/compiler/xla/service/dot_decomposer.h"
 #include "tensorflow/compiler/xla/service/dump.h"
@@ -291,6 +292,23 @@ CpuAotCompilationOptions::~CpuAotCompilationOptions() = default;
 
 se::Platform::Id CpuAotCompilationOptions::PlatformId() const {
   return se::host::kHostPlatformId;
+}
+
+CpuXlaRuntimeAotCompilationResult::CpuXlaRuntimeAotCompilationResult(
+    HloModuleProto hlo, const std::string& obj_file,
+    const std::string& mlir_module, const BufferAssignment& buffer_assignment,
+    XlaFrameworkMapping xla_framework_mapping) {
+  XlaRuntimeExecutableProto xla_runtime_executable;
+  *xla_runtime_executable.mutable_hlo_module_proto() = hlo;
+  xla_runtime_executable.set_obj_file(obj_file);
+  xla_runtime_executable.set_mlir_module(mlir_module);
+  *xla_runtime_cpu_executable_.mutable_xla_runtime_executable() =
+      xla_runtime_executable;
+
+  *xla_runtime_cpu_executable_.mutable_xla_framework_mapping() =
+      xla_framework_mapping.ToProto();
+  *xla_runtime_cpu_executable_.mutable_buffer_assignment() =
+      buffer_assignment.ToProto();
 }
 
 CpuAotCompilationResult::CpuAotCompilationResult(
@@ -1750,6 +1768,25 @@ se::Platform::Id CpuCompiler::PlatformId() const {
 
 HloCostAnalysis::ShapeSizeFunction CpuCompiler::ShapeSizeBytesFunction() const {
   return CpuExecutable::ShapeSizeBytes;
+}
+
+StatusOr<std::unique_ptr<AotCompilationResult>> CpuCompiler::Export(
+    Executable* executable) const {
+  auto* cpu_executable = tensorflow::down_cast<CpuExecutable*>(executable);
+  if (!cpu_executable)
+    return Internal("Could not downcast Executable to CpuExecutable");
+
+  HloModuleProto module_proto = cpu_executable->module().ToProto();
+  TF_ASSIGN_OR_RETURN(std::string obj_file, cpu_executable->GetObjFile());
+  TF_ASSIGN_OR_RETURN(std::string mlir_module, cpu_executable->GetMlirModule());
+  TF_ASSIGN_OR_RETURN(XlaFrameworkMapping xla_framework_mapping,
+                      cpu_executable->GetXlaFrameworkMapping());
+
+  std::unique_ptr<AotCompilationResult> result =
+      std::make_unique<CpuXlaRuntimeAotCompilationResult>(
+          module_proto, obj_file, mlir_module,
+          cpu_executable->buffer_assignment(), xla_framework_mapping);
+  return result;
 }
 
 }  // namespace cpu

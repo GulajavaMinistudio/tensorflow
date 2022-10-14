@@ -186,12 +186,14 @@ cc_library(
         ":cpu_options",
         ":cpu_shape_verifier",
         ":dot_op_emitter",
+        ":executable_proto_cc",
         ":hlo_xla_runtime_pipeline",
         "@com_google_absl//absl/base:dynamic_annotations",
         ":ir_emission_utils",
         ":ir_emitter",
         ":parallel_task_assignment",
         ":simple_orc_jit",
+        ":xla_framework",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/strings",
@@ -354,6 +356,28 @@ cc_library(
     alwayslink = True,  # Contains compiler registration
 )
 
+tf_proto_library(
+    name = "executable_proto",
+    srcs = ["executable.proto"],
+    cc_api_version = 2,
+    protodeps = [
+        ":xla_framework_proto",
+        "//tensorflow/compiler/xla/service:hlo_proto",
+    ],
+)
+
+tf_proto_library(
+    name = "xla_framework_proto",
+    srcs = ["xla_framework.proto"],
+    cc_api_version = 2,
+)
+
+cc_library(
+    name = "xla_framework",
+    hdrs = ["xla_framework.h"],
+    deps = [":xla_framework_proto_cc"],
+)
+
 cc_library(
     name = "hlo_xla_runtime_pipeline",
     srcs = ["hlo_xla_runtime_pipeline.cc"],
@@ -468,7 +492,9 @@ cc_library(
     srcs = ["cpu_executable.cc"],
     hdrs = ["cpu_executable.h"],
     deps = [
+        ":executable_proto_cc",
         ":simple_orc_jit",
+        ":xla_framework",
         "//tensorflow/compiler/xla:shape_tree",
         "//tensorflow/compiler/xla:shape_util",
         "//tensorflow/compiler/xla:status_macros",
@@ -680,6 +706,7 @@ cc_library(
         "@llvm-project//mlir:DialectUtils",
         "@llvm-project//mlir:FuncDialect",
         "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:LinalgDialect",
         "@llvm-project//mlir:LinalgTransforms",
         "@llvm-project//mlir:Pass",
     ],

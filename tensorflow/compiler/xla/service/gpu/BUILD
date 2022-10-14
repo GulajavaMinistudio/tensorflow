@@ -559,6 +559,8 @@ cc_library(
     ] + if_gpu_is_configured([
         ":cholesky_thunk",
         ":triangular_solve_thunk",
+    ]) + if_cuda_is_configured([
+        "//tensorflow/compiler/xla/service/gpu/runtime:graph_launch",
     ]),
 )
 
@@ -896,7 +898,7 @@ cc_library(
         "//tensorflow/core:lib",
         "//tensorflow/compiler/xla/stream_executor",
         "//tensorflow/core/protobuf:autotuning_proto_cc",
-        "//tensorflow/core/util/proto:proto_utils",
+        "//tensorflow/tsl/util/proto:proto_utils",
         "//tensorflow/compiler/xla/stream_executor:blas",
         "//tensorflow/tsl/platform/default/build_config:cublas_plugin",
         "//tensorflow/compiler/xla/stream_executor/cuda:cublas_lt_header",
@@ -981,7 +983,7 @@ cc_library(
         "//tensorflow/core:lib_internal",
         "//tensorflow/compiler/xla/stream_executor",
         "//tensorflow/compiler/xla/stream_executor:scratch_allocator",
-        "//tensorflow/core/util/proto:proto_utils",
+        "//tensorflow/tsl/util/proto:proto_utils",
         "//tensorflow/compiler/xla/stream_executor:device_memory_allocator",
         "//tensorflow/compiler/xla/stream_executor:dnn_proto_cc",
         "//tensorflow/tsl/util:env_var",
@@ -2188,13 +2190,13 @@ cc_library(
         "//tensorflow/core:lib",
         "//tensorflow/core:lib_internal",
         "//tensorflow/core/protobuf:autotuning_proto_cc",
-        "//tensorflow/core/util:determinism_for_kernels",
-        "//tensorflow/core/util/proto:proto_utils",
         "//tensorflow/tsl/platform:cuda_libdevice_path",
         "//tensorflow/tsl/platform:logging",
         "//tensorflow/tsl/platform:regexp",
         "//tensorflow/tsl/profiler/lib:traceme",
+        "//tensorflow/tsl/util:determinism_for_kernels",
         "//tensorflow/tsl/util:env_var",
+        "//tensorflow/tsl/util/proto:proto_utils",
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:span",
