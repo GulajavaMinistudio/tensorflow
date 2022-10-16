@@ -95,6 +95,7 @@ limitations under the License.
 #include "tensorflow/compiler/xla/mlir/transforms/cpu/passes.h"
 #include "tensorflow/compiler/xla/mlir/transforms/runtime/calling_convention.h"
 #include "tensorflow/compiler/xla/mlir/transforms/runtime/compilation_pipeline_cpu.h"
+#include "tensorflow/compiler/xla/mlir/transforms/runtime/compiler.h"
 #include "tensorflow/compiler/xla/mlir_hlo/include/mlir-hlo/Dialect/gml_st/transforms/passes.h"
 #include "tensorflow/compiler/xla/mlir_hlo/include/mlir-hlo/Dialect/mhlo/IR/hlo_ops.h"
 #include "tensorflow/compiler/xla/mlir_hlo/include/mlir-hlo/Dialect/mhlo/transforms/passes.h"
@@ -132,6 +133,7 @@ limitations under the License.
 #include "tensorflow/compiler/xla/service/cpu/hlo_xla_runtime_pipeline.h"
 #include "tensorflow/compiler/xla/service/cpu/ir_emission_utils.h"
 #include "tensorflow/compiler/xla/service/cpu/ir_emitter.h"
+#include "tensorflow/compiler/xla/service/cpu/mlir_layout_resolution.h"
 #include "tensorflow/compiler/xla/service/cpu/parallel_task_assignment.h"
 #include "tensorflow/compiler/xla/service/cpu/simple_orc_jit.h"
 #include "tensorflow/compiler/xla/service/cpu/xla_framework.h"
@@ -636,8 +638,13 @@ Status CpuCompiler::RunHloPassesThroughLayoutAssn(
   // flattened.
   pipeline.AddPass<FlattenCallGraph>();
   ChannelLayoutConstraints layout_constraints;
-  // The MLIR pipeline always uses default layouts.
-  if (!is_mlir_compile) {
+  // The MLIR pipeline always uses default layouts, so if the caller specifies
+  // non-default layouts in the entry_computation layout, we have to convert
+  // to these layouts using transposes and reshapes. The MlirLayoutResolution
+  // pass does this.
+  if (is_mlir_compile) {
+    pipeline.AddPass<MlirLayoutResolution>();
+  } else {
     pipeline.AddPass<CpuLayoutAssignment>(
         module->mutable_entry_computation_layout(), target_machine_features,
         &layout_constraints);
@@ -963,8 +970,8 @@ Status LowerMLIRModule(mlir::ModuleOp mlir_module,
 
   pm.addPass(mlir::mhlo::createConvertToSignlessPass());
 
-  // Tile THLO ops.
-  pm.addNestedPass<mlir::func::FuncOp>(createTileThloForCpuPass());
+  // Transform scatter ops.
+  pm.addNestedPass<mlir::func::FuncOp>(createTransformScatterForCpuPass());
   pm.addNestedPass<mlir::func::FuncOp>(mlir::gml_st::createComposeSetOpsPass());
 
   // Lower shape dialect to standard to enable linalg canonicalizations (e.g.
@@ -1390,18 +1397,21 @@ StatusOr<std::unique_ptr<XlaRuntimeCpuExecutable>> GetXlaRuntimeCpuExecutable(
 
   runtime::JitExecutable::Options opts;
   opts.specialization = runtime::JitExecutable::Specialization::kDisabled;
-  opts.compiler.register_dialects = [](mlir::DialectRegistry& registry) {
-    registry.insert<mlir::mhlo::MhloDialect>();
-    runtime::RegisterDefaultXlaCpuRuntimeDialects(registry);
-    RegisterHloXlaRuntimePipelineDialects(registry);
-  };
-  opts.compiler.create_compilation_pipeline = [copts](mlir::PassManager& pm) {
-    CreateDefaultHloXlaRuntimePipeline(pm);
-    pm.addPass(mlir::bufferization::createBufferResultsToOutParamsPass());
-    pm.addNestedPass<mlir::func::FuncOp>(
-        mlir::bufferization::createBufferDeallocationPass());
-    runtime::CreateDefaultXlaCpuRuntimeCompilationPipeline(pm, copts);
-  };
+  opts.compiler.register_dialects =
+      [](xla::runtime::DialectRegistry& dialects) {
+        dialects->insert<mlir::mhlo::MhloDialect>();
+        runtime::RegisterDefaultXlaCpuRuntimeDialects(dialects);
+        RegisterHloXlaRuntimePipelineDialects(dialects);
+      };
+  opts.compiler.create_compilation_pipeline =
+      [copts](xla::runtime::PassManager& passes) {
+        CreateDefaultHloXlaRuntimePipeline(passes);
+        passes->addPass(
+            mlir::bufferization::createBufferResultsToOutParamsPass());
+        passes->addNestedPass<mlir::func::FuncOp>(
+            mlir::bufferization::createBufferDeallocationPass());
+        runtime::CreateDefaultXlaCpuRuntimeCompilationPipeline(passes, copts);
+      };
   opts.compiler.calling_convention = runtime::ResultsToOutsCallingConvention(
       FlattenTuplesAndBufferizeTypeConverter());
 

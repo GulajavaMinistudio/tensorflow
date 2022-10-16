@@ -80,7 +80,6 @@ cc_library(
 
 cc_library(
     name = "gpu_constants",
-    srcs = ["gpu_constants.cc"],
     hdrs = ["gpu_constants.h"],
     deps = [
         "//tensorflow/compiler/xla:types",
@@ -1713,6 +1712,7 @@ cc_library(
         "//tensorflow/compiler/xla/service:hlo",
         "//tensorflow/compiler/xla/service:hlo_computation_deduplicator",
         "//tensorflow/compiler/xla/service:hlo_constant_folding",
+        "//tensorflow/compiler/xla/service:hlo_constant_splitter",
         "//tensorflow/compiler/xla/service:hlo_cse",
         "//tensorflow/compiler/xla/service:hlo_dataflow_analysis",
         "//tensorflow/compiler/xla/service:hlo_dce",

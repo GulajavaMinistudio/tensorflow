@@ -187,6 +187,7 @@ cc_library(
         ":cpu_shape_verifier",
         ":dot_op_emitter",
         ":executable_proto_cc",
+        ":mlir_layout_resolution",
         ":hlo_xla_runtime_pipeline",
         "@com_google_absl//absl/base:dynamic_annotations",
         ":ir_emission_utils",
@@ -240,6 +241,7 @@ cc_library(
         "@llvm-project//mlir:VectorToSCF",
         "//tensorflow/compiler/xla/mlir/transforms/runtime:calling_convention",
         "//tensorflow/compiler/xla/mlir/transforms/runtime:compilation_pipeline_cpu",
+        "//tensorflow/compiler/xla/mlir/transforms/runtime:compiler",
         "//tensorflow/compiler/xla/mlir_hlo:all_passes",
         "//tensorflow/compiler/xla/mlir_hlo:gml_st_passes",
         "//tensorflow/compiler/xla/mlir_hlo:mhlo_passes",
@@ -383,10 +385,12 @@ cc_library(
     srcs = ["hlo_xla_runtime_pipeline.cc"],
     hdrs = ["hlo_xla_runtime_pipeline.h"],
     deps = [
+        "//tensorflow/compiler/xla/mlir/transforms/runtime:compiler",
         "//tensorflow/compiler/xla/mlir_hlo:all_passes",
         "//tensorflow/compiler/xla/mlir_hlo:gml_st_bufferizable_op_interface",
         "//tensorflow/compiler/xla/mlir_hlo:mhlo_passes",
         "//tensorflow/compiler/xla/mlir_hlo:transforms_passes",
+        "//tensorflow/compiler/xla/runtime:compiler_headers",
         "@llvm-project//mlir:ArithTransforms",
         "@llvm-project//mlir:BufferizationToMemRef",
         "@llvm-project//mlir:BufferizationTransforms",
@@ -755,6 +759,7 @@ cc_library(
         "@llvm-project//llvm:MC",
         "@llvm-project//llvm:Object",
         "@llvm-project//llvm:OrcJIT",
+        "@llvm-project//llvm:Passes",
         "@llvm-project//llvm:Support",
         "@llvm-project//llvm:Target",
     ],
@@ -1489,6 +1494,20 @@ cc_library(
         "@llvm-project//mlir:ToLLVMIRTranslation",
         "@llvm-project//mlir:Transforms",
         "@llvm-project//mlir:VectorToLLVM",
+    ],
+)
+
+cc_library(
+    name = "mlir_layout_resolution",
+    srcs = ["mlir_layout_resolution.cc"],
+    hdrs = ["mlir_layout_resolution.h"],
+    deps = [
+        "//tensorflow/compiler/xla:permutation_util",
+        "//tensorflow/compiler/xla:shape_util",
+        "//tensorflow/compiler/xla/service:hlo",
+        "//tensorflow/compiler/xla/service:hlo_pass",
+        "//tensorflow/tsl/platform:errors",
+        "@com_google_absl//absl/algorithm:container",
     ],
 )
 

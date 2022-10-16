@@ -139,6 +139,7 @@ limitations under the License.
 #include "tensorflow/compiler/xla/service/hlo_computation.h"
 #include "tensorflow/compiler/xla/service/hlo_computation_deduplicator.h"
 #include "tensorflow/compiler/xla/service/hlo_constant_folding.h"
+#include "tensorflow/compiler/xla/service/hlo_constant_splitter.h"
 #include "tensorflow/compiler/xla/service/hlo_cse.h"
 #include "tensorflow/compiler/xla/service/hlo_dataflow_analysis.h"
 #include "tensorflow/compiler/xla/service/hlo_dce.h"
@@ -394,6 +395,7 @@ Status GpuCompiler::OptimizeHloModule(
       spmd_simplify.AddPass<ConditionalSimplifier>();
       spmd_simplify.AddPass<HloDCE>();
 
+      spmd_pipeline.AddPass<HloConstantSplitter>();
       spmd_pipeline.AddPass<ShardingPropagation>(
           /*is_spmd=*/true, /*propagate_metadata=*/false,
           hlo_module->config().allow_spmd_sharding_propagation_to_output());
@@ -1538,9 +1540,10 @@ GpuCompiler::CompileAheadOfTime(std::unique_ptr<HloModuleGroup> module_group,
     opts.compiler.symbols_binding = runtime::ToSymbolsBinding(
         PopulateXlaGpuCustomCalls, PopulateXlaGpuTypeIdNames);
 
-    opts.compiler.create_compilation_pipeline = [copts](mlir::PassManager& pm) {
-      runtime::CreateDefaultXlaGpuRuntimeCompilationPipeline(pm, copts);
-    };
+    opts.compiler.create_compilation_pipeline =
+        [copts](xla::runtime::PassManager& passes) {
+          runtime::CreateDefaultXlaGpuRuntimeCompilationPipeline(passes, copts);
+        };
 
     // Instantiate new JitExecutable from the MLIR source.
     auto jit_executable = runtime::JitExecutable::Instantiate(
