@@ -20,6 +20,7 @@ include "mlir-hlo/Dialect/gml_st/transforms/tiling_interface.td"
 include "mlir/Dialect/Linalg/IR/LinalgInterfaces.td"
 include "mlir/IR/OpBase.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
+include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 
 def TensorOrMemref :
@@ -44,12 +45,6 @@ class THLO_Op<string mnemonic, list<Trait> traits> :
 class THLO_DstStyleOp<string mnemonic, list<Trait> traits> : THLO_Op<mnemonic, [
     DestinationStyleOpInterface, Pure] # traits> {
   let hasCustomAssemblyFormat = 1;
-  code extraBaseClassDeclaration = [{
-    unsigned getNumInputs() {
-      return this->getOperation()->getNumOperands() - getNumOutputs();
-    };
-    unsigned getNumOutputs() { return 1; };
-  }];
 }
 
 def THLO_YieldOp : THLO_Op<"yield", [Pure, ReturnLike, Terminator,
@@ -71,10 +66,12 @@ def THLO_ConcatenateOp : THLO_DstStyleOp<"concatenate", [
   );
   let results = (outs Variadic<AnyTensor>:$result);
 
-  let extraClassDeclaration = extraBaseClassDeclaration # [{
-    // Implement functions necessary for DestinationStyleOpInterface.
-    mlir::ValueRange inputs() { return getInputs(); }
-    mlir::ValueRange getOutputs() { return getOperands().take_back(1); }
+  let extraClassDeclaration = [{
+    // Implement method necessary for DestinationStyleOpInterface.
+    std::pair<int64_t, int64_t> getOutputsPositionRange() {
+      int64_t getNumOperands = this->getNumOperands();
+      return {getNumOperands - 1, getNumOperands};
+    }
   }];
 }
 
@@ -92,13 +89,15 @@ def THLO_DynamicBroadcastInDimOp : THLO_DstStyleOp<"dynamic_broadcast_in_dim", [
     OptionalAttr<DenseI64ArrayAttr>:$known_expanding_dimensions,
     OptionalAttr<DenseI64ArrayAttr>:$known_nonexpanding_dimensions
   );
+
   let results = (outs Variadic<AnyTensor>:$result);
 
-  let extraClassDeclaration = extraBaseClassDeclaration # [{
-    // Implement functions necessary for DestinationStyleOpInterface.
-    mlir::ValueRange inputs() { return getOperands().take_front(1); }
-    mlir::ValueRange getInputs() { return inputs(); }
-    mlir::ValueRange getOutputs() { return getOperands().take_back(1); }
+  let extraClassDeclaration = [{
+    // Implement method necessary for DestinationStyleOpInterface.
+    std::pair<int64_t, int64_t> getOutputsPositionRange() {
+      int64_t getNumOperands = this->getNumOperands();
+      return {getNumOperands - 1, getNumOperands};
+    }
   }];
 }
 
@@ -122,13 +121,12 @@ def THLO_GatherOp : THLO_DstStyleOp<"gather", [
   );
   let results = (outs Variadic<AnyTensor>:$result);
 
-  let extraClassDeclaration = extraBaseClassDeclaration # [{
-    // Implement functions necessary for DestinationStyleOpInterface.
-    mlir::ValueRange inputs() {
-      return getOperands().drop_back(getNumOutputs());
+  let extraClassDeclaration = [{
+    // Implement method necessary for DestinationStyleOpInterface.
+    std::pair<int64_t, int64_t> getOutputsPositionRange() {
+      int64_t getNumOperands = this->getNumOperands();
+      return {getNumOperands - 1, getNumOperands};
     }
-    mlir::ValueRange getInputs() { return inputs(); }
-    mlir::ValueRange getOutputs() { return getOperands().take_back(1); }
   }];
 }
 
@@ -158,14 +156,7 @@ def THLO_ScatterOp : THLO_DstStyleOp<"scatter", [
 
   let regions = (region SizedRegion<1>:$update_computation);
 
-  let extraClassDeclaration = extraBaseClassDeclaration # [{
-    // Implement functions necessary for DestinationStyleOpInterface.
-    mlir::ValueRange inputs() {
-      return getOperands().drop_back(getNumOutputs());
-    }
-    mlir::ValueRange getInputs() { return inputs(); }
-    mlir::ValueRange getOutputs() { return getOperands().take_back(1); }
-
+  let extraClassDeclaration = [{
     // Returns index vector dimension size, which is always statically-known.
     int64_t getIndexVectorDimSize() {
       return getIndices().getType().getDimSize(1);
@@ -173,6 +164,12 @@ def THLO_ScatterOp : THLO_DstStyleOp<"scatter", [
 
     // Returns the number of indices, i.e. number of scalar/tensor updates.
     int64_t getIndicesCount() { return getIndices().getType().getDimSize(0); }
+
+    // Implement method necessary for DestinationStyleOpInterface.
+    std::pair<int64_t, int64_t> getOutputsPositionRange() {
+      int64_t getNumOperands = this->getNumOperands();
+      return {getNumOperands - 1, getNumOperands};
+    }
   }];
 }
 
@@ -216,18 +213,19 @@ def THLO_TransposeOp : THLO_DstStyleOp<"transpose", [
         CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes)>,
   ];
 
-  let extraClassDeclaration = extraBaseClassDeclaration # [{
-    // Implement functions necessary for DestinationStyleOpInterface.
-    mlir::ValueRange inputs() { return getOperands().take_front(1); }
-    mlir::ValueRange getInputs() { return inputs(); }
-    mlir::ValueRange getOutputs() { return getOperands().take_back(1); }
-
+  let extraClassDeclaration = [{
     static std::function<void(mlir::ImplicitLocOpBuilder &, mlir::Block &,
         mlir::ArrayRef<mlir::NamedAttribute>)>
       getRegionBuilder();
 
     static void createRegion(::mlir::OpBuilder &opBuilder,
                              ::mlir::OperationState & odsState);
+
+    // Implement method necessary for DestinationStyleOpInterface.
+    std::pair<int64_t, int64_t> getOutputsPositionRange() {
+      int64_t getNumOperands = this->getNumOperands();
+      return {getNumOperands - 1, getNumOperands};
+    }
   }];
 }
 
@@ -266,15 +264,15 @@ def THLO_ReductionOp : THLO_DstStyleOp<"reduction", [
   let regions = (region SizedRegion<1>:$combiner);
 
   let extraClassDeclaration = [{
-    // Implement functions necessary for DestinationStyleOpInterface.
-    mlir::ValueRange inputs() { return getInputs(); }
-    mlir::ValueRange getOutputs() { return getInits(); }
-    unsigned getNumInputs() { return getInputs().size(); };
-    unsigned getNumOutputs() { return getInits().size(); };
     static std::function<void(mlir::ImplicitLocOpBuilder &, mlir::Block &,
                               mlir::ArrayRef<mlir::NamedAttribute>)>
     getRegionBuilder() {
       return nullptr;
+    }
+
+    // Implement method necessary for DestinationStyleOpInterface.
+    std::pair<int64_t, int64_t> getOutputsPositionRange() {
+      return {getInits().size(), getNumOperands()};
     }
   }];
 }
@@ -310,11 +308,11 @@ def THLO_MapOp : THLO_DstStyleOp<"map", [
   let results = (outs Variadic<AnyTensor>:$result);
   let regions = (region SizedRegion<1>:$mapper);
 
-  let extraClassDeclaration = extraBaseClassDeclaration # [{
-    // Implement functions necessary for DestinationStyleOpInterface.
-    mlir::ValueRange inputs() { return getInputs(); }
-    mlir::ValueRange getOutputs() { return getOperands().take_back(1); }
-    linalg::OpOperandVector getOpOperandsMatchingBBargs() { return getInputOperands(); }
+
+  let extraClassDeclaration = [{
+    mlir::OpOperandVector getOpOperandsMatchingBBargs() {
+      return getInputOperands();
+    }
 
     static std::function<void(mlir::ImplicitLocOpBuilder &, mlir::Block &,
                               mlir::ArrayRef<mlir::NamedAttribute>)>
@@ -322,6 +320,11 @@ def THLO_MapOp : THLO_DstStyleOp<"map", [
       return nullptr;
     }
 
+    // Implement method necessary for DestinationStyleOpInterface.
+    std::pair<int64_t, int64_t> getOutputsPositionRange() {
+      int64_t getNumOperands = this->getNumOperands();
+      return {getNumOperands - 1, getNumOperands};
+    }
   }];
 }
 
@@ -361,10 +364,11 @@ def THLO_SortOp : THLO_DstStyleOp<"sort", [RecursiveMemoryEffects,
   let regions = (region SizedRegion<1>:$comparator);
 
   let extraClassDeclaration = [{
-    // Implement functions necessary for DestinationStyleOpInterface.
-    mlir::ValueRange getOutputs() { return getInits(); }
-    unsigned getNumInputs() { return getInputs().size(); };
-    unsigned getNumOutputs() { return getInits().size(); };
+    // Implement method necessary for DestinationStyleOpInterface.
+    std::pair<int64_t, int64_t> getOutputsPositionRange() {
+      int64_t getNumOperands = this->getNumOperands();
+      return {getNumOperands - getInits().size(), getNumOperands};
+    }
   }];
 }
 

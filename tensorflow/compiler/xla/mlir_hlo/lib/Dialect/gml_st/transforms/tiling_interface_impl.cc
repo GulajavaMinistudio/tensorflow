@@ -24,6 +24,7 @@ limitations under the License.
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tensor/Utils/Utils.h"
 #include "mlir/Dialect/Utils/StructuredOpsUtils.h"
+#include "mlir/Interfaces/DestinationStyleOpInterface.h"
 
 namespace mlir {
 namespace gml_st {
@@ -35,7 +36,7 @@ struct ExternalLinalgOpTilingInterface
           ExternalLinalgOpTilingInterface<LinalgOpTy>, LinalgOpTy> {
   /// Return the destination operands.
   SmallVector<Value> getDestinationOperands(Operation *op, OpBuilder &) const {
-    return cast<linalg::DestinationStyleOpInterface>(op).getOutputOperands();
+    return cast<DestinationStyleOpInterface>(op).getOutputOperands();
   }
 
   /// Return the loop iterator type.
@@ -72,7 +73,7 @@ struct ExternalLinalgOpTilingInterface
                                          ArrayRef<OpFoldResult> sizes) const {
     Location loc = op->getLoc();
     linalg::LinalgOp linalgOp = cast<linalg::LinalgOp>(op);
-    SmallVector<Value> valuesToTile = linalgOp.getInputAndOutputOperands();
+    OperandRange valuesToTile = linalgOp->getOperands();
     SmallVector<Optional<linalg::SliceParameters>> allSliceParams =
         linalg::computeAllSliceParameters(b, loc, linalgOp, valuesToTile,
                                           offsets, sizes, {}, true);
@@ -96,7 +97,7 @@ struct ExternalLinalgOpTilingInterface
     }
 
     SmallVector<Type> resultTensorTypes = llvm::to_vector(llvm::map_range(
-        linalgOp.getOutputTensorOperands(), [&](OpOperand *opOperand) {
+        linalgOp.getOutputOperands(), [&](OpOperand *opOperand) {
           return tiledOperands[opOperand->getOperandNumber()].getType();
         }));
 
