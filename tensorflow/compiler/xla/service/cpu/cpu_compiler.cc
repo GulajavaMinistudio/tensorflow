@@ -97,6 +97,7 @@ limitations under the License.
 #include "tensorflow/compiler/xla/mlir/transforms/runtime/compilation_pipeline_cpu.h"
 #include "tensorflow/compiler/xla/mlir/transforms/runtime/compiler.h"
 #include "tensorflow/compiler/xla/mlir_hlo/include/mlir-hlo/Dialect/gml_st/transforms/passes.h"
+#include "tensorflow/compiler/xla/mlir_hlo/include/mlir-hlo/Dialect/lhlo/IR/lhlo_ops.h"
 #include "tensorflow/compiler/xla/mlir_hlo/include/mlir-hlo/Dialect/mhlo/IR/hlo_ops.h"
 #include "tensorflow/compiler/xla/mlir_hlo/include/mlir-hlo/Dialect/mhlo/transforms/passes.h"
 #include "tensorflow/compiler/xla/mlir_hlo/include/mlir-hlo/Transforms/passes.h"
@@ -135,6 +136,7 @@ limitations under the License.
 #include "tensorflow/compiler/xla/service/cpu/ir_emitter.h"
 #include "tensorflow/compiler/xla/service/cpu/mlir_layout_resolution.h"
 #include "tensorflow/compiler/xla/service/cpu/parallel_task_assignment.h"
+#include "tensorflow/compiler/xla/service/cpu/runtime/custom_call.h"
 #include "tensorflow/compiler/xla/service/cpu/simple_orc_jit.h"
 #include "tensorflow/compiler/xla/service/cpu/xla_framework.h"
 #include "tensorflow/compiler/xla/service/dfs_hlo_visitor_with_default.h"
@@ -298,19 +300,43 @@ se::Platform::Id CpuAotCompilationOptions::PlatformId() const {
 
 CpuXlaRuntimeAotCompilationResult::CpuXlaRuntimeAotCompilationResult(
     HloModuleProto hlo, const std::string& obj_file,
-    const std::string& mlir_module, const BufferAssignment& buffer_assignment,
-    XlaFrameworkMapping xla_framework_mapping) {
+    const std::string& mlir_module, XlaFrameworkMapping xla_framework_mapping) {
   XlaRuntimeExecutableProto xla_runtime_executable;
   *xla_runtime_executable.mutable_hlo_module_proto() = hlo;
   xla_runtime_executable.set_obj_file(obj_file);
   xla_runtime_executable.set_mlir_module(mlir_module);
+
   *xla_runtime_cpu_executable_.mutable_xla_runtime_executable() =
       xla_runtime_executable;
-
   *xla_runtime_cpu_executable_.mutable_xla_framework_mapping() =
       xla_framework_mapping.ToProto();
-  *xla_runtime_cpu_executable_.mutable_buffer_assignment() =
-      buffer_assignment.ToProto();
+}
+
+StatusOr<std::unique_ptr<Executable>>
+CpuXlaRuntimeAotCompilationResult::LoadExecutable(
+    Compiler* compiler, se::StreamExecutor* executor) const {
+  XlaRuntimeExecutableProto xla_runtime_executable =
+      xla_runtime_cpu_executable_.xla_runtime_executable();
+  TF_ASSIGN_OR_RETURN(HloModuleConfig hlo_module_config,
+                      HloModule::CreateModuleConfigFromProto(
+                          xla_runtime_executable.hlo_module_proto(),
+                          GetDebugOptionsFromFlags()));
+  TF_ASSIGN_OR_RETURN(
+      std::unique_ptr<HloModule> hlo_module,
+      HloModule::CreateFromProto(xla_runtime_executable.hlo_module_proto(),
+                                 hlo_module_config));
+
+  XlaFrameworkMapping xla_framework_mapping;
+  xla_framework_mapping.FromProto(
+      xla_runtime_cpu_executable_.xla_framework_mapping());
+
+  TF_ASSIGN_OR_RETURN(std::unique_ptr<BufferAssignment> buffer_assignment,
+                      compiler->AssignBuffers(hlo_module.get()));
+
+  return CpuExecutable::LoadFromObjFile(
+      std::move(hlo_module), xla_runtime_executable.obj_file(),
+      xla_runtime_executable.mlir_module(), std::move(buffer_assignment),
+      xla_framework_mapping);
 }
 
 CpuAotCompilationResult::CpuAotCompilationResult(
@@ -1399,10 +1425,12 @@ StatusOr<std::unique_ptr<XlaRuntimeCpuExecutable>> GetXlaRuntimeCpuExecutable(
   opts.specialization = runtime::JitExecutable::Specialization::kDisabled;
   opts.compiler.register_dialects =
       [](xla::runtime::DialectRegistry& dialects) {
-        dialects->insert<mlir::mhlo::MhloDialect>();
+        dialects->insert<mlir::mhlo::MhloDialect, mlir::lmhlo::LmhloDialect>();
         runtime::RegisterDefaultXlaCpuRuntimeDialects(dialects);
         RegisterHloXlaRuntimePipelineDialects(dialects);
       };
+  opts.compiler.symbols_binding =
+      runtime::ToSymbolsBinding(PopulateXlaCpuCustomCall);
   opts.compiler.create_compilation_pipeline =
       [copts](xla::runtime::PassManager& passes) {
         CreateDefaultHloXlaRuntimePipeline(passes);
@@ -1794,8 +1822,7 @@ StatusOr<std::unique_ptr<AotCompilationResult>> CpuCompiler::Export(
 
   std::unique_ptr<AotCompilationResult> result =
       std::make_unique<CpuXlaRuntimeAotCompilationResult>(
-          module_proto, obj_file, mlir_module,
-          cpu_executable->buffer_assignment(), xla_framework_mapping);
+          module_proto, obj_file, mlir_module, xla_framework_mapping);
   return result;
 }
 

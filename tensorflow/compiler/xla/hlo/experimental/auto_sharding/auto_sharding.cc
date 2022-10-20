@@ -46,7 +46,7 @@ limitations under the License.
 #include "tensorflow/compiler/xla/service/hlo_sharding.h"
 #include "tensorflow/compiler/xla/service/hlo_sharding_util.h"
 #include "tensorflow/compiler/xla/service/sharding_propagation.h"
-#include "tensorflow/core/platform/errors.h"
+#include "tensorflow/tsl/platform/errors.h"
 #include "tensorflow/tsl/platform/status.h"
 #include "ortools/linear_solver/linear_solver.h"
 #include "ortools/linear_solver/linear_solver.pb.h"
@@ -1173,18 +1173,18 @@ BuildStrategyAndCost(const HloInstructionSequence& sequence,
             if (!input_spec.has_value()) {  // invalid reshape
               continue;
             }
-            std::vector<double> resharding_cost = ReshardingCostVector(
-                strategy_map.at(indices).get(), indices->shape(), *input_spec,
-                cluster_env);
-            std::vector<std::vector<double>> resharding_costs{resharding_cost,
-                                                              resharding_cost};
+            std::vector<std::vector<double>> resharding_cost =
+                GenerateReshardingCostsForAllOperands(
+                    ins, output_spec, strategy_map, cluster_env, call_graph,
+                    {input_spec, std::nullopt});
+
             strategies->leaf_vector.push_back(
                 ShardingStrategy({name,
                                   output_spec,
                                   compute_cost,
                                   communication_cost,
                                   memory_cost,
-                                  std::move(resharding_costs),
+                                  std::move(resharding_cost),
                                   {*input_spec}}));
           }
         }
@@ -1660,8 +1660,28 @@ BuildStrategyAndCost(const HloInstructionSequence& sequence,
               src_strategies, ins->shape(), instruction_id,
               /* have_memory_cost= */ true, leaf_strategies, cluster_env,
               trimmed_strategy_map);
+        } else if (ins->has_sharding()) {
+          strategies = CreateLeafStrategyVector(instruction_id, ins,
+                                                strategy_map, leaf_strategies);
+        } else if (OutputInputSameShapes(ins)) {
+          auto* partitioner =
+              GetCustomCallPartitioner(ins->custom_call_target());
+          if (partitioner && partitioner->IsCustomCallShardable(ins)) {
+            // Follows operand 0's strategies if this custom-call op is
+            // shardable and has the same input and output sizes.
+            const HloInstruction* operand = ins->operand(0);
+            const StrategyVector* src_strategies =
+                strategy_map.at(operand).get();
+            strategies = MaybeFollowInsStrategyVector(
+                src_strategies, ins->shape(), instruction_id,
+                /* have_memory_cost= */ true, leaf_strategies, cluster_env,
+                trimmed_strategy_map);
+          }
         } else {
-          LOG(FATAL) << "Unknown CustomCall instruction: " + ins->name();
+          strategies = CreateLeafStrategyVector(instruction_id, ins,
+                                                strategy_map, leaf_strategies);
+          AddReplicatedStrategy(ins, ins->shape(), cluster_env, strategy_map,
+                                strategies, replicated_penalty);
         }
         break;
       }
@@ -2095,11 +2115,11 @@ CallORToolsSolver(int64_t N, int64_t M, const std::vector<int>& s_len,
     }
     */
 
-    return tensorflow::errors::Internal(
+    return tsl::errors::Internal(
         "MPSolver could not find any feasible solution.");
   }
   if (status != operations_research::MPSolver::OPTIMAL) {
-    return tensorflow::errors::Internal("Solver errors.");
+    return tsl::errors::Internal("Solver errors.");
   }
 
   LOG(INFO) << "Solver Status: " << status
@@ -2295,7 +2315,7 @@ void CheckHloSharding(const HloInstructionSequence& sequence,
         LOG(INFO) << "Instruction is not fully sharded: (" << size << " GB) "
                   << ins->ToString();
       }
-    } else {
+    } else if (!ins->has_sharding()) {
       LOG(INFO) << "Instruction does not have sharding: " << ins->name();
     }
       for (const auto& op : ins->operands()) {
@@ -2724,7 +2744,11 @@ absl::flat_hash_map<std::string, std::vector<HloSharding>> SaveUserShardings(
     LOG(INFO) << "User shardings that need to be kept (printing only the 1st "
                  "elemenet of tuples): ";
     for (const auto& tmp : preserve_shardings) {
-      LOG(INFO) << tmp.first << ": " << tmp.second.at(0).ToString();
+      std::string sharding;
+      for (const auto& s : tmp.second) {
+        sharding += s.ToString() + ",";
+      }
+      LOG(INFO) << tmp.first << ": " << sharding;
     }
   }
   return preserve_shardings;
@@ -2737,33 +2761,25 @@ void CheckUserShardingPreservation(
         preserve_shardings) {
   for (const auto computation : module->computations()) {
     for (const auto inst : computation->instructions()) {
-      if (preserve_shardings.find(inst->name()) != preserve_shardings.end()) {
+      if (preserve_shardings.find(inst->name()) == preserve_shardings.end()) {
+        continue;
+      }
         if (!inst->has_sharding()) {
           LOG(FATAL) << "User sharding is not preserved! Instruction with name "
                      << inst->name() << " should be: "
                      << preserve_shardings.at(inst->name())[0].ToString()
                      << "\nbut it's empty.";
-        } else if (preserve_shardings.at(inst->name())[0].ToString() !=
-                   inst->sharding().ToString()) {
+        } else if (!inst->sharding().IsTuple() &&
+                   preserve_shardings.at(inst->name())[0].ToString() !=
+                       inst->sharding().ToString()) {
           LOG(FATAL) << "User sharding is not preserved! Instruction with name "
                      << inst->name() << " should be: "
                      << preserve_shardings.at(inst->name())[0].ToString()
                      << "\nbut it's: " << inst->sharding().ToString();
-        }
-      } else if (inst->shape().IsTuple()) {
-        const std::vector<HloSharding>* preserve_shardings_tuple;
-        if (preserve_shardings.find(inst->name()) != preserve_shardings.end()) {
-          preserve_shardings_tuple = &preserve_shardings.at(inst->name());
-        } else {
-          continue;
-        }
-        if (!inst->has_sharding()) {
-          LOG(FATAL) << "Tuple sharding is not preserved! Instruction "
-                        "with name "
-                     << inst->name() << " should be have shardings,"
-                     << " but it's empty.";
-        }
-        for (size_t i = 0; i < inst->shape().tuple_shapes_size(); i++) {
+        } else if (inst->sharding().IsTuple()) {
+          const std::vector<HloSharding>* preserve_shardings_tuple =
+              &preserve_shardings.at(inst->name());
+          for (size_t i = 0; i < inst->shape().tuple_shapes_size(); i++) {
           if (preserve_shardings_tuple->at(i).ToString() !=
               inst->sharding().tuple_elements().at(i).ToString()) {
             LOG(FATAL) << "Tuple sharding is not preserved! Instruction "
@@ -2774,8 +2790,8 @@ void CheckUserShardingPreservation(
                        << "\nbut it's: "
                        << inst->sharding().tuple_elements().at(i).ToString();
           }
+          }
         }
-      }
     }
   }
 }
