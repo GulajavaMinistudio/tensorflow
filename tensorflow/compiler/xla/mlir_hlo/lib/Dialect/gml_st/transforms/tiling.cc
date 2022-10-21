@@ -41,6 +41,17 @@ limitations under the License.
 
 namespace mlir {
 namespace gml_st {
+
+void TilingOptions::setTileSizeComputationFn(ArrayRef<int64_t> ts) {
+  SmallVector<int64_t, 4> tileSizes(ts.begin(), ts.end());
+  tileSizeComputationFn = [tileSizes](OpBuilder &b, Operation *op) {
+    return llvm::to_vector<4>(map_range(tileSizes, [&](int64_t s) {
+      Value v = b.create<arith::ConstantIndexOp>(op->getLoc(), s);
+      return v;
+    }));
+  };
+}
+
 namespace {
 
 #define GEN_PASS_DEF_TILINGPASS
@@ -157,13 +168,22 @@ struct DimOfMaterializedTilePattern : public OpRewritePattern<tensor::DimOp> {
     Operation *def = op.getSource().getDefiningOp();
     if (!def) return failure();
 
-    if (auto materializeOp = llvm::dyn_cast<MaterializeOp>(def)) {
-      Value set = materializeOp.getSet();
-      if (!set.getType().isa<TileType>()) return failure();
-      rewriter.replaceOpWithNewOp<gml_st::SizeOp>(op, set, op.getIndex());
-      return success();
-    }
-    return failure();
+    auto materializeOp = llvm::dyn_cast<MaterializeOp>(def);
+    if (!materializeOp) return failure();
+
+    auto tileOp = materializeOp.getSet().getDefiningOp<gml_st::TileOp>();
+    if (!tileOp) return failure();
+
+    Optional<int64_t> indexOr = op.getConstantIndex();
+    if (!indexOr.has_value()) return failure();
+
+    Value tileSizeValue =
+        tileOp.isDynamicSize(*indexOr)
+            ? tileOp.getDynamicSize(*indexOr)
+            : rewriter.create<arith::ConstantIndexOp>(
+                  op.getLoc(), tileOp.getStaticSize(*indexOr));
+    rewriter.replaceOp(op, tileSizeValue);
+    return success();
   }
 };
 

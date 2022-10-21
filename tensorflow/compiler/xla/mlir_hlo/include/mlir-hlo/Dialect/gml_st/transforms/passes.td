@@ -62,6 +62,13 @@ def TilingReductionPass : Pass<"gml-tiling-reduction", "mlir::func::FuncOp"> {
                            "::mlir::arith::ArithDialect"];
 }
 
+def TilingCwiseGPUWarpsPass : Pass<"gml-tiling-cwise-gpu-warps", "mlir::func::FuncOp"> {
+  let summary = "Tile cwise linalg.generic for GPU on the warp level";
+  let constructor = "::mlir::gml_st::createTilingCwiseGPUWarpsPass()";
+  let dependentDialects = ["::mlir::gml_st::GmlStDialect",
+                           "::mlir::arith::ArithDialect"];
+}
+
 def TilingSoftmaxPass : Pass<"gml-tiling-softmax", "mlir::func::FuncOp"> {
   let summary = "Match, tile, and fuse softmax implementations";
   let constructor = "::mlir::gml_st::createTilingSoftmaxPass()";
@@ -74,19 +81,10 @@ def TilingSoftmaxPass : Pass<"gml-tiling-softmax", "mlir::func::FuncOp"> {
   ];
 }
 
-def ComposeSetOpsPass : Pass<"gml-compose-set-ops", "mlir::func::FuncOp"> {
-  let summary = "Compose set operations.";
-  let constructor = "::mlir::gml_st::createComposeSetOpsPass()";
-}
-
 def CollapseMaterializeOpsPass : Pass<"gml-collapse-materialize-ops",
     "mlir::func::FuncOp"> {
   let summary = "Collapse (or uncollapse) materialize operations.";
   let constructor = "::mlir::gml_st::createCollapseMaterializeOpsPass()";
-  let options = [
-    Option<"reverse_", "reverse", "bool", /*default=*/"false", "Whether to "
-        "revert collapsing of materialize operations.">,
-  ];
 }
 
 def GmlStToScf : Pass<"gml-st-to-scf", "mlir::func::FuncOp"> {
@@ -125,4 +123,23 @@ def VectorizeGmlStLoopsPass :
                "llvm::cl::ZeroOrMore">,
   ];
   let dependentDialects = ["::mlir::vector::VectorDialect"];
+}
+
+def TransformScatterForCpuPass :
+    Pass<"xla-cpu-transform-scatter", "mlir::func::FuncOp"> {
+  let summary = "Transform scatter ops for running on CPU";
+
+  let constructor = "createTransformScatterForCpuPass()";
+}
+
+def TransformMatmulForCpuPass :
+    Pass<"xla-cpu-transform-matmul", "mlir::func::FuncOp"> {
+  let summary = "Transform matmul ops for running on CPU";
+
+  let constructor = "createTransformMatmulForCpuPass()";
+
+  let options = [
+    ListOption<"tileSizes", "tile-sizes", "int64_t",
+               "Tile sizes for a `linalg.matmul`">,
+  ];
 }

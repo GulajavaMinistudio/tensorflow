@@ -105,17 +105,18 @@ def THLO_GatherOp : THLO_DstStyleOp<"gather", [
     DeclareOpInterfaceMethods<TilingInterface>]> {
   let summary = "Destination-style twin for `mhlo.gather`";
   let description = [{
-    Does not currently support the full interface of mhlo.gather. In particular:
-    - index_vector_dim is start_indices.shape.rank - 1
-    - slice_sizes is [1,1,...]
-    - offset_dims is []
-    - collapsed_slice_dims is range(operand.shape.rank)
-    - start_index_map is range(slice_sizes.shape[index_vector_dim])
+    tHLO GatherOp corresponds to the canonicalized mHLO GatherOp, i.e.
+
+    - start_indices is a two-dimensional tensor.
+    - index_vector_dim is 1
+    - offset_dims is [1, 2, ...]
+    - collapsed_slice_dims is []
+    - start_index_map is range(start_indices.shape[1])
   }];
   let arguments = (ins
     // Input args
     TensorOrMemref:$operand,
-    TensorOrMemrefOf<[I64]>:$start_indices,
+    TensorOrMemrefOf<[Index]>:$start_indices,
     // Output arg
     TensorOrMemref:$init
   );
@@ -146,7 +147,7 @@ def THLO_ScatterOp : THLO_DstStyleOp<"scatter", [
   }];
   let arguments = (ins
     // Input args
-    TensorOrMemrefOf<[I32, I64]>:$indices,
+    TensorOrMemrefOf<[Index]>:$indices,
     TensorOrMemref:$updates,
     // Output arg
     TensorOrMemref:$init

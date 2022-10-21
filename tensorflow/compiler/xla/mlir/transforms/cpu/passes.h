@@ -29,8 +29,6 @@ namespace cpu {
 // Auxiliary passes for lowering to XLA Cpu runtime.
 //===----------------------------------------------------------------------===//
 
-std::unique_ptr<mlir::OperationPass<mlir::func::FuncOp>>
-createTransformScatterForCpuPass();
 std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>>
 createConvertLmhloToCpuRuntimePass();
 

@@ -30,6 +30,7 @@ from tensorflow.python.eager import context
 from tensorflow.python.eager.polymorphic_function import monomorphic_function
 from tensorflow.python.eager.polymorphic_function import polymorphic_function
 from tensorflow.python.eager.polymorphic_function import quarantine
+from tensorflow.python.framework import config
 from tensorflow.python.framework import constant_op
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import errors
@@ -407,55 +408,6 @@ class DefunTest(test.TestCase, parameterized.TestCase):
     with ops.device('cpu:0'):
       has_device.f()
     self.assertIn('CPU', has_device.v.device)
-
-  @test_util.run_in_graph_and_eager_modes
-  def testMultipleDeviceCheck(self):
-
-    def f():
-      with ops.device('cpu'):
-        return test_ops.device_placement_op()
-
-    func = quarantine.defun(f)
-    with ops.device('cpu:0'):
-      output = self.evaluate(func())
-      self.assertIn(compat.as_bytes('CPU:0'), output)
-
-  @test_util.run_in_graph_and_eager_modes
-  def testDeviceAnnotationsRespected(self):
-
-    def multi_device_fn():
-      with ops.device('/cpu:0'):
-        s0 = test_ops.device_placement_op()
-      with ops.device('/cpu:1'):
-        s1 = test_ops.device_placement_op()
-      with ops.device('/cpu:2'):
-        s2 = test_ops.device_placement_op()
-      s3 = test_ops.device_placement_op()
-      return s0, s1, s2, s3
-
-    defined = quarantine.defun(multi_device_fn)
-    outputs = self.evaluate(defined())
-    self.assertLen(total_function_cache(defined), 1)
-    self.assertIn(compat.as_bytes('CPU:0'), outputs[0])
-    self.assertIn(compat.as_bytes('CPU:1'), outputs[1])
-    self.assertIn(compat.as_bytes('CPU:2'), outputs[2])
-
-    with ops.device('/cpu:3'):
-      outputs = self.evaluate(defined())
-    # All function definitions are agnostic to call site devices.
-    self.assertLen(total_function_cache(defined), 1)
-    self.assertIn(compat.as_bytes('CPU:0'), outputs[0])
-    self.assertIn(compat.as_bytes('CPU:1'), outputs[1])
-    self.assertIn(compat.as_bytes('CPU:2'), outputs[2])
-    self.assertIn(compat.as_bytes('CPU:3'), outputs[3])
-
-    with ops.device('/cpu:0'):
-      outputs = self.evaluate(defined())
-    self.assertLen(total_function_cache(defined), 1)
-    self.assertIn(compat.as_bytes('CPU:0'), outputs[0])
-    self.assertIn(compat.as_bytes('CPU:1'), outputs[1])
-    self.assertIn(compat.as_bytes('CPU:2'), outputs[2])
-    self.assertIn(compat.as_bytes('CPU:0'), outputs[3])
 
   def testCacheObjectHashCollisions(self):
 
@@ -1090,8 +1042,13 @@ class DefunTest(test.TestCase, parameterized.TestCase):
     with context.graph_mode(), self.cached_session():
       with ops.get_default_graph().as_default():
         t = constant_op.constant([[1.0, 2.0], [3.0, 4.0]])
-        quarantine.register(defun_matmul, t, t)
-        quarantine.register(add, t, t)
+        concrete_func_matmul = defun_matmul.get_concrete_function(t, t)
+        concrete_func_matmul.add_to_graph()
+        concrete_func_matmul.add_gradient_functions_to_graph()
+
+        concrete_func_add = add.get_concrete_function(t, t)
+        concrete_func_add.add_to_graph()
+        concrete_func_add.add_gradient_functions_to_graph()
 
         graph = ops.get_default_graph()
         # pylint: disable=protected-access
@@ -1231,14 +1188,18 @@ class DefunTest(test.TestCase, parameterized.TestCase):
     with context.graph_mode(), self.cached_session():
       with ops.get_default_graph().as_default():
         t = constant_op.constant([[1.0, 2.0], [3.0, 4.0]])
-        quarantine.register(defun_matmul, t, t)
+        concrete_func = defun_matmul.get_concrete_function(t, t)
+        concrete_func.add_to_graph()
+        concrete_func.add_gradient_functions_to_graph()
 
         graph = ops.get_default_graph()
         # pylint: disable=protected-access
         self.assertLen(graph._functions, 3)
 
         # Test register function with cache, note inputs are ignored.
-        quarantine.register(defun_matmul)
+        concrete_func = defun_matmul.get_concrete_function()
+        concrete_func.add_to_graph()
+        concrete_func.add_gradient_functions_to_graph()
         graph = ops.get_default_graph()
         self.assertLen(graph._functions, 3)
 
@@ -1253,8 +1214,13 @@ class DefunTest(test.TestCase, parameterized.TestCase):
       with ops.get_default_graph().as_default():
         t = constant_op.constant([[1.0, 2.0], [3.0, 4.0]])
         t2 = constant_op.constant([[2.0, 3.0], [4.0, 5.0]])
-        quarantine.register(defun_matmul, t, t)
-        quarantine.register(defun_matmul, t2, t2)
+        concrete_func_t = defun_matmul.get_concrete_function(t, t)
+        concrete_func_t.add_to_graph()
+        concrete_func_t.add_gradient_functions_to_graph()
+
+        concrete_func_t2 = defun_matmul.get_concrete_function(t2, t2)
+        concrete_func_t2.add_to_graph()
+        concrete_func_t2.add_gradient_functions_to_graph()
 
         graph = ops.get_default_graph()
         # Only one function is registered since the input param are in same type
@@ -1326,7 +1292,9 @@ class DefunTest(test.TestCase, parameterized.TestCase):
 
       x = constant_op.constant(1.0)
 
-      quarantine.register(cpu_boost, x)
+      concrete_func = cpu_boost.get_concrete_function(x)
+      concrete_func.add_to_graph()
+      concrete_func.add_gradient_functions_to_graph()
       y = gpu_boost(x)
       y_value = self.evaluate(y)
 
@@ -1368,7 +1336,9 @@ class DefunTest(test.TestCase, parameterized.TestCase):
 
     @quarantine.defun
     def run_on_cpu(t):
-      quarantine.register(on_cpu, t)
+      concrete_func = on_cpu.get_concrete_function(t)
+      concrete_func.add_to_graph()
+      concrete_func.add_gradient_functions_to_graph()
       with ops.device('CPU:0'):
         return on_gpu(t)
 
@@ -2325,3 +2295,68 @@ class DefunArgumentNamingTest(test.TestCase, parameterized.TestCase):
         [b'x', b'y', b'args_1', b'z'],
         [inp.op.get_attr('_user_specified_name')
          for inp in variadic_op.inputs])
+
+
+class DevicePlacementTest(test.TestCase, parameterized.TestCase):
+
+  @test_util.run_in_graph_and_eager_modes
+  def testMultipleDeviceCheck(self):
+
+    def f():
+      with ops.device('cpu'):
+        return test_ops.device_placement_op()
+
+    func = quarantine.defun(f)
+    with ops.device('cpu:0'):
+      output = self.evaluate(func())
+      self.assertIn(compat.as_bytes('CPU:0'), output)
+
+  @test_util.run_in_graph_and_eager_modes
+  def testDeviceAnnotationsRespected(self):
+
+    def multi_device_fn():
+      with ops.device('/cpu:0'):
+        s0 = test_ops.device_placement_op()
+      with ops.device('/cpu:1'):
+        s1 = test_ops.device_placement_op()
+      with ops.device('/cpu:2'):
+        s2 = test_ops.device_placement_op()
+      s3 = test_ops.device_placement_op()
+      return s0, s1, s2, s3
+
+    defined = quarantine.defun(multi_device_fn)
+    outputs = self.evaluate(defined())
+    self.assertLen(total_function_cache(defined), 1)
+    self.assertIn(compat.as_bytes('CPU:0'), outputs[0])
+    self.assertIn(compat.as_bytes('CPU:1'), outputs[1])
+    self.assertIn(compat.as_bytes('CPU:2'), outputs[2])
+
+    with ops.device('/cpu:3'):
+      outputs = self.evaluate(defined())
+    # All function definitions are agnostic to call site devices.
+    self.assertLen(total_function_cache(defined), 1)
+    self.assertIn(compat.as_bytes('CPU:0'), outputs[0])
+    self.assertIn(compat.as_bytes('CPU:1'), outputs[1])
+    self.assertIn(compat.as_bytes('CPU:2'), outputs[2])
+    self.assertIn(compat.as_bytes('CPU:3'), outputs[3])
+
+    with ops.device('/cpu:0'):
+      outputs = self.evaluate(defined())
+    self.assertLen(total_function_cache(defined), 1)
+    self.assertIn(compat.as_bytes('CPU:0'), outputs[0])
+    self.assertIn(compat.as_bytes('CPU:1'), outputs[1])
+    self.assertIn(compat.as_bytes('CPU:2'), outputs[2])
+    self.assertIn(compat.as_bytes('CPU:0'), outputs[3])
+
+
+if __name__ == '__main__':
+  ops.enable_eager_execution()
+  cpus = config.list_physical_devices('CPU')
+  # Set 4 virtual CPUs
+  config.set_logical_device_configuration(cpus[0], [
+      context.LogicalDeviceConfiguration(),
+      context.LogicalDeviceConfiguration(),
+      context.LogicalDeviceConfiguration(),
+      context.LogicalDeviceConfiguration()
+  ])
+  test.main()

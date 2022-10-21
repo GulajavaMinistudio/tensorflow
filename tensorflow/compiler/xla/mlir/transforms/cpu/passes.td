@@ -22,17 +22,6 @@ include "mlir/Pass/PassBase.td"
 // Auxiliary passes for lowering to XLA Cpu runtime.
 //===----------------------------------------------------------------------===//
 
-def TransformScatterForCpuPass :
-    Pass<"xla-cpu-transform-scatter", "mlir::func::FuncOp"> {
-  let summary = "Transform scatter ops for running on CPU";
-
-  let description = [{
-    Transform scatter ops with the preferred parameters for the CPU backend.
-  }];
-
-  let constructor = "createTransformScatterForCpuPass()";
-}
-
 def ConvertLmhloToCpuRuntimePass :
     Pass<"xla-lmhlo-to-cpu-runtime", "mlir::ModuleOp"> {
   let summary = "Converts lmhlo operations to XLA Cpu runtime custom calls";

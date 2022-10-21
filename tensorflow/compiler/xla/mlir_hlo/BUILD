@@ -1300,24 +1300,27 @@ cc_library(
         "include/mlir-hlo/Dialect/gml_st/transforms/transforms.h",
         "lib/Dialect/gml_st/transforms/bufferize_tiled_loop.cc",
         "lib/Dialect/gml_st/transforms/collapse_materialize_ops.cc",
-        "lib/Dialect/gml_st/transforms/compose_set_ops.cc",
         "lib/Dialect/gml_st/transforms/fusion.cc",
         "lib/Dialect/gml_st/transforms/gml_st_to_gpu.cc",
         "lib/Dialect/gml_st/transforms/gml_st_to_scf.cc",
+        "lib/Dialect/gml_st/transforms/linalg_utils.cc",
         "lib/Dialect/gml_st/transforms/tiling.cc",
         "lib/Dialect/gml_st/transforms/tiling_cwise.cc",
+        "lib/Dialect/gml_st/transforms/tiling_cwise_gpu_warps.cc",
         "lib/Dialect/gml_st/transforms/tiling_reduction.cc",
         "lib/Dialect/gml_st/transforms/tiling_softmax.cc",
+        "lib/Dialect/gml_st/transforms/transform_matmul_for_cpu.cc",
+        "lib/Dialect/gml_st/transforms/transform_scatter_for_cpu.cc",
         "lib/Dialect/gml_st/transforms/vectorization.cc",
     ],
     hdrs = [
         "include/mlir-hlo/Dialect/gml_st/transforms/fusion.h",
+        "include/mlir-hlo/Dialect/gml_st/transforms/linalg_utils.h",
         "include/mlir-hlo/Dialect/gml_st/transforms/passes.h",
         "include/mlir-hlo/Dialect/gml_st/transforms/rewriters.h",
         "include/mlir-hlo/Dialect/gml_st/transforms/tiling.h",
     ],
     deps = [
-        ":compose_set_interface",
         ":gml_st",
         ":gml_st_passes_inc_gen",
         ":gml_st_transforms",
@@ -1529,7 +1532,6 @@ gentbl_cc_library(
     td_srcs = [
         "include/mlir-hlo/Dialect/gml_st/IR/gml_st_legacy_ops.td",
         "include/mlir-hlo/Dialect/gml_st/IR/gml_st_set_ops.td",
-        "include/mlir-hlo/Dialect/gml_st/transforms/compose_set_interface.td",
     ],
     deps = [":gml_st_ops_td_files"],
 )
@@ -1540,7 +1542,6 @@ cc_library(
     hdrs = ["include/mlir-hlo/Dialect/gml_st/IR/gml_st_ops.h"],
     includes = ["include"],
     deps = [
-        ":compose_set_interface",
         ":gml_st_ops_inc_gen",
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:ArithDialect",
@@ -1621,40 +1622,6 @@ cc_library(
         "@llvm-project//mlir:Support",
         "@llvm-project//mlir:TensorDialect",
         "@llvm-project//mlir:TensorUtils",
-    ],
-)
-
-gentbl_cc_library(
-    name = "compose_set_interface_inc_gen",
-    compatible_with = get_compatible_with_cloud(),
-    strip_include_prefix = "include",
-    tbl_outs = [
-        (
-            ["-gen-op-interface-decls"],
-            "include/mlir-hlo/Dialect/gml_st/transforms/compose_set_interface.h.inc",
-        ),
-        (
-            ["-gen-op-interface-defs"],
-            "include/mlir-hlo/Dialect/gml_st/transforms/compose_set_interface.cc.inc",
-        ),
-    ],
-    tblgen = "@llvm-project//mlir:mlir-tblgen",
-    td_file = "include/mlir-hlo/Dialect/gml_st/transforms/compose_set_interface.td",
-    deps = ["@llvm-project//mlir:OpBaseTdFiles"],
-)
-
-cc_library(
-    name = "compose_set_interface",
-    srcs = [
-        "include/mlir-hlo/Dialect/gml_st/transforms/compose_set_interface.cc.inc",
-        "include/mlir-hlo/Dialect/gml_st/transforms/compose_set_interface.h.inc",
-        "lib/Dialect/gml_st/transforms/compose_set_interface.cc",
-    ],
-    hdrs = ["include/mlir-hlo/Dialect/gml_st/transforms/compose_set_interface.h"],
-    includes = ["include"],
-    deps = [
-        ":compose_set_interface_inc_gen",
-        "@llvm-project//mlir:IR",
     ],
 )
 

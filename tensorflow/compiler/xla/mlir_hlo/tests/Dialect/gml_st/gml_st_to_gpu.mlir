@@ -109,9 +109,9 @@ func.func @too_deep_nesting() {
   gml_st.parallel (%arg3) = (%c0) to (%c1) step (%c1) {
     gml_st.parallel (%arg4) = (%c0) to (%c1) step (%c1) {
       gml_st.parallel (%arg5) = (%c0) to (%c1) step (%c1) {
-        // expected-error@+1 {{failed to simtfy}}
         gml_st.parallel (%arg6) = (%c0) to (%c1) step (%c1) {
           memref.store %c0, %alloc[] : memref<index>
+          // expected-error@+1 {{failed to simtfy}}
           gml_st.set_yield
         }
         gml_st.set_yield
@@ -134,9 +134,9 @@ func.func @mismatched_bounds() {
   %alloc2 = memref.alloc() : memref<index>
   gml_st.parallel (%arg3) = (%c0) to (%c1) step (%c1) {
     gml_st.parallel (%arg4) = (%c0) to (%c1) step (%c1) {
-      // expected-error@+1 {{failed to simtfy}}
       gml_st.parallel (%arg5) = (%c0) to (%c1) step (%c1) {
         memref.store %c0, %alloc1[] : memref<index>
+        // expected-error@+1 {{failed to simtfy}}
         gml_st.set_yield
       }
       gml_st.parallel (%arg6) = (%c0) to (%c2) step (%c1) {
@@ -157,9 +157,9 @@ func.func @mmultple_induction_vars() {
   %c1 = arith.constant 1 : index
   %c2 = arith.constant 2 : index
   %alloc = memref.alloc() : memref<index>
-  // expected-error@+1 {{failed to simtfy}}
   gml_st.parallel (%arg1, %arg2) = (%c0, %c0) to (%c1, %c1) step (%c1, %c1) {
     memref.store %c0, %alloc[] : memref<index>
+    // expected-error@+1 {{failed to simtfy}}
     gml_st.set_yield
   }
   return
@@ -240,9 +240,7 @@ func.func @vectorized_tiling(%arg0: memref<2048xf32>) -> memref<2048xf32> {
       %1 = vector.transfer_read %subview_2[%c0], %cst {in_bounds = [true]}
         : memref<128xf32, #layout>, vector<128xf32>
       %2 = gml_st.parallel (%arg3) = (%c0) to (%c128) step (%c4) {
-        %3 = gml_st.space [128] : !gml_st.tile<128>
-        %4 = gml_st.tile %3 [%arg3] [4] [1]
-          : !gml_st.tile<128> to !gml_st.tile<4>
+        %4 = gml_st.tile [%arg3] [4] [1] : !gml_st.tile<4>
         %5 = gml_st.materialize %0[%4]
           : vector<128xf32>[!gml_st.tile<4>] to vector<4xf32>
         %6 = math.absf %5 : vector<4xf32>

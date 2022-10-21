@@ -1,7 +1,7 @@
 """TensorFlow workspace initialization. Consult the WORKSPACE on how to use it."""
 
 # Import third party config rules.
-load("//tensorflow:version_check.bzl", "check_bazel_version_at_least")
+load("@bazel_skylib//lib:versions.bzl", "versions")
 load("//third_party/gpus:cuda_configure.bzl", "cuda_configure")
 load("//third_party/gpus:rocm_configure.bzl", "rocm_configure")
 load("//third_party/tensorrt:tensorrt_configure.bzl", "tensorrt_configure")
@@ -50,6 +50,7 @@ load("@tf_runtime//:dependencies.bzl", "tfrt_dependencies")
 load("//tensorflow/tools/toolchains/remote_config:configs.bzl", "initialize_rbe_configs")
 load("//tensorflow/tools/toolchains/remote:configure.bzl", "remote_execution_configure")
 load("//tensorflow/tools/toolchains/clang6:repo.bzl", "clang6_configure")
+load("@rules_jvm_external//:defs.bzl", "maven_install")
 
 def _initialize_third_party():
     """ Load third party repositories.  See above load() statements. """
@@ -926,10 +927,25 @@ def _tf_repositories():
         ],
     )
 
+    # used for adding androidx.annotation dependencies in tflite android jni.
+    maven_install(
+        artifacts = [
+            "androidx.annotation:annotation:aar:1.1.0",
+        ],
+        repositories = [
+            "https://jcenter.bintray.com",
+            "https://maven.google.com",
+            "https://dl.google.com/dl/android/maven2",
+            "https://repo1.maven.org/maven2",
+        ],
+        fetch_sources = True,
+        version_conflict_policy = "pinned",
+    )
+
 def workspace():
     # Check the bazel version before executing any repository rules, in case
     # those rules rely on the version we require here.
-    check_bazel_version_at_least("1.0.0")
+    versions.check("1.0.0")
 
     # Initialize toolchains and platforms.
     _tf_toolchains()
