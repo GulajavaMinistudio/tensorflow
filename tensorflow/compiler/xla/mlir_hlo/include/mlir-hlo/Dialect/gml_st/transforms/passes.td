@@ -78,6 +78,8 @@ def TilingSoftmaxPass : Pass<"gml-tiling-softmax", "mlir::func::FuncOp"> {
     ListOption<"tileSizes", "tile-sizes", "int64_t",
                "Right-aligned tile sizes. Do not tile possible remaining "
                "dimensions", "llvm::cl::ZeroOrMore">,
+    Option<"distributionLabel", "distribution-label", "std::string",
+            /*default=*/"", "Distribution label for generated gml_st.parallel">,
   ];
 }
 
@@ -99,12 +101,6 @@ def GmlStToGpuPass : Pass<"gml-st-to-gpu", "mlir::func::FuncOp"> {
                            "::mlir::arith::ArithDialect",
                            "::mlir::gpu::GPUDialect", "::mlir::scf::SCFDialect",
                            "::mlir::vector::VectorDialect"];
-}
-
-def TiledLoopBufferizePass :
-    Pass<"gml-tiled-loop-bufferize", "mlir::func::FuncOp"> {
-  let summary = "Pass to bufferize linalg.tiled_loop with the ops inside it.";
-  let constructor = "::mlir::gml_st::CreateTiledLoopBufferizePass()";
 }
 
 def VectorizeGmlStLoopsPass :

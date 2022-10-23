@@ -51,7 +51,8 @@ std::unique_ptr<OperationPass<func::FuncOp>> createTilingCwiseGPUWarpsPass();
 
 /// Pass to match, tile, and fuse softmax implementations.
 std::unique_ptr<OperationPass<func::FuncOp>> createTilingSoftmaxPass(
-    bool distribute, ArrayRef<int64_t> tileSizes);
+    bool distribute, ArrayRef<int64_t> tileSizes,
+    StringRef distributionLabel = "");
 std::unique_ptr<OperationPass<func::FuncOp>> createTilingSoftmaxPass();
 
 /// Pass to collapse (or uncollapse) materialize operations.
@@ -60,10 +61,6 @@ std::unique_ptr<OperationPass<func::FuncOp>> createCollapseMaterializeOpsPass();
 /// Create a pass to convert `gml_st.loop` to `scf.for` and `scf.parallel`
 /// loops and memref.load/memref.store accesses.
 std::unique_ptr<OperationPass<func::FuncOp>> createGmlStToScfPass();
-
-// Pass to bufferize `linalg.tiled_loop` including the operations contained in
-// its body.
-std::unique_ptr<OperationPass<func::FuncOp>> CreateTiledLoopBufferizePass();
 
 /// Pass to vectorize linalg.generic ops tiled to gml_st.parallel and gml_st.for
 /// loops.

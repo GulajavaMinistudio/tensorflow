@@ -93,3 +93,53 @@ func.func @skip_vectorization_with_wrong_label(
   func.return %2 : tensor<32xf32>
 }
 // CHECK-NOT: vector.transfer_read
+
+// -----
+
+// CHECK-LABEL: @materialize_to_scalar(
+func.func @materialize_to_scalar(%arg1 : tensor<1xf32>) -> tensor<1xf32> {
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
+  %empty = tensor.empty() : tensor<1xf32>
+  %1 = gml_st.parallel (%arg2) = (%c0) to (%c1) step (%c1)
+            distribution ("test") {
+    %tile = gml_st.tile [1][1][1] : !gml_st.tile<1>
+    %5 = gml_st.materialize %arg1[%tile]
+      : tensor<1xf32>[!gml_st.tile<1>] to tensor<1xf32>
+    %3 = gml_st.materialize %5[%tile]
+      : tensor<1xf32>[!gml_st.tile<1>] to f32
+    // CHECK: gml_st.materialize {{.*}} : vector<1xf32>[!gml_st.tile<1>] to f32
+    %2 = arith.negf %3 : f32
+    gml_st.set_yield %2 into %empty[%tile]
+      : f32 into tensor<1xf32>[!gml_st.tile<1>]
+  } : tensor<1xf32>
+  return %1 : tensor<1xf32>
+}
+
+// -----
+
+// CHECK-LABEL: @materialize_to_dynamic_tile(
+func.func @materialize_to_dynamic_tile(%arg1 : tensor<4xf32>, %size : index)
+    -> tensor<4xf32> {
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
+  %empty = tensor.empty() : tensor<4xf32>
+  %0 = gml_st.parallel (%arg3) = (%c0) to (%c1) step (%c1)
+            distribution ("test") {
+    %tile = gml_st.tile [1][4][1] : !gml_st.tile<4>
+    %1 = gml_st.parallel (%arg2) = (%c0) to (%c1) step (%c1)
+              distribution ("test") {
+      %2 = gml_st.materialize %arg1[%tile]
+        : tensor<4xf32>[!gml_st.tile<4>] to tensor<4xf32>
+      %dynTile = gml_st.tile [1][%size][1] : !gml_st.tile<?>
+      %3 = gml_st.materialize %2[%dynTile]
+        : tensor<4xf32>[!gml_st.tile<?>] to tensor<?xf32>
+      gml_st.set_yield %3 into %empty[%dynTile]
+        : tensor<?xf32> into tensor<4xf32>[!gml_st.tile<?>]
+    } : tensor<4xf32>
+    gml_st.set_yield %1 into %empty[%tile]
+      : tensor<4xf32> into tensor<4xf32>[!gml_st.tile<4>]
+  } : tensor<4xf32>
+  return %0 : tensor<4xf32>
+}
+// CHECK-NOT: vector

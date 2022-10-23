@@ -1,4 +1,4 @@
-load("//tensorflow/core/platform:rules_cc.bzl", "cc_library")
+load("//tensorflow/tsl/platform:rules_cc.bzl", "cc_library")
 load("//tensorflow:tensorflow.default.bzl", "get_compatible_with_cloud")
 load("@llvm-project//mlir:tblgen.bzl", "gentbl_cc_library", "gentbl_filegroup", "td_library")
 
@@ -476,6 +476,7 @@ cc_library(
         "@stablehlo//:base",
         "@stablehlo//:broadcast_utils",
         "@stablehlo//:chlo_ops",
+        "@stablehlo//:stablehlo_type_inference",
     ],
 )
 
@@ -1277,28 +1278,10 @@ cc_library(
 )
 
 cc_library(
-    name = "gml_st_pipeline",
-    srcs = ["lib/Transforms/gml_st_pipeline.cc"],
-    hdrs = ["include/mlir-hlo/Transforms/gml_st_pipeline.h"],
-    deps = [
-        ":all_passes",
-        ":gml_st_passes",
-        ":mhlo_passes",
-        "@llvm-project//mlir:AffineToStandard",
-        "@llvm-project//mlir:BufferizationTransforms",
-        "@llvm-project//mlir:LinalgTransforms",
-        "@llvm-project//mlir:Pass",
-        "@llvm-project//mlir:SCFToControlFlow",
-        "@llvm-project//mlir:Transforms",
-    ],
-)
-
-cc_library(
     name = "gml_st_passes",
     srcs = [
         "include/mlir-hlo/Dialect/gml_st/transforms/passes.h.inc",
         "include/mlir-hlo/Dialect/gml_st/transforms/transforms.h",
-        "lib/Dialect/gml_st/transforms/bufferize_tiled_loop.cc",
         "lib/Dialect/gml_st/transforms/collapse_materialize_ops.cc",
         "lib/Dialect/gml_st/transforms/fusion.cc",
         "lib/Dialect/gml_st/transforms/gml_st_to_gpu.cc",
@@ -1420,7 +1403,6 @@ cc_binary(
         ":all_passes",
         ":gml_st",
         ":gml_st_passes",
-        ":gml_st_pipeline",
         ":gml_st_test_passes",
         ":hlo_dialect_registration",
         ":lhlo",

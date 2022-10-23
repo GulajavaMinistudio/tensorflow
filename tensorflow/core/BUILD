@@ -819,24 +819,14 @@ filegroup(
         "//tensorflow/core/lib/hash:mobile_srcs_no_runtime",
         "//tensorflow/core/lib/strings:mobile_srcs_no_runtime",
         "//tensorflow/core/platform:mobile_srcs_no_runtime",
+        "//tensorflow/core/profiler:mobile_srcs_no_runtime",
         "//tensorflow/core/public:mobile_srcs_no_runtime",
         "//tensorflow/core/util:mobile_srcs_no_runtime",
         "//tensorflow/core/util/ctc:mobile_srcs",
-        "//tensorflow/core/profiler:mobile_srcs_no_runtime",
         "//tensorflow/tsl/framework:mobile_srcs_no_runtime",
         "//tensorflow/tsl/framework/fixedpoint:mobile_srcs_no_runtime",
         "//tensorflow/tsl/platform:mobile_srcs_no_runtime",
-    ] + glob(
-        [
-            "client/**/*.cc",
-        ],
-        exclude = [
-            "**/*test.*",
-            "**/*testutil*",
-            "**/*testlib*",
-            "**/*main.cc",
-        ],
-    ),
+    ],
     visibility = ["//visibility:public"],
 )
 
@@ -1032,6 +1022,7 @@ cc_library(
     ],
     visibility = ["//visibility:public"],
     deps = [
+        "//tensorflow/core/platform:resource",
         "//tensorflow/core/util:stats_calculator_portable",
         "//tensorflow/core:mobile_additional_lib_deps",
     ] + tf_portable_proto_lib() + tf_portable_deps_no_runtime(),
@@ -1067,6 +1058,7 @@ cc_library(
 #         "@com_google_absl//absl/strings",
 #         "@com_google_absl//absl/types:optional",
 #         "//tensorflow/core/util:managed_stack_trace",
+#         "//tensorflow/core/platform:resource",
 #         "//tensorflow/tsl/framework/fixedpoint",
 #         "//tensorflow/core/util:stats_calculator_portable",
 #         "//tensorflow/core:mobile_additional_lib_deps",

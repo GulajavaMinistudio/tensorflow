@@ -430,7 +430,7 @@ tf_cc_test(
         "//tensorflow/compiler/xla/service:hlo_parser",
         "//tensorflow/compiler/xla/tests:hlo_test_base",
         "//tensorflow/compiler/xla/tests:xla_internal_test_main",
-        "//tensorflow/core:test",
+        "//tensorflow/tsl/lib/core:status_test_util",
     ],
 )
 
@@ -1388,9 +1388,9 @@ cc_library(
     name = "interpreter_plugin",
     deps = [
         ":service",
-        "//tensorflow/compiler/xla/service/interpreter:compiler",
-        "//tensorflow/compiler/xla/service/interpreter:interpreter_transfer_manager",
-        "//tensorflow/compiler/xla/service/interpreter:platform",
+        "//tensorflow/compiler/xla/backends/interpreter:compiler",
+        "//tensorflow/compiler/xla/backends/interpreter:interpreter_transfer_manager",
+        "//tensorflow/compiler/xla/backends/interpreter:platform",
         "//tensorflow/compiler/xla/stream_executor",
     ],
 )

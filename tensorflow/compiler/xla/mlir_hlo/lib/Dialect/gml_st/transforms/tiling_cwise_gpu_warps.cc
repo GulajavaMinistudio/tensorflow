@@ -35,19 +35,23 @@ namespace gml_st {
 
 namespace {
 
+bool isFusable(linalg::GenericOp genericOp) {
+  // The cwise op will be fusable if any user is also a cwise op.
+  return llvm::any_of(genericOp->getUsers(), [&](Operation* user) {
+    return llvm::isa<MaterializeOp>(user) || isCwiseGenericOp(user);
+  });
+}
+
 struct TilingCwiseGPUWarpsPattern : OpRewritePattern<linalg::GenericOp> {
   using OpRewritePattern<linalg::GenericOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(linalg::GenericOp genericOp,
                                 PatternRewriter& rewriter) const override {
     // Only match on cwise ops.
-    int64_t arity;
-    if (!isCwiseGenericOp(genericOp, arity)) return failure();
+    if (!isCwiseGenericOp(genericOp)) return failure();
 
-    // Only match ops of rank.
-    auto genericOpTy =
-        genericOp.getResultTypes().front().cast<RankedTensorType>();
-    if (genericOpTy.getRank() != 1) return failure();
+    // Tile only the root and fuse all other cwise ops.
+    if (isFusable(genericOp)) return failure();
 
     // Constants and attributes.
     Location loc = genericOp.getLoc();
@@ -59,6 +63,8 @@ struct TilingCwiseGPUWarpsPattern : OpRewritePattern<linalg::GenericOp> {
     StringAttr warpDist = rewriter.getStringAttr("warp");
 
     // Create `gml_st.parallel` loop to distribute among lanes.
+    auto genericOpTy =
+        genericOp.getResultTypes().front().cast<RankedTensorType>();
     Value init = genericOp.getOutputs().front();
     auto ploop = rewriter.create<gml_st::ParallelOp>(
         loc, genericOpTy, c0, cWarpSize, c1, warpDist,
