@@ -127,23 +127,6 @@ tf_proto_library(
 )
 
 tf_proto_library(
-    name = "coordination_config_proto",
-    srcs = ["coordination_config.proto"],
-    cc_api_version = 2,
-    make_default_target_header_only = True,
-)
-
-tf_proto_library(
-    name = "coordination_service_proto",
-    srcs = ["coordination_service.proto"],
-    has_services = 1,
-    cc_api_version = 2,
-    cc_stubby_versions = ["2"],
-    create_grpc_library = True,
-    create_service = True,
-)
-
-tf_proto_library(
     name = "replay_log_proto",
     srcs = ["replay_log.proto"],
     cc_api_version = 2,
@@ -184,7 +167,6 @@ exports_files(
         "tensorflow_server.proto",
         "trackable_object_graph.proto",
         "transport_options.proto",
-        "distributed_runtime_payloads.proto",
         "core_platform_payloads.proto",
         "fingerprint.proto",
     ],
@@ -219,17 +201,16 @@ tf_proto_library(
         "tensorflow_server.proto",
         "trackable_object_graph.proto",
         "transport_options.proto",
-        "distributed_runtime_payloads.proto",
         "core_platform_payloads.proto",
         "fingerprint.proto",
     ],
     cc_api_version = 2,
     make_default_target_header_only = True,
     protodeps = [
-        ":coordination_config_proto",
         ":error_codes_proto_impl",
         "//tensorflow/core/framework:protos_all",
         "//tensorflow/tsl/protobuf:bfc_memory_map_proto",
+        "//tensorflow/tsl/protobuf:coordination_config_proto",
     ],
     tags = ["alt_dep=//third_party/tensorflow/core:protos_all"],
     exports = ["//tensorflow/tsl/protobuf:bfc_memory_map_proto"],

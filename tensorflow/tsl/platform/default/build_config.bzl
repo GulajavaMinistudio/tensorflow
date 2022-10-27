@@ -681,12 +681,6 @@ def tf_protos_all():
         otherwise = [clean_dep("//tensorflow/core:protos_all_cc")],
     )
 
-def tf_protos_profiler_impl():
-    return [
-        clean_dep("//tensorflow/core/profiler/protobuf:xplane_proto_cc_impl"),
-        clean_dep("//tensorflow/core/profiler:profiler_options_proto_cc_impl"),
-    ]
-
 def tf_protos_profiler_service():
     return [
         clean_dep("//tensorflow/core/profiler:profiler_analysis_proto_cc_impl"),
@@ -733,7 +727,7 @@ def tf_additional_core_deps():
         clean_dep("//tensorflow/tsl:ios"): [],
         clean_dep("//tensorflow/tsl:linux_s390x"): [],
         "//conditions:default": [
-            "//tensorflow/core/platform/cloud:gcs_file_system",
+            "//tensorflow/tsl/platform/cloud:gcs_file_system",
         ],
     })
 

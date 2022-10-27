@@ -20,6 +20,7 @@ load(
     "tf_platform_deps",
     "tf_protobuf_compiler_deps",
     "tf_resource_deps",
+    "tf_stream_executor_deps",
     "tf_testing_deps",
     "tf_windows_aware_platform_deps",
     "tsl_cc_test",
@@ -33,6 +34,7 @@ load(
     "@bazel_skylib//:bzl_library.bzl",
     "bzl_library",
 )
+load("//tensorflow/tsl/platform:build_config_root.bzl", "if_static")
 
 package(
     default_visibility = [
@@ -120,7 +122,7 @@ cc_library(
         "file_system_helper.h",
         "threadpool.h",
     ],
-    deps = tf_windows_aware_platform_deps("env"),
+    deps = tf_windows_aware_platform_deps("env") + if_static([":env_impl"]),
 )
 
 cc_library(
@@ -1004,6 +1006,14 @@ cc_library(
     deps = [
         "//tensorflow/tsl/platform/default/build_config:cuda",
     ],
+)
+
+cc_library(
+    name = "dso_loader",
+    hdrs = ["dso_loader.h"],
+    deps = [
+        ":platform",
+    ] + tf_stream_executor_deps("dso_loader"),
 )
 
 cc_library(

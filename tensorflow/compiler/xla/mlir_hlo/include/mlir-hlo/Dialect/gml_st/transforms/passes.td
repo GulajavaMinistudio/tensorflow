@@ -55,16 +55,9 @@ def TilingCwisePass : Pass<"gml-tiling-cwise", "mlir::func::FuncOp"> {
   ];
 }
 
-def TilingReductionPass : Pass<"gml-tiling-reduction", "mlir::func::FuncOp"> {
-  let summary = "Tile linalg.generic reductions";
-  let constructor = "::mlir::gml_st::createTilingReductionPass()";
-  let dependentDialects = ["::mlir::gml_st::GmlStDialect",
-                           "::mlir::arith::ArithDialect"];
-}
-
-def TilingCwiseGPUWarpsPass : Pass<"gml-tiling-cwise-gpu-warps", "mlir::func::FuncOp"> {
-  let summary = "Tile cwise linalg.generic for GPU on the warp level";
-  let constructor = "::mlir::gml_st::createTilingCwiseGPUWarpsPass()";
+def TilingGPUWarpPass : Pass<"gml-tiling-gpu-warp", "mlir::func::FuncOp"> {
+  let summary = "Tile warp-level ops for GPU";
+  let constructor = "::mlir::gml_st::createTilingGPUWarpPass()";
   let dependentDialects = ["::mlir::gml_st::GmlStDialect",
                            "::mlir::arith::ArithDialect"];
 }
@@ -137,5 +130,29 @@ def TransformMatmulForCpuPass :
   let options = [
     ListOption<"tileSizes", "tile-sizes", "int64_t",
                "Tile sizes for a `linalg.matmul`">,
+  ];
+}
+
+def TransformMapForCpuPass :
+    Pass <"gml-st-cpu-transform-map", "mlir::func::FuncOp"> {
+  let summary = "Transform map ops for running on CPU";
+
+  let constructor = "::mlir::gml_st::createTransformMapForCpuPass()";
+
+  let options = [
+    Option<"tileSize", "tile-size", "int64_t", "1",
+           "Tile size for the innermost dimension of `linalg.map`">,
+  ];
+}
+
+def TransformTransposeForCpuPass :
+    Pass<"gml-st-cpu-transform-transpose", "mlir::func::FuncOp"> {
+  let summary = "Transform transpose ops for running on CPU";
+
+  let constructor = "createTransformTransposeForCpuPass()";
+
+  let options = [
+    ListOption<"tileSizes", "tile-sizes", "int64_t",
+               "Tile sizes for a `linalg.transpose`">,
   ];
 }

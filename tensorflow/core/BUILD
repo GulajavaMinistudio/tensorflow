@@ -94,7 +94,6 @@ load(
     "tf_portable_proto_lib",
     "tf_proto_library",
     "tf_protos_grappler_impl",
-    "tf_protos_profiler_impl",
     "tf_tpu_dependencies",
 )
 load(
@@ -168,12 +167,13 @@ tf_proto_library(
         "//tensorflow/core/lib/core:error_codes_proto",
         "//tensorflow/core/profiler/protobuf:xplane_proto",
         "//tensorflow/core/profiler:profiler_options_proto",
-        "//tensorflow/core/protobuf:coordination_config_proto",
         "//tensorflow/core/protobuf:error_codes_proto_impl",
         "//tensorflow/core/protobuf:for_core_protos",
         "//tensorflow/core/util:protos_all",
         "//tensorflow/core/util:test_log_proto_impl",
         "//tensorflow/core/grappler/costs:op_performance_data",
+        "//tensorflow/tsl/protobuf:coordination_config_proto",
+        "//tensorflow/tsl/protobuf:distributed_runtime_payloads_proto",
     ],
     visibility = ["//visibility:public"],
 )
@@ -1454,11 +1454,16 @@ cc_library(
     }) +
     # The TF proto implementations that we will statically link here.
     [
+        "//tensorflow/compiler/mlir/quantization/tensorflow:quantization_options_proto_cc_impl",
+        "//tensorflow/core/profiler:profiler_options_proto_cc_impl",
+        "//tensorflow/core/profiler/protobuf:xplane_proto_cc_impl",
         "//tensorflow/core/protobuf:autotuning_proto_cc_impl",
         "//tensorflow/core/protobuf:conv_autotuning_proto_cc_impl",
         "//tensorflow/core:protos_all_cc_impl",
         "//tensorflow/tsl/protobuf:protos_all_cc_impl",
-    ] + tf_protos_grappler_impl() + tf_protos_profiler_impl() + tf_monitoring_framework_deps(),
+        "//tensorflow/compiler/xla:xla_data_proto_cc_impl",
+        "//tensorflow/compiler/xla/service:hlo_proto_cc_impl",
+    ] + tf_protos_grappler_impl() + tf_monitoring_framework_deps(),
     # Alwayslink causes a cc_binary to "always link" in the
     # srcs for a given cc_library, even if they are unreferenced, see:
     # https://docs.bazel.build/versions/master/be/c-cpp.html#cc_library.alwayslink

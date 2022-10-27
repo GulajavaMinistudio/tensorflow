@@ -948,14 +948,13 @@ cc_library(
         "//tensorflow/core/lib/core:status",
         "//tensorflow/core/lib/core:stringpiece",
         "//tensorflow/core/lib/gtl:map_util",
-        "//tensorflow/core/lib/hash",
         "//tensorflow/core/lib/strings:proto_serialization",
         "//tensorflow/core/lib/strings:scanner",
-        "//tensorflow/core/lib/strings:str_util",
-        "//tensorflow/core/lib/strings:strcat",
         "//tensorflow/core/platform:mutex",
         "//tensorflow/core/platform:protobuf",
         "//tensorflow/core/platform:types",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/container:flat_hash_set",
     ],
 )
 
@@ -1077,19 +1076,17 @@ cc_library(
         ":full_type_util",
         ":op_def_builder",
         ":op_def_util",
+        "//tensorflow/core:core_stringpiece",
         "//tensorflow/core/framework/registration",
         "//tensorflow/core/lib/core:errors",
         "//tensorflow/core/lib/core:status",
         "//tensorflow/core/lib/gtl:map_util",
-        "//tensorflow/core/lib/strings:str_util",
-        "//tensorflow/core/lib/strings:strcat",
-        "//tensorflow/core/platform:logging",
         "//tensorflow/core/platform:macros",
         "//tensorflow/core/platform:mutex",
         "//tensorflow/core/platform:platform_port",
-        "//tensorflow/core/platform:protobuf",
         "//tensorflow/core/platform:thread_annotations",
         "//tensorflow/core/platform:types",
+        "@com_google_absl//absl/container:flat_hash_map",
     ],
 )
 
@@ -1788,6 +1785,18 @@ tf_proto_library(
 )
 
 tf_proto_library(
+    name = "dataset_proto",
+    srcs = ["dataset.proto"],
+    cc_api_version = 2,
+    make_default_target_header_only = True,
+    protodeps = [
+        ":tensor_proto",
+        ":tensor_shape_proto",
+        ":types_proto",
+    ],
+)
+
+tf_proto_library(
     name = "dataset_metadata_proto",
     srcs = ["dataset_metadata.proto"],
     cc_api_version = 2,
@@ -1813,6 +1822,7 @@ tf_proto_library(
         ":api_def_proto",
         ":attr_value_proto",
         ":cost_graph_proto",
+        ":dataset_proto",
         ":dataset_metadata_proto",
         ":dataset_options_proto",
         ":device_attributes_proto",

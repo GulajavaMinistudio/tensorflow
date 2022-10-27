@@ -2,6 +2,9 @@
 
 <INSERT SMALL BLURB ABOUT RELEASE FOCUS AREA AND POTENTIAL TOOLCHAIN CHANGES>
 
+*   `tf.keras`:
+    *   Added `jit_compile` as a settable property to `tf.keras.Model`.
+
 # Breaking Changes
 
 * <DOCUMENT BREAKING CHANGES HERE>
@@ -15,8 +18,16 @@
 
 # Major Features and Improvements
 
-*   <INSERT MAJOR FEATURE HERE, USING MARKDOWN SYNTAX>
-*   <IF RELEASE CONTAINS MULTIPLE FEATURES FROM SAME AREA, GROUP THEM TOGETHER>
+* `tf.lite`:
+
+  * Add 16-bit float type support for built-in op `fill`.
+
+* `tf.keras`:
+
+  * Added `tf.SparseTensor` input support to `tf.keras.layers.Embedding`
+    layer. The layer now accepts a new boolean argument `sparse`. If
+    `sparse` is set to True, the layer returns a SparseTensor instead of a
+    dense Tensor. Defaults to False.
 
 # Bug Fixes and Other Changes
 

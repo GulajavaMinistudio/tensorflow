@@ -1,6 +1,6 @@
 // Test vectorization of gml_st.parallel and gml_st.for loops.
-// RUN: mlir-hlo-opt %s --vectorize-gml-st-loops | \
-// RUN: FileCheck %s
+// RUN: mlir-hlo-opt %s --split-input-file --vectorize-gml-st-loops \
+// RUN: | FileCheck %s
 
 #map0 = affine_map<(d0, d1)[s0, s1] -> (d0 * s1 + s0 + d1)>
 #map1 = affine_map<(d0, d1) -> (d0, d1)>
@@ -39,6 +39,11 @@ func.func @parallel_with_tiles(
 // CHECK: %[[ADD:.*]] = arith.addf %[[LHS]], %[[RHS]] : vector<4x1xf32>
 // CHECK: vector.transfer_write %[[ADD]], {{%.*}}[%c0, %c0]
 
+// -----
+
+#map0 = affine_map<(d0, d1)[s0, s1] -> (d0 * s1 + s0 + d1)>
+#map1 = affine_map<(d0, d1) -> (d0, d1)>
+
 // CHECK-LABEL: @for_with_tiles(
 func.func @for_with_tiles(
     %arg0: memref<?x?xf32>, %arg1: memref<?x?xf32>, %arg2: memref<?x?xf32>)
@@ -72,6 +77,8 @@ func.func @for_with_tiles(
 // CHECK: %[[RHS:.*]] = vector.transfer_read {{%.*}}[%c0, %c0]
 // CHECK: %[[ADD:.*]] = arith.addf %[[LHS]], %[[RHS]] : vector<4x1xf32>
 // CHECK: vector.transfer_write %[[ADD]], {{%.*}}[%c0, %c0]
+
+// -----
 
 #map3 = affine_map<(d0) -> (d0)>
 
@@ -109,3 +116,60 @@ func.func @parallel_on_tensor(
 // CHECK: %[[RHS:.*]] = vector.transfer_read {{%.*}}[%c0]
 // CHECK: %[[ADD:.*]] = arith.addf %[[LHS]], %[[RHS]] : vector<4xf32>
 // CHECK: vector.transfer_write %[[ADD]], {{%.*}}[%c0]
+
+// -----
+
+// CHECK-LABEL: @single_element_tensor_to_element(
+// CHECK-SAME: %[[IN:.*]]: vector<1xf32>
+func.func @single_element_tensor_to_element(%in : vector<1xf32>) -> f32 {
+  %c0 = arith.constant 0 : index
+  %pad = arith.constant 0.0 : f32
+  %empty = tensor.empty() : tensor<1xf32>
+  %r = vector.transfer_write %in, %empty[%c0] {in_bounds = [true]}
+    : vector<1xf32>, tensor<1xf32>
+  %v = tensor.extract %r[%c0] : tensor<1xf32>
+  return %v : f32
+}
+// CHECK: %[[RESULT:.*]] = vector.extract %[[IN]][0]
+// CHECK: return %[[RESULT]]
+
+// -----
+
+// CHECK-LABEL: @zero_dim_element_tensor_to_element(
+// CHECK-SAME: %[[IN:.*]]: vector<f32>
+func.func @zero_dim_element_tensor_to_element(%in : vector<f32>) -> f32 {
+  %pad = arith.constant 0.0 : f32
+  %empty = tensor.empty() : tensor<f32>
+  %r = vector.transfer_write %in, %empty[] {in_bounds = []}
+    : vector<f32>, tensor<f32>
+  %v = tensor.extract %r[] : tensor<f32>
+  return %v : f32
+}
+// CHECK: %[[RESULT:.*]] = vector.extractelement %[[IN]][]
+// CHECK: return %[[RESULT]]
+
+// -----
+
+// CHECK-LABEL: @read_of_empty_float_to_constant(
+func.func @read_of_empty_float_to_constant(%pad : f32) -> vector<32xf32> {
+  %empty = tensor.empty() : tensor<32xf32>
+  %c0 = arith.constant 0 : index
+  %r = vector.transfer_read %empty[%c0], %pad {in_bounds = [true]}
+    : tensor<32xf32>, vector<32xf32>
+  return %r : vector<32xf32>
+}
+// CHECK: %[[RESULT:.*]] = arith.constant dense<0x7FC00000> : vector<32xf32>
+// CHECK: return %[[RESULT]]
+
+// -----
+
+// CHECK-LABEL: @read_of_empty_int_to_constant(
+func.func @read_of_empty_int_to_constant(%pad : i8) -> vector<32xi8> {
+  %empty = tensor.empty() : tensor<32xi8>
+  %c0 = arith.constant 0 : index
+  %r = vector.transfer_read %empty[%c0], %pad {in_bounds = [true]}
+    : tensor<32xi8>, vector<32xi8>
+  return %r : vector<32xi8>
+}
+// CHECK: %[[RESULT:.*]] = arith.constant dense<0> : vector<32xi8>
+// CHECK: return %[[RESULT]]

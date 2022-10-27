@@ -27,7 +27,7 @@ limitations under the License.
 #include "tensorflow/core/distributed_runtime/coordination/coordination_client.h"
 #include "tensorflow/core/platform/status.h"
 #include "tensorflow/core/platform/statusor.h"
-#include "tensorflow/core/protobuf/coordination_service.pb.h"
+#include "tensorflow/tsl/protobuf/coordination_service.pb.h"
 
 namespace tsl {
 class Env;
@@ -85,6 +85,13 @@ class CoordinationServiceAgent {
 
   // Return true if the coordination service agent has been initialized.
   virtual bool IsInitialized() = 0;
+
+  // Return true if the coordination service agent has successfully connected
+  // with the Coordination Service
+  virtual bool IsConnected() = 0;
+
+  // Return true if the coordination service agent has an error state.
+  virtual bool IsError() = 0;
 
   // Connect to coordination service with the following steps:
   //   - connect to service address specified in the config of `server_def`

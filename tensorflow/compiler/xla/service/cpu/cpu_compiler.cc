@@ -205,9 +205,9 @@ limitations under the License.
 #include "tensorflow/compiler/xla/types.h"
 #include "tensorflow/compiler/xla/util.h"
 #include "tensorflow/compiler/xla/xla_data.pb.h"
-#include "tensorflow/core/protobuf/error_codes.pb.h"
 #include "tensorflow/tsl/platform/errors.h"
 #include "tensorflow/tsl/platform/status.h"
+#include "tensorflow/tsl/protobuf/error_codes.pb.h"
 
 namespace {
 
@@ -352,10 +352,6 @@ runtime::JitExecutable::Options GetXlaRuntimeJitExecutableOptions() {
   opts.compiler.create_compilation_pipeline =
       [copts](xla::runtime::PassManager& passes) {
         CreateDefaultHloXlaRuntimePipeline(passes);
-        passes->addPass(
-            mlir::bufferization::createBufferResultsToOutParamsPass());
-        passes->addNestedPass<mlir::func::FuncOp>(
-            mlir::bufferization::createBufferDeallocationPass());
         runtime::CreateDefaultXlaCpuRuntimeCompilationPipeline(passes, copts);
       };
   opts.compiler.calling_convention = runtime::ResultsToOutsCallingConvention(

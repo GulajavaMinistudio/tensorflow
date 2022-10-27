@@ -16,6 +16,7 @@ limitations under the License.
 #include "tensorflow/compiler/xla/shape_util.h"
 
 #include <numeric>
+#include <optional>
 
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
@@ -816,6 +817,22 @@ TEST(ShapeUtilTest, MakeShapeWithDescendingLayoutAndSamePhysicalLayout) {
                                                       {4, 3, 2, 1, 0}));
 }
 
+TEST(ShapeUtilTest, DeduceTransposeDimensionsForBitcast) {
+  Shape input_shape = ShapeUtil::MakeShapeWithLayout(F32, {5, 3}, {1, 0});
+  Shape output_shape = ShapeUtil::MakeShapeWithLayout(F32, {3, 5}, {0, 1});
+  std::vector<int64_t> expected_permutation = {1, 0};
+  EXPECT_EQ(std::make_optional(expected_permutation),
+            ShapeUtil::DeduceTransposeDimensionsForBitcast(input_shape,
+                                                           output_shape));
+}
+
+TEST(ShapeUtilTest, DeduceTransposeDimensionsForBitcastNegative) {
+  Shape input_shape = ShapeUtil::MakeShapeWithLayout(F32, {5, 3}, {1, 0});
+  Shape output_shape = ShapeUtil::MakeShapeWithLayout(F32, {3, 5}, {1, 0});
+  EXPECT_EQ(std::nullopt, ShapeUtil::DeduceTransposeDimensionsForBitcast(
+                              input_shape, output_shape));
+}
+
 TEST(ShapeUtilTest, DeleteDimensionsUnsorted) {
   Shape shape =
       ShapeUtil::MakeShapeWithLayout(F32, {5, 3, 2, 7, 9}, {2, 0, 1, 4, 3});
@@ -910,6 +927,15 @@ TEST(Transpose021Test, LargeView) {
   Shape output_shape =
       ShapeUtil::MakeShapeWithLayout(F32, {8, 32, 32, 32, 16}, {3, 2, 1, 4, 0});
   EXPECT_EQ(std::make_optional(Vector3{8, 16, 32768}),
+            ShapeUtil::FindTranspose021(input_shape, output_shape));
+}
+
+TEST(Transpose021Test, LargeSizeOverflowTest) {
+  Shape input_shape =
+      ShapeUtil::MakeShapeWithLayout(BF16, {4096, 4096, 128}, {2, 1, 0});
+  Shape output_shape =
+      ShapeUtil::MakeShapeWithLayout(BF16, {4096, 4096, 128}, {2, 1, 0});
+  EXPECT_EQ(std::nullopt,
             ShapeUtil::FindTranspose021(input_shape, output_shape));
 }
 
