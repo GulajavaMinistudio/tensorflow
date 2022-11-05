@@ -3328,7 +3328,9 @@ func Bincount(scope *Scope, arr tf.Output, size tf.Output, weights tf.Output) (b
 //	 [  0   0 128  63]], shape=(3, 4), dtype=uint8)
 //
 // *NOTE*: Bitcast is implemented as a low-level cast, so machines with different
-// endian orderings will give different results.
+// endian orderings will give different results. A copy from input buffer to output
+// buffer is made on BE machines when types are of different sizes in order to get
+// the same casting results as on LE machines.
 func Bitcast(scope *Scope, input tf.Output, type_ tf.DataType) (output tf.Output) {
 	if scope.Err() != nil {
 		return
@@ -47875,6 +47877,37 @@ func StatelessRandomGammaV2(scope *Scope, shape tf.Output, seed tf.Output, alpha
 	return op.Output(0)
 }
 
+// Outputs deterministic pseudorandom random numbers from a gamma distribution.
+//
+// Outputs random values from a gamma distribution.
+//
+// The outputs are a deterministic function of the inputs.
+//
+// Arguments:
+//
+//	shape: The shape of the output tensor.
+//	key: Key for the counter-based RNG algorithm (shape uint64[1]).
+//	counter: Initial counter for the counter-based RNG algorithm (shape uint64[2] or uint64[1] depending on the algorithm). If a larger vector is given, only the needed portion on the left (i.e. [:N]) will be used.
+//	alg: The RNG algorithm (shape int32[]).
+//	alpha: The concentration of the gamma distribution. Shape must match the rightmost
+//
+// dimensions of `shape`.
+//
+// Returns Random values with specified shape.
+func StatelessRandomGammaV3(scope *Scope, shape tf.Output, key tf.Output, counter tf.Output, alg tf.Output, alpha tf.Output) (output tf.Output) {
+	if scope.Err() != nil {
+		return
+	}
+	opspec := tf.OpSpec{
+		Type: "StatelessRandomGammaV3",
+		Input: []tf.Input{
+			shape, key, counter, alg, alpha,
+		},
+	}
+	op := scope.AddOperation(opspec)
+	return op.Output(0)
+}
+
 // Picks the best counter-based RNG algorithm based on device.
 //
 // This op picks the best counter-based RNG algorithm based on device.
@@ -56234,11 +56267,7 @@ func XlaBroadcastHelper(scope *Scope, lhs tf.Output, rhs tf.Output, broadcast_di
 // experimental flag.
 //
 // This is an experimental op to allow a smooth evolution of jax2tf towards
-// emitting and serializing MHLO directly from JAX. At the moment this op
-// carries a serialized MHLO module, therefore there are no backward-compatibility
-// guarantees, and should not be used for serialization.
-// Eventually, the op will carry a MHLO object, which will have
-// backwards-compatibility guarantees.
+// emitting and serializing StableHLO directly from JAX.
 //
 // The serialized module must return a tuple if and only if the Sout is an empty
 // list or a list with more than 1 elements. The length of Tout and Sout must
@@ -56261,6 +56290,11 @@ func XlaBroadcastHelper(scope *Scope, lhs tf.Output, rhs tf.Output, broadcast_di
 //
 // to the HLO module.
 //
+//	version: Changes when we change the semantics of the op, to support backwards
+//
+// compatibility. Version 1 carries an MHLO text or bytecode `module`. From
+// version 2, the op carries a StableHLO text or bytecode `module`.
+//
 //	module: A serialized computation, a text or bytecode representation of
 //
 // an mlir.Module.
@@ -56270,11 +56304,11 @@ func XlaBroadcastHelper(scope *Scope, lhs tf.Output, rhs tf.Output, broadcast_di
 //	dim_args_spec: the specification for the dimension arguments, one for each
 //
 // dimension argument. In absence of dynamic shapes this list is empty.
-func XlaCallModule(scope *Scope, args []tf.Output, module string, Sout []tf.Shape, Tout []tf.DataType, dim_args_spec []string) (output []tf.Output) {
+func XlaCallModule(scope *Scope, args []tf.Output, version int64, module string, Sout []tf.Shape, Tout []tf.DataType, dim_args_spec []string) (output []tf.Output) {
 	if scope.Err() != nil {
 		return
 	}
-	attrs := map[string]interface{}{"module": module, "Sout": Sout, "Tout": Tout, "dim_args_spec": dim_args_spec}
+	attrs := map[string]interface{}{"version": version, "module": module, "Sout": Sout, "Tout": Tout, "dim_args_spec": dim_args_spec}
 	opspec := tf.OpSpec{
 		Type: "XlaCallModule",
 		Input: []tf.Input{

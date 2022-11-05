@@ -23,21 +23,21 @@ limitations under the License.
 
 #include "absl/container/flat_hash_set.h"
 #include "absl/strings/string_view.h"
+#include "tensorflow/compiler/xla/hlo/ir/dfs_hlo_visitor_with_default.h"
+#include "tensorflow/compiler/xla/hlo/ir/hlo_computation.h"
+#include "tensorflow/compiler/xla/hlo/ir/hlo_instruction.h"
+#include "tensorflow/compiler/xla/hlo/ir/hlo_opcode.h"
+#include "tensorflow/compiler/xla/hlo/ir/hlo_schedule.h"
 #include "tensorflow/compiler/xla/literal.h"
 #include "tensorflow/compiler/xla/service/async_op_canonicalizer.h"
 #include "tensorflow/compiler/xla/service/buffer_value.h"
 #include "tensorflow/compiler/xla/service/call_graph.h"
 #include "tensorflow/compiler/xla/service/copy_insertion.h"
-#include "tensorflow/compiler/xla/service/dfs_hlo_visitor_with_default.h"
 #include "tensorflow/compiler/xla/service/flatten_call_graph.h"
-#include "tensorflow/compiler/xla/service/hlo_computation.h"
 #include "tensorflow/compiler/xla/service/hlo_dce.h"
-#include "tensorflow/compiler/xla/service/hlo_instruction.h"
 #include "tensorflow/compiler/xla/service/hlo_memory_scheduler.h"
-#include "tensorflow/compiler/xla/service/hlo_opcode.h"
 #include "tensorflow/compiler/xla/service/hlo_ordering.h"
 #include "tensorflow/compiler/xla/service/hlo_parser.h"
-#include "tensorflow/compiler/xla/service/hlo_schedule.h"
 #include "tensorflow/compiler/xla/shape_util.h"
 #include "tensorflow/compiler/xla/test.h"
 #include "tensorflow/compiler/xla/test_helpers.h"
@@ -734,8 +734,8 @@ TEST_F(BufferAssignmentTest, PresetAssignments) {
       HloInstruction::CreateParameter(1, f32vec100_, "p1"));
   auto param1 = builder.AddInstruction(
       HloInstruction::CreateParameter(2, f32vec100_, "p2"));
-  Shape f32vec100_color1 =
-      ShapeUtil::MakeShapeWithLayout(F32, {100}, {0}, {}, {}, 1);
+  Shape f32vec100_color1 = ShapeUtil::MakeShapeWithDenseLayout(
+      F32, {100}, {0}, /*tiles=*/{}, /*memory_space=*/1);
   auto mul = builder.AddInstruction(HloInstruction::CreateBinary(
       f32vec100_color1, HloOpcode::kMultiply, broadcast, param0));
   auto add = builder.AddInstruction(HloInstruction::CreateBinary(
@@ -793,8 +793,8 @@ TEST_F(BufferAssignmentTest, PresetAssignmentsWhile) {
   // Tests preset assignments when there is no 1-to-1 correspondence between
   // HloValue and HloBuffer (i.e., a while loop).
   auto module = CreateNewVerifiedModule();
-  Shape f32vec10_color1 =
-      ShapeUtil::MakeShapeWithLayout(F32, {10}, {0}, {}, {}, 1);
+  Shape f32vec10_color1 = ShapeUtil::MakeShapeWithDenseLayout(
+      F32, {10}, {0}, /*tiles=*/{}, /*memory_space=*/1);
   Shape t_s32_f32v10_color1 =
       ShapeUtil::MakeTupleShape({s32_, f32vec10_color1});
 

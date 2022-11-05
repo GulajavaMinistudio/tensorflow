@@ -276,6 +276,12 @@ def if_windows_cuda(a, otherwise = []):
         "//conditions:default": otherwise,
     })
 
+def if_not_fuchsia(a):
+    return select({
+        clean_dep("//tensorflow:fuchsia"): [],
+        "//conditions:default": a,
+    })
+
 def if_linux_x86_64(a):
     return select({
         clean_dep("//tensorflow:linux_x86_64"): a,
@@ -974,6 +980,7 @@ def tf_cc_binary(
         kernels = [],
         per_os_targets = False,  # Generate targets with SHARED_LIBRARY_NAME_PATTERNS
         visibility = None,
+        default_copts = [],
         **kwargs):
     if kernels:
         added_data_deps = tf_binary_dynamic_kernel_dsos()
@@ -992,7 +999,7 @@ def tf_cc_binary(
     for name_os in names:
         cc_binary(
             name = name_os,
-            copts = copts,
+            copts = default_copts + copts,
             srcs = srcs + tf_binary_additional_srcs(),
             deps = deps + tf_binary_dynamic_kernel_deps(kernels) + mkl_dep + if_static(
                 extra_deps = [],
@@ -1246,7 +1253,8 @@ def tf_gen_op_wrapper_py(
         cc_linkopts = lrt_if_needed(),
         api_def_srcs = [],
         compatible_with = [],
-        testonly = False):
+        testonly = False,
+        copts = []):
     _ = require_shape_functions  # Unused.
     if op_whitelist and op_allowlist:
         fail("op_whitelist is deprecated. Only use op_allowlist.")
@@ -1266,7 +1274,7 @@ def tf_gen_op_wrapper_py(
         deps = [str(Label("//tensorflow/core:" + name + "_op_lib"))]
     tf_cc_binary(
         name = tool_name,
-        copts = tf_copts(),
+        copts = copts + tf_copts(),
         linkopts = if_not_windows(["-lm", "-Wl,-ldl"]) + cc_linkopts,
         linkstatic = 1,  # Faster to link this one-time-use binary dynamically
         visibility = [clean_dep("//tensorflow:internal")],
@@ -3072,6 +3080,23 @@ def pybind_extension_opensource(
 # Export open source version of pybind_extension under base name as well.
 pybind_extension = pybind_extension_opensource
 
+# Note: we cannot add //third_party/tf_runtime:__subpackages__ here,
+# because that builds all of tf_runtime's packages, and some of them
+# are known not to build on big endian systems.
+# See b/148087476 and
+# https://github.com/tensorflow/tensorflow/issues/57844.
+# TODO(b/254083070): remove this definition once the packages move to TSL.
+def tsl_async_value_deps():
+    return [
+        "@tf_runtime//:async_value",
+        "@tf_runtime//:dtype",
+        "@tf_runtime//:support",
+        "@tf_runtime//:concurrent_vector",
+        "@tf_runtime//:ref_count",
+        "@tf_runtime//third_party/llvm_derived:unique_any",
+        "@tf_runtime//third_party/llvm_derived:in_place",
+    ]
+
 def tf_python_pybind_static_deps(testonly = False):
     # TODO(b/146808376): Reduce the dependencies to those that are really needed.
     static_deps = [
@@ -3133,10 +3158,10 @@ def tf_python_pybind_static_deps(testonly = False):
         "@snappy//:__subpackages__",
         "@sobol_data//:__subpackages__",
         "@stablehlo//:__subpackages__",
-        "@tf_runtime//:__subpackages__",
         "@upb//:__subpackages__",
         "@zlib//:__subpackages__",
     ]
+    static_deps += tsl_async_value_deps()
     static_deps += [] if not testonly else [
         "@com_google_benchmark//:__subpackages__",
         "@com_google_googletest//:__subpackages__",

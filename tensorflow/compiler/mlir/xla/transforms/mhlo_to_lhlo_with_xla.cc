@@ -48,9 +48,8 @@ limitations under the License.
 #include "mlir/Tools/mlir-translate/Translation.h"  // from @llvm-project
 #include "tensorflow/compiler/mlir/tensorflow/utils/error_util.h"
 #include "tensorflow/compiler/xla/debug_options_flags.h"
-#include "tensorflow/compiler/xla/mlir_hlo/include/mlir-hlo/Dialect/lhlo/IR/lhlo_ops.h"
-#include "tensorflow/compiler/xla/mlir_hlo/include/mlir-hlo/Dialect/lhlo_gpu/IR/lhlo_gpu_ops.h"
-#include "tensorflow/compiler/xla/mlir_hlo/include/mlir-hlo/Dialect/mhlo/IR/hlo_ops.h"
+#include "tensorflow/compiler/xla/mlir_hlo/lhlo/IR/lhlo_ops.h"
+#include "tensorflow/compiler/xla/mlir_hlo/lhlo_gpu/IR/lhlo_gpu_ops.h"
 #include "tensorflow/compiler/xla/service/backend.h"
 #include "tensorflow/compiler/xla/service/buffer_assignment.h"
 #include "tensorflow/compiler/xla/service/gpu/backend_configs.pb.h"
@@ -697,6 +696,10 @@ StatusOr<mlir::Operation*> LhloDialectEmitter::EmitCustomCallOp(
     const HloInstruction* instr) {
   auto* custom_call_instr = xla::Cast<xla::HloCustomCallInstruction>(instr);
 
+  if (xla::gpu::IsSoftmaxCustomCall(*instr)) {
+    return EmitSoftmax(instr);
+  }
+
   if (xla::gpu::IsCustomCallToCusolver(*instr)) {
     return EmitCholesky(custom_call_instr);
   }
@@ -775,6 +778,41 @@ StatusOr<mlir::Operation*> LhloDialectEmitter::EmitCustomCallOp(
                        builder_.getDenseI32ArrayAttr(segments));
   if (target_mapping) custom_call.setTargetArgMappingAttr(target_mapping);
   return custom_call.getOperation();
+}
+
+StatusOr<lmhlo::FusionOp> LhloDialectEmitter::EmitSoftmax(
+    const HloInstruction* instr) {
+  Location loc = getLocation(instr);
+
+  NamedAttribute attr(builder_.getStringAttr("fusion_type"),
+                      builder_.getStringAttr("softmax_fusion"));
+  auto fusion = builder_.create<lmhlo::FusionOp>(
+      loc, llvm::SmallVector<NamedAttribute>{attr});
+  auto after_fusion = builder_.saveInsertionPoint();
+  auto reverter = absl::MakeCleanup(
+      [this, after_fusion] { builder_.restoreInsertionPoint(after_fusion); });
+  builder_ = mlir::OpBuilder(fusion);
+
+  auto region_builder = OpBuilder::atBlockBegin(&fusion.getRegion().front());
+
+  llvm::SmallVector<Value, 8> arguments;
+  for (int i = 0; i < instr->operands().size(); ++i) {
+    const HloInstruction* operand = instr->operand(i);
+    xla::ShapeIndex shape_index;
+    TF_ASSIGN_OR_RETURN(
+        auto arg, RewriteFusionOperand(operand, operand->shape(), &shape_index,
+                                       &region_builder, loc));
+    arguments.push_back(arg);
+  }
+
+  TF_ASSIGN_OR_RETURN(Value result,
+                      xla::HloFunctionImporter::ImportInstructions(
+                          *instr->to_apply(), arguments, &region_builder));
+  llvm::SmallVector<Value, 4> output;
+  TF_RETURN_IF_ERROR(GetOrCreateView(instr, &output));
+  region_builder.create<memref::TensorStoreOp>(loc, result, output[0]);
+
+  return fusion;
 }
 
 StatusOr<lmhlo_gpu::CholeskyOp> LhloDialectEmitter::EmitCholesky(

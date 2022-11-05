@@ -123,6 +123,12 @@ def if_not_windows(a):
         "//conditions:default": a,
     })
 
+def if_not_fuchsia(a):
+    return select({
+        clean_dep("//tensorflow/tsl:fuchsia"): [],
+        "//conditions:default": a,
+    })
+
 def if_nvcc(a):
     return select({
         "@local_config_cuda//cuda:using_nvcc": a,
@@ -377,3 +383,6 @@ def if_not_mobile_or_arm_or_lgpl_restricted(a):
     return select({
         "//conditions:default": [],
     })
+
+def tsl_grpc_cc_dependencies():
+    return ["//tensorflow/tsl:grpc++"]

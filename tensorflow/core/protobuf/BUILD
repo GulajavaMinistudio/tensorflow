@@ -61,9 +61,9 @@ COMMON_PROTO_SRCS = [
 tf_proto_library(
     name = "autotuning_proto",
     srcs = ["autotuning.proto"],
-    cc_api_version = 2,
     make_default_target_header_only = True,
-    protodeps = ["//tensorflow/compiler/xla/stream_executor:dnn_proto"],
+    protodeps = ["//tensorflow/tsl/protobuf:autotuning_proto"],
+    exports = ["//tensorflow/tsl/protobuf:autotuning_proto"],
 )
 
 tf_proto_library(
@@ -195,6 +195,7 @@ tf_proto_library(
         "meta_graph.proto",
         "named_tensor.proto",
         "remote_tensor_handle.proto",
+        "rpc_options.proto",
         "saved_model.proto",
         "saved_object_graph.proto",
         "struct.proto",
@@ -211,9 +212,13 @@ tf_proto_library(
         "//tensorflow/core/framework:protos_all",
         "//tensorflow/tsl/protobuf:bfc_memory_map_proto",
         "//tensorflow/tsl/protobuf:coordination_config_proto",
+        "//tensorflow/tsl/protobuf:rpc_options_proto",
     ],
     tags = ["alt_dep=//third_party/tensorflow/core:protos_all"],
-    exports = ["//tensorflow/tsl/protobuf:bfc_memory_map_proto"],
+    exports = [
+        "//tensorflow/tsl/protobuf:bfc_memory_map_proto",
+        "//tensorflow/tsl/protobuf:rpc_options_proto",
+    ],
 )
 
 # copybara:uncomment_begin(google-only)

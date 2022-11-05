@@ -1731,7 +1731,7 @@ let product:f32[] = reduce_product(padded_v_five);
 
 // Changing padding size will yield different result.
 // sum == 1 + 2 + 3 + 4 + 5 + 6
-let sum':f32[] = reduce_sum(padded_v_six);
+let sum:f32[] = reduce_sum(padded_v_six);
 ```
 
 ## GetTupleElement
@@ -1929,7 +1929,7 @@ XlaOp for the received data.
 The client API of `Recv` operation represents synchronous communication.
 However, the instruction is internally decomposed into 2 HLO instructions
 (`Recv` and `RecvDone`) to enable asynchronous data transfers. See also
-[`HloInstruction::CreateRecv` and `HloInstruction::CreateRecvDone`](https://www.tensorflow.org/code/tensorflow/compiler/xla/service/hlo_instruction.h).
+[`HloInstruction::CreateRecv` and `HloInstruction::CreateRecvDone`](https://www.tensorflow.org/code/tensorflow/compiler/xla/hlo/ir/hlo_instruction.h).
 
 <b>`Recv(const Shape& shape, int64 channel_id)`</b>
 
@@ -2785,7 +2785,7 @@ that shares the same channel handle. Does not return any data.
 Similar to the `Recv` operation, the client API of `Send` operation represents
 synchronous communication, and is internally decomposed into 2 HLO instructions
 (`Send` and `SendDone`) to enable asynchronous data transfers. See also
-[`HloInstruction::CreateSend` and `HloInstruction::CreateSendDone`](https://www.tensorflow.org/code/tensorflow/compiler/xla/service/hlo_instruction.h).
+[`HloInstruction::CreateSend` and `HloInstruction::CreateSendDone`](https://www.tensorflow.org/code/tensorflow/compiler/xla/hlo/ir/hlo_instruction.h).
 
 <b>`Send(HloInstruction operand, int64 channel_id)`</b>
 

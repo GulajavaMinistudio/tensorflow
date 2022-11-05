@@ -49,6 +49,7 @@ limitations under the License.
 #include "llvm/Support/MathExtras.h"
 #include "mlir-hlo/Dialect/mhlo/IR/hlo_ops.h.inc"
 #include "mlir-hlo/Dialect/mhlo/IR/hlo_ops_common.h"
+#include "mlir-hlo/Dialect/mhlo/IR/mhlo_bytecode.h"
 #include "mlir-hlo/utils/convert_op_folder.h"
 #include "mlir-hlo/utils/hlo_utils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -2876,7 +2877,8 @@ LogicalResult BatchNormGradOp::inferReturnTypeComponents(
     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
   BatchNormGradOp::Adaptor adaptor(operands, attributes, regions);
   return hlo::inferBatchNormGradOp(
-      adaptor.getOperand(), adaptor.getFeatureIndex(), inferredReturnShapes);
+      location, adaptor.getOperand(), adaptor.getScale(),
+      adaptor.getFeatureIndex(), inferredReturnShapes);
 }
 
 //===----------------------------------------------------------------------===//
@@ -2898,7 +2900,8 @@ LogicalResult BatchNormTrainingOp::inferReturnTypeComponents(
     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
   BatchNormTrainingOp::Adaptor adaptor(operands, attributes, regions);
   return hlo::inferBatchNormTrainingOp(
-      adaptor.getOperand(), adaptor.getFeatureIndex(), inferredReturnShapes);
+      location, adaptor.getOperand(), adaptor.getScale(),
+      adaptor.getFeatureIndex(), inferredReturnShapes);
 }
 
 //===----------------------------------------------------------------------===//
@@ -2919,8 +2922,9 @@ LogicalResult BatchNormInferenceOp::inferReturnTypeComponents(
     DictionaryAttr attributes, RegionRange regions,
     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
   BatchNormInferenceOp::Adaptor adaptor(operands, attributes, regions);
-  return hlo::inferBatchNormInferenceOp(adaptor.getOperand(),
-                                        inferredReturnShapes);
+  return hlo::inferBatchNormInferenceOp(
+      location, adaptor.getOperand(), adaptor.getScale(),
+      adaptor.getFeatureIndex(), inferredReturnShapes);
 }
 
 //===----------------------------------------------------------------------===//
@@ -5246,24 +5250,9 @@ OpFoldResult SelectOp::fold(ArrayRef<Attribute> operands) {
   return {};
 }
 
-// simplify select(not(%pred), true_value, false_value) => select(%pred,
-// false_value, true_value)
-static LogicalResult selectCanonicalization(SelectOp selectOp,
-                                            PatternRewriter& rewriter) {
-  auto notOp = selectOp.getPred().getDefiningOp<NotOp>();
-  if (!notOp) {
-    return failure();
-  }
-  std::array<Value, 3> newOperands = {notOp.getOperand(), selectOp.getOnFalse(),
-                                      selectOp.getOnTrue()};
-  rewriter.updateRootInPlace(
-      selectOp, [&]() { selectOp.getOperation()->setOperands(newOperands); });
-  return success();
-}
-
 void SelectOp::getCanonicalizationPatterns(RewritePatternSet& results,
-                                           MLIRContext* /*context*/) {
-  results.add(&selectCanonicalization);
+                                           MLIRContext* context) {
+  results.add<FusePredNegIntoSelect, FuseBroadcastedPredNegIntoSelect>(context);
 }
 
 // Makes it such that a SelectOp that is a non-root operation in a DRR infers
@@ -5967,8 +5956,9 @@ struct PositiveValue {
 
 static const APFloat& addSign(const APFloat& v, Type) { return v; }
 static APSInt addSign(const APInt& v, Type t) {
-  // Add signedness information to the value, treating signless as signed.
-  return APSInt(v, t.isUnsignedInteger());
+  // Add signedness information to the value, treating signless as signed,
+  // unless it's i1.
+  return APSInt(v, t.isUnsignedInteger() || t.isSignlessInteger(1));
 }
 
 template <typename Op, typename ElementType, typename ValType, typename Convert,
@@ -7979,10 +7969,18 @@ using mlir::hlo::printWindowAttributes;
 // clang-format off
 using mlir::hlo::printSameOperandsAndResultType;
 using mlir::hlo::parseSameOperandsAndResultType;
+using mlir::hlo::printVariadicSameOperandsAndResultType;
+using mlir::hlo::parseVariadicSameOperandsAndResultType;
+using mlir::hlo::printComplexOpType;
+using mlir::hlo::parseComplexOpType;
 using mlir::hlo::printPairwiseOpType;
 using mlir::hlo::parsePairwiseOpType;
+using mlir::hlo::printSelectOpType;
+using mlir::hlo::parseSelectOpType;
 using mlir::hlo::printTupleOpType;
 using mlir::hlo::parseTupleOpType;
+using mlir::hlo::printExponentMantissa;
+using mlir::hlo::parseExponentMantissa;
 // clang-format on
 
 #define GET_OP_CLASSES
@@ -8039,6 +8037,7 @@ MhloDialect::MhloDialect(MLIRContext* context)
       >();
   addInterfaces<HLOBoundedDialectInterface>();
   addInterfaces<HLOInlinerInterface>();
+  addBytecodeInterface(this);
   addTypes<TokenType, AsyncBundleType>();
   addAttributes<
 #define GET_ATTRDEF_LIST

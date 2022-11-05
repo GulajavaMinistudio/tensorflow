@@ -31,15 +31,15 @@ limitations under the License.
 #include "mlir/IR/Location.h"  // from @llvm-project
 #include "mlir/IR/Region.h"  // from @llvm-project
 #include "tensorflow/compiler/xla/comparison_util.h"
+#include "tensorflow/compiler/xla/hlo/ir/hlo_casting_utils.h"
+#include "tensorflow/compiler/xla/hlo/ir/hlo_computation.h"
+#include "tensorflow/compiler/xla/hlo/ir/hlo_instruction.h"
+#include "tensorflow/compiler/xla/hlo/ir/hlo_instructions.h"
+#include "tensorflow/compiler/xla/hlo/ir/hlo_module.h"
+#include "tensorflow/compiler/xla/hlo/ir/hlo_opcode.h"
+#include "tensorflow/compiler/xla/hlo/ir/hlo_sharding_metadata.h"
 #include "tensorflow/compiler/xla/mlir_hlo/include/mlir-hlo/Dialect/mhlo/IR/hlo_ops.h"
 #include "tensorflow/compiler/xla/protobuf_util.h"
-#include "tensorflow/compiler/xla/service/hlo_casting_utils.h"
-#include "tensorflow/compiler/xla/service/hlo_computation.h"
-#include "tensorflow/compiler/xla/service/hlo_instruction.h"
-#include "tensorflow/compiler/xla/service/hlo_instructions.h"
-#include "tensorflow/compiler/xla/service/hlo_module.h"
-#include "tensorflow/compiler/xla/service/hlo_opcode.h"
-#include "tensorflow/compiler/xla/service/hlo_sharding_metadata.h"
 #include "tensorflow/compiler/xla/status_macros.h"
 #include "tensorflow/compiler/xla/translate/hlo_to_mhlo/attribute_importer.h"
 #include "tensorflow/compiler/xla/translate/hlo_to_mhlo/hlo_utils.h"
@@ -273,9 +273,17 @@ static mlir::Attribute GetLayoutAttribute(mlir::Builder& b,
     }
     return b.getArrayAttr(element_attrs);
   }
-  return b.getI64ArrayAttr(
-      llvm::SmallVector<int64_t>{shape.layout().minor_to_major().begin(),
-                                 shape.layout().minor_to_major().end()});
+
+  llvm::SmallVector<int64_t> layout;
+  if (shape.has_layout()) {
+    layout = {shape.layout().minor_to_major().begin(),
+              shape.layout().minor_to_major().end()};
+  } else {
+    Layout layout_for_shape = LayoutUtil::GetDefaultLayoutForShape(shape);
+    layout = {layout_for_shape.minor_to_major().begin(),
+              layout_for_shape.minor_to_major().end()};
+  }
+  return b.getIndexTensorAttr(layout);
 }
 
 void HloFunctionImporter::FlattenTupleType(
@@ -1072,6 +1080,11 @@ StatusOr<mlir::Operation*> HloFunctionImporter::ImportInstructionImpl(
           .getOperation();
     }
     case HloOpcode::kCopyStart: {
+      auto copy_start_instruction = Cast<HloCopyStartInstruction>(instruction);
+      if (copy_start_instruction->is_cross_program_prefetch()) {
+        attributes.push_back(builder_->getNamedAttr("is_cross_program_prefetch",
+                                                    builder_->getUnitAttr()));
+      }
       return ImportOldStyleAsyncStart<mlir::mhlo::CopyOp>(
           attributes, operands, loc, result_type, func_builder, "copy_",
           [](auto) { return ::tsl::OkStatus(); });
@@ -1103,7 +1116,7 @@ StatusOr<mlir::Operation*> HloFunctionImporter::ImportInstructionImpl(
             ConvertChannelHandle(send_op->channel_id().value()));
       return ImportOldStyleAsyncStart<mlir::mhlo::SendOp>(
           attributes, operands, loc, async_bundled_tuple, func_builder, "send_",
-          [](auto) { return Status::OK(); });
+          [](auto) { return OkStatus(); });
     }
     case HloOpcode::kSendDone: {
       return ImportOldStyleAsyncDone(attributes, operands, loc, result_type,
@@ -1132,7 +1145,7 @@ StatusOr<mlir::Operation*> HloFunctionImporter::ImportInstructionImpl(
             ConvertChannelHandle(recv_op->channel_id().value()));
       return ImportOldStyleAsyncStart<mlir::mhlo::RecvOp>(
           attributes, operands, loc, async_bundled_tuple, func_builder, "recv_",
-          [](auto) { return Status::OK(); });
+          [](auto) { return OkStatus(); });
     }
     case HloOpcode::kRecvDone: {
       return ImportOldStyleAsyncDone(attributes, operands, loc, result_type,
@@ -1860,16 +1873,13 @@ StatusOr<mlir::Operation*> HloFunctionImporter::ImportInstructionWithLayout(
   //
   // Minor-to-major is a permutation of [0, rank), presenting tensor dimensions
   // in physical minor-to-major order.
-  if (instruction->shape().IsArray()) {
-    if (instruction->shape().has_layout() &&
-        !instruction->shape().layout().minor_to_major().empty() &&
-        instruction->shape().layout() !=
-            LayoutUtil::MakeDescendingLayout(
-                instruction->shape().dimensions().size())) {
-      SetXlaShape(op, instruction->shape());
-    }
-  } else {
-    SetXlaShape(op, instruction->shape());
+  const Shape& shape = instruction->shape();
+  bool custom_layout = HasCustomLayout(shape);
+  if (!shape.IsArray() || custom_layout) {
+    SetXlaShape(op, shape);
+  }
+  if (custom_layout) {
+    SetLayoutForMlir(op, shape, "result_layout");
   }
   return op;
 }
@@ -2022,12 +2032,8 @@ mlir::NamedAttribute HloFunctionImporter::ConvertUseGlobalDeviceIds() {
 void HloFunctionImporter::SetLayoutForMlir(mlir::Operation* op,
                                            const Shape& shape,
                                            llvm::StringRef attr_name) {
-  llvm::SmallVector<int64_t, 4> minor_to_major(
-      shape.layout().minor_to_major().begin(),
-      shape.layout().minor_to_major().end());
-  op->setAttr(
-      attr_name,
-      mlir::Builder(op->getContext()).getIndexTensorAttr(minor_to_major));
+  mlir::Builder b(op->getContext());
+  op->setAttr(attr_name, GetLayoutAttribute(b, shape));
 }
 
 Status HloFunctionImporter::ConvertShapeToMlirLayout(

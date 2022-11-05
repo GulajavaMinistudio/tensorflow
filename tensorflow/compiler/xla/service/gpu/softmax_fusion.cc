@@ -24,6 +24,7 @@ limitations under the License.
 #include "absl/container/flat_hash_set.h"
 #include "absl/strings/string_view.h"
 #include "tensorflow/compiler/xla/layout_util.h"
+#include "tensorflow/compiler/xla/service/gpu/ir_emission_utils.h"
 #include "tensorflow/compiler/xla/service/hlo_computation.h"
 #include "tensorflow/compiler/xla/service/hlo_instruction.h"
 #include "tensorflow/compiler/xla/service/hlo_module.h"
@@ -82,9 +83,13 @@ bool MatchesSoftmaxPattern(HloInstruction* instr) {
                                         expected_dims.end(), 0);
                               return instr->dimensions() == expected_dims;
                             }))
-                 // The root operation should be an elementwise binary op.
+                 // The root operation should be an elementwise binary op of
+                 // rank 2.
+                 // TODO(frgossen): Relax the rank 2 constraint when the
+                 // pipeline can handle it.
                  .WithPredicate([](const HloInstruction* instr) {
-                   return instr->IsElementwiseBinary();
+                   return instr->IsElementwiseBinary() &&
+                          instr->shape().rank() == 2;
                  }))) {
     return false;
   }
@@ -155,7 +160,7 @@ Status ReplaceSoftmaxWithCustomCall(HloInstruction* root,
                                                            /*is_entry=*/false);
   auto softmax_custom_call =
       root->parent()->AddInstruction(HloInstruction::CreateCustomCall(
-          root->shape(), {producer}, softmax_computation, "softmax_fusion"));
+          root->shape(), {producer}, softmax_computation, kSoftmaxCallTarget));
   if (root->IsRoot()) {
     root->parent()->set_root_instruction(softmax_custom_call);
     TF_RETURN_IF_ERROR(
@@ -164,7 +169,7 @@ Status ReplaceSoftmaxWithCustomCall(HloInstruction* root,
     TF_RETURN_IF_ERROR(
         root->parent()->ReplaceInstruction(root, softmax_custom_call));
   }
-  return Status::OK();
+  return OkStatus();
 }
 
 }  // anonymous namespace

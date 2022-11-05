@@ -24,6 +24,19 @@ tf_proto_library(
 )
 
 tf_proto_library(
+    name = "autotuning_proto",
+    srcs = ["autotuning.proto"],
+    make_default_target_header_only = True,
+    protodeps = [":dnn_proto"],
+)
+
+tf_proto_library(
+    name = "dnn_proto",
+    srcs = ["dnn.proto"],
+    make_default_target_header_only = True,
+)
+
+tf_proto_library(
     name = "error_codes_proto_impl",
     srcs = ["error_codes.proto"],
     make_default_target_header_only = True,
@@ -49,8 +62,18 @@ tf_proto_library(
     cc_api_version = 2,
     cc_stubby_versions = ["2"],
     create_grpc_library = True,
+    create_java_proto = False,
     create_service = True,
 )
+
+# copybara:uncomment_begin(google-only)
+# py_proto_library(
+#     name = "coordination_service_py_pb2",
+#     api_version = 2,
+#     visibility = ["//visibility:public"],
+#     deps = [":coordination_service_proto"],
+# )
+# copybara:uncomment_end
 
 tf_proto_library(
     name = "distributed_runtime_payloads_proto",
@@ -59,15 +82,35 @@ tf_proto_library(
 )
 
 tf_proto_library(
+    name = "rpc_options_proto",
+    srcs = ["rpc_options.proto"],
+    make_default_target_header_only = True,
+)
+
+tf_proto_library(
+    name = "test_log_proto",
+    srcs = ["test_log.proto"],
+    make_default_target_header_only = True,
+    visibility = [
+        "//tensorflow/core:__subpackages__",
+        "//tensorflow/tsl/util:__pkg__",
+    ],
+)
+
+tf_proto_library(
     name = "protos_all",
     create_go_proto = False,
     make_default_target_header_only = True,
     protodeps = [
+        ":autotuning_proto",
         ":bfc_memory_map_proto",
         ":coordination_config_proto",
         ":distributed_runtime_payloads_proto",
+        ":dnn_proto",
         ":error_codes_proto_impl",
         ":histogram_proto",
+        ":rpc_options_proto",
+        ":test_log_proto",
     ],
     visibility = ["//visibility:public"],
 )
