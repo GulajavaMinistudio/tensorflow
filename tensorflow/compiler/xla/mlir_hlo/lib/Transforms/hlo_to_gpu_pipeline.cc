@@ -51,7 +51,6 @@ void mlir::createHloToGpuPipeline(OpPassManager& pm,
                                   ArrayRef<int64_t> threadTileDim,
                                   bool experimentalSoftmax) {
   pm.addNestedPass<FuncOp>(hlo::createUnbufferizePass());
-  pm.addNestedPass<FuncOp>(hlo::createInlineFusionPass());
   pm.addPass(createCanonicalizerPass());  // Clean up get_tuple_element.
   pm.addPass(createCSEPass());  // Combine repeated subtract(broadcast).
 
@@ -73,7 +72,7 @@ void mlir::createHloToGpuPipeline(OpPassManager& pm,
         /*distribute=*/true, warpTileDim, kWarpDistributionLabel));
 
     // GPU-specific tiling for ops on the warp level.
-    pm.addNestedPass<FuncOp>(gml_st::createTilingGPUWarpPass());
+    pm.addNestedPass<FuncOp>(gml_st::createTilingGpuWarpPass());
     pm.addNestedPass<FuncOp>(createScalarizationPass());
 
     pm.addNestedPass<FuncOp>(gml_st::createVectorizeGmlStLoopsPass(
@@ -111,8 +110,10 @@ void mlir::createHloToGpuPipeline(OpPassManager& pm,
   pm.addPass(createCanonicalizerPass());
 
   // Linalg + GmlSt -> GPU
-  pm.addNestedPass<FuncOp>(gml_st::createGmlStToGpuPass(
-      kBlockDistributionLabel, kWarpDistributionLabel));
+  pm.addNestedPass<FuncOp>(
+      gml_st::createGmlStSimtfyPass(kBlockDistributionLabel));
+  pm.addNestedPass<FuncOp>(
+      gml_st::createGmlStToGpuPass(kWarpDistributionLabel));
   pm.addNestedPass<FuncOp>(gml_st::createGmlStToScfPass());
   pm.addNestedPass<FuncOp>(arith::createArithExpandOpsPass());
   pm.addNestedPass<FuncOp>(createConvertLinalgToLoopsPass());

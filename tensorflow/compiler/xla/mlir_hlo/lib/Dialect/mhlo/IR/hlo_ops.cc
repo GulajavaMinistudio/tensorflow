@@ -496,7 +496,7 @@ LogicalResult AsyncStartOp::verify() {
                          << ", but expected: " << calleeType.getNumInputs()
                          << ".";
   }
-  for (int i = 0; i < getOperands().size(); ++i) {
+  for (int i = 0; i < static_cast<int64_t>(getOperands().size()); ++i) {
     if (calleeType.getInput(i) != getOperandTypes()[i]) {
       return emitOpError() << "type mismatch on argument #" << i << " of "
                            << getCalledComputation()
@@ -850,7 +850,8 @@ LogicalResult CustomCallOp::verify() {
     auto operandIndex = alias.getOperandIndex();
     auto operandTupleIndices = alias.getOperandTupleIndices();
 
-    if (operandIndex < 0 || operandIndex >= getInputs().size())
+    if (operandIndex < 0 ||
+        operandIndex >= static_cast<int64_t>(getInputs().size()))
       return emitOpError()
              << "expects operandIndex in the output_operand_alias attribute "
                 "to be in range [0, "
@@ -859,7 +860,8 @@ LogicalResult CustomCallOp::verify() {
     Type operandPart = getOperand(operandIndex).getType();
     for (auto i : operandTupleIndices) {
       if (!operandPart.isa<TupleType>() ||
-          i >= operandPart.cast<TupleType>().size() || i < 0)
+          i >= static_cast<int64_t>(operandPart.cast<TupleType>().size()) ||
+          i < 0)
         return emitOpError()
                << "operand_tuple_indices in the output_operand_alias "
                   "attribute out of bounds";
@@ -870,7 +872,8 @@ LogicalResult CustomCallOp::verify() {
                           : getResult(0).getType();
     for (auto i : outputTupleIndices) {
       if (!outputPart.isa<TupleType>() ||
-          i >= outputPart.cast<TupleType>().size() || i < 0)
+          i >= static_cast<int64_t>(outputPart.cast<TupleType>().size()) ||
+          i < 0)
         return emitOpError()
                << "output_tuple_indices in the output_operand_alias "
                   "attribute out of bounds";
@@ -4480,28 +4483,6 @@ OpFoldResult CopyOp::fold(ArrayRef<Attribute> operands) { return getOperand(); }
 // ReduceWindowOp
 //===----------------------------------------------------------------------===//
 
-namespace {
-// Infer the return-type of ReduceWindowOp.
-SmallVector<TensorType> inferReduceWindowOpReturnType(
-    ArrayRef<TensorType> inputTypes, ArrayRef<TensorType> initTypes,
-    const ArrayRef<hlo::WindowDimension> window) {
-  SmallVector<TensorType> outputTypes;
-  for (size_t i = 0; i < inputTypes.size(); ++i) {
-    if (!inputTypes[i].hasRank()) {
-      outputTypes.push_back(
-          UnrankedTensorType::get(initTypes[i].getElementType()));
-      continue;
-    }
-
-    outputTypes.push_back(RankedTensorType::get(
-        inferWindowOutputShape(inputTypes[i].getShape(), window),
-        initTypes[i].getElementType()));
-  }
-
-  return outputTypes;
-}
-}  // namespace
-
 LogicalResult ReduceWindowOp::inferReturnTypeComponents(
     MLIRContext*, Optional<Location> location, ValueShapeRange operands,
     DictionaryAttr attributes, RegionRange regions,
@@ -4532,6 +4513,51 @@ Operation* ReduceWindowOp::getReductionOp(int resultIndex) {
       computeOp->hasTrait<mlir::OpTrait::IsCommutative>())
     return computeOp;
   return nullptr;
+}
+
+bool isSplatZero(SplatElementsAttr attr) {
+  if (!attr) return false;
+  if (attr.getElementType().isa<FloatType>()) {
+    return attr.getSplatValue<APFloat>().isZero();
+  }
+  if (attr.getElementType().isa<IntegerType>()) {
+    return attr.getSplatValue<APInt>().isZero();
+  }
+  return false;
+}
+
+LogicalResult ReduceWindowOp::fold(ArrayRef<Attribute> operands,
+                                   SmallVectorImpl<OpFoldResult>& results) {
+  const auto emptyOrAllEq = [](const Optional<DenseIntElementsAttr> opt,
+                               const int64_t n) {
+    return !opt.has_value() ||
+           (opt->isSplat() && opt->getSplatValue<IntegerAttr>().getInt() == n);
+  };
+  const auto isSumReductionBody = [](mlir::Region& body) {
+    if (body.getNumArguments() != 2) return false;
+    auto returnOp = dyn_cast_or_null<ReturnOp>(body.back().getTerminator());
+    if (!returnOp || returnOp.getNumOperands() != 1) return false;
+    auto addOp = returnOp.getOperand(0).getDefiningOp<AddOp>();
+    if (!addOp) return false;
+    return (addOp.getLhs() == body.getArgument(0) &&
+            addOp.getRhs() == body.getArgument(1)) ||
+           (addOp.getLhs() == body.getArgument(1) &&
+            addOp.getRhs() == body.getArgument(0));
+  };
+
+  // Fold no-op single input sum reduction.
+  if (getInputs().size() == 1 &&
+      isSplatZero(operands[1].dyn_cast_or_null<SplatElementsAttr>()) &&
+      emptyOrAllEq(getWindowDimensionsAttr(), 1) &&
+      emptyOrAllEq(getWindowStrides(), 1) &&
+      emptyOrAllEq(getBaseDilations(), 1) &&
+      emptyOrAllEq(getWindowDilations(), 1) && emptyOrAllEq(getPadding(), 0) &&
+      isSumReductionBody(getBody())) {
+    results.push_back(getInputs()[0]);
+    return success();
+  }
+
+  return failure();
 }
 
 //===----------------------------------------------------------------------===//
@@ -6243,17 +6269,6 @@ BINARY_FOLDER(DivOp, Divide)
 BINARY_FOLDER(RemOp, Remainder)
 BINARY_FOLDER(MaxOp, Max)
 BINARY_FOLDER(MinOp, Min)
-
-bool isSplatZero(SplatElementsAttr attr) {
-  if (!attr) return false;
-  if (attr.getElementType().isa<FloatType>()) {
-    return attr.getSplatValue<APFloat>().isZero();
-  }
-  if (attr.getElementType().isa<IntegerType>()) {
-    return attr.getSplatValue<APInt>().isZero();
-  }
-  return false;
-}
 
 OpFoldResult AddOp::fold(ArrayRef<Attribute> attrs) {
   // Handle special case where one operand is 0:  x + 0 => x
