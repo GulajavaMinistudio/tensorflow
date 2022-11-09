@@ -22,6 +22,7 @@ limitations under the License.
 #include <utility>
 
 #include "gml_st/IR/gml_st_ops.h"
+#include "gml_st/transforms/transforms.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/Utils/Utils.h"
@@ -138,9 +139,8 @@ void rewriteAffineOpAfterPeeling(RewriterBase &rewriter, Operation *mainLoop,
 }
 
 template <typename LoopTy>
-LogicalResult peelAndCanonicalizeGmlStLoopImpl(RewriterBase &rewriter,
-                                               LoopTy loopOp, int64_t idx,
-                                               LoopTy &result) {
+FailureOr<LoopTy> peelAndCanonicalizeGmlStLoopImpl(RewriterBase &rewriter,
+                                                   LoopTy loopOp, int64_t idx) {
   int64_t numLoops = loopOp.getNumLoops();
   if (idx < 0 || numLoops <= idx) return failure();
 
@@ -160,54 +160,51 @@ LogicalResult peelAndCanonicalizeGmlStLoopImpl(RewriterBase &rewriter,
   rewriteAffineOpAfterPeeling<AffineMaxOp, /*IsMin=*/false>(
       rewriter, loopOp, remainderLoop, mainIv, remainderIv, ub, step);
 
-  result = remainderLoop;
-  return success();
+  return remainderLoop;
 }
 
 template <typename LoopTy>
-void peelAllLoopsImpl(LoopTy loop, mlir::PatternRewriter &rewriter) {
-  auto trueAttr = rewriter.getBoolAttr(true);
-  loop->setAttr(kPeeledMarker, trueAttr);
-  for (int peeledIdx = loop.getNumLoops() - 1; peeledIdx >= 0; peeledIdx--) {
-    LoopTy peel;
+PeelingResult peelAllLoopsImpl(LoopTy loop, mlir::PatternRewriter &rewriter) {
+  setTransformationAttr(rewriter, loop, kPeeledMarker);
+  PeelingResult peelingResult;
+  for (unsigned peeledIdx = 0; peeledIdx < loop.getNumLoops(); ++peeledIdx) {
+    auto peel =
+        peelAndCanonicalizeGmlStLoopImpl<LoopTy>(rewriter, loop, peeledIdx);
+    if (failed(peel)) continue;
     // Mark the new loop if one was created.
-    if (peelAndCanonicalizeGmlStLoopImpl<LoopTy>(rewriter, loop, peeledIdx,
-                                                 peel)
-            .succeeded())
-      peel->setAttr(kPeeledMarker, trueAttr);
+    setTransformationAttr(rewriter, *peel, kPeeledMarker);
+    peelingResult.push_back(*peel);
   }
+  return peelingResult;
 }
 }  // namespace
 
-void peelAllLoops(LoopOp loop, mlir::PatternRewriter &rewriter) {
-  peelAllLoopsImpl<LoopOp>(loop, rewriter);
+PeelingResult peelAllLoops(LoopOp loop, mlir::PatternRewriter &rewriter) {
+  return peelAllLoopsImpl<LoopOp>(loop, rewriter);
 }
 
-void peelAllLoops(ForOp loop, mlir::PatternRewriter &rewriter) {
-  peelAllLoopsImpl<ForOp>(loop, rewriter);
+PeelingResult peelAllLoops(ForOp loop, mlir::PatternRewriter &rewriter) {
+  return peelAllLoopsImpl<ForOp>(loop, rewriter);
 }
 
-void peelAllLoops(ParallelOp loop, mlir::PatternRewriter &rewriter) {
-  peelAllLoopsImpl<ParallelOp>(loop, rewriter);
+PeelingResult peelAllLoops(ParallelOp loop, mlir::PatternRewriter &rewriter) {
+  return peelAllLoopsImpl<ParallelOp>(loop, rewriter);
 }
 
-LogicalResult peelAndCanonicalizeGmlStLoop(RewriterBase &rewriter,
-                                           LoopOp loopOp, int64_t idx,
-                                           LoopOp &result) {
-  return peelAndCanonicalizeGmlStLoopImpl<LoopOp>(rewriter, loopOp, idx,
-                                                  result);
+FailureOr<LoopOp> peelAndCanonicalizeGmlStLoop(RewriterBase &rewriter,
+                                               LoopOp loopOp, int64_t idx) {
+  return peelAndCanonicalizeGmlStLoopImpl<LoopOp>(rewriter, loopOp, idx);
 }
 
-LogicalResult peelAndCanonicalizeGmlStLoop(RewriterBase &rewriter, ForOp loopOp,
-                                           int64_t idx, ForOp &result) {
-  return peelAndCanonicalizeGmlStLoopImpl<ForOp>(rewriter, loopOp, idx, result);
+FailureOr<ForOp> peelAndCanonicalizeGmlStLoop(RewriterBase &rewriter,
+                                              ForOp loopOp, int64_t idx) {
+  return peelAndCanonicalizeGmlStLoopImpl<ForOp>(rewriter, loopOp, idx);
 }
 
-LogicalResult peelAndCanonicalizeGmlStLoop(RewriterBase &rewriter,
-                                           ParallelOp loopOp, int64_t idx,
-                                           ParallelOp &result) {
-  return peelAndCanonicalizeGmlStLoopImpl<ParallelOp>(rewriter, loopOp, idx,
-                                                      result);
+FailureOr<ParallelOp> peelAndCanonicalizeGmlStLoop(RewriterBase &rewriter,
+                                                   ParallelOp loopOp,
+                                                   int64_t idx) {
+  return peelAndCanonicalizeGmlStLoopImpl<ParallelOp>(rewriter, loopOp, idx);
 }
 
 }  // namespace gml_st

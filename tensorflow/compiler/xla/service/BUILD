@@ -415,27 +415,6 @@ tf_cc_test(
     ],
 )
 
-cc_library(
-    name = "hlo_constant_splitter",
-    srcs = ["hlo_constant_splitter.cc"],
-    hdrs = ["hlo_constant_splitter.h"],
-    deps = ["//tensorflow/compiler/xla/service:hlo_pass"],
-)
-
-tf_cc_test(
-    name = "hlo_constant_splitter_test",
-    srcs = ["hlo_constant_splitter_test.cc"],
-    deps = [
-        ":hlo_constant_splitter",
-        "//tensorflow/compiler/xla:shape_util",
-        "//tensorflow/compiler/xla:test",
-        "//tensorflow/compiler/xla/service:hlo_parser",
-        "//tensorflow/compiler/xla/tests:hlo_test_base",
-        "//tensorflow/compiler/xla/tests:xla_internal_test_main",
-        "//tensorflow/tsl/lib/core:status_test_util",
-    ],
-)
-
 tf_cc_test(
     name = "hlo_opcode_test",
     srcs = ["hlo_opcode_test.cc"],
@@ -6943,6 +6922,39 @@ cc_library(
     ],
 )
 
+cc_library(
+    name = "stochastic_convert_decomposer",
+    srcs = ["stochastic_convert_decomposer.cc"],
+    hdrs = ["stochastic_convert_decomposer.h"],
+    deps = [
+        ":hlo",
+        ":hlo_creation_utils",
+        ":hlo_pass",
+        ":shape_inference",
+        "//tensorflow/compiler/xla:shape_util",
+        "//tensorflow/compiler/xla:status",
+        "//tensorflow/compiler/xla:statusor",
+        "//tensorflow/compiler/xla:util",
+        "//tensorflow/compiler/xla:xla_data_proto_cc",
+        "//tensorflow/compiler/xla/hlo/ir:hlo",
+        "//tensorflow/tsl/platform:errors",
+        "//tensorflow/tsl/platform:statusor",
+    ],
+)
+
+tf_cc_test(
+    name = "stochastic_convert_decomposer_test",
+    srcs = ["stochastic_convert_decomposer_test.cc"],
+    deps = [
+        ":hlo",
+        ":hlo_matchers",
+        ":hlo_parser",
+        ":stochastic_convert_decomposer",
+        "//tensorflow/compiler/xla/tests:hlo_test_base",
+        "//tensorflow/tsl/platform:test_main",
+    ],
+)
+
 tf_cc_test(
     name = "gather_simplifier_test",
     srcs = ["gather_simplifier_test.cc"],
@@ -7001,8 +7013,9 @@ tf_cc_binary(
 # copybara:uncomment_begin
 # # A simple test of xla_aot_compile which generates an output file from an mhlo file.
 # xla_aot_compile(
-#     name = "xla_aot_compile_test_output",
+#     name = "xla_aot_compile_test_cpu_executable",
 #     mhlo = "xla_aot_compile_test.mlir",
+#     platform = "cpu",
 # )
 #
 # xla_test(
@@ -7010,7 +7023,7 @@ tf_cc_binary(
 #     srcs = ["xla_aot_compile_test.cc"],
 #     backends = ["cpu"],
 #     data = [
-#         ":xla_aot_compile_test_output",
+#         ":xla_aot_compile_test_cpu_executable",
 #     ],
 #     deps = [
 #         ":platform_util",

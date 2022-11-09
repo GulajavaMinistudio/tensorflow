@@ -17,7 +17,7 @@ limitations under the License.
 /// written in a combination of LLVM and NVVM dialects.
 
 #include "gml_st/transforms/passes.h"
-#include "mlir-hlo/Dialect/mhlo/transforms/passes.h"
+#include "mhlo/transforms/passes.h"
 #include "mlir-hlo/Transforms/gpu_passes.h"
 #include "mlir-hlo/Transforms/passes.h"
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
@@ -135,7 +135,9 @@ void mlir::createHloToGpuPipeline(OpPassManager& pm,
   pm.addNestedPass<GPUModuleOp>(createGpuKernelToNvvmPass());
 #endif
   pm.addPass(createPropagateStaticShapesToKernelPass());
-  pm.addNestedPass<GPUModuleOp>(createCSEPass());
+  // We do not do this as a nested pass in order to properly clean the host
+  // side of the generated code.
+  pm.addPass(createCSEPass());
   // Some instructions crash ptxas down the line if they have debug info
   // attached.
   pm.addNestedPass<GPUModuleOp>(createStripDebugInfoPass());
