@@ -130,6 +130,7 @@ limitations under the License.
 #include "tensorflow/compiler/xla/service/cpu/ir_emitter.h"
 #include "tensorflow/compiler/xla/service/cpu/parallel_task_assignment.h"
 #include "tensorflow/compiler/xla/service/cpu/runtime/custom_call.h"
+#include "tensorflow/compiler/xla/service/cpu/runtime/xfeed.h"
 #include "tensorflow/compiler/xla/service/cpu/simple_orc_jit.h"
 #include "tensorflow/compiler/xla/service/cpu/xla_framework.h"
 #include "tensorflow/compiler/xla/service/dot_decomposer.h"
@@ -332,10 +333,13 @@ runtime::JitExecutable::Options GetXlaRuntimeJitExecutableOptions() {
       [](xla::runtime::DialectRegistry& dialects) {
         dialects->insert<mlir::mhlo::MhloDialect, mlir::lmhlo::LmhloDialect>();
         runtime::RegisterDefaultXlaCpuRuntimeDialects(dialects);
-        RegisterHloXlaRuntimePipelineDialects(dialects);
+        RegisterHloXlaRuntimePipelineDialects(*dialects);
       };
-  opts.compiler.symbols_binding =
-      runtime::ToSymbolsBinding(PopulateXlaCpuCustomCall);
+  opts.compiler.symbols_binding = runtime::ToSymbolsBinding(
+      [](runtime::DirectCustomCallRegistry& registry) {
+        PopulateXlaCpuCustomCall(registry);
+        PopulateXlaXfeedCall(registry);
+      });
   opts.compiler.create_compilation_pipeline =
       [copts](xla::runtime::PassManager& passes) {
         Status status = CreateDefaultHloXlaRuntimePipeline(passes);
