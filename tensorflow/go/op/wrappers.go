@@ -13349,6 +13349,11 @@ func DynamicEnqueueTPUEmbeddingArbitraryTensorBatch(scope *Scope, sample_indices
 // <img style="width:100%" src="https://www.tensorflow.org/images/DynamicPartition.png" alt>
 // </div>
 //
+// Raises:
+//   - `InvalidArgumentError` in following cases:
+//   - If partitions is not in range `[0, num_partiions)`
+//   - If `partitions.shape` does not match prefix of `data.shape` argument.
+//
 // Arguments:
 //
 //	partitions: Any shape.  Indices in the range `[0, num_partitions)`.
@@ -16338,7 +16343,11 @@ func FakeQuantWithMinMaxArgsNarrowRange(value bool) FakeQuantWithMinMaxArgsAttr 
 	}
 }
 
-// Fake-quantize the 'inputs' tensor, type float to 'outputs' tensor of same type.
+// Fake-quantize the 'inputs' tensor, type float to 'outputs' tensor of same shape and type.
+//
+//	Quantization is called fake since the output is still in floating point.
+//	The API converts inputs into values within the range [min and max] and returns
+//	as output.
 //
 // # Attributes
 //
@@ -16359,7 +16368,26 @@ func FakeQuantWithMinMaxArgsNarrowRange(value bool) FakeQuantWithMinMaxArgsAttr 
 // *   If `min <= 0 <= max`: `scale = (max - min) / (2^num_bits - 1) `,
 // `min_adj = scale * round(min / scale)` and `max_adj = max + min_adj - min`.
 //
-// Quantization is called fake since the output is still in floating point.
+// # Examples
+//
+// ```python
+//
+// inp = tf.constant ([10.03, -10.23, 3])
+// out = tf.quantization.fake_quant_with_min_max_args(inp, min=-5, max=5,
+//
+//	num_bits=16)
+//
+// print(out)
+//
+// #  Output:
+// #  tf.Tensor([ 4.9999237 -5.0000763  3.0000763], shape=(3,), dtype=float32)
+// ```
+//
+// Raises:
+//   - InvalidArgumentError:
+//   - If num_bits are outside of range [2, 16].
+//   - If min >= max.
+//   - ValueError: If `inputs` are of any other type than float32.
 func FakeQuantWithMinMaxArgs(scope *Scope, inputs tf.Output, optional ...FakeQuantWithMinMaxArgsAttr) (outputs tf.Output) {
 	if scope.Err() != nil {
 		return
@@ -34846,6 +34874,69 @@ func RandomDataset(scope *Scope, seed tf.Output, seed2 tf.Output, output_types [
 	return op.Output(0)
 }
 
+// RandomDatasetV2Attr is an optional argument to RandomDatasetV2.
+type RandomDatasetV2Attr func(optionalAttr)
+
+// RandomDatasetV2RerandomizeEachIteration sets the optional rerandomize_each_iteration attribute to value.
+//
+// value: A boolean attribute to rerandomize the sequence of random numbers generated
+// at each epoch.
+// If not specified, defaults to false
+func RandomDatasetV2RerandomizeEachIteration(value bool) RandomDatasetV2Attr {
+	return func(m optionalAttr) {
+		m["rerandomize_each_iteration"] = value
+	}
+}
+
+// RandomDatasetV2Metadata sets the optional metadata attribute to value.
+// If not specified, defaults to ""
+func RandomDatasetV2Metadata(value string) RandomDatasetV2Attr {
+	return func(m optionalAttr) {
+		m["metadata"] = value
+	}
+}
+
+// Creates a Dataset that returns pseudorandom numbers.
+//
+// Creates a Dataset that returns a stream of uniformly distributed
+// pseudorandom 64-bit signed integers. It accepts a boolean attribute that
+// determines if the random number generators are re-applied at each epoch. The
+// default value is True which means that the seeds are applied and the same
+// sequence of random numbers are generated at each epoch. If set to False, the
+// seeds are not re-applied and a different sequence of random numbers are
+// generated at each epoch.
+//
+// In the TensorFlow Python API, you can instantiate this dataset via the
+// class `tf.data.experimental.RandomDatasetV2`.
+//
+// Arguments:
+//
+//	seed: A scalar seed for the random number generator. If either seed or
+//
+// seed2 is set to be non-zero, the random number generator is seeded
+// by the given seed.  Otherwise, a random seed is used.
+//
+//	seed2: A second scalar seed to avoid seed collision.
+//	seed_generator: A resource for the random number seed generator.
+func RandomDatasetV2(scope *Scope, seed tf.Output, seed2 tf.Output, seed_generator tf.Output, output_types []tf.DataType, output_shapes []tf.Shape, optional ...RandomDatasetV2Attr) (handle tf.Output) {
+	if scope.Err() != nil {
+		return
+	}
+	attrs := map[string]interface{}{"output_types": output_types, "output_shapes": output_shapes}
+	for _, a := range optional {
+		a(attrs)
+	}
+	opspec := tf.OpSpec{
+		Type: "RandomDatasetV2",
+		Input: []tf.Input{
+			seed, seed2, seed_generator,
+		},
+		Attrs: attrs,
+	}
+	op := scope.AddOperation(opspec)
+	return op.Output(0)
+}
+
 // RandomGammaAttr is an optional argument to RandomGamma.
 type RandomGammaAttr func(optionalAttr)
 
@@ -42396,6 +42487,48 @@ func SegmentSum(scope *Scope, data tf.Output, segment_ids tf.Output) (output tf.
 		Type: "SegmentSum",
 		Input: []tf.Input{
 			data, segment_ids,
+		},
+	}
+	op := scope.AddOperation(opspec)
+	return op.Output(0)
+}
+
+// Computes the sum along segments of a tensor.
+//
+// Read
+// [the section on segmentation](https://tensorflow.org/api_docs/python/tf/math#Segmentation)
+// for an explanation of segments.
+//
+// Computes a tensor such that
+// \\(output_i = \sum_j data_j\\) where sum is over `j` such
+// that `segment_ids[j] == i`.
+//
+// If the sum is empty for a given segment ID `i`, `output[i] = 0`.
+//
+// Note that this op is currently only supported with jit_compile=True.
+// </div>
+//
+// Arguments:
+//
+//	segment_ids: A 1-D tensor whose size is equal to the size of `data`'s
+//
+// first dimension.  Values should be sorted and can be repeated.
+// The values must be less than `num_segments`.
+//
+// Caution: The values are always validated to be sorted on CPU, never validated
+// on GPU.
+//
+// Returns Has same shape as data, except for the first `segment_ids.rank`
+// dimensions, which are replaced with a single dimension which has size
+// `num_segments`.
+func SegmentSumV2(scope *Scope, data tf.Output, segment_ids tf.Output, num_segments tf.Output) (output tf.Output) {
+	if scope.Err() != nil {
+		return
+	}
+	opspec := tf.OpSpec{
+		Type: "SegmentSumV2",
+		Input: []tf.Input{
+			data, segment_ids, num_segments,
 		},
 	}
 	op := scope.AddOperation(opspec)
@@ -53051,8 +53184,15 @@ func TileGrad(scope *Scope, input tf.Output, multiples tf.Output) (output tf.Out
 //
 // Returns the timestamp as a `float64` for seconds since the Unix epoch.
 //
-// Note: the timestamp is computed when the op is executed, not when it is added
-// to the graph.
+// Common usages include:
+// * Logging
+// * Providing a random number seed
+// * Debugging graph execution
+// * Generating timing information, mainly through comparison of timestamps
+//
+// Note: In graph mode, the timestamp is computed when the op is executed,
+// not when it is added to the graph.  In eager mode, the timestamp is computed
+// when the op is eagerly executed.
 func Timestamp(scope *Scope) (ts tf.Output) {
 	if scope.Err() != nil {
 		return
@@ -53407,7 +53547,7 @@ func TridiagonalSolve(scope *Scope, diagonals tf.Output, rhs tf.Output, optional
 	return op.Output(0)
 }
 
-// Returns x / y element-wise for integer types.
+// Returns x / y element-wise, rounded towards zero.
 //
 // Truncation designates that negative numbers will round fractional quantities
 // toward zero. I.e. -7 / 5 = -1. This matches C semantics but it is different
@@ -55367,7 +55507,7 @@ func UniqueWithCountsV2OutIdx(value tf.DataType) UniqueWithCountsV2Attr {
 //
 // ```
 // x = tf.constant([1, 1, 2, 4, 4, 4, 7, 8, 8])
-// y, idx, count = UniqueWithCountsV2(x, axis = [0])
+// y, idx, count = tf.raw_ops.UniqueWithCountsV2(x=x, axis = [0])
 // y ==> [1, 2, 4, 7, 8]
 // idx ==> [0, 0, 1, 2, 2, 2, 3, 4, 4]
 // count ==> [2, 1, 3, 1, 2]
@@ -55381,7 +55521,7 @@ func UniqueWithCountsV2OutIdx(value tf.DataType) UniqueWithCountsV2Attr {
 //	[1, 0, 0],
 //	[2, 0, 0]])
 //
-// y, idx, count = UniqueWithCountsV2(x, axis=[0])
+// y, idx, count = tf.raw_ops.UniqueWithCountsV2(x=x, axis=[0])
 // y ==> [[1, 0, 0],
 //
 //	[2, 0, 0]]
@@ -55398,7 +55538,7 @@ func UniqueWithCountsV2OutIdx(value tf.DataType) UniqueWithCountsV2Attr {
 //	[1, 0, 0],
 //	[2, 0, 0]])
 //
-// y, idx, count = UniqueWithCountsV2(x, axis=[1])
+// y, idx, count = tf.raw_ops.UniqueWithCountsV2(x=x, axis=[1])
 // y ==> [[1, 0],
 //
 //	[1, 0],

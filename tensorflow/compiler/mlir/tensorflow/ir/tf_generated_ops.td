@@ -73,11 +73,11 @@ Provided an input tensor, the `tf.math.acos` operation returns the inverse cosin
   }];
 
   let arguments = (ins
-    TensorOf<[TF_Bfloat16, TF_Complex128, TF_Complex64, TF_Float16, TF_Float32, TF_Float64, TF_Int16, TF_Int32, TF_Int64, TF_Int8]>:$x
+    TF_FpOrComplexTensor:$x
   );
 
   let results = (outs
-    TensorOf<[TF_Bfloat16, TF_Complex128, TF_Complex64, TF_Float16, TF_Float32, TF_Float64, TF_Int16, TF_Int32, TF_Int64, TF_Int8]>:$y
+    TF_FpOrComplexTensor:$y
   );
 
   TF_DerivedOperandTypeAttr T = TF_DerivedOperandTypeAttr<0>;
@@ -706,11 +706,11 @@ tf.math.asin(y) # [1.047, 0.785] = x
   }];
 
   let arguments = (ins
-    TensorOf<[TF_Bfloat16, TF_Complex128, TF_Complex64, TF_Float16, TF_Float32, TF_Float64, TF_Int16, TF_Int32, TF_Int64, TF_Int8]>:$x
+    TF_FpOrComplexTensor:$x
   );
 
   let results = (outs
-    TensorOf<[TF_Bfloat16, TF_Complex128, TF_Complex64, TF_Float16, TF_Float32, TF_Float64, TF_Int16, TF_Int32, TF_Int64, TF_Int8]>:$y
+    TF_FpOrComplexTensor:$y
   );
 
   TF_DerivedOperandTypeAttr T = TF_DerivedOperandTypeAttr<0>;
@@ -877,11 +877,11 @@ tf.math.atan(y) # [1.047, 0.785] = x
   }];
 
   let arguments = (ins
-    TensorOf<[TF_Bfloat16, TF_Complex128, TF_Complex64, TF_Float16, TF_Float32, TF_Float64, TF_Int16, TF_Int32, TF_Int64, TF_Int8]>:$x
+    TF_FpOrComplexTensor:$x
   );
 
   let results = (outs
-    TensorOf<[TF_Bfloat16, TF_Complex128, TF_Complex64, TF_Float16, TF_Float32, TF_Float64, TF_Int16, TF_Int32, TF_Int64, TF_Int8]>:$y
+    TF_FpOrComplexTensor:$y
   );
 
   TF_DerivedOperandTypeAttr T = TF_DerivedOperandTypeAttr<0>;
@@ -1070,7 +1070,7 @@ is smaller than desired.}]>:$drop_remainder,
   );
 }
 
-def TF_BatchFunctionOp : TF_Op<"BatchFunction", [AttrSizedOperandSegments, Pure]> {
+def TF_BatchFunctionOp : TF_Op<"BatchFunction", [AttrSizedOperandSegments, Pure, SymbolUserOpInterface]> {
   let summary = [{
 Batches all the inputs tensors to the computation done by the function.
   }];
@@ -1139,6 +1139,11 @@ to be batched.}]>:$captured_tensors,
   TF_DerivedOperandTypeListAttr Tcaptured = TF_DerivedOperandTypeListAttr<1>;
   TF_DerivedOperandTypeListAttr Tin = TF_DerivedOperandTypeListAttr<0>;
   TF_DerivedResultTypeListAttr Tout = TF_DerivedResultTypeListAttr<0>;
+
+  let extraClassDeclaration = [{
+    // SymbolUserOpInterface verifier.
+    LogicalResult verifySymbolUses(SymbolTableCollection &symbolTable);
+  }];
 }
 
 def TF_BatchMatMulOp : TF_Op<"BatchMatMul", [Pure, TF_SameOperandsAndResultElementTypeResolveRef]> {
@@ -4126,6 +4131,12 @@ See `dynamic_stitch` for an example on how to merge partitions back.
 <div style="width:70%; margin:auto; margin-bottom:10px; margin-top:20px;">
 <img style="width:100%" src="https://www.tensorflow.org/images/DynamicPartition.png" alt>
 </div>
+
+
+Raises:
+  * `InvalidArgumentError` in following cases:
+    - If partitions is not in range `[0, num_partiions)`
+    - If `partitions.shape` does not match prefix of `data.shape` argument.
   }];
 
   let arguments = (ins
@@ -5053,10 +5064,14 @@ def TF_FakeParamOp : TF_Op<"FakeParam", [Pure, TF_NoConstantFold]> {
 
 def TF_FakeQuantWithMinMaxArgsOp : TF_Op<"FakeQuantWithMinMaxArgs", [Pure, TF_SameOperandsAndResultTypeResolveRef]> {
   let summary = [{
-Fake-quantize the 'inputs' tensor, type float to 'outputs' tensor of same type.
+Fake-quantize the 'inputs' tensor, type float to 'outputs' tensor of same shape and type.
   }];
 
   let description = [{
+Quantization is called fake since the output is still in floating point.
+  The API converts inputs into values within the range [min and max] and returns
+  as output.
+
 Attributes
 
 *   `[min; max]` define the clamping range for the `inputs` data.
@@ -5076,7 +5091,25 @@ the behavior can be unexpected:
 *   If `min <= 0 <= max`: `scale = (max - min) / (2^num_bits - 1) `,
 `min_adj = scale * round(min / scale)` and `max_adj = max + min_adj - min`.
 
-Quantization is called fake since the output is still in floating point.
+
+Examples
+
+```python
+
+inp = tf.constant ([10.03, -10.23, 3])
+out = tf.quantization.fake_quant_with_min_max_args(inp, min=-5, max=5,
+                                                   num_bits=16)
+print(out)
+
+#  Output:
+#  tf.Tensor([ 4.9999237 -5.0000763  3.0000763], shape=(3,), dtype=float32)
+```
+
+Raises:
+  * InvalidArgumentError:
+    - If num_bits are outside of range [2, 16].
+    - If min >= max.
+  * ValueError: If `inputs` are of any other type than float32.
   }];
 
   let arguments = (ins
@@ -15078,6 +15111,46 @@ has size `k`, the number of segments.}]>:$output
   TF_DerivedOperandTypeAttr Tindices = TF_DerivedOperandTypeAttr<1>;
 }
 
+def TF_SegmentSumV2Op : TF_Op<"SegmentSumV2", [Pure]> {
+  let summary = "Computes the sum along segments of a tensor.";
+
+  let description = [{
+Read
+[the section on segmentation](https://tensorflow.org/api_docs/python/tf/math#Segmentation)
+for an explanation of segments.
+
+Computes a tensor such that
+\\(output_i = \sum_j data_j\\) where sum is over `j` such
+that `segment_ids[j] == i`.
+
+If the sum is empty for a given segment ID `i`, `output[i] = 0`.
+
+Note that this op is currently only supported with jit_compile=True.
+</div>
+  }];
+
+  let arguments = (ins
+    TF_NumberTensor:$data,
+    Arg<TF_I32OrI64Tensor, [{A 1-D tensor whose size is equal to the size of `data`'s
+first dimension.  Values should be sorted and can be repeated.
+The values must be less than `num_segments`.
+
+Caution: The values are always validated to be sorted on CPU, never validated
+on GPU.}]>:$segment_ids,
+    TF_I32OrI64Tensor:$num_segments
+  );
+
+  let results = (outs
+    Res<TF_NumberTensor, [{Has same shape as data, except for the first `segment_ids.rank`
+dimensions, which are replaced with a single dimension which has size
+`num_segments`.}]>:$output
+  );
+
+  TF_DerivedOperandTypeAttr T = TF_DerivedOperandTypeAttr<0>;
+  TF_DerivedOperandTypeAttr Tindices = TF_DerivedOperandTypeAttr<1>;
+  TF_DerivedOperandTypeAttr Tnumsegments = TF_DerivedOperandTypeAttr<2>;
+}
+
 def TF_SelfAdjointEigV2Op : TF_Op<"SelfAdjointEigV2", [Pure]> {
   let summary = [{
 Computes the eigen decomposition of one or more square self-adjoint matrices.
@@ -18274,11 +18347,11 @@ Given an input tensor, this function computes tangent of every
   }];
 
   let arguments = (ins
-    TensorOf<[TF_Bfloat16, TF_Complex128, TF_Complex64, TF_Float16, TF_Float32, TF_Float64, TF_Int16, TF_Int32, TF_Int64, TF_Int8]>:$x
+    TF_FpOrComplexTensor:$x
   );
 
   let results = (outs
-    TensorOf<[TF_Bfloat16, TF_Complex128, TF_Complex64, TF_Float16, TF_Float32, TF_Float64, TF_Int16, TF_Int32, TF_Int64, TF_Int8]>:$y
+    TF_FpOrComplexTensor:$y
   );
 
   TF_DerivedOperandTypeAttr T = TF_DerivedOperandTypeAttr<0>;
@@ -18995,7 +19068,7 @@ Apply a sparse update to a tensor taking the element-wise maximum.
 Returns a new tensor copied from `tensor` whose values are element-wise maximum between
 tensor and updates according to the indices.
 
->>> tensor = [0, 0, 0, 0, 0, 0, 0, 0] 
+>>> tensor = [0, 0, 0, 0, 0, 0, 0, 0]
 >>> indices = [[1], [4], [5]]
 >>> updates = [1, -1, 1]
 >>> tf.tensor_scatter_nd_max(tensor, indices, updates).numpy()
@@ -19294,8 +19367,15 @@ def TF_TimestampOp : TF_Op<"Timestamp", []> {
   let description = [{
 Returns the timestamp as a `float64` for seconds since the Unix epoch.
 
-Note: the timestamp is computed when the op is executed, not when it is added
-to the graph.
+Common usages include:
+* Logging
+* Providing a random number seed
+* Debugging graph execution
+* Generating timing information, mainly through comparison of timestamps
+
+Note: In graph mode, the timestamp is computed when the op is executed,
+not when it is added to the graph.  In eager mode, the timestamp is computed
+when the op is eagerly executed.
   }];
 
   let arguments = (ins);
@@ -19482,7 +19562,7 @@ left-hand side.}]>:$rhs,
 
 def TF_TruncateDivOp : TF_Op<"TruncateDiv", [Pure, ResultsBroadcastableShape]>,
                        WithBroadcastableBinOpBuilder {
-  let summary = "Returns x / y element-wise for integer types.";
+  let summary = "Returns x / y element-wise, rounded towards zero.";
 
   let description = [{
 Truncation designates that negative numbers will round fractional quantities
