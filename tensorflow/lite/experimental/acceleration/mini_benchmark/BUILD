@@ -20,15 +20,13 @@ load("//tensorflow:tensorflow.bzl", "clean_dep")
 load("build_defs.bzl", "embedded_binary")
 load("special_rules.bzl", "jpeg_copts", "libjpeg_deps", "minibenchmark_visibility_allowlist")
 
-default_visibility_group = [
-    "//tensorflow/lite/experimental/acceleration/mini_benchmark:__subpackages__",
-    "//tensorflow/lite/tools/benchmark:__subpackages__",
-    "@org_tensorflow_lite_support//tensorflow_lite_support/cc:__subpackages__",
-] + minibenchmark_visibility_allowlist()
-
 package(
     # copybara:uncomment default_applicable_licenses = ["//tensorflow:license"],
-    default_visibility = default_visibility_group,
+    default_visibility = [
+        "//tensorflow/lite/experimental/acceleration/mini_benchmark:__subpackages__",
+        "//tensorflow/lite/tools/benchmark:__subpackages__",
+        "@org_tensorflow_lite_support//tensorflow_lite_support/cc:__subpackages__",
+    ] + minibenchmark_visibility_allowlist(),
     licenses = ["notice"],
 )
 
@@ -42,6 +40,7 @@ cc_library(
     deps = [
         "//tensorflow/lite:framework",
         "//tensorflow/lite/c:common",
+        "//tensorflow/lite/core/c:common",
         "//tensorflow/lite/kernels:kernel_util",
         "//tensorflow/lite/kernels:op_macros",
         "@flatbuffers",
@@ -59,6 +58,7 @@ cc_test(
         "//tensorflow/lite:interpreter_test_util",
         "//tensorflow/lite/c:common",
         "//tensorflow/lite/core:headers",
+        "//tensorflow/lite/core/c:common",
         "//tensorflow/lite/kernels:builtin_ops",
         "//tensorflow/lite/kernels:subgraph_test_util",
         "//tensorflow/lite/testing:util",
@@ -84,6 +84,7 @@ cc_library(
         "//tensorflow/lite/c:common",
         "//tensorflow/lite/core/api:error_reporter",
         "//tensorflow/lite/core/c:c_api_types",
+        "//tensorflow/lite/core/c:common",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/strings",
         "@flatbuffers",
@@ -99,6 +100,7 @@ cc_test(
         ":status_codes",
         "//tensorflow/lite/c:common",
         "//tensorflow/lite/core/c:c_api_types",
+        "//tensorflow/lite/core/c:common",
         "//tensorflow/lite/experimental/acceleration/configuration:configuration_fbs",
         "@com_google_googletest//:gtest_main",
         "@flatbuffers",
@@ -283,6 +285,7 @@ cc_library(
         "//tensorflow/lite:string_util",
         "//tensorflow/lite/c:common",
         "//tensorflow/lite/core/c:c_api_types",
+        "//tensorflow/lite/core/c:common",
         "//tensorflow/lite/kernels:kernel_util",
         "//tensorflow/lite/kernels/internal:tensor",
         "@flatbuffers",
@@ -340,6 +343,7 @@ cc_library(
         "//tensorflow/lite:string_util",
         "//tensorflow/lite/c:common",
         "//tensorflow/lite/core/c:c_api_types",
+        "//tensorflow/lite/core/c:common",
         "//tensorflow/lite/kernels/internal:compatibility",
     ],
 )
@@ -428,6 +432,7 @@ cc_library(
         "//tensorflow/lite/core/api",
         "//tensorflow/lite/core/c:c_api",
         "//tensorflow/lite/core/c:c_api_types",
+        "//tensorflow/lite/core/c:common",
         "//tensorflow/lite/experimental/acceleration/configuration:configuration_fbs",
         "//tensorflow/lite/experimental/acceleration/configuration:delegate_registry",
         "//tensorflow/lite/experimental/acceleration/mini_benchmark:constants",

@@ -56,7 +56,6 @@ cc_library(
     deps = [
         ":c_api_decl",
         ":libtftpu_header",
-        "//tensorflow/c:tf_attrtype",
         "//tensorflow/c:tf_status",
     ],
 )
@@ -257,11 +256,11 @@ cc_library(
         ":tpu_platform_id",
         ":tpu_platform_interface",
         ":tpu_stream_interface",
-        "//tensorflow/c:tf_status",
-        "//tensorflow/c:tf_status_helper",
         "//tensorflow/compiler/xla:status",
         "//tensorflow/compiler/xla/stream_executor",
         "//tensorflow/compiler/xla/stream_executor/lib",
+        "//tensorflow/tsl/c:tsl_status",
+        "//tensorflow/tsl/c:tsl_status_helper",
         "//tensorflow/tsl/platform:casts",
         "//tensorflow/tsl/platform:types",
         "@com_google_absl//absl/cleanup",

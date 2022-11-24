@@ -27,6 +27,34 @@ func.func @max_reduce(%arg0: tensor<10xf32>) -> tensor<10xf32> {
 //  CHECK-SAME:   use_global_device_ids = 1
 //       CHECK: return %[[RET]]
 
+func.func @and_reduce(%arg0: tensor<1xi1>) -> tensor<1xi1> {
+  %0 = "mhlo.all_reduce"(%arg0) ({
+    ^bb0(%lhs: tensor<i1>, %rhs: tensor<i1>):
+    %1 = mhlo.and %lhs, %rhs : tensor<i1>
+    mhlo.return %1 : tensor<i1>
+  }) {
+    replica_groups = dense<> : tensor<0x0xi64>
+  } : (tensor<1xi1>) -> tensor<1xi1>
+  func.return %0 : tensor<1xi1>
+}
+
+// CHECK-LABEL: @and_reduce
+//       CHECK:   reduction_kind = 2 : i32,
+
+func.func @or_reduce(%arg0: tensor<1xi1>) -> tensor<1xi1> {
+  %0 = "mhlo.all_reduce"(%arg0) ({
+    ^bb0(%lhs: tensor<i1>, %rhs: tensor<i1>):
+    %1 = mhlo.or %lhs, %rhs : tensor<i1>
+    mhlo.return %1 : tensor<i1>
+  }) {
+    replica_groups = dense<> : tensor<0x0xi64>
+  } : (tensor<1xi1>) -> tensor<1xi1>
+  func.return %0 : tensor<1xi1>
+}
+
+// CHECK-LABEL: @or_reduce
+//       CHECK:   reduction_kind = 3 : i32,
+
 func.func @min_reduce_dynamic(%arg0: tensor<?xf32>) -> tensor<?xf32> {
   %0 = "mhlo.all_reduce"(%arg0) ({
   ^bb0(%lhs: tensor<f32>, %rhs: tensor<f32>):
@@ -165,3 +193,18 @@ func.func @all_to_all_dynamic_split_dim(%arg0: tensor<4x?xf32>)
 //       CHECK: %[[CONCAT_DIM:.*]] = arith.divui %[[DIM]], %[[C4]]
 //       CHECK: %[[DST:.*]] = tensor.empty(%[[CONCAT_DIM]]) : tensor<16x?xf32>
 //       CHECK: "xla_cpu.all_to_all"(%[[ARG0]], %[[DST]]) {
+
+func.func @all_to_all_tuple(%arg0: tensor<128x4xf32>, %arg1: tensor<128x4xf32>)
+    -> (tensor<128x4xf32>, tensor<128x4xf32>) {
+  %0:2 = "mhlo.all_to_all"(%arg0, %arg1) {
+    replica_groups = dense<[[0, 1]]> : tensor<1x2xi64>
+  } : (tensor<128x4xf32>, tensor<128x4xf32>) -> (tensor<128x4xf32>, tensor<128x4xf32>)
+  return %0#0, %0#1 : tensor<128x4xf32>, tensor<128x4xf32>
+}
+
+// CHECK-LABEL: @all_to_all_tuple
+//  CHECK-SAME: %[[ARG0:.*]]: tensor<128x4xf32>,
+//  CHECK-SAME: %[[ARG1:.*]]: tensor<128x4xf32>
+//       CHECK: %[[DST0:.*]] = tensor.empty() : tensor<128x4xf32>
+//       CHECK: %[[DST1:.*]] = tensor.empty() : tensor<128x4xf32>
+//       CHECK: "xla_cpu.all_to_all"(%[[ARG0]], %[[ARG1]], %[[DST0]], %[[DST1]])

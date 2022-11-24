@@ -76,6 +76,21 @@ def TilingSoftmaxPass : Pass<"gml-tiling-softmax", "mlir::func::FuncOp"> {
   ];
 }
 
+def GreedyTilingAndFusionPass : Pass<"gml-greedy-tiling-and-fusion",
+    "mlir::func::FuncOp"> {
+  let summary = "Pass to tile the root operation and to greedily fuse "
+      "producers into it.";
+  let constructor = "::mlir::gml_st::createGreedyTilingAndFusionPass()";
+  let options = [
+    Option<"distribute", "distribute", "bool", /*default=*/"true",
+           "Generate gml_st.parallel or gml_st.for">,
+    ListOption<"tileSizes", "tile-sizes", "int64_t",
+               "Tile sizes", "llvm::cl::ZeroOrMore">,
+    Option<"distributionLabel", "distribution-label", "std::string",
+           /*default=*/"", "Distribution label for generated gml_st.parallel">,
+  ];
+}
+
 def CollapseShapePass : Pass<"gml-collapse-shape", "mlir::func::FuncOp"> {
   let summary = "Collapse dimensions of bcasts, reductions, and cwise ops";
   let description = [{
@@ -146,6 +161,14 @@ def VectorizeGmlStLoopsPass :
                "llvm::cl::ZeroOrMore">,
   ];
   let dependentDialects = ["::mlir::vector::VectorDialect"];
+}
+
+def LoweringVectorContractPass :
+    Pass<"lowering-vector-contract", "mlir::func::FuncOp"> {
+  let summary = "Pass to lower vector.contract";
+  let constructor = "::mlir::gml_st::createLoweringVectorContractPass()";
+  let dependentDialects = ["::mlir::vector::VectorDialect",
+                           "::mlir::gml_st::GmlStDialect"];
 }
 
 def TransformScatterForCpuPass :
