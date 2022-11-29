@@ -13,6 +13,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
+#include "gml_st/transforms/vectorization/vectorization.h"
+
 #include <limits>
 #include <memory>
 #include <utility>
@@ -683,7 +685,7 @@ struct VectorizeGmlStLoopsPass
     };
     auto loopOpFilter = [&](Operation *op) {
       return isValidDistribution(op) &&
-             !hasTransformationAttr(op, kVectorizedMarker);
+             !hasLabel(op, kVectorizationAppliedLabel);
     };
 
     {
