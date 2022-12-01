@@ -2147,8 +2147,29 @@ def MHLO_CustomCallOp: MHLO_Op<"custom_call",
     backend, a call instruction is emitted which targets a symbol with the name
     `call_target_name`.
 
+    If XLA runtime is enabled for a backend, then custom calls use the runtime
+    custom call calling convention to call into the external functions. This
+    calling convention defines an ABI for encoding arguments, attributes and
+    results.
+
     `call_target_name` and `backend_config` can be arbitrary strings, but
     `call_target_name` should be short as it may be used in labels.
+
+    Depending on the API version there are two ways to pass extra bits of static
+    information to the external function:
+
+    1. For `API_VERSION_TYPED_FFI` custom calls `backend_config` must be a
+       dictionary attribute, that will be encoded according to the custom call
+       calling convention and passed to the external function as the attributes
+       argument. External code is expected to use declarative bindings (see
+       `xla/runtime/custom_call.h`) to decode them at run time.
+
+    2. For previous API versions it is the user responsibility to encode extra
+       bits of static information as a string `backend_config` attribute, and
+       decode it at run time.
+
+    `API_VERSION_TYPED_FFI` custom calls only supported if XLA uses XLA runtime.
+
     `backend_config` can encode arbitrarily large amounts of information.
 
     `has_side_effect` must be true if the custom call has side-effects.
@@ -2178,7 +2199,7 @@ def MHLO_CustomCallOp: MHLO_Op<"custom_call",
     Variadic<MHLO_TensorOrTokenOrTuple>:$inputs,
     StrAttr:$call_target_name,
     DefaultValuedOptionalAttr<BoolAttr, "false">:$has_side_effect,
-    DefaultValuedOptionalStrAttr<StrAttr, "">:$backend_config,
+    OptionalAttr<AnyAttrOf<[StrAttr, DictionaryAttr]>>:$backend_config,
     // TODO(b/189822916): Remove this field when all clients are migrated to
     // the status-returning API.
     DefaultValuedOptionalAttr<
@@ -2186,6 +2207,7 @@ def MHLO_CustomCallOp: MHLO_Op<"custom_call",
         "::mlir::mhlo::CustomCallApiVersion::API_VERSION_ORIGINAL">:
         $api_version,
     DefaultValuedOptionalAttr<MHLO_FlatSymbolRefArrayAttr, "{}">:$called_computations,
+    DefaultValuedOptionalAttr<MHLO_CustomCallScheduleAttr, "::mlir::mhlo::CustomCallSchedule::NONE">:$custom_call_schedule,
     OptionalAttr<MHLO_ArrayOfLayoutAttr>:$operand_layouts,
     OptionalAttr<MHLO_ArrayOfLayoutAttr>:$result_layouts,
     DefaultValuedOptionalAttr<
@@ -2609,7 +2631,8 @@ def MHLO_ReverseOp: MHLO_Op<"reverse",
   let hasFolder = 1;
 }
 
-def MHLO_PartitionIdOp : MHLO_Op<"partition_id", []> {
+def MHLO_PartitionIdOp : MHLO_Op<"partition_id", [
+    DeclareOpInterfaceMethods<InferTypeOpInterface>]> {
   let summary = "PartitionId operator";
   let description = [{
     Returns the value of the partition id of the currently executing device.
