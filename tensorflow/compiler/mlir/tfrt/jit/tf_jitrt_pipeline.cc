@@ -80,8 +80,8 @@ void AddLinalgTransformations(OpPassManager& pm,
       options.vector_size, options.reduction_1d_tile_size,
       options.reduction_2d_tile_sizes));
 
-  pm.addNestedPass<FuncOp>(
-      mlir::gml_st::createTransformMatmulForCpuPass(options.matmul_tile_sizes));
+  pm.addNestedPass<FuncOp>(mlir::gml_st::createTransformMatmulForCpuPass(
+      options.matmul_tile_sizes, options.lower_to_mmt4d));
 
   if (options.vectorize && options.codegen_transpose)
     pm.addNestedPass<FuncOp>(CreateTileTransposePass());
@@ -96,7 +96,7 @@ void AddLinalgTransformations(OpPassManager& pm,
   }
   pm.addNestedPass<FuncOp>(CreateTileFillPass(options.vector_size));
   pm.addNestedPass<FuncOp>(mlir::gml_st::createCollapseMaterializeOpsPass());
-  pm.addNestedPass<FuncOp>(mlir::gml_st::createVectorizeGmlStLoopsPass(true));
+  pm.addNestedPass<FuncOp>(mlir::gml_st::createVectorizeGmlStLoopsPass());
   pm.addNestedPass<FuncOp>(mlir::gml_st::createLowerVectorContractPass());
 }
 
