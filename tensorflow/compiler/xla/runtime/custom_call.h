@@ -1647,7 +1647,7 @@ auto AggregateDecoder(Members... m) {
 // XLA Custom Call helper macro for registering custom call handlers.
 //===----------------------------------------------------------------------===//
 
-#define XLA_RUNTIME_DEFINE_CUSTOM_CALL_WITH_CHECKS(fn, impl, checks, bind) \
+#define XLA_RUNTIME_DEFINE_CUSTOM_CALL(fn, impl, checks, bind)             \
   static bool fn(::xla::runtime::ExecutionContext* ctx, void** args,       \
                  void** attrs, void** rets) {                              \
     static auto* handler = bind.To<checks>(impl).release();                \
@@ -1655,9 +1655,14 @@ auto AggregateDecoder(Members... m) {
         xla::runtime::Executable::Call(ctx, *handler, args, attrs, rets)); \
   }
 
-#define XLA_RUNTIME_DEFINE_CUSTOM_CALL(fn, impl, bind) \
-  XLA_RUNTIME_DEFINE_CUSTOM_CALL_WITH_CHECKS(          \
-      fn, impl, ::xla::runtime::CustomCall::RuntimeChecks::kDefault, bind)
+#define XLA_RUNTIME_DEFINE_CUSTOM_CALL_TEMPLATE(param, fn, impl, checks, bind) \
+  template <param>                                                             \
+  static bool fn(::xla::runtime::ExecutionContext* ctx, void** args,           \
+                 void** attrs, void** rets) {                                  \
+    static auto* handler = bind.To<checks>(impl).release();                    \
+    return ::xla::runtime::succeeded(                                          \
+        xla::runtime::Executable::Call(ctx, *handler, args, attrs, rets));     \
+  }
 
 //===----------------------------------------------------------------------===//
 // Declare/define an explicit specialization for TypeID for types used

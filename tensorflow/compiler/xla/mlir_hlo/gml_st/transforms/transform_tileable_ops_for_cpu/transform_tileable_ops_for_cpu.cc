@@ -23,26 +23,35 @@ limitations under the License.
 namespace mlir {
 namespace gml_st {
 
-void addTileableOpsTransformationsForCPU(OpPassManager& pm) {
+void addTileableOpsTransformationsForCPU(
+    OpPassManager& pm, const GmlStCPUPipelineOptions& options) {
   using func::FuncOp;
 
-  pm.addPass(createTransformScatterForCpuPass());
-  pm.addPass(createTransformReduceForCpuPass());
-  pm.addPass(createTransformMatmulForCpuPass());
-  pm.addPass(createTransformTransposeForCpuPass());
-  pm.addPass(createTransformMapForCpuPass());
+  if (!options.vectorize) return;
+
+  pm.addNestedPass<FuncOp>(createTransformScatterForCpuPass());
+  pm.addNestedPass<FuncOp>(createTransformReduceForCpuPass(
+      options.vectorSize, options.reduction1DTileSize,
+      options.reduction2DTileSizes));
+  pm.addNestedPass<FuncOp>(createTransformMatmulForCpuPass(
+      options.matmulTileSizes, options.lowerToMmt4d));
+  pm.addNestedPass<FuncOp>(createTransformTransposeForCpuPass());
+  pm.addNestedPass<FuncOp>(createTransformMapForCpuPass(options.vectorSize));
 
   pm.addPass(createCSEPass());
   pm.addPass(createCanonicalizerPass());
 
   pm.addNestedPass<FuncOp>(createCollapseMaterializeOpsPass());
-  pm.addNestedPass<FuncOp>(createVectorizeGmlStLoopsPass(true));
+  pm.addNestedPass<FuncOp>(createVectorizePerfectlyTiledLoopsPass());
   pm.addNestedPass<FuncOp>(createLowerVectorContractPass());
 }
 
-static mlir::PassPipelineRegistration<> gmlStTilingAndFusionTransformations(
-    "gml-st-cpu-pipeline", "Tiles, fuses, vectorizes tileable ops for CPU",
-    addTileableOpsTransformationsForCPU);
+namespace {
+mlir::PassPipelineRegistration<GmlStCPUPipelineOptions>
+    gmlStTilingAndFusionTransformations(
+        "gml-st-cpu-pipeline", "Tiles, fuses, vectorizes tileable ops for CPU",
+        addTileableOpsTransformationsForCPU);
+}  // namespace
 
 }  // namespace gml_st
 }  // namespace mlir

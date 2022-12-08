@@ -106,12 +106,10 @@ void RegisterXlaGpuTypeIdNames(TypeIDNameRegistry& registry) {
       "__type_id_se_dnn_activation");
   registry.Register<Tagged<DotDimensionNumbers>>(
       "__type_id_dot_dimension_numbers");
-  registry.Register<Tagged<ConvDimensionNumbers>>(
-      "__type_id_conv_dimension_numbers");
   registry.Register<Tagged<se::fft::Type>>("__type_id_se_fft_type");
-  registry.Register<Tagged<ConvBackendConfig>>("__type_id_conv_backend_config");
 
   RegisterTracingTypeIdNames(registry);
+  RegisterConvTypeIdNames(registry);
 
 #if GOOGLE_CUDA
   registry.Register<Tagged<se::cuda::BlasLt::Epilogue>>(
@@ -323,7 +321,7 @@ Status GpuRuntimeExecutable::Execute(
   // Async collective support instantiated for each Gpu executable run, so that
   // concurrent executions can run independenty using a separate set of events
   // for communication.
-  JitRtAsyncCollectiveSupport async_collectives(
+  AsyncCollectivesSupport async_collectives(
       async_comms_stream.ok() ? async_comms_stream->get() : nullptr);
 
   // Always pass in the temp buffer, even if it is null, to accommodate the
