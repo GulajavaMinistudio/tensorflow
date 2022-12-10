@@ -13,21 +13,25 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include <gtest/gtest.h>
+package org.tensorflow.lite.acceleration;
 
-int main(int argc, char** argv) {
-  // Skip all tests. This is to verify that implementation tests build
-  // successfully without registering an IFRT client factory.
-  //
-  // Actual implementation tests may link with the standard `gtest_main` to run
-  // all tests or define a custom `main` function to filter out some tests.
-  const char* kFilter = "-*";
-#ifdef GTEST_FLAG_SET
-  GTEST_FLAG_SET(filter, kFilter);
-#else
-  testing::GTEST_FLAG(filter) = kFilter;
-#endif
+import org.tensorflow.lite.InterpreterApi.Options;
 
-  testing::InitGoogleTest(&argc, argv);
-  return RUN_ALL_TESTS();
+/**
+ * Interface specifying validated acceleration configuration. Developers should not implement this
+ * interface directly as it is only supported through the Acceleration service SDK.
+ */
+public interface ValidatedAccelerationConfig {
+
+  /**
+   * Returns the serialized validated acceleration config as bytes.
+   */
+  byte[] serialize();
+
+  /**
+   * Applies the validated acceleration config to the interpreter options.
+   *
+   * @hide
+   */
+  void apply(Options options);
 }

@@ -29,8 +29,12 @@ py_library(
     srcs = ["mirrored_strategy.py"],
     deps = [
         "//tensorflow/dtensor/python:api",
+        "//tensorflow/dtensor/python:config",
         "//tensorflow/dtensor/python:d_variable",
+        "//tensorflow/dtensor/python:layout",
+        "//tensorflow/dtensor/python:mesh_util",
         "//tensorflow/python/distribute:distribute_lib",
+        "//tensorflow/python/framework:ops",
     ],
 )
 
@@ -42,6 +46,8 @@ dtensor_test(
         ":mirrored_strategy",
         "//tensorflow/dtensor/python:d_variable",
         "//tensorflow/dtensor/python:layout",
+        "//tensorflow/dtensor/python:mesh_util",
+        "//tensorflow/dtensor/python:tpu_util",
         "//tensorflow/dtensor/python/tests:test_util",
         "//tensorflow/python:variables",
         "//tensorflow/python/distribute:distribute_lib",

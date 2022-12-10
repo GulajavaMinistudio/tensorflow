@@ -99,10 +99,8 @@ ClientAndPtr<T> WrapWithClient(std::shared_ptr<PyClient> client, T* contents) {
 class PyClient : public std::enable_shared_from_this<PyClient> {
  public:
 #ifdef JAX_ENABLE_IFRT
-  explicit PyClient(std::unique_ptr<ifrt::Client> ifrt_client);
   explicit PyClient(std::shared_ptr<ifrt::Client> ifrt_client);
 #else
-  explicit PyClient(std::unique_ptr<PjRtClient> pjrt_client);
   explicit PyClient(std::shared_ptr<PjRtClient> pjrt_client);
 #endif
   virtual ~PyClient();
@@ -114,7 +112,7 @@ class PyClient : public std::enable_shared_from_this<PyClient> {
   // TODO(hyeontaek): Migrate all users of this method to be agnostic of PjRt.
   xla::PjRtClient* pjrt_client() const {
     auto* pjrt_client =
-        llvm::dyn_cast_or_null<ifrt::PjRtClient>(ifrt_client_.get());
+        llvm::dyn_cast_or_null<ifrt::PjRtCompatibleClient>(ifrt_client_.get());
     if (pjrt_client == nullptr) {
       throw XlaRuntimeError(
           "This operation is implemented for a PjRt-compatible backend only.");
@@ -123,7 +121,7 @@ class PyClient : public std::enable_shared_from_this<PyClient> {
   }
   std::shared_ptr<PjRtClient> shared_ptr_pjrt_client() {
     auto* pjrt_client =
-        llvm::dyn_cast_or_null<ifrt::PjRtClient>(ifrt_client_.get());
+        llvm::dyn_cast_or_null<ifrt::PjRtCompatibleClient>(ifrt_client_.get());
     if (pjrt_client == nullptr) {
       throw XlaRuntimeError(
           "This operation is implemented for a PjRt-compatible backend only.");

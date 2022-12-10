@@ -199,6 +199,20 @@ def TransformMatmulForCpuPass :
   ];
 }
 
+def TransformMatmulForTritonPass :
+    Pass<"xla-triton-transform-matmul", "mlir::func::FuncOp"> {
+  let summary = "Transform matmul ops for lowering to Triton";
+
+  let constructor = "createTransformMatmulForTritonPass()";
+
+  let options = [
+    ListOption<"tileSizes", "tile-sizes", "int64_t",
+               "Tile sizes for a `linalg.matmul`">,
+    Option<"distributionLabel", "distribution-label", "std::string",
+           /*default=*/"", "Distribution label for generated gml_st.parallel">,
+  ];
+}
+
 def TransformMapForCpuPass :
     Pass <"gml-st-cpu-transform-map", "mlir::func::FuncOp"> {
   let summary = "Transform map ops for running on CPU";
@@ -238,4 +252,11 @@ def TransformReduceForCpuPass :
                "Tile sizes for a `linalg.reduce`. tileSizes[0] is the parallel "
                "dimension and tileSizes[1] is the reduction dimension.">,
   ];
+}
+
+def TransformSortForCpuPass :
+    Pass<"gml-st-cpu-transform-sort", "mlir::func::FuncOp"> {
+  let summary = "Transform sort ops for running on CPU";
+
+  let constructor = "createTransformSortForCpuPass()";
 }

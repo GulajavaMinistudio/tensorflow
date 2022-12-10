@@ -467,7 +467,7 @@ INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(XorOp)
 //===----------------------------------------------------------------------===//
 
 Type maybeTupleFromTypes(MLIRContext* ctx, ArrayRef<Type> types) {
-  if (types.size() == 1) return types[0];
+  if (types.size() == 1 && !types[0].isa<TupleType>()) return types[0];
   return TupleType::get(ctx, TypeRange(types));
 }
 
@@ -1105,12 +1105,16 @@ LogicalResult DotGeneralOp::verify() {
     auto rhsShape = rhsType.getShape();
 
     for (auto [lhs, rhs] : llvm::zip(lhsBatchingDims, rhsBatchingDims)) {
+      if (hlo::isDynamicDimSize(lhsShape[lhs])) continue;
+      if (hlo::isDynamicDimSize(rhsShape[rhs])) continue;
       if (lhsShape[lhs] != rhsShape[rhs]) {
         return emitOpError() << "batching dimension sizes must match for "
                                 "lhs/rhs";
       }
     }
     for (auto [lhs, rhs] : llvm::zip(lhsContractingDims, rhsContractingDims)) {
+      if (hlo::isDynamicDimSize(lhsShape[lhs])) continue;
+      if (hlo::isDynamicDimSize(rhsShape[rhs])) continue;
       if (lhsShape[lhs] != rhsShape[rhs]) {
         return emitOpError() << "contracting dimension sizes must match for "
                                 "lhs/rhs";
@@ -2826,6 +2830,26 @@ LogicalResult AllToAllOp::inferReturnTypeComponents(
   inferredReturnShapes.emplace_back(resultShape,
                                     operandRankedType.getElementType());
   return success();
+}
+
+void AllToAllOp::build(OpBuilder& odsBuilder, OperationState& odsState,
+                       Type resultType, Value operand,
+                       IntegerAttr splitDimension, IntegerAttr concatDimension,
+                       IntegerAttr splitCount,
+                       DenseIntElementsAttr replicaGroups) {
+  AllToAllOp::build(odsBuilder, odsState, resultType, operand, splitDimension,
+                    concatDimension, splitCount, replicaGroups,
+                    /*channel_handle=*/nullptr);
+}
+
+void AllToAllOp::build(OpBuilder& odsBuilder, OperationState& odsState,
+                       ::mlir::TypeRange resultType, ::mlir::ValueRange operand,
+                       IntegerAttr splitDimension, IntegerAttr concatDimension,
+                       IntegerAttr splitCount,
+                       DenseIntElementsAttr replicaGroups) {
+  AllToAllOp::build(odsBuilder, odsState, resultType, operand, splitDimension,
+                    concatDimension, splitCount, replicaGroups,
+                    /*channel_handle=*/nullptr);
 }
 
 //===----------------------------------------------------------------------===//
@@ -8186,10 +8210,14 @@ struct HLOInlinerInterface : public DialectInlinerInterface {
   }
 };
 
-struct HLOBoundedDialectInterface : public hlo::BoundedDialectInterface {
-  using BoundedDialectInterface::BoundedDialectInterface;
+struct HLOBoundedDialectInterface : public hlo::HloDialectInterface {
+  using HloDialectInterface::HloDialectInterface;
 
-  Attribute createBoundedAttr(ArrayRef<int64_t> bounds) const override {
+  Type createTokenType() const override {
+    return TokenType::get(getDialect()->getContext());
+  }
+
+  Attribute createTypeExtensions(ArrayRef<int64_t> bounds) const override {
     return TypeExtensionsAttr::get(getDialect()->getContext(), bounds);
   }
 };
@@ -9009,6 +9037,22 @@ static LogicalResult verifyArgResultAliasAttr(StringAttr attrName,
   return success();
 }
 
+// Each CrossProgramPrefetchAttr specifies a parameter and a ShapeIndex
+// (1) the parameter must be valid
+// (2) there must be a subshape at the given indices
+LogicalResult verifyCrossProgramPrefetchAttr(CrossProgramPrefetchAttr cpp,
+                                             ModuleOp module) {
+  func::FuncOp main = module.lookupSymbol<func::FuncOp>("main");
+  if (cpp.getParameter() >= main.getNumArguments()) return failure();
+  auto type = main.getArgument(cpp.getParameter()).getType();
+  for (auto index : cpp.getIndices()) {
+    auto tupleType = type.dyn_cast<TupleType>();
+    if (!tupleType) return failure();
+    type = tupleType.getType(index);
+  }
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // Builder utilities
 //===----------------------------------------------------------------------===//
@@ -9102,6 +9146,19 @@ LogicalResult MhloDialect::verifyOperationAttribute(Operation* op,
       return op->emitOpError()
              << "attribute " << attr.getName()
              << " can only be used on function-like operations";
+  }
+  if (attr.getName() == "mhlo.cross_program_prefetches") {
+    auto arrayAttr = attr.getValue().dyn_cast<ArrayAttr>();
+    if (!arrayAttr) return failure();
+    for (auto attrElt : arrayAttr) {
+      auto prefetchAttr = attrElt.dyn_cast<CrossProgramPrefetchAttr>();
+      if (!prefetchAttr) return failure();
+      auto module = dyn_cast<ModuleOp>(op);
+      if (!module) return failure();
+      if (failed(verifyCrossProgramPrefetchAttr(prefetchAttr, module))) {
+        return failure();
+      }
+    }
   }
   return success();
 }
