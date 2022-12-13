@@ -13,17 +13,20 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef TENSORFLOW_PYTHON_LIB_CORE_FLOAT8_E4M3B11_H_
-#define TENSORFLOW_PYTHON_LIB_CORE_FLOAT8_E4M3B11_H_
+#include "tensorflow/compiler/mlir/tfrt/transforms/gpu_passes.h"
 
-#include "tensorflow/tsl/python/lib/core/float8_e4m3b11.h"
+#include "tensorflow/compiler/mlir/tfrt/ir/gpu_ops.h"
 
 namespace tensorflow {
-// NOLINTBEGIN(misc-unused-using-decls)
-using tsl::float8_e4m3b11;
-using tsl::float8_e4m3b11_to_float;
-using tsl::float_to_float8_e4m3b11;
-// NOLINTEND(misc-unused-using-decls)
-}  // namespace tensorflow
 
-#endif  // TENSORFLOW_PYTHON_LIB_CORE_FLOAT8_E4M3B11_H_
+void RegisterGpuDialects(mlir::DialectRegistry *registry) {
+  registry->insert<tfrt::gpu::GpuRuntimeDialect>();
+}
+
+void AddGpuTargetDialectAndPatterns(mlir::MLIRContext *context,
+                                    mlir::ConversionTarget *target,
+                                    mlir::RewritePatternSet *patterns) {
+  target->addLegalDialect<tfrt::gpu::GpuRuntimeDialect>();
+}
+
+}  // namespace tensorflow
