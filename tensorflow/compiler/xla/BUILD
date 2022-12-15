@@ -1,4 +1,3 @@
-load("//tensorflow:tensorflow.default.bzl", "cc_header_only_library")
 load("//tensorflow/tsl:tsl.default.bzl", "filegroup", "get_compatible_with_portable")
 load("//tensorflow/tsl/platform:rules_cc.bzl", "cc_library")
 load(
@@ -143,6 +142,7 @@ cc_library(
         ":types",
         ":util",
         ":xla_data_proto_cc",
+        "//tensorflow/tsl/platform:float8",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/strings",
@@ -308,6 +308,7 @@ xla_cc_test(
         ":test",
         ":types",
         ":util",
+        "//tensorflow/tsl/platform:float8",
         "//tensorflow/tsl/platform:logging",
         "//tensorflow/tsl/platform:test_main",
     ],
@@ -393,6 +394,7 @@ cc_library(
         ":util",
         ":xla_data_proto_cc",
         "//tensorflow/tsl/platform:env",
+        "//tensorflow/tsl/platform:float8",
         "//tensorflow/tsl/platform:logging",
         "//tensorflow/tsl/platform:platform_port",
         "@com_google_absl//absl/algorithm:container",
@@ -523,6 +525,7 @@ cc_library(
         ":xla_data_proto_cc",
         "//tensorflow/tsl/lib/core:bitmap",
         "//tensorflow/tsl/platform:errors",
+        "//tensorflow/tsl/platform:float8",
         "//tensorflow/tsl/platform:logging",
         "//tensorflow/tsl/platform:platform_port",
         "//tensorflow/tsl/platform:protobuf",
@@ -550,6 +553,7 @@ xla_cc_test(
         ":test",
         ":types",
         "//tensorflow/tsl/lib/core:status_test_util",
+        "//tensorflow/tsl/platform:float8",
         "//tensorflow/tsl/platform:test",
         "//tensorflow/tsl/platform:test_main",
         "@com_google_absl//absl/base",
@@ -600,6 +604,7 @@ cc_library(
         ":literal_util",
         ":util",
         "//tensorflow/tsl/platform:env",
+        "//tensorflow/tsl/platform:float8",
         "//tensorflow/tsl/platform:status",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/strings",
@@ -1127,7 +1132,7 @@ filegroup(
         "runlit.cfg.py",
         "runlit.site.cfg.py",
     ],
-    visibility = ["//third_party/compiler/xla:__subpackages__"],
+    visibility = ["//tensorflow/compiler/xla:__subpackages__"],
 )
 
 # -----------------------------------------------------------------------------
@@ -1149,17 +1154,3 @@ filegroup(
 #     deps = [":xla_proto"],
 # )
 # copybara:uncomment_end
-
-# This is a headers target that extra XLA devices can use to prevent circular dependencies.  Devices that are compiled as separate shared objects can also use it to prevent linking of library code.
-cc_header_only_library(
-    name = "xla_headers_lib",
-    visibility = ["//visibility:public"],
-    deps = [
-        ":xla_data_proto_cc",
-        ":xla_proto_cc",
-        "//tensorflow/compiler/xla/client:client_library",
-        "//tensorflow/compiler/xla/hlo/ir:hlo",
-        "//tensorflow/core:framework_headers_lib",
-        "//tensorflow/core:stream_executor_headers_lib",
-    ],
-)

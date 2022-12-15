@@ -1200,6 +1200,7 @@ cc_library(
         "lib/Transforms/gpu_fusion_rewrite.cc",
         "lib/Transforms/gpu_kernel_lowering_passes.cc",
         "lib/Transforms/hlo_to_gpu_pipeline.cc",
+        "lib/Transforms/hlo_to_triton_pipeline.cc",
     ],
     hdrs = ["include/mlir-hlo/Transforms/gpu_passes.h"],
     deps = [
@@ -1704,9 +1705,7 @@ cc_library(
     name = "tiling_interface_impl",
     srcs = ["gml_st/interfaces/tiling_interface_impl.cc"],
     hdrs = ["gml_st/interfaces/tiling_interface_impl.h"],
-    includes = [
-        "include",
-    ],
+    includes = ["include"],
     strip_include_prefix = ".",
     deps = [
         ":gml_st",
@@ -1715,6 +1714,7 @@ cc_library(
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:AffineDialect",
         "@llvm-project//mlir:ArithDialect",
+        "@llvm-project//mlir:ArithUtils",
         "@llvm-project//mlir:DestinationStyleOpInterface",
         "@llvm-project//mlir:DialectUtils",
         "@llvm-project//mlir:IR",

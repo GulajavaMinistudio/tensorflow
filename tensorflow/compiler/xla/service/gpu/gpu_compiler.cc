@@ -128,7 +128,6 @@ limitations under the License.
 #include "tensorflow/compiler/xla/service/hlo_cse.h"
 #include "tensorflow/compiler/xla/service/hlo_dataflow_analysis.h"
 #include "tensorflow/compiler/xla/service/hlo_dce.h"
-#include "tensorflow/compiler/xla/service/hlo_parser.h"
 #include "tensorflow/compiler/xla/service/hlo_pass_fix.h"
 #include "tensorflow/compiler/xla/service/hlo_pass_pipeline.h"
 #include "tensorflow/compiler/xla/service/hlo_verifier.h"
@@ -193,7 +192,14 @@ class GpuBfloat16Support : public BFloat16Support {
   explicit GpuBfloat16Support(bool supports_matrix_multiplication,
                               se::StreamExecutor* stream_exec)
       : supports_matrix_multiplication_(supports_matrix_multiplication),
-        stream_exec_(stream_exec) {}
+        is_conv_bf16_supported_(IsConvBf16Supported(stream_exec)) {}
+
+  explicit GpuBfloat16Support(bool supports_matrix_multiplication,
+                              se::dnn::VersionInfo cudnn_version,
+                              se::CudaComputeCapability cuda_compute_capability)
+      : supports_matrix_multiplication_(supports_matrix_multiplication),
+        is_conv_bf16_supported_(
+            IsConvBf16Supported(cudnn_version, cuda_compute_capability)) {}
 
   bool SupportsBF16Operand(const HloInstruction& hlo,
                            int64_t operand_index) const override {
@@ -236,30 +242,41 @@ class GpuBfloat16Support : public BFloat16Support {
       case HloOpcode::kBitcast:
         return true;
       case HloOpcode::kConvolution:
-        return IsConvBF16Supported();
+        return is_conv_bf16_supported_;
       default:
         return supports_matrix_multiplication_ &&
                gpu::IsMatrixMultiplication(hlo);
     }
   }
 
-  bool IsConvBF16Supported() const {
-    if (se::dnn::DnnSupport* dnn = stream_exec_->AsDnn()) {
+  static bool IsConvBf16Supported(se::StreamExecutor* stream_exec) {
+    if (se::dnn::DnnSupport* dnn = stream_exec->AsDnn()) {
       se::port::StatusOr<se::dnn::VersionInfo> cudnn_version =
           dnn->GetVersion();
-      return cudnn_version.ok() &&
-             (cudnn_version->major_version() > 8 ||
-              (cudnn_version->major_version() == 8 &&
-               cudnn_version->minor_version() >= 2)) &&
-             stream_exec_->GetDeviceDescription()
-                 .cuda_compute_capability()
-                 .IsAtLeast(se::CudaComputeCapability::AMPERE);
+      if (cudnn_version.ok()) {
+        auto cuda_compute_capability =
+            stream_exec->GetDeviceDescription().cuda_compute_capability();
+        return (cudnn_version->major_version() > 8 ||
+                (cudnn_version->major_version() == 8 &&
+                 cudnn_version->minor_version() >= 2)) &&
+               cuda_compute_capability.IsAtLeast(
+                   se::CudaComputeCapability::AMPERE);
+      }
     }
     return false;
   }
 
+  static bool IsConvBf16Supported(
+      se::dnn::VersionInfo cudnn_version,
+      se::CudaComputeCapability cuda_compute_capability) {
+    return (cudnn_version.major_version() > 8 ||
+            (cudnn_version.major_version() == 8 &&
+             cudnn_version.minor_version() >= 2)) &&
+           cuda_compute_capability.IsAtLeast(se::CudaComputeCapability::AMPERE);
+  }
+
   bool supports_matrix_multiplication_;
-  se::StreamExecutor* stream_exec_;
+  bool is_conv_bf16_supported_;
 };
 
 int64_t GetSizeOfShape(const Shape& shape, int pointer_size) {
@@ -315,7 +332,8 @@ GpuXlaRuntimeAotCompilationResult::LoadExecutable(
 
 GpuTargetConfig::GpuTargetConfig(const se::GpuTargetConfigProto& proto)
     : gpu_device_info(proto.gpu_device_info()),
-      platform_name(proto.platform_name()) {
+      platform_name(proto.platform_name()),
+      dnn_version_info(proto.dnn_version_info()) {
   if (proto.has_cuda_compute_capability()) {
     stream_executor::CudaComputeCapability cuda_compute_capability(
         proto.cuda_compute_capability());
@@ -345,6 +363,7 @@ se::GpuTargetConfigProto GpuTargetConfig::ToProto() const {
   }
 
   proto.set_platform_name(platform_name);
+  *proto.mutable_dnn_version_info() = dnn_version_info.ToProto();
   return proto;
 }
 

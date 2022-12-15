@@ -20,6 +20,7 @@ limitations under the License.
 #include <string>
 #include <string_view>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "llvm/ADT/None.h"
@@ -216,6 +217,31 @@ class IsOkOpLowering : public OpConversionPattern<IsOkOp> {
 // Convert rt.custom_call to the corresponding runtime API call.
 //===----------------------------------------------------------------------===//
 
+static Value AsPtr(ImplicitLocOpBuilder &b,
+                   std::variant<LLVM::AllocaOp, LLVM::GlobalOp> &v) {
+  if (auto *alloca = std::get_if<LLVM::AllocaOp>(&v))
+    return alloca->getResult();
+  return Globals::AddrOf(b, std::get<LLVM::GlobalOp>(v));
+}
+
+static LLVM::GlobalOp EncodeEmptyArgsRets(Globals &g, ImplicitLocOpBuilder &b,
+                                          std::string_view symbol_base) {
+  // Empty args/rets is just an array with a single pointer to size (zero).
+  Type ptr = LLVM::LLVMPointerType::get(b.getContext());
+  Type type = LLVM::LLVMArrayType::get(ptr, 1);
+
+  auto init = [&](ImplicitLocOpBuilder &ib, Attribute) {
+    LLVM::GlobalOp zero =
+        EncodeScalar(g, b, b.getI64IntegerAttr(0), "__rt_zero");
+
+    Value arr = b.create<LLVM::UndefOp>(type);
+    arr = b.create<LLVM::InsertValueOp>(arr, Globals::AddrOf(b, zero), 0);
+    b.create<LLVM::ReturnOp>(arr);
+  };
+
+  return g.GetOrCreate(b, b.getArrayAttr({}), type, symbol_base, init);
+}
+
 static LLVM::GlobalOp EncodeTypeTable(Globals &g, ImplicitLocOpBuilder &b,
                                       ArrayRef<LLVM::GlobalOp> type_ids,
                                       std::string_view symbol_base) {
@@ -243,11 +269,23 @@ static LLVM::GlobalOp EncodeTypeTable(Globals &g, ImplicitLocOpBuilder &b,
   return g.GetOrCreate(b, arr_attr, type, symbol_base, init);
 }
 
-static FailureOr<LLVM::AllocaOp> EncodeArguments(
+struct EncodedArguments {
+  std::variant<LLVM::AllocaOp, LLVM::GlobalOp> encoded;  // `args` argument
+  SmallVector<std::variant<LLVM::AllocaOp, LLVM::GlobalOp>> values;
+};
+
+static FailureOr<EncodedArguments> EncodeArguments(
     CallOp op, CustomCallArgEncodingSet &encodings, Globals &g,
     DenseMap<Value, CustomCallArgEncoding::Encoded> &encoded_args,
     ImplicitLocOpBuilder &b, ValueRange operands, ValueRange converted) {
   llvm::SmallVector<CustomCallArgEncoding::Encoded> encoded;
+
+  // Encode empty arguments as a global array (skip the status type).
+  if (operands.drop_front().empty()) {
+    return EncodedArguments{EncodeEmptyArgsRets(g, b, "__rt_empty_args"), {}};
+  }
+
+  EncodedArguments arguments;
 
   // Encode all arguments as a set of pointers (skip the execution context).
   for (auto tuple : llvm::drop_begin(llvm::zip(operands, converted))) {
@@ -300,7 +338,8 @@ static FailureOr<LLVM::AllocaOp> EncodeArguments(
   for (auto &pair : llvm::enumerate(encoded)) {
     CustomCallArgEncoding::Encoded encoded = pair.value();
     int64_t offset = 2 + pair.index();
-    insert_value(encoded.value, offset);
+    insert_value(AsPtr(b, encoded.value), offset);
+    arguments.values.push_back(encoded.value);
   }
 
   // Always create an `alloca` in the parent function entry block.
@@ -319,8 +358,10 @@ static FailureOr<LLVM::AllocaOp> EncodeArguments(
   // Store constructed arguments array on the stack.
   b.create<LLVM::StoreOp>(arr, alloca.getRes());
 
-  // Return an alloca that encodes the custom call arguments.
-  return alloca;
+  // Alloca that encodes the custom call arguments.
+  arguments.encoded = alloca;
+
+  return arguments;
 }
 
 // Encodes attributes into the global constant (array of pointers to the
@@ -347,14 +388,20 @@ static FailureOr<LLVM::GlobalOp> EncodeAttributes(
 }
 
 struct EncodedResults {
-  LLVM::AllocaOp encoded;  // passed as 'rets' argument to custom call
-  SmallVector<LLVM::AllocaOp> allocas;  // storage for values of results
+  std::variant<LLVM::AllocaOp, LLVM::GlobalOp> encoded;  // `rets` argument
+  SmallVector<LLVM::AllocaOp> allocas;                   // encoded returns
 };
 
 static FailureOr<EncodedResults> EncodeResults(
     CallOp op, CustomCallRetEncodingSet &encodings, Globals &g,
     ImplicitLocOpBuilder &b, TypeRange ret_types, TypeRange converted_types) {
   llvm::SmallVector<CustomCallRetEncoding::Encoded> encoded;
+
+  // Encode empty returns as a global array (skip the status type).
+  if (ret_types.drop_front().empty()) {
+    return EncodedResults{EncodeEmptyArgsRets(g, b, "__rt_empty_rets"), {}};
+  }
+
   EncodedResults results;
 
   // Encode all returns as a set of pointers (skip the status type).
@@ -489,8 +536,8 @@ class CallOpLowering : public OpConversionPattern<CallOp> {
 
       return b.create<func::CallOp>(
           kCustomCall, TypeRange(rewriter.getI1Type()),
-          ValueRange({adaptor.getCtx(), callee, *args,
-                      Globals::AddrOf(b, *attrs), rets->encoded}));
+          ValueRange({adaptor.getCtx(), callee, AsPtr(b, args->encoded),
+                      Globals::AddrOf(b, *attrs), AsPtr(b, rets->encoded)}));
     };
 
     // Creates a direct custom call resolved at link time.
@@ -500,8 +547,8 @@ class CallOpLowering : public OpConversionPattern<CallOp> {
 
       return b.create<func::CallOp>(
           op.getCallee(), TypeRange(rewriter.getI1Type()),
-          ValueRange({adaptor.getCtx(), *args, Globals::AddrOf(b, *attrs),
-                      rets->encoded}));
+          ValueRange({adaptor.getCtx(), AsPtr(b, args->encoded),
+                      Globals::AddrOf(b, *attrs), AsPtr(b, rets->encoded)}));
     };
 
     // Build a call operation and result decoding right after the original op.
@@ -519,10 +566,12 @@ class CallOpLowering : public OpConversionPattern<CallOp> {
 
     // End the lifetime of encoded arguments and results.
     auto size = b.getI64IntegerAttr(-1);
-    b.create<LLVM::LifetimeEndOp>(size, *args);
-    b.create<LLVM::LifetimeEndOp>(size, rets->encoded);
-    for (LLVM::AllocaOp ret : rets->allocas)
-      b.create<LLVM::LifetimeEndOp>(size, ret);
+    if (auto *alloca = std::get_if<LLVM::AllocaOp>(&args->encoded))
+      b.create<LLVM::LifetimeEndOp>(size, *alloca);
+    if (auto *alloca = std::get_if<LLVM::AllocaOp>(&rets->encoded))
+      b.create<LLVM::LifetimeEndOp>(size, *alloca);
+    for (LLVM::AllocaOp alloca : rets->allocas)
+      b.create<LLVM::LifetimeEndOp>(size, alloca);
 
     rewriter.replaceOp(op, ValueRange(*decoded_results));
     return success();
