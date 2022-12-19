@@ -54,7 +54,7 @@ struct PjitCacheEntry {
   xla::PyTreeDef out_pytree_def;
   // Bitvector of kept arguments from Jaxpr DCE pass. Used to drop some `args`
   // in CompiledFunction::Call before calling into compiled computation.
-  std::optional<std::vector<bool>> kept_var_bitvec;
+  std::vector<bool> kept_var_bitvec;
 
   // Ensures a single thread performs the compilation for a given executable.
   //
@@ -112,12 +112,11 @@ class PjitFunction {
 xla::StatusOr<std::vector<tsl::RCReference<xla::ifrt::Array>>>
 PrepareIfrtInputs(const xla::PyLoadedExecutable& executable,
                   ParsedArgumentsAsBuffers& arguments,
-                  const std::optional<std::vector<bool>>& kept_args) {
+                  const std::vector<bool>& kept_args) {
 #else
 xla::StatusOr<std::vector<std::vector<xla::PjRtBuffer*>>> PreparePjRtInputs(
     const xla::PyLoadedExecutable& executable,
-    ParsedArgumentsAsBuffers& arguments,
-    const std::optional<std::vector<bool>>& kept_args) {
+    ParsedArgumentsAsBuffers& arguments, const std::vector<bool>& kept_args) {
 #endif
   const auto& addressable_devices = executable.AddressableDevices();
   int num_args = arguments.flat_dynamic_args.size();
@@ -133,9 +132,8 @@ xla::StatusOr<std::vector<std::vector<xla::PjRtBuffer*>>> PreparePjRtInputs(
   }
 #endif
 
-  bool input_pruning_enabled = kept_args.has_value();
   for (int i = 0; i < num_args; ++i) {
-    if (input_pruning_enabled && !kept_args.value()[i]) {
+    if (!kept_args[i]) {
       continue;
     }
     const py::object& arg = arguments.flat_dynamic_args[i];
@@ -340,7 +338,7 @@ xla::StatusOr<py::object> PjitFunction::Call(py::handle callable,
 #ifdef JAX_ENABLE_IFRT
   // A vector of [num_inputs].
   auto num_args_arrays = PrepareIfrtInputs(*cache_entry->executable, arguments,
-                                           *cache_entry->kept_var_bitvec);
+                                           cache_entry->kept_var_bitvec);
   if (!num_args_arrays.ok()) {
     VLOG(2) << "Failed to prepare IFRT inputs: " << num_args_arrays.status();
     return fallback_to_cache_miss();
@@ -542,16 +540,10 @@ void PjitFunction::PopulateCacheEntry(PjitCacheEntry& cache_entry,
   cache_entry.out_pytree_def =
       py::cast<xla::PyTreeDef>(fastpath_data.attr("out_pytree_def"));
 
-  auto kept_var_bitvec_attr =
-      py::getattr(fastpath_data, "kept_var_bitvec", py::none());
-  if (!kept_var_bitvec_attr.is_none()) {
-    auto kept_var_bitvec = py::cast<py::list>(kept_var_bitvec_attr);
-    cache_entry.kept_var_bitvec =
-        std::make_optional<std::vector<bool>>(kept_var_bitvec.size(), false);
-    for (int i = 0; i < kept_var_bitvec.size(); ++i) {
-      cache_entry.kept_var_bitvec.value()[i] =
-          py::cast<bool>(kept_var_bitvec[i]);
-    }
+  py::list kept_var_bitvec = fastpath_data.attr("kept_var_bitvec");
+  cache_entry.kept_var_bitvec.reserve(kept_var_bitvec.size());
+  for (py::handle k : kept_var_bitvec) {
+    cache_entry.kept_var_bitvec.push_back(py::cast<bool>(k));
   }
 }
 

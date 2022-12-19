@@ -351,10 +351,10 @@ FailureOr<SmallVector<std::pair<int64_t, int64_t>>> convertNx2Attribute(
 //===----------------------------------------------------------------------===//
 
 LogicalResult TypeExtensionsAttr::verifyEncoding(
-    llvm::ArrayRef<int64_t> bounds, mlir::Type elementType,
+    llvm::ArrayRef<int64_t> shape, mlir::Type elementType,
     llvm::function_ref<mlir::InFlightDiagnostic()> emitError) const {
   return hlo::verifyBounds(
-      getBounds(), RankedTensorType::get(bounds, elementType), emitError);
+      getBounds(), RankedTensorType::get(shape, elementType), emitError);
 }
 
 //===----------------------------------------------------------------------===//
@@ -2845,7 +2845,7 @@ LogicalResult AllToAllOp::inferReturnTypeComponents(
     }
 
     // TupleAllToAll has identical result and operand shapes.
-    for (int64_t i = 0; i < operands.size(); ++i) {
+    for (size_t i = 0; i < operands.size(); ++i) {
       inferredReturnShapes.emplace_back(
           operands[i].getType().cast<ShapedType>());
     }
@@ -4731,27 +4731,6 @@ OpFoldResult ReverseOp::fold(ArrayRef<Attribute> operands) {
 //===----------------------------------------------------------------------===//
 // ReduceOp
 //===----------------------------------------------------------------------===//
-
-// Returns the result type after reducing operand of the given type across the
-// specified dimensions.
-static TensorType getReduceResultType(Type operandTy,
-                                      DenseIntElementsAttr dimensions) {
-  Type elementTy = getElementTypeOrSelf(operandTy);
-
-  auto rankedTy = operandTy.dyn_cast<RankedTensorType>();
-  if (!rankedTy) return UnrankedTensorType::get(elementTy);
-
-  int64_t rank = rankedTy.getRank();
-  llvm::SmallVector<bool, 4> dimsMask(rank, false);
-  for (int64_t dim : dimensions.getValues<int64_t>()) dimsMask[dim] = true;
-
-  SmallVector<int64_t, 4> shape;
-  for (int64_t i = 0; i < rank; ++i) {
-    if (!dimsMask[i]) shape.push_back(rankedTy.getDimSize(i));
-  }
-
-  return RankedTensorType::get(shape, elementTy);
-}
 
 LogicalResult ReduceOp::fold(ArrayRef<Attribute> operands,
                              SmallVectorImpl<OpFoldResult>& results) {
@@ -8918,7 +8897,7 @@ SortOp createSortOp(PatternRewriter* rewriter, const Location& loc,
 
   // Use TOTALORDER comparison type instead of the default comparison if the
   // element type is of type float.
-  llvm::Optional<StringRef> compareType = llvm::None;
+  llvm::Optional<StringRef> compareType = std::nullopt;
   for (auto const& elementType : elementTypes)
     if (elementType.isa<FloatType>()) {
       compareType.emplace("TOTALORDER");

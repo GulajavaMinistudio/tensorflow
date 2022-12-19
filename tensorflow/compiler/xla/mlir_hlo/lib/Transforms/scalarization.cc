@@ -14,6 +14,7 @@ limitations under the License.
 ==============================================================================*/
 
 #include <memory>
+#include <optional>
 #include <utility>
 
 #include "gml_st/IR/gml_st_ops.h"
@@ -125,7 +126,7 @@ Optional<SmallVector<Value>> extractStartIndices(
     ImplicitLocOpBuilder &b, TypedValue<TensorType> startIndices) {
   if (startIndices.getType().getRank() != 2 ||
       startIndices.getType().getDimSize(0) != 1) {
-    return llvm::None;
+    return std::nullopt;
   }
 
   int64_t indexVectorSize = startIndices.getType().getDimSize(1);
@@ -188,7 +189,6 @@ struct ScalarizeScatterOp : public OpRewritePattern<thlo::ScatterOp> {
     for (const auto &en : llvm::enumerate(*scatterIndices)) {
       limitIndex[en.index()] =
           b.create<arith::AddIOp>(loc, limitIndex[en.index()], en.value());
-      limitIndex[en.index()].print(llvm::errs());
     }
     for (auto &value : limitIndex) {
       value = b.create<arith::SubIOp>(loc, value, one);

@@ -1623,6 +1623,16 @@ class HloEvaluatorTypedVisitor : public DfsHloVisitorWithDefault {
         TF_ASSIGN_OR_RETURN(parent_->evaluated_[map], MapImpl<int64_t>(map));
         break;
       }
+      case F8E5M2: {
+        TF_ASSIGN_OR_RETURN(parent_->evaluated_[map],
+                            MapImpl<tsl::float8_e5m2>(map));
+        break;
+      }
+      case F8E4M3FN: {
+        TF_ASSIGN_OR_RETURN(parent_->evaluated_[map],
+                            MapImpl<tsl::float8_e4m3fn>(map));
+        break;
+      }
       case F16: {
         TF_ASSIGN_OR_RETURN(parent_->evaluated_[map],
                             MapImpl<Eigen::half>(map));
@@ -2170,8 +2180,9 @@ class HloEvaluatorTypedVisitor : public DfsHloVisitorWithDefault {
           // [2] http://open-std.org/JTC1/SC22/WG21/docs/lwg-active.html#2524
           const ReturnT low_val = low.Get<ReturnT>({});
           const ReturnT high_val = high.Get<ReturnT>({});
-          std::uniform_real_distribution<ElementwiseT> generator(low_val,
-                                                                 high_val);
+          std::uniform_real_distribution<ElementwiseT> generator(
+              static_cast<ElementwiseT>(low_val),
+              static_cast<ElementwiseT>(high_val));
           TF_RETURN_IF_ERROR(result.Populate<ReturnT>(
               [&](absl::Span<const int64_t> /*indexes*/) {
                 while (true) {
@@ -2191,7 +2202,8 @@ class HloEvaluatorTypedVisitor : public DfsHloVisitorWithDefault {
               parent_->GetEvaluatedLiteralFor(random->operand(1));
 
           std::normal_distribution<ElementwiseT> generator(
-              mean.Get<ReturnT>({}), stddev.Get<ReturnT>({}));
+              static_cast<ElementwiseT>(mean.Get<ReturnT>({})),
+              static_cast<ElementwiseT>(stddev.Get<ReturnT>({})));
 
           TF_RETURN_IF_ERROR(result.Populate<ReturnT>(
               [&](absl::Span<const int64_t> /*indexes*/) {
@@ -2600,6 +2612,8 @@ extern template class HloEvaluatorTypedVisitor<double>;
 extern template class HloEvaluatorTypedVisitor<complex64>;
 extern template class HloEvaluatorTypedVisitor<complex128>;
 extern template class HloEvaluatorTypedVisitor<bfloat16, float>;
+extern template class HloEvaluatorTypedVisitor<tsl::float8_e5m2, float>;
+extern template class HloEvaluatorTypedVisitor<tsl::float8_e4m3fn, float>;
 
 }  // namespace xla
 
