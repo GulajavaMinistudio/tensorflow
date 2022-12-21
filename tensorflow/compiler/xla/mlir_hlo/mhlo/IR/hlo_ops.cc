@@ -1172,19 +1172,34 @@ struct DotGeneralToDot : public OpRewritePattern<DotGeneralOp> {
     auto lhsTy = lhs.getType().cast<ShapedType>();
     auto rhsTy = rhs.getType().cast<ShapedType>();
 
-    if (lhsTy.getRank() != 2) return failure();
-    if (rhsTy.getRank() != 2) return failure();
+    int64_t lhsRank = lhsTy.getRank();
+    int64_t rhsRank = rhsTy.getRank();
+    if ((lhsRank != 1 && lhsRank != 2) || (rhsRank != 1 && rhsRank != 2)) {
+      return rewriter.notifyMatchFailure(
+          dot, "input tensors must have rank of 1 or 2");
+    }
 
     auto nums = dot.getDotDimensionNumbers();
-    if (!nums.getLhsBatchingDimensions().empty()) return failure();
-    if (!nums.getRhsBatchingDimensions().empty()) return failure();
+    if ((!nums.getLhsBatchingDimensions().empty()) ||
+        (!nums.getRhsBatchingDimensions().empty())) {
+      return rewriter.notifyMatchFailure(dot, "cannot have batch dimensions");
+    }
 
     auto lhsContract = nums.getLhsContractingDimensions();
     auto rhsContract = nums.getRhsContractingDimensions();
-    if (lhsContract.size() != 1 || rhsContract.size() != 1) return failure();
 
-    if (lhsContract.front() != 1) return failure();
-    if (rhsContract.front() != 0) return failure();
+    if (lhsContract.size() != 1 || rhsContract.size() != 1) {
+      return rewriter.notifyMatchFailure(
+          dot, "input tensors must only have 1 contracting dimension");
+    }
+    if (rhsContract.front() != 0) {
+      return rewriter.notifyMatchFailure(
+          dot, "rhs must contract the first dimension");
+    }
+    if (lhsContract.front() != lhsRank - 1) {
+      return rewriter.notifyMatchFailure(
+          dot, "lhs must contract the last dimension");
+    }
 
     rewriter.replaceOpWithNewOp<mhlo::DotOp>(
         dot, dot.getType(), lhs, rhs,
@@ -2559,10 +2574,12 @@ LogicalResult ConvolutionOp::verify() {
   auto windowOrErr = hlo::verifyWindowAttributesAndInferWindowDimensions(
       windowDimensions, convertDenseIntAttr(getWindowStrides()), padding,
       convertDenseIntAttr(getLhsDilation()),
-      convertDenseIntAttr(getRhsDilation()), getLoc());
+      convertDenseIntAttr(getRhsDilation()),
+      *hlo::convertWindowReversalAttribute(getWindowReversal(), getLoc(),
+                                           "window_reversal"),
+      getLoc());
   if (failed(windowOrErr)) return failure();
 
-  // P4.
   auto actualReturnType = getResult().getType().cast<TensorType>();
   auto actualReturnElementType = actualReturnType.getElementType();
   if (!actualReturnType.hasRank()) return success();
@@ -6425,93 +6442,14 @@ OpFoldResult XorOp::fold(ArrayRef<Attribute> operands) {
 // SliceOp
 //===----------------------------------------------------------------------===//
 
-// Returns output dimension size for slice result for the given arguments.
-// Returns -1 if arguments are illegal.
-static int64_t inferSliceDim(int64_t inputDim, int64_t start, int64_t end,
-                             int64_t stride) {
-  if (inputDim == -1 || start < 0 || start > end || end > inputDim ||
-      stride == 0)
-    return -1;
-
-  return llvm::divideCeil(end - start, stride);
-}
-
-// The following properties are already enforced by the ODS:
-//  type(start_indices) == type(limit_indices) == type(strides).
-// Verify the following properties:
-//  P1. Verify rank(start_indices) == 1.
-//  P2. Verify size(start_indices) == rank(operand).
-//  P3~5. Verify 0 <= start_indices[i] <= limit_indices[i] <= shape(operand)[i].
-//  P6. Verify stride[i] > 0.
 LogicalResult SliceOp::inferReturnTypes(
-    MLIRContext* context, Optional<Location> location, ValueRange operands,
-    DictionaryAttr attributes, RegionRange regions,
+    MLIRContext* /*context*/, Optional<Location> location, ValueRange operands,
+    DictionaryAttr attributes, RegionRange /*regions*/,
     SmallVectorImpl<Type>& inferredReturnTypes) {
-  SliceOpAdaptor slice(operands, attributes);
-  Type ty = slice.getOperand().getType();
-  RankedTensorType rankedTy = ty.dyn_cast<RankedTensorType>();
-  if (!rankedTy) {
-    // The operand type is unranked, so the best we can infer for the result
-    // type is an unranked tensor with the same element type as the operand
-    // type.
-    inferredReturnTypes.assign({ty});
-    return success();
-  }
-
-  ShapedType attrTy = slice.getStartIndices().getType();
-  // P1.
-  // Note: ODS has type(start_indices) == type(limit_indices) == type(strides)
-  // So this implies rank(limit_indices) == rank(strides) == 1 also.
-  if (attrTy.getRank() != 1) {
-    return emitOptionalError(location, "start_indices has rank ",
-                             attrTy.getRank(), " instead of required rank 1");
-  }
-
-  // P2.
-  int64_t rank = rankedTy.getRank();
-  if (attrTy.getNumElements() != rank) {
-    return emitOptionalError(
-        location, "the number of elements in start_indices (",
-        attrTy.getNumElements(), ") does not match the rank of the operand (",
-        rank, ")");
-  }
-
-  SmallVector<int64_t, 4> start(slice.getStartIndices().getValues<int64_t>());
-  SmallVector<int64_t, 4> limit(slice.getLimitIndices().getValues<int64_t>());
-  SmallVector<int64_t, 4> strideVals(slice.getStrides().getValues<int64_t>());
-
-  SmallVector<int64_t, 4> shape;
-  shape.reserve(rank);
-  for (int64_t i = 0, e = rank; i != e; i++) {
-    if (hlo::isDynamicDimSize(rankedTy.getDimSize(i))) {
-      shape.push_back(ShapedType::kDynamic);
-      continue;
-    }
-    // P3.
-    if (start[i] < 0)
-      return emitOptionalError(location, "negative start index ", start[i],
-                               " in dimension ", i);
-    // P4.
-    if (limit[i] > rankedTy.getDimSize(i))
-      return emitOptionalError(location, "limit index ", limit[i],
-                               " is larger than dimension size ",
-                               rankedTy.getDimSize(i), " in dimension ", i);
-    // P5.
-    if (start[i] > limit[i])
-      return emitOptionalError(location, "start index ", start[i],
-                               " is larger than limit index ", limit[i],
-                               " in dimension ", i);
-    // P6.
-    if (strideVals[i] <= 0)
-      return emitOptionalError(location, "stride must be positive but got ",
-                               strideVals[i], " in dimension ", i);
-
-    shape.push_back(inferSliceDim(rankedTy.getDimSize(i), start[i], limit[i],
-                                  strideVals[i]));
-  }
-  inferredReturnTypes.assign(
-      {RankedTensorType::get(shape, rankedTy.getElementType())});
-  return success();
+  SliceOpAdaptor adaptor(operands, attributes);
+  return hlo::inferSliceOp(location, adaptor.getOperand(),
+                           adaptor.getStartIndices(), adaptor.getLimitIndices(),
+                           adaptor.getStrides(), inferredReturnTypes);
 }
 
 template <typename I, typename E>
@@ -6953,9 +6891,8 @@ LogicalResult TransposeOp::inferReturnTypes(
     DictionaryAttr attributes, RegionRange regions,
     SmallVectorImpl<Type>& inferredReturnTypes) {
   TransposeOp::Adaptor adaptor(operands, attributes, regions);
-  LogicalResult result = hlo::inferTransposeOp(
-      loc, adaptor.getOperand(), adaptor.getPermutation(), inferredReturnTypes);
-  return result;
+  return hlo::inferTransposeOp(loc, adaptor.getOperand(),
+                               adaptor.getPermutation(), inferredReturnTypes);
 }
 
 //===----------------------------------------------------------------------===//
@@ -7258,7 +7195,7 @@ LogicalResult SelectAndScatterOp::verify() {
 
   auto windowOrErr = hlo::verifyWindowAttributesAndInferWindowDimensions(
       windowDims, convertDenseIntAttr(getWindowStrides()), padding,
-      /*lhs_dilation=*/{}, /*rhs_dilation=*/{}, getLoc());
+      /*lhsDilation=*/{}, /*rhsDilation=*/{}, /*windowReversal=*/{}, getLoc());
   if (failed(windowOrErr)) return failure();
 
   // P5.
@@ -7955,24 +7892,26 @@ using mlir::hlo::printWindowAttributes;
 }  // namespace mhlo
 }  // namespace mlir
 
-// clang-format off
-using mlir::hlo::printSameOperandsAndResultType;
+using mlir::hlo::parseComplexOpType;
+using mlir::hlo::parseCustomCallTarget;
+using mlir::hlo::parseDenseI64Array;
+using mlir::hlo::parseExponentMantissa;
+using mlir::hlo::parsePairwiseOpType;
 using mlir::hlo::parseSameOperandsAndResultType;
-using mlir::hlo::printVariadicSameOperandsAndResultType;
+using mlir::hlo::parseSelectOpType;
+using mlir::hlo::parseTupleOpType;
+using mlir::hlo::parseVariadicOperandWithAttribute;
 using mlir::hlo::parseVariadicSameOperandsAndResultType;
 using mlir::hlo::printComplexOpType;
-using mlir::hlo::parseComplexOpType;
-using mlir::hlo::printPairwiseOpType;
-using mlir::hlo::parsePairwiseOpType;
-using mlir::hlo::printSelectOpType;
-using mlir::hlo::parseSelectOpType;
-using mlir::hlo::printTupleOpType;
-using mlir::hlo::parseTupleOpType;
 using mlir::hlo::printCustomCallTarget;
-using mlir::hlo::parseCustomCallTarget;
+using mlir::hlo::printDenseI64Array;
 using mlir::hlo::printExponentMantissa;
-using mlir::hlo::parseExponentMantissa;
-// clang-format on
+using mlir::hlo::printPairwiseOpType;
+using mlir::hlo::printSameOperandsAndResultType;
+using mlir::hlo::printSelectOpType;
+using mlir::hlo::printTupleOpType;
+using mlir::hlo::printVariadicOperandWithAttribute;
+using mlir::hlo::printVariadicSameOperandsAndResultType;
 
 #define GET_OP_CLASSES
 #include "mhlo/IR/hlo_ops.cc.inc"

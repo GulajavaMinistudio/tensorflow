@@ -892,7 +892,7 @@ StatusOr<mlir::Operation*> HloFunctionImporter::ImportInstructionImpl(
           "api_version", mlir::mhlo::CustomCallApiVersionAttr::get(
                              builder_->getContext(), mlir_api_version)));
       attributes.push_back(builder_->getNamedAttr(
-          "output_operand_aliasing",
+          "output_operand_aliases",
           ConvertOutputOperandAliasing(instruction->output_operand_aliasing(),
                                        builder_)));
       return func_builder
@@ -1334,7 +1334,8 @@ StatusOr<mlir::Operation*> HloFunctionImporter::ImportInstructionImpl(
       auto all_reduce_op = func_builder->create<mlir::mhlo::AllReduceOp>(
           loc, result_type, operands, attributes);
       TF_RETURN_IF_ERROR(ImportAsRegion(*all_reduce->to_apply(),
-                                        &all_reduce_op.getComputation()));
+                                        &all_reduce_op.getComputation(),
+                                        /*flatten_region_arg_tuple=*/true));
       return all_reduce_op.getOperation();
     }
     case HloOpcode::kAllReduceStart: {
