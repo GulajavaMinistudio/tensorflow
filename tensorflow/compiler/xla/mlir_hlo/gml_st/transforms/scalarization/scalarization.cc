@@ -18,7 +18,6 @@ limitations under the License.
 #include <utility>
 
 #include "gml_st/IR/gml_st_ops.h"
-#include "mlir-hlo/Transforms/passes.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Arith/Utils/Utils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -27,14 +26,16 @@ limitations under the License.
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tensor/Utils/Utils.h"
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
+#include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "thlo/IR/thlo_ops.h"
 
 namespace mlir {
+namespace gml_st {
 namespace {
 
 #define GEN_PASS_DEF_SCALARIZATIONPASS
-#include "mlir-hlo/Transforms/passes.h.inc"
+#include "gml_st/transforms/passes.h.inc"
 
 using linalg::LinalgOp;
 using tensor::ExtractOp;
@@ -375,10 +376,10 @@ struct ScalarizeConcatenateOp : public OpRewritePattern<thlo::ConcatenateOp> {
         sizes.emplace_back(rewriter.create<tensor::DimOp>(loc, initTensor, i));
       }
     }
-    Value tile = rewriter.create<gml_st::TileOp>(loc, offsets, sizes, strides);
 
     auto materializeAndInsert = [&](OpBuilder &b, Location l, Value input) {
-      Value slice = b.create<gml_st::MaterializeOp>(l, input, tile);
+      Value slice =
+          b.create<gml_st::MaterializeOp>(l, input, offsets, sizes, strides);
       return b.create<tensor::InsertSliceOp>(l, slice, initTensor, offsets,
                                              sizes, strides);
     };
@@ -495,13 +496,13 @@ struct FoldTensorExtractIntoMaterialize : public OpRewritePattern<ExtractOp> {
         extractOp.getTensor().getDefiningOp<gml_st::MaterializeOp>();
     if (!materializeOp) return failure();
 
-    auto tileType =
-        materializeOp.getSet().getType().dyn_cast<gml_st::TileType>();
-    if (!tileType || !hasSingleElement(tileType)) return failure();
+    if (!hasSingleElement(materializeOp.getType().cast<ShapedType>()))
+      return failure();
 
     rewriter.replaceOpWithNewOp<gml_st::MaterializeOp>(
         extractOp, extractOp.getType(), materializeOp.getSource(),
-        materializeOp.getSet());
+        materializeOp.getMixedOffsets(), materializeOp.getMixedSizes(),
+        materializeOp.getMixedStrides());
     return success();
   }
 };
@@ -572,4 +573,5 @@ std::unique_ptr<OperationPass<func::FuncOp>> createScalarizationPass() {
   return std::make_unique<ScalarizationPass>();
 }
 
+}  // namespace gml_st
 }  // namespace mlir

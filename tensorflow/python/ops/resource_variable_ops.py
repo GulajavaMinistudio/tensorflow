@@ -463,6 +463,9 @@ class BaseResourceVariable(variables.VariableV1, core.Tensor):
 
   def __tf_tracing_type__(self, signature_context):
     alias_id = signature_context.alias_global_id(self._handle._id)  # pylint:disable=protected-access
+    # TODO(xjun): Create variable placeholders directly from VariableSpec
+    # without using original values.
+    signature_context.add_placeholder(alias_id, self)
     return VariableSpec(shape=self.shape,
                         dtype=self.dtype,
                         trainable=self.trainable,
@@ -2639,7 +2642,7 @@ class VariableSpec(tensor_spec.DenseSpec):
     return super().most_specific_common_supertype(others)
 
   # TraceType method
-  def _placeholder_value(self, placeholder_context):
+  def placeholder_value(self, placeholder_context):
     name = self.name or placeholder_context.naming_scope
     context_graph = placeholder_context.context_graph
     if placeholder_context.has_placeholder(self.alias_id):
@@ -2651,7 +2654,7 @@ class VariableSpec(tensor_spec.DenseSpec):
       spec_context = trace_type.InternalPlaceholderContext(
           context_graph.outer_graph)
       spec_context.update_naming_scope(name)
-      placeholder = spec._placeholder_value(spec_context)  # pylint: disable=protected-access
+      placeholder = spec.placeholder_value(spec_context)
       variable = self._from_components([placeholder])
       # (b/262771247) ShardedVariable break without this and VariableSpecs
       # without alias_id are not TraceTypes.
