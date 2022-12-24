@@ -413,8 +413,10 @@ const XLA_FFI_Api ffi_api = {
     //===------------------------------------------------------------------===//
     // Type table.
     //===------------------------------------------------------------------===//
+    FfiTypeId<std::string_view>,
     FfiTypeId<float>,
     FfiTypeId<double>,
+    FfiTypeId<bool>,
     FfiTypeId<int32_t>,
     FfiTypeId<int64_t>,
     FfiTypeId<absl::Span<const float>>,
@@ -423,6 +425,7 @@ const XLA_FFI_Api ffi_api = {
     FfiTypeId<absl::Span<const int64_t>>,
     FfiTypeId<::xla::runtime::MemrefView>,
     FfiTypeId<::xla::runtime::StridedMemrefView>,
+    FfiTypeId<::xla::runtime::Dictionary>,
 };
 
 const XLA_FFI_Api* GetXlaFfiApi() { return &ffi_api; }

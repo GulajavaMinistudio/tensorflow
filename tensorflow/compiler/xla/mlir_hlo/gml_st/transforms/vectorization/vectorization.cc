@@ -496,7 +496,7 @@ void copyLoopBodyAndVectorizeTerminator(LoopLikeOpInterface op,
 // values into `bvm`.
 ParallelOp vectorizeLoopLikeOp(ParallelOp op, BlockAndValueMapping &bvm,
                                PatternRewriter &rewriter) {
-  Optional<StringAttr> distTypeAttr;
+  std::optional<StringAttr> distTypeAttr;
   if (auto distType = op.getDistributionType())
     distTypeAttr = rewriter.getStringAttr(*distType);
   return rewriter.create<ParallelOp>(
@@ -751,7 +751,8 @@ struct VectorizePerfectlyTiledLoopsPass
       return isPerfectlyTiledLoop(op->getParentOp());
     };
     auto isInsidePerfectlyTiledLoopOrSmall = [&](Operation *op) {
-      return isInsidePerfectlyTiledLoop(op) || hasSmallStaticOutputs(op);
+      return !hasSingleElementOperandsAndResults(op) &&
+             (isInsidePerfectlyTiledLoop(op) || hasSmallStaticOutputs(op));
     };
     {
       RewritePatternSet patterns = getDefaultVectorizationPatterns(ctx);

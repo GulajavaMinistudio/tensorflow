@@ -47,22 +47,6 @@ limitations under the License.
 
 namespace pjrt {
 
-xla::Status CheckMatchingStructSizes(absl::string_view struct_name,
-                                     size_t expected_size, size_t actual_size) {
-  if (expected_size != actual_size) {
-    return tsl::errors::InvalidArgument(
-        StructSizeErrorMsg(struct_name, expected_size, actual_size));
-  }
-  return tsl::OkStatus();
-}
-
-std::string StructSizeErrorMsg(absl::string_view struct_name,
-                               size_t expected_size, size_t actual_size) {
-  return absl::StrCat("Unexpected ", struct_name, " size: expected ",
-                      expected_size, ", got ", actual_size,
-                      ". Check installed software versions.");
-}
-
 std::string ProgramFormatErrorMsg(absl::string_view program_format) {
   return absl::StrCat("Unknown program format '", program_format, "'.");
 }
@@ -707,10 +691,10 @@ PJRT_Error* PJRT_Executable_Execute(PJRT_Executable_Execute_Args* args) {
     std::vector<std::unique_ptr<xla::PjRtBuffer>> cpp_buffer_list;
     if (args->executable->executable->num_partitions() == 1 &&
         args->executable->executable->num_replicas() == 1) {
-      // TODO(b/247013351): Implement portable execution.
-      return new PJRT_Error{xla::Unimplemented(
-          "PJRT_Executabe_Execute doesn't support portable execution; "
-          "execute_device must be null for single-device executables")};
+      PJRT_ASSIGN_OR_RETURN(
+          cpp_buffer_list,
+          args->executable->executable->ExecutePortable(
+              cpp_argument_lists[0], args->execute_device->device, options));
     } else {
       PJRT_ASSIGN_OR_RETURN(
           cpp_buffer_list,

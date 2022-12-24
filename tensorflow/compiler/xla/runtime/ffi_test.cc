@@ -96,6 +96,19 @@ static absl::Status CompileAndExecute(std::string_view source,
 
 using ffi::FfiStatus;
 
+// Aggregate attribute for testing decoding MLIR dictionaries into C++ structs.
+struct AggregateAttr {
+  int32_t idx0;
+  int32_t idx1;
+};
+
+namespace ffi {
+// Register decoding from dictionary to aggregate attribute.
+XLA_FFI_REGISTER_AGGREGATE_ATTR_DECODING(AggregateAttr,
+                                         AggregateMember<int32_t>("idx0"),
+                                         AggregateMember<int32_t>("idx1"));
+}  // namespace ffi
+
 // When FFI module is instantiated for an Xla runtime executable, it creates a
 // state object whose lifetime is bound to the executable, and the state can be
 // accessed from exported FFI functions. We use this state object to observe
@@ -104,9 +117,13 @@ struct TestModuleState {
   // Test scalar arguments decoding.
   int32_t i32_arg = 0;
 
+  // Test string attribute decoding.
+  std::string str;
+
   // Test scalar attributes decoding.
   float f32_attr;
   double f64_attr;
+  bool i1_attr;
   int32_t i32_attr;
   int64_t i64_attr;
 
@@ -115,6 +132,9 @@ struct TestModuleState {
   std::vector<double> f64_arr_attr;
   std::vector<int32_t> i32_arr_attr;
   std::vector<int64_t> i64_arr_attr;
+
+  // Test aggregate attribute decoding.
+  AggregateAttr aggregate_attr;
 };
 
 // TestModule is a stateful FFI module with every exported function having
@@ -138,14 +158,17 @@ struct TestModule : public ffi::StatefulModule<TestModuleState> {
   XLA_FFI_DEFINE_FUNCTION(FFI_AttrsDecoding, AttrsDecoding,
                           ffi::Ffi::Bind("ffi.attrs")
                               .State<TestModuleState>()  // state
+                              .Attr<std::string_view>("str")
                               .Attr<float>("f32")
                               .Attr<double>("f64")
+                              .Attr<bool>("i1")
                               .Attr<int32_t>("i32")
                               .Attr<int64_t>("i64")
                               .Attr<ffi::Span<const float>>("f32_arr")
                               .Attr<ffi::Span<const double>>("f64_arr")
                               .Attr<ffi::Span<const int32_t>>("i32_arr")
-                              .Attr<ffi::Span<const int64_t>>("i64_arr"));
+                              .Attr<ffi::Span<const int64_t>>("i64_arr")
+                              .Attr<AggregateAttr>("aggregate"));
 
   // Function that tests that we can successfully decode various kinds of
   // arguments passed to custom calls.
@@ -156,31 +179,34 @@ struct TestModule : public ffi::StatefulModule<TestModuleState> {
                               .Arg<ffi::BufferArg>()     // arg1
                               .Attr<float>("attr"));
 
-  static FfiStatus AttrsDecoding(TestModuleState* state, float f32, double f64,
-                                 int32_t i32, int64_t i64,
-                                 ffi::Span<const float> f32_arr,
+  static FfiStatus AttrsDecoding(TestModuleState* state, std::string_view str,
+                                 float f32, double f64, bool i1, int32_t i32,
+                                 int64_t i64, ffi::Span<const float> f32_arr,
                                  ffi::Span<const double> f64_arr,
                                  ffi::Span<const int32_t> i32_arr,
-                                 ffi::Span<const int64_t> i64_arr);
+                                 ffi::Span<const int64_t> i64_arr,
+                                 AggregateAttr aggregate);
 
   static FfiStatus Fill(TestModuleState* state, int32_t arg0,
                         ffi::BufferArg arg1, float attr0);
 };
 
-FfiStatus TestModule::AttrsDecoding(TestModuleState* state, float f32,
-                                    double f64, int32_t i32, int64_t i64,
-                                    ffi::Span<const float> f32_arr,
-                                    ffi::Span<const double> f64_arr,
-                                    ffi::Span<const int32_t> i32_arr,
-                                    ffi::Span<const int64_t> i64_arr) {
+FfiStatus TestModule::AttrsDecoding(
+    TestModuleState* state, std::string_view str, float f32, double f64,
+    bool i1, int32_t i32, int64_t i64, ffi::Span<const float> f32_arr,
+    ffi::Span<const double> f64_arr, ffi::Span<const int32_t> i32_arr,
+    ffi::Span<const int64_t> i64_arr, AggregateAttr aggregate) {
+  state->str = std::string(str);
   state->f32_attr = f32;
   state->f64_attr = f64;
+  state->i1_attr = i1;
   state->i32_attr = i32;
   state->i64_attr = i64;
   state->f32_arr_attr.assign(f32_arr.begin(), f32_arr.end());
   state->f64_arr_attr.assign(f64_arr.begin(), f64_arr.end());
   state->i32_arr_attr.assign(i32_arr.begin(), i32_arr.end());
   state->i64_arr_attr.assign(i64_arr.begin(), i64_arr.end());
+  state->aggregate_attr = aggregate;
   return FfiStatus::Ok();
 }
 
@@ -249,14 +275,17 @@ TEST_F(FfiTest, AttrsDecoding) {
 
     func.func @test() {
       call @attrs_decoding() {
+        str = "Foo",
         f32 = 42.0 : f32,
         f64 = 43.0 : f64,
+        i1 = true,
         i32 = 42 : i32,
         i64 = 43 : i64,
         f32_arr = array<f32: 1.0, 2.0, 3.0, 4.0>,
         f64_arr = array<f64: 5.0, 6.0, 7.0, 8.0>,
         i32_arr = array<i32: 1, 2, 3, 4>,
-        i64_arr = array<i64: 5, 6, 7, 8>
+        i64_arr = array<i64: 5, 6, 7, 8>,
+        aggregate = { idx0 = 123 : i32, idx1 = 456 : i32 }
       } : () -> ()
       return
     }
@@ -266,17 +295,22 @@ TEST_F(FfiTest, AttrsDecoding) {
   auto state_vector = state->state_vector();
   CustomCall::UserData user_data(&state_vector);
 
+  VLOG(0) << CompileAndExecute(source, {}, registry(), user_data).message();
   ASSERT_TRUE(CompileAndExecute(source, {}, registry(), user_data).ok());
   auto* attrs = reinterpret_cast<TestModuleState*>(state_vector.state[0]);
 
+  EXPECT_EQ(attrs->str, "Foo");
   EXPECT_EQ(attrs->f32_attr, 42.0);
   EXPECT_EQ(attrs->f64_attr, 43.0);
+  EXPECT_EQ(attrs->i1_attr, true);
   EXPECT_EQ(attrs->i32_attr, 42);
   EXPECT_EQ(attrs->i64_attr, 43);
   EXPECT_EQ(attrs->f32_arr_attr, std::vector<float>({1.0, 2.0, 3.0, 4.0}));
   EXPECT_EQ(attrs->f64_arr_attr, std::vector<double>({5.0, 6.0, 7.0, 8.0}));
   EXPECT_EQ(attrs->i32_arr_attr, std::vector<int32_t>({1, 2, 3, 4}));
   EXPECT_EQ(attrs->i64_arr_attr, std::vector<int64_t>({5, 6, 7, 8}));
+  EXPECT_EQ(attrs->aggregate_attr.idx0, 123);
+  EXPECT_EQ(attrs->aggregate_attr.idx1, 456);
 }
 
 TEST_F(FfiTest, ScalarAndBufferArgs) {

@@ -39,6 +39,7 @@ limitations under the License.
 #include "tensorflow/compiler/xla/primitive_util.h"
 #include "tensorflow/compiler/xla/runtime/diagnostics.h"
 #include "tensorflow/compiler/xla/runtime/errors.h"
+#include "tensorflow/compiler/xla/runtime/ffi/ffi_abi.h"
 #include "tensorflow/compiler/xla/runtime/logical_result.h"
 #include "tensorflow/compiler/xla/runtime/map_by_type.h"
 #include "tensorflow/compiler/xla/runtime/state.h"
@@ -390,34 +391,6 @@ struct CustomCallAttrDecoding;
 //
 template <typename T, CustomCall::RuntimeChecks>
 struct CustomCallRetDecoding;
-
-//===----------------------------------------------------------------------===//
-// C structures corresponding to the `rt-to-llvm` pass LLVM structs encoding
-// various types of arguments/attributes.
-//===----------------------------------------------------------------------===//
-
-namespace internal {
-struct EncodedMemref {
-  uint8_t dtype;
-  uint8_t rank;
-  void* data;
-  int64_t dims[];
-};
-
-template <typename T>
-struct EncodedArray {
-  int64_t size;
-  const T* data;
-};
-
-template <typename T>
-struct EncodedDenseElements {
-  struct EncodedArray<T> payload;
-  int64_t rank;
-  int64_t shape[];
-};
-
-}  // namespace internal
 
 //===----------------------------------------------------------------------===//
 // Helpers for decoding opaque arguments and attributes memory.
@@ -1497,6 +1470,9 @@ XLA_RUNTIME_REGISTER_SCALAR_ATTR_DECODING(double);
 // A type tag to represent empty arrays of unknown element type.
 struct EmptyArray {};
 
+// A type tag to represent dictionary attributes.
+struct Dictionary {};
+
 // Both EncodedArray and 1-D EncodedDenseElements can be decoded as an
 // absl::Span. Pointers to both EncodedArray and 1-D EncodedDenseElements
 // can be dereferenced as a pointer to EncodedArray.
@@ -1715,6 +1691,7 @@ XLA_RUNTIME_DECLARE_EXPLICIT_TYPE_ID(xla::runtime::StridedMemrefView);
 XLA_RUNTIME_DECLARE_EXPLICIT_TYPE_ID(xla::runtime::MemrefView);
 XLA_RUNTIME_DECLARE_EXPLICIT_TYPE_ID(xla::runtime::FlatMemrefView);
 XLA_RUNTIME_DECLARE_EXPLICIT_TYPE_ID(xla::runtime::EmptyArray);
+XLA_RUNTIME_DECLARE_EXPLICIT_TYPE_ID(xla::runtime::Dictionary);
 XLA_RUNTIME_DECLARE_EXPLICIT_TYPE_ID(int32_t);
 XLA_RUNTIME_DECLARE_EXPLICIT_TYPE_ID(int64_t);
 XLA_RUNTIME_DECLARE_EXPLICIT_TYPE_ID(float);
