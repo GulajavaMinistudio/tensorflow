@@ -373,7 +373,10 @@ void CollectivePermuteOp::build(OpBuilder& odsBuilder, OperationState& odsState,
 //===----------------------------------------------------------------------===//
 
 LogicalResult ReduceScatterOp::verify() {
-  if (failed(mlir::hlo::verifyReplicaGroups(*this, /*isUniformSized=*/true)))
+  if (failed(hlo::verifyReplicaGroups(getLoc(), getReplicaGroups(),
+                                      /*allGroupsMustHaveSameSize=*/true,
+                                      getUseGlobalDeviceIds(),
+                                      /*expectedGroupSize=*/std::nullopt)))
     return failure();
   auto operandType = getOperand().getType().cast<TensorType>();
   bool operandTypeRanked = operandType.isa<RankedTensorType>();
@@ -2945,25 +2948,55 @@ void AllToAllOp::build(OpBuilder& odsBuilder, OperationState& odsState,
 //===----------------------------------------------------------------------===//
 
 LogicalResult AllGatherOp::verify() {
-  // If operand and result are both ranked, then the size of the gather
-  // dimension in the result should be a multiple of the size of the gather
-  // dimension in the operand.
+  if (failed(hlo::verifyReplicaGroups(getLoc(), getReplicaGroups(),
+                                      /*allGroupsMustHaveSameSize=*/true,
+                                      getUseGlobalDeviceIds(),
+                                      /*expectedGroupSize=*/std::nullopt)))
+    return failure();
+
   auto operandType = getOperand().getType().dyn_cast<RankedTensorType>();
   auto resultType = getType().dyn_cast<RankedTensorType>();
-  uint64_t allGatherDimIndex = getAllGatherDim();
-  if (!operandType || !resultType ||
-      operandType.isDynamicDim(allGatherDimIndex) ||
-      resultType.isDynamicDim(allGatherDimIndex))
-    return success();
-  if (operandType.getDimSize(allGatherDimIndex) == 0)
-    return emitOpError() << "operand gather dimension cannot be zero.";
-  if ((resultType.getDimSize(allGatherDimIndex) %
-       operandType.getDimSize(allGatherDimIndex)) != 0)
-    return emitOpError()
-           << "result gather dimension has size "
-           << resultType.getDimSize(allGatherDimIndex)
-           << ", expected to be a multiple of operand gather dimension size "
-           << operandType.getDimSize(allGatherDimIndex);
+  int64_t allGatherDimIndex = getAllGatherDim();
+
+  if (allGatherDimIndex < 0)
+    return emitOpError() << "all_gather_dim cannot be negative";
+
+  if (operandType) {
+    if (allGatherDimIndex >= operandType.getRank())
+      return emitOpError() << "all_gather_dim must be a valid index of operand";
+
+    if (operandType.getDimSize(allGatherDimIndex) == 0)
+      return emitOpError()
+             << "dimension size of operand at 'all_gather_dim' cannot be zero";
+  }
+
+  if (operandType && resultType) {
+    if (resultType.getRank() != operandType.getRank())
+      return emitOpError() << "operand and return must have the same rank";
+
+    for (int64_t i = 0; i < operandType.getRank(); i++) {
+      if (i == allGatherDimIndex || operandType.isDynamicDim(i) ||
+          resultType.isDynamicDim(i))
+        continue;
+
+      if (resultType.getDimSize(i) != operandType.getDimSize(i))
+        return emitOpError() << "operand and result should have the same shape "
+                                "except for the "
+                                "dimension size at 'all_gather_dim'";
+    }
+
+    if (operandType.isDynamicDim(allGatherDimIndex) ||
+        resultType.isDynamicDim(allGatherDimIndex))
+      return success();
+
+    if ((resultType.getDimSize(allGatherDimIndex) %
+         operandType.getDimSize(allGatherDimIndex)) != 0)
+      return emitOpError()
+             << "result gather dimension has size "
+             << resultType.getDimSize(allGatherDimIndex)
+             << ", expected to be a multiple of operand gather dimension size "
+             << operandType.getDimSize(allGatherDimIndex);
+  }
 
   return success();
 }
@@ -5217,6 +5250,17 @@ LogicalResult OptimizationBarrierOp::inferReturnTypes(
 }
 
 //===----------------------------------------------------------------------===//
+// ReturnOp
+//===----------------------------------------------------------------------===//
+LogicalResult ReturnOp::inferReturnTypes(
+    MLIRContext*, Optional<Location> location, ValueRange operands,
+    DictionaryAttr attributes, RegionRange,
+    SmallVectorImpl<Type>& inferredReturnTypes) {
+  ReturnOp::Adaptor adaptor(operands, attributes);
+  return hlo::inferReturnOp(location, inferredReturnTypes);
+}
+
+//===----------------------------------------------------------------------===//
 // RngBitGeneratorOp
 //===----------------------------------------------------------------------===//
 
@@ -5296,28 +5340,6 @@ LogicalResult XlaRngGetAndUpdateStateOp::inferReturnTypes(
 // SelectOp
 //===----------------------------------------------------------------------===//
 
-LogicalResult SelectOp::verify() {
-  // The operands 'on_true' and 'on_false' should have compatible types, i.e.,
-  //   (a) have the same element type, and
-  //   (b) have compatible shapes (i.e. the same shape and/or at least one
-  //       dynamic shape)
-  if (!hlo::compatibleShapeAndElementType(getOnTrue().getType(),
-                                          getOnFalse().getType()))
-    return emitOpError()
-           << "requires compatible types for non-predicate operands";
-
-  // The predicate, if not-scalar, should have the same shape as the remaining
-  // operands.
-  auto predTy = getPred().getType().dyn_cast<RankedTensorType>();
-  bool predMayBeScalar = !predTy || predTy.getRank() == 0;
-  if (predMayBeScalar) return success();
-
-  if (failed(verifyCompatibleShape(getPred().getType(), getOnTrue().getType())))
-    return emitOpError() << "requires the same shape for all operands";
-
-  return success();
-}
-
 OpFoldResult SelectOp::fold(ArrayRef<Attribute> operands) {
   if (getOnTrue() == getOnFalse()) {
     return getOnTrue();
@@ -5353,28 +5375,8 @@ LogicalResult SelectOp::inferReturnTypeComponents(
     DictionaryAttr attributes, RegionRange,
     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
   SelectOp::Adaptor op(operands, attributes);
-  auto trueType = op.getOnTrue().getType().cast<TensorType>();
-  auto falseType = op.getOnFalse().getType().cast<TensorType>();
-
-  // The output shape should be the most general of the operand shapes at each
-  // dimension.
-  ShapedTypeComponents& outputType = inferredReturnShapes.emplace_back();
-  if (trueType == falseType || !trueType.hasRank()) {
-    outputType = ShapedTypeComponents(trueType.cast<ShapedType>());
-  } else if (!falseType.hasRank()) {
-    outputType = ShapedTypeComponents(falseType.cast<ShapedType>());
-  } else {
-    assert(trueType.getRank() == falseType.getRank());
-    llvm::SmallVector<int64_t, 4> dims;
-    dims.reserve(trueType.getRank());
-    for (auto dim : llvm::zip(trueType.getShape(), falseType.getShape())) {
-      dims.push_back(std::get<0>(dim) == std::get<1>(dim)
-                         ? std::get<0>(dim)
-                         : ShapedType::kDynamic);
-    }
-    outputType = ShapedTypeComponents(dims, trueType.getElementType());
-  }
-  return success();
+  return hlo::inferSelectOp(location, op.getPred(), op.getOnTrue(),
+                            op.getOnFalse(), inferredReturnShapes);
 }
 
 LogicalResult SelectOp::reifyReturnTypeShapes(

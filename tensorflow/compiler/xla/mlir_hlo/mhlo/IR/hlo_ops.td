@@ -2547,7 +2547,6 @@ def MHLO_SelectOp: MHLO_Op<"select", [Pure, HLO_BroadcastingElementwise,
   let results = (outs MHLO_Tensor:$result);
 
   let hasFolder = 1;
-  let hasVerifier = 1;
   let hasCanonicalizer = 1;
 
   let assemblyFormat = [{
@@ -2873,7 +2872,9 @@ def MHLO_ReduceWindowOp: MHLO_Op<"reduce_window", [
   }];
 }
 
-def MHLO_ReturnOp : MHLO_Op<"return", [Pure, Terminator]> {
+def MHLO_ReturnOp : MHLO_Op<"return",
+      [Pure, Terminator,
+      DeclareOpInterfaceMethods<InferTypeOpInterface>]> {
   let summary = [{
     The `hlo.return` operation terminates a region and returns values.
 
