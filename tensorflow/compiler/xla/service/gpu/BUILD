@@ -2262,6 +2262,7 @@ cc_library(
         "//tensorflow/compiler/xla/hlo/ir:hlo",
         "//tensorflow/compiler/xla/service:elemental_ir_emitter",
         "//tensorflow/compiler/xla/service:hlo_cost_analysis",
+        "@com_google_absl//absl/container:node_hash_map",
     ],
 )
 
@@ -2282,6 +2283,7 @@ cc_library(
     deps = [
         ":gpu_device_info",
         ":gpu_hlo_cost_analysis",
+        "//tensorflow/compiler/xla/hlo/ir:hlo",
         "@com_google_absl//absl/time",
     ],
 )

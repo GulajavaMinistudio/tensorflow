@@ -8933,6 +8933,16 @@ Operation* MhloDialect::materializeConstant(OpBuilder& builder, Attribute value,
   return builder.create<mhlo::ConstantOp>(loc, type, elementsAttr);
 }
 
+int64_t getNumLeafBuffers(Type type) {
+  if (auto tuple = type.dyn_cast<TupleType>()) {
+    auto ans = 0;
+    for (auto type : tuple.getTypes()) ans += getNumLeafBuffers(type);
+    return ans;
+  } else {
+    return 1;
+  }
+}
+
 LogicalResult MhloDialect::verifyRegionArgAttribute(Operation* op,
                                                     unsigned /*regionIndex*/,
                                                     unsigned argIndex,
@@ -8941,6 +8951,25 @@ LogicalResult MhloDialect::verifyRegionArgAttribute(Operation* op,
     if (failed(
             verifyArgResultAliasAttr(attr.getName(), aliasAttr, argIndex, op)))
       return failure();
+  }
+  if (attr.getName() == "mhlo.parameter_replication") {
+    auto arrayAttr = attr.getValue().dyn_cast<ArrayAttr>();
+    if (!arrayAttr)
+      return op->emitOpError() << "parameter_replication: must be an array";
+    auto func = dyn_cast<mlir::func::FuncOp>(op);
+    if (!func)
+      return op->emitOpError()
+             << "has parameter_replication but is not a function";
+    // parameter_replication = [] or [false] is equivalent to [false,...,false]
+    // and parameter_replication = [true] means [true,...,true]
+    if (arrayAttr.size() == 0 || arrayAttr.size() == 1) return success();
+    auto num_leaf_buffers =
+        getNumLeafBuffers(func.getArgumentTypes()[argIndex]);
+    if ((size_t)num_leaf_buffers != arrayAttr.size())
+      return op->emitOpError()
+             << "parameter_replication: arg " << argIndex << " has "
+             << num_leaf_buffers << " leaf_buffers, but parameter_replication"
+             << " expects " << arrayAttr.size();
   }
   return success();
 }
@@ -8986,6 +9015,24 @@ LogicalResult MhloDialect::verifyOperationAttribute(Operation* op,
       auto res = verifyDynamicParameterBinding(bindingAttr, module);
       if (failed(res)) return res;
     }
+  }
+  if (attr.getName() == "mhlo.spmd_parameters_sharding") {
+    auto arrayAttr = attr.getValue().dyn_cast<ArrayAttr>();
+    if (!arrayAttr)
+      return op->emitOpError() << "spmd_parameters_sharding: must be an array";
+    auto module = dyn_cast<ModuleOp>(op);
+    if (!module)
+      return op->emitOpError()
+             << "has spmd_paramters_sharding but is not a module";
+    // Check that the "main" function exists:
+    auto main = module.lookupSymbol<mlir::func::FuncOp>("main");
+    if (!main)
+      return module.emitOpError() << "spmd_parameters_sharding: main not found";
+    if (main.getNumArguments() != arrayAttr.size())
+      return module.emitOpError()
+             << "spmd_parameters_sharding: main has " << main.getNumArguments()
+             << " arguments, but spmd_parameters_sharding expects "
+             << arrayAttr.size();
   }
   return success();
 }
