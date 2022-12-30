@@ -7953,6 +7953,8 @@ struct MhloHloDialectInterface : public hlo::HloDialectInterface {
     return TokenType::get(getDialect()->getContext());
   }
 
+  bool isTokenType(Type type) const override { return type.isa<TokenType>(); }
+
   Attribute createTypeExtensions(ArrayRef<int64_t> bounds) const override {
     return TypeExtensionsAttr::get(getDialect()->getContext(), bounds);
   }
@@ -8956,12 +8958,14 @@ LogicalResult MhloDialect::verifyRegionArgAttribute(Operation* op,
     auto arrayAttr = attr.getValue().dyn_cast<ArrayAttr>();
     if (!arrayAttr)
       return op->emitOpError() << "parameter_replication: must be an array";
-    auto func = dyn_cast<mlir::func::FuncOp>(op);
-    if (!func)
+    auto func = dyn_cast<mlir::FunctionOpInterface>(op);
+    if (!func) {
       return op->emitOpError()
              << "has parameter_replication but is not a function";
-    // parameter_replication = [] or [false] is equivalent to [false,...,false]
-    // and parameter_replication = [true] means [true,...,true]
+    }
+    // parameter_replication = [] or [false] is equivalent to
+    // [false,...,false] and parameter_replication = [true] means
+    // [true,...,true]
     if (arrayAttr.size() == 0 || arrayAttr.size() == 1) return success();
     auto num_leaf_buffers =
         getNumLeafBuffers(func.getArgumentTypes()[argIndex]);
