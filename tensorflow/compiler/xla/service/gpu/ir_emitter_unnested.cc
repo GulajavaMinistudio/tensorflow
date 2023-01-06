@@ -67,10 +67,10 @@ limitations under the License.
 #include "tensorflow/compiler/xla/hlo/ir/hlo_instructions.h"
 #include "tensorflow/compiler/xla/hlo/ir/hlo_opcode.h"
 #include "tensorflow/compiler/xla/layout_util.h"
-#include "tensorflow/compiler/xla/mlir_hlo/include/mlir-hlo/Transforms/gpu_passes.h"
 #include "tensorflow/compiler/xla/mlir_hlo/lhlo/IR/lhlo_ops.h"
 #include "tensorflow/compiler/xla/mlir_hlo/lhlo_gpu/IR/lhlo_gpu_ops.h"
 #include "tensorflow/compiler/xla/mlir_hlo/mhlo/IR/hlo_ops.h"
+#include "tensorflow/compiler/xla/mlir_hlo/transforms/gpu_passes.h"
 #include "tensorflow/compiler/xla/permutation_util.h"
 #include "tensorflow/compiler/xla/primitive_util.h"
 #include "tensorflow/compiler/xla/service/collective_ops_utils.h"
@@ -5342,7 +5342,9 @@ Status IrEmitterUnnested::EmitOp(mlir::Operation* op) {
       return EmitSliceToDynamic(op);
     }
 #if GOOGLE_CUDA || TENSORFLOW_USE_ROCM
-    if (call.getCallTargetName() == kTriangularSolveCallTarget) {
+    auto call_target = call.getCallTargetName();
+    if (absl::string_view(call_target.data(), call_target.size()) ==
+        kTriangularSolveCallTarget) {
       return EmitTriangularSolveCustomCall(op);
     }
 #endif  // GOOGLE_CUDA || TENSORFLOW_USE_ROCM
