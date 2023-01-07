@@ -32,7 +32,6 @@ limitations under the License.
 #include "tensorflow/core/data/service/dispatcher.grpc.pb.h"
 #include "tensorflow/core/data/service/dispatcher.pb.h"
 #include "tensorflow/core/data/service/grpc_util.h"
-#include "tensorflow/core/data/snapshot.pb.h"
 #include "tensorflow/core/framework/graph.pb.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/platform/errors.h"
@@ -130,6 +129,32 @@ Status DataServiceDispatcherClient::Snapshot(
   grpc::Status status = stub_->Snapshot(&client_ctx, req, &resp);
   if (!status.ok()) {
     return grpc_util::WrapError("Failed to snapshot", status);
+  }
+  return OkStatus();
+}
+
+Status DataServiceDispatcherClient::GetSnapshotSplit(
+    const std::string& directory, int64_t stream_index, int64_t source_index,
+    Tensor& split, bool& end_of_splits) {
+  TF_RETURN_IF_ERROR(EnsureInitialized());
+
+  GetSnapshotSplitRequest req;
+  req.set_directory(directory);
+  req.set_stream_index(stream_index);
+  req.set_source_index(source_index);
+
+  GetSnapshotSplitResponse resp;
+  grpc::ClientContext client_ctx;
+  grpc::Status status = stub_->GetSnapshotSplit(&client_ctx, req, &resp);
+  if (!status.ok()) {
+    return grpc_util::WrapError("Failed to get snapshot split", status);
+  }
+  end_of_splits = resp.end_of_splits();
+  if (!end_of_splits) {
+    if (!split.FromProto(resp.split())) {
+      return errors::Internal("Failed to parse split tensor proto: ",
+                              resp.split().DebugString());
+    }
   }
   return OkStatus();
 }

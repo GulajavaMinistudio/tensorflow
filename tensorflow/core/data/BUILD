@@ -6,7 +6,6 @@ load(
 )
 load(
     "//tensorflow/core/platform:build_config.bzl",
-    "tf_proto_library",
     "tf_protos_all",
 )
 
@@ -16,14 +15,6 @@ package(
         "//tensorflow:internal",
     ],
     licenses = ["notice"],
-)
-
-tf_proto_library(
-    name = "snapshot_proto",
-    srcs = ["snapshot.proto"],
-    has_services = 1,
-    cc_api_version = 2,
-    create_java_proto = False,
 )
 
 # Export files for use on Android.
@@ -50,6 +41,8 @@ exports_files([
     "split_utils.h",
     "stats_utils.cc",
     "stats_utils.h",
+    "tfdataz_metrics.h",
+    "tfdataz_metrics.cc",
     "unbounded_thread_pool.cc",
     "unbounded_thread_pool.h",
     "utils.cc",
@@ -223,10 +216,13 @@ tf_cc_test(
 cc_library(
     name = "metric_utils",
     srcs = ["metric_utils.cc"],
-    hdrs = ["metric_utils.h"],
+    hdrs = [
+        "metric_utils.h",
+    ],
     # copybara:uncomment copts = ["-Wthread-safety-analysis"],
     visibility = ["//visibility:public"],
     deps = [
+        ":tfdataz_metrics",
         "//tensorflow/core:framework",
         "//tensorflow/core/data:utils",
         "//tensorflow/core/platform:env",
@@ -250,6 +246,37 @@ tf_cc_test(
         "//tensorflow/core/lib/monitoring:test_utils",
         "//tensorflow/core/platform:env",
         "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/time",
+    ],
+)
+
+cc_library(
+    name = "tfdataz_metrics",
+    srcs = ["tfdataz_metrics.cc"],
+    hdrs = ["tfdataz_metrics.h"],
+    # copybara:uncomment copts = ["-Wthread-safety-analysis"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//tensorflow/core:lib",
+        "//tensorflow/core/platform:env",
+        "//tensorflow/core/platform:mutex",
+        "//tensorflow/core/platform:thread_annotations",
+        "@com_google_absl//absl/time",
+    ],
+)
+
+tf_cc_test(
+    name = "tfdataz_metrics_test",
+    size = "small",
+    srcs = ["tfdataz_metrics_test.cc"],
+    # copybara:uncomment extra_copts = ["-Wthread-safety-analysis"],
+    deps = [
+        ":tfdataz_metrics",
+        "//tensorflow/core:framework",
+        "//tensorflow/core:test",
+        "//tensorflow/core:test_main",
+        "//tensorflow/core/platform:env",
+        "//tensorflow/core/util:fake_clock_env",
         "@com_google_absl//absl/time",
     ],
 )
@@ -423,7 +450,6 @@ cc_library(
     hdrs = ["snapshot_utils.h"],
     # copybara:uncomment copts = ["-Wthread-safety-analysis"],
     deps = [
-        ":snapshot_proto_cc",
         "//tensorflow/core:core_cpu_lib",
         "//tensorflow/core:dataset_ops_op_lib",
         "//tensorflow/core:framework",
