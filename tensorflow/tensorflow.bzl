@@ -303,7 +303,7 @@ if_nccl = _if_nccl
 
 def if_zendnn(if_true, if_false = []):
     return select({
-        "//tensorflow:linux_x86_64": if_true,
+        clean_dep("//tensorflow:linux_x86_64"): if_true,
         "//conditions:default": if_false,
     })
 
@@ -533,7 +533,8 @@ def tf_gen_op_libs(
         sub_directory = "ops/",
         deps = None,
         is_external = True,
-        compatible_with = None):
+        compatible_with = None,
+        features = []):
     # Make library out of each op so it can also be used to generate wrappers
     # for various languages.
     if not deps:
@@ -542,6 +543,7 @@ def tf_gen_op_libs(
         cc_library(
             name = n + "_op_lib",
             copts = tf_copts(is_external = is_external),
+            features = features,
             srcs = [sub_directory + n + ".cc"],
             deps = deps + [clean_dep("//tensorflow/core:framework")],
             compatible_with = compatible_with,
@@ -1416,7 +1418,7 @@ def tf_gen_op_wrapper_py(
         out = op_reg_offset_out,
         # Feed an empty dep list if not indexing to skip unnecessary aspect propagation.
         deps = select({
-            "//tensorflow:api_indexable": deps,
+            clean_dep("//tensorflow:api_indexable"): deps,
             "//conditions:default": [],
         }),
         tf_binary_additional_srcs = tf_binary_additional_srcs(),

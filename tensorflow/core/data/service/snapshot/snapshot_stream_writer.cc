@@ -24,6 +24,7 @@ limitations under the License.
 #include <vector>
 
 #include "absl/strings/str_cat.h"
+#include "tensorflow/core/data/service/snapshot/file_utils.h"
 #include "tensorflow/core/data/service/snapshot/path_utils.h"
 #include "tensorflow/core/data/service/snapshot/utils.h"
 #include "tensorflow/core/data/service/worker.pb.h"
@@ -63,6 +64,8 @@ constexpr int64_t SnapshotWriterParams::kDefaultMaxChunkSizeBytes;
 SnapshotStreamWriter::SnapshotStreamWriter(
     const SnapshotWriterParams& params, std::unique_ptr<TaskIterator> iterator)
     : params_(params),
+      stream_directory_(
+          StreamDirectory(params.snapshot_path, params.stream_index)),
       committed_chunks_directory_(
           CommittedChunksDirectory(params.snapshot_path)),
       uncommitted_chunks_directory_(UncommittedChunksDirectory(
@@ -83,7 +86,10 @@ Status SnapshotStreamWriter::Wait() TF_LOCKS_EXCLUDED(mu_) {
 std::unique_ptr<Thread> SnapshotStreamWriter::RunSnapshotThread() {
   auto snapshot_fn = [this]() TF_LOCKS_EXCLUDED(mu_) {
     Status status = WriteSnapshotFn();
+    status = FinalizeStream(status);
     if (!status.ok()) {
+      LOG(ERROR) << "Failed to write distributed tf.data snapshot stream at "
+                 << stream_directory_ << ": " << status;
       mutex_lock l(mu_);
       status_ = std::move(status);
     }
@@ -95,8 +101,7 @@ std::unique_ptr<Thread> SnapshotStreamWriter::RunSnapshotThread() {
 
 Status SnapshotStreamWriter::WriteSnapshotFn() TF_LOCKS_EXCLUDED(mu_) {
   // TODO(b/258691097): Write the "LEASE" file periodically.
-  // TODO(b/258691097): When the snapshot is finished, write a "DONE" file and
-  // clean up checkpoints.
+  // TODO(b/258691097): Clean up checkpoints when the snapshot is complete.
   TF_RETURN_IF_ERROR(InitializeDirectories());
   TF_RETURN_IF_ERROR(Restore());
   while (ShouldWriteChunk()) {
@@ -167,6 +172,28 @@ Status SnapshotStreamWriter::WriteRecord(
   TF_RETURN_IF_ERROR(writer.WriteTensors(element));
   chunk_size_bytes_ += EstimatedSizeBytes(element);
   return OkStatus();
+}
+
+Status SnapshotStreamWriter::FinalizeStream(const Status& status) {
+  if (!status.ok()) {
+    // If writing snapshot fails and writing the error file also fails, returns
+    // the former status.
+    WriteErrorFile(status).IgnoreError();
+    return status;
+  }
+  return WriteDoneFile();
+}
+
+Status SnapshotStreamWriter::WriteDoneFile() {
+  std::string done_file_path =
+      StreamDoneFilePath(params_.snapshot_path, params_.stream_index);
+  return AtomicallyWriteStringToFile(done_file_path, "", params_.env);
+}
+
+Status SnapshotStreamWriter::WriteErrorFile(const Status& status) {
+  std::string error_file_path = tsl::io::JoinPath(stream_directory_, "ERROR");
+  return AtomicallyWriteStringToFile(error_file_path, status.ToString(),
+                                     params_.env);
 }
 
 void SnapshotStreamWriter::Cancel() TF_LOCKS_EXCLUDED(mu_) {
