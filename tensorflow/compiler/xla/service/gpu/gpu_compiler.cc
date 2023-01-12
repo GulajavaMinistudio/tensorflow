@@ -42,8 +42,10 @@ limitations under the License.
 #include "llvm/Transforms/Utils/SplitModule.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"  // from @llvm-project
 #include "mlir/IR/BuiltinOps.h"  // from @llvm-project
+#include "mlir/IR/Diagnostics.h"  // from @llvm-project
 #include "mlir/IR/TypeUtilities.h"  // from @llvm-project
 #include "mlir/Pass/PassManager.h"  // from @llvm-project
+#include "mlir/Support/LogicalResult.h"  // from @llvm-project
 #include "tensorflow/compiler/xla/hlo/ir/hlo_instruction.h"
 #include "tensorflow/compiler/xla/hlo/ir/hlo_instructions.h"
 #include "tensorflow/compiler/xla/hlo/transforms/hlo_constant_splitter.h"
@@ -257,8 +259,7 @@ class GpuBfloat16Support : public BFloat16Support {
     if (std::holds_alternative<se::StreamExecutor*>(gpu_info_)) {
       auto stream_exec = std::get<se::StreamExecutor*>(gpu_info_);
       if (se::dnn::DnnSupport* dnn = stream_exec->AsDnn()) {
-        se::port::StatusOr<se::dnn::VersionInfo> cudnn_version =
-            dnn->GetVersion();
+        StatusOr<se::dnn::VersionInfo> cudnn_version = dnn->GetVersion();
         if (cudnn_version.ok()) {
           auto cuda_compute_capability =
               stream_exec->GetDeviceDescription().cuda_compute_capability();
@@ -941,7 +942,8 @@ Status GpuCompiler::OptimizeHloPostLayoutAssignment(
   // the gte(customcall, 0) would probably already be into a fusion node.  We
   // can't simplify across HloComputation boundaries, so in this case we
   // wouldn't be able to simplify away the new_tuple bits.
-  pipeline.AddPass<GpuConvAlgorithmPicker>(stream_exec, device_allocator);
+  GpuConvAlgorithmPicker::DeviceConfig config{stream_exec, device_allocator};
+  pipeline.AddPass<GpuConvAlgorithmPicker>(config);
 
   // Clean up new_tuple described above.
   pipeline.AddPass<TupleSimplifier>();
@@ -1181,6 +1183,12 @@ static bool HasFp8(const HloModule& hlo_module) {
   return false;
 }
 
+// Prints mlir diagnostic messages to VLOG level 2.
+static mlir::LogicalResult DiagnosticHandler(mlir::Diagnostic& diag) {
+  VLOG(2) << diag.str();
+  return mlir::failure();
+}
+
 // The order of `thunk_sequence` corresponds to
 // `hlo_schedule->ThunkLaunchOrder()`.
 static Status CompileModuleToLlvmIrImpl(
@@ -1226,6 +1234,7 @@ static Status CompileModuleToLlvmIrImpl(
   mlir::DialectRegistry registry;
   IrEmitterUnnested::GetDependentDialects(registry);
   mlir::MLIRContext mlir_context(registry);
+  mlir_context.getDiagEngine().registerHandler(DiagnosticHandler);
   mlir::OwningOpRef<mlir::ModuleOp> mlir_module =
       mlir::ModuleOp::create(mlir::Builder(&mlir_context).getUnknownLoc());
 
