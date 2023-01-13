@@ -17,9 +17,13 @@ cc_library(
     hdrs = ["file_utils.h"],
     compatible_with = get_compatible_with_portable(),
     deps = [
+        "//tensorflow/core:framework",
+        "//tensorflow/core/data:snapshot_utils",
         "//tensorflow/tsl/platform:env",
         "//tensorflow/tsl/platform:errors",
+        "//tensorflow/tsl/platform:protobuf",
         "//tensorflow/tsl/platform:status",
+        "@com_google_absl//absl/functional:function_ref",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -29,8 +33,13 @@ tf_cc_test(
     srcs = ["file_utils_test.cc"],
     deps = [
         ":file_utils",
+        "//tensorflow/core:lib",
         "//tensorflow/core:test",
         "//tensorflow/core:test_main",
+        "//tensorflow/core/data:dataset_test_base",
+        "//tensorflow/core/data:snapshot_utils",
+        "//tensorflow/core/data/service:test_util",
+        "//tensorflow/core/framework:types_proto_cc",
         "//tensorflow/tsl/platform:env",
         "//tensorflow/tsl/platform:errors",
         "//tensorflow/tsl/platform:path",
