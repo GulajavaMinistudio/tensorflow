@@ -8,6 +8,7 @@ load(
 )
 load(
     "//tensorflow/tsl/platform:build_config_root.bzl",
+    "if_static",
     "tf_cuda_tests_tags",
 )
 load("//tensorflow/tsl:tsl.bzl", "if_google", "if_nccl", "tsl_copts", "tsl_gpu_library")
@@ -976,8 +977,11 @@ cc_library(
     ] + if_cuda_is_configured([
         "//tensorflow/compiler/xla/stream_executor/cuda:cublas_lt_header",
         "//tensorflow/tsl/platform/default/build_config:cublas_plugin",
+        "//tensorflow/tsl/platform:tensor_float_32_hdr_lib",
         "//tensorflow/compiler/xla/stream_executor:host_or_device_scalar",
         "//tensorflow/compiler/xla/stream_executor:scratch_allocator",
+    ]) + if_static([
+        "//tensorflow/tsl/platform:tensor_float_32_utils",
     ]),
 )
 
@@ -1944,8 +1948,7 @@ xla_cc_test(
     srcs = if_gpu_is_configured([
         "nvptx_compiler_test.cc",
     ]),
-    tags = [
-        "gpu",
+    tags = tf_cuda_tests_tags() + [
         "no_rocm",
         "nomsan",  # Pulls in precompiled NVIDIA libraries which cause false
         # positives in msan.
@@ -1956,6 +1959,7 @@ xla_cc_test(
         "//tensorflow/compiler/xla:util",
         "//tensorflow/compiler/xla/hlo/ir:hlo",
         "//tensorflow/compiler/xla/service:buffer_assignment",
+        "//tensorflow/compiler/xla/service:gpu_plugin",
         "//tensorflow/compiler/xla/service:hlo_parser",
         "//tensorflow/compiler/xla/tests:hlo_test_base",
         "//tensorflow/compiler/xla/tests:xla_internal_test_main",  # build_cleaner: keep
@@ -2164,11 +2168,15 @@ cc_library(
     srcs = ["gpu_hlo_schedule.cc"],
     hdrs = ["gpu_hlo_schedule.h"],
     deps = [
+        ":gpu_device_info",
         "//tensorflow/compiler/xla:statusor",
         "//tensorflow/compiler/xla/hlo/ir:hlo",
         "//tensorflow/compiler/xla/service:buffer_value",
+        "//tensorflow/compiler/xla/service:hlo_cost_analysis",
         "//tensorflow/compiler/xla/service:hlo_memory_scheduler",
         "//tensorflow/compiler/xla/service:hlo_ordering",
+        "//tensorflow/compiler/xla/service:hlo_pass_pipeline",
+        "//tensorflow/compiler/xla/service:latency_hiding_scheduler",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/memory",
     ],
@@ -2179,12 +2187,14 @@ xla_cc_test(
     srcs = [
         "gpu_hlo_schedule_test.cc",
     ],
-    tags = ["no_pip"],
+    tags = tf_cuda_tests_tags() + ["no_pip"],
     deps = [
+        ":gpu_device_info",
         ":gpu_hlo_schedule",
         "//tensorflow/compiler/xla:test_helpers",
         "//tensorflow/compiler/xla:types",
         "//tensorflow/compiler/xla/hlo/ir:hlo",
+        "//tensorflow/compiler/xla/service:gpu_plugin",
         "//tensorflow/compiler/xla/tests:hlo_test_base",
         "//tensorflow/compiler/xla/tests:test_utils",
         "//tensorflow/compiler/xla/tests:xla_internal_test_main",
