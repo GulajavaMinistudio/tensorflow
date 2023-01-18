@@ -19,6 +19,8 @@ limitations under the License.
 #include <memory>
 #include <vector>
 
+#include "tensorflow/lite/core/c/common.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif  // __cplusplus
@@ -27,8 +29,15 @@ struct TfLiteTelemetryConversionMetadata {
   std::vector<int32_t> model_optimization_modes;
 };
 
+struct TfLiteTelemetrySubgraphInfo {
+  std::vector<int32_t> op_types;
+  std::vector<TfLiteQuantization> quantizations;
+  std::vector<const char*> custom_op_names;
+};
+
 struct TfLiteTelemetryInterpreterSettings {
   std::unique_ptr<TfLiteTelemetryConversionMetadata> conversion_metadata;
+  std::vector<TfLiteTelemetrySubgraphInfo> subgraph_infos;
 };
 
 #ifdef __cplusplus
