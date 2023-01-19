@@ -114,6 +114,13 @@ H AbslHashValue(H h, const RemainingArgsPtrs& m) {
 
 #if GOOGLE_CUDA
 
+static bool InDebugMode() {
+#ifdef NDEBUG
+  return false;
+#endif
+  return true;
+}
+
 static absl::StatusOr<OwnedGraph> CaptureGraph(
     const ServiceExecutableRunOptions* run_options,
     runtime::FunctionRef function_ref, CustomCall::RemainingArgs fwd_args,
@@ -195,7 +202,8 @@ static absl::StatusOr<OwnedGraph> CaptureGraph(
         StrFormat("Stream begin capture failed: %s", cudaGetErrorString(err)));
 
   // Call into graph capture function.
-  auto captured = function_ref(args, runtime::NoResultConverter{}, opts);
+  auto captured = function_ref(args, runtime::NoResultConverter{}, opts,
+                               /*verify_arguments=*/InDebugMode());
 
   // Always stop capturing the stream before checking `captured` result.
   if (auto err = cudaStreamEndCapture(stream, &graph); err != cudaSuccess)
@@ -247,7 +255,11 @@ static absl::Status LaunchGraph(
 
         // Instantiate captured CUDA graph into an executable instance.
         cudaGraphExec_t exec;
+#if CUDA_VERSION >= 12000
+        if (auto err = cudaGraphInstantiate(&exec, &**g);
+#else
         if (auto err = cudaGraphInstantiate(&exec, &**g, nullptr, nullptr, 0);
+#endif
             err != cudaSuccess) {
           return InternalError(StrFormat("Graph instantiation failed: %s",
                                          cudaGetErrorString(err)));
@@ -281,6 +293,14 @@ static absl::Status LaunchGraph(
   auto g = CaptureGraph(run_options, function_ref, fwd_args, user_data());
   if (!g.ok()) return g.status();
 
+#if CUDA_VERSION >= 12000
+  cudaGraphExecUpdateResultInfo update_result;
+
+  auto err =
+      cudaGraphExecUpdate((*instance)->exec.get(), g->get(), &update_result);
+  if (err != cudaSuccess || update_result.result != cudaGraphExecUpdateSuccess)
+    return InternalError("Failed to update cuda graph");
+#else
   cudaGraphExecUpdateResult update_result;
   cudaGraphNode_t error_node;
 
@@ -288,6 +308,7 @@ static absl::Status LaunchGraph(
                                  &update_result);
   if (err != cudaSuccess || update_result != cudaGraphExecUpdateSuccess)
     return InternalError("Failed to update cuda graph");
+#endif
 
   // Update captured graph pointers hash.
   (*instance)->ptr_hash = ptrs_hash;
