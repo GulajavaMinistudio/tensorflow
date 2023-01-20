@@ -21,14 +21,16 @@ limitations under the License.
 #include <string.h>
 
 #include <cstdint>
+#include <memory>
+#include <utility>
 
+#include "absl/functional/any_invocable.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/synchronization/notification.h"
 #include "tensorflow/compiler/xla/stream_executor/host/host_platform_id.h"
 #include "tensorflow/compiler/xla/stream_executor/host/host_stream.h"
 #include "tensorflow/compiler/xla/stream_executor/host/host_timer.h"
-#include "tensorflow/compiler/xla/stream_executor/lib/statusor.h"
 #include "tensorflow/compiler/xla/stream_executor/plugin_registry.h"
 #include "tensorflow/compiler/xla/stream_executor/stream_executor_internal.h"
 #include "tensorflow/tsl/platform/mem.h"
@@ -183,8 +185,8 @@ tsl::Status HostExecutor::SynchronousMemcpyDeviceToDevice(
 }
 
 bool HostExecutor::HostCallback(Stream* stream,
-                                std::function<tsl::Status()> callback) {
-  AsHostStream(stream)->EnqueueTaskWithStatus(callback);
+                                absl::AnyInvocable<tsl::Status() &&> callback) {
+  AsHostStream(stream)->EnqueueTaskWithStatus(std::move(callback));
   return true;
 }
 

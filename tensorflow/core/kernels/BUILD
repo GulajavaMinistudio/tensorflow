@@ -3575,6 +3575,7 @@ tf_kernel_library(
     gpu_srcs = [
         "scan_ops.h",
         "scan_ops_gpu.h",
+        "scan_ops_gpu_bfloat16.cu.cc",
         "scan_ops_gpu_double.cu.cc",
         "scan_ops_gpu_float.cu.cc",
         "scan_ops_gpu_half.cu.cc",
@@ -5921,6 +5922,7 @@ tf_cuda_cc_test(
         "//tensorflow/core:test",
         "//tensorflow/core:test_main",
         "//tensorflow/core:testlib",
+        "//tensorflow/core/platform:status_matchers",
     ],
 )
 

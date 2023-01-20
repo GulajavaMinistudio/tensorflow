@@ -92,6 +92,7 @@ cc_library(
         ":rocm_event",
         ":rocm_kernel",
         ":rocm_platform_id",
+        "@com_google_absl//absl/functional:any_invocable",
         "@com_google_absl//absl/strings",
         "//tensorflow/compiler/xla/stream_executor:event",
         "//tensorflow/compiler/xla/stream_executor:plugin_registry",
@@ -167,6 +168,7 @@ cc_library(
         "//tensorflow/compiler/xla/stream_executor/lib",
         "//tensorflow/compiler/xla/stream_executor/platform",
         "//tensorflow/compiler/xla/stream_executor/platform:dso_loader",
+        "//tensorflow/tsl/util:determinism_for_kernels",
     ]),
     alwayslink = True,
 )
