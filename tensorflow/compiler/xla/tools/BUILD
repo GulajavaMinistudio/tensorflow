@@ -112,6 +112,22 @@ xla_cc_binary(
     ],
 )
 
+xla_cc_test(
+    name = "replay_computation_bin_test",
+    srcs = ["replay_computation_bin_test.cc"],
+    data = [
+        "add.hlo",
+        ":replay_computation_cpu",
+        ":replay_computation_interpreter",
+    ],
+    deps = [
+        "//tensorflow/tsl/platform:path",
+        "//tensorflow/tsl/platform:subprocess",
+        "//tensorflow/tsl/platform:test",
+        "//tensorflow/tsl/platform:test_main",
+    ],
+)
+
 xla_cc_binary(
     name = "replay_computation_gpu",
     tags = ["gpu"],
@@ -339,8 +355,8 @@ cc_library(
         "//tensorflow/compiler/xla/service:hlo_module_config",
         "//tensorflow/compiler/xla/service:hlo_runner_interface",
         "//tensorflow/compiler/xla/stream_executor:platform",
-        "//tensorflow/compiler/xla/stream_executor/lib",
         "//tensorflow/tsl/platform:errors",
+        "//tensorflow/tsl/platform:status",
     ],
 )
 
@@ -414,6 +430,21 @@ xla_cc_binary(
     ]) + if_cuda([
         "//tensorflow/compiler/xla/stream_executor:cuda_platform",
     ]),
+)
+
+xla_cc_test(
+    name = "run_hlo_module_bin_test",
+    srcs = ["run_hlo_module_bin_test.cc"],
+    data = [
+        "add.hlo",
+        ":run_hlo_module",
+    ],
+    deps = [
+        "//tensorflow/tsl/platform:path",
+        "//tensorflow/tsl/platform:subprocess",
+        "//tensorflow/tsl/platform:test",
+        "//tensorflow/tsl/platform:test_main",
+    ],
 )
 
 cc_library(

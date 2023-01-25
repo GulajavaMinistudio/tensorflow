@@ -1299,6 +1299,8 @@ cc_library(
         ":xla_device_compiler_client",
         "//tensorflow/compiler/tf2xla:xla_compiler",
         "//tensorflow/compiler/xla:util",
+        "//tensorflow/compiler/xla/client:local_client",
+        "//tensorflow/compiler/xla/pjrt:pjrt_client",
         "//tensorflow/compiler/xla/service:hlo_proto_cc",
         "//tensorflow/core:core_cpu_base",
         "//tensorflow/core:framework",
@@ -1340,6 +1342,26 @@ cc_library(
     ],
 )
 
+cc_library(
+    name = "pjrt_device_context",
+    srcs = [
+        "pjrt_device_context.cc",
+    ],
+    hdrs = [
+        "pjrt_device_context.h",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//tensorflow/compiler/tf2xla:common",
+        "//tensorflow/compiler/xla/pjrt:pjrt_client",
+        "//tensorflow/core:framework",
+        "//tensorflow/core/platform:status",
+        "//tensorflow/core/profiler/lib:traceme",
+        "//tensorflow/core/tfrt/common:async_value_tensor",
+        "//tensorflow/core/tfrt/common:pjrt_util",
+    ],
+)
+
 tf_cc_test(
     name = "device_compilation_cluster_signature_test",
     srcs = [
@@ -1373,6 +1395,7 @@ tf_cc_test(
     deps = [
         ":device_compiler_client",
         ":device_executable_persistor",
+        ":pjrt_device_compiler_client",
         ":xla_compilation_cache_proto_cc",
         ":xla_cpu_device",
         ":xla_cpu_jit",
@@ -1383,10 +1406,13 @@ tf_cc_test(
         "//tensorflow/compiler/xla/client:client_library",
         "//tensorflow/compiler/xla/client:executable_build_options",
         "//tensorflow/compiler/xla/client:local_client",
+        "//tensorflow/compiler/xla/pjrt:pjrt_client",
+        "//tensorflow/compiler/xla/pjrt:tfrt_cpu_pjrt_client",
         "//tensorflow/core:test",
         "//tensorflow/core/platform:errors",
         "//tensorflow/core/platform:status_matchers",
         "//tensorflow/core/platform:statusor",
+        "//tensorflow/core/tfrt/common:pjrt_util",
         "@com_google_googletest//:gtest_main",
     ],
 )

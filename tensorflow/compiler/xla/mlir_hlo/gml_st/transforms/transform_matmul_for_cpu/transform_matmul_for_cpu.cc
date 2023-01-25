@@ -22,7 +22,6 @@ limitations under the License.
 #include <utility>
 
 #include "gml_st/IR/gml_st_ops.h"
-#include "gml_st/interfaces/tiling_interface_impl.h"
 #include "gml_st/transforms/fusion/fusion.h"
 #include "gml_st/transforms/passes.h"
 #include "gml_st/transforms/peeling/peeling.h"
@@ -440,7 +439,7 @@ struct Mmt4DTransformPattern : public OpRewritePattern<linalg::Mmt4DOp> {
               auto numLoops = unpackOp.getDestRank();
               auto dimAndTileMapping = unpackOp.getDimAndTileMapping();
               SmallVector<Value> tileSizes;
-              for (int i = 0; i < numLoops; ++i) {
+              for (size_t i = 0; i < numLoops; ++i) {
                 if (dimAndTileMapping.count(i)) {
                   tileSizes.push_back(getValueOrCreateConstantIndexOp(
                       builder, loc, dimAndTileMapping[i]));
@@ -623,7 +622,6 @@ struct TransformMatmulForCpuPass
     registry.insert<mlir::gml_st::GmlStDialect, arith::ArithDialect,
                     linalg::LinalgDialect, scf::SCFDialect,
                     tensor::TensorDialect>();
-    mlir::gml_st::registerGmlStTilingInterfaceExternalModels(registry);
     linalg::registerTilingInterfaceExternalModels(registry);
     tensor::registerTilingInterfaceExternalModels(registry);
     tensor::registerInferTypeOpInterfaceExternalModels(registry);

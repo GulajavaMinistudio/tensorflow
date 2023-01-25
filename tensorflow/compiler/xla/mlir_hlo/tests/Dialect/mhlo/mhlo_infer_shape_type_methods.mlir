@@ -138,6 +138,21 @@ func.func @alltoall(%data: tensor<4x16xf32>) -> tensor<16x4xindex> {
 
 // -----
 
+// CHECK-LABEL: func @alltoall_bounds
+func.func @alltoall_bounds(%data: tensor<16x?xf32, #mhlo.type_extensions<bounds = [?, 5]>>) -> tensor<*xindex> {
+  %0 = "mhlo.all_to_all"(%data) {
+    split_dimension = 0 : i64,
+    concat_dimension = 1 : i64,
+    split_count = 4 : i64,
+    replica_groups = dense<[[0, 1, 2, 3]]> : tensor<1x4xi64>
+  } : (tensor<16x?xf32, #mhlo.type_extensions<bounds = [?, 5]>>) -> tensor<*xf32>
+  // CHECK: types0 = tensor<4x?xf32, #mhlo.type_extensions<bounds = [?, 20]>>
+  %1 = "mhlo_test.get_return_types"(%0) : (tensor<*xf32>) -> tensor<*xindex>
+  func.return %1 : tensor<*xindex>
+}
+
+// -----
+
 // CHECK-LABEL: func @abs
 func.func @abs(%arg0: tensor<1x2xf32>) -> tensor<1x2xindex> {
   %0 = "mhlo.abs"(%arg0) {} : (tensor<1x2xf32>) -> tensor<1x2xf32>
@@ -591,6 +606,26 @@ func.func @sort(%input0: tensor<16x16xf32>, %input1: tensor<16x16xi32>) -> (tens
 
 // -----
 
+// CHECK-LABEL: @sort_bounds_and_unknown_rank
+func.func @sort_bounds_and_unknown_rank(%input0: tensor<*xf32>, %input1: tensor<5x?x?xi32, #mhlo.type_extensions<bounds = [?, 7, 6]>>) {
+  %0, %1 = "mhlo.sort"(%input0, %input1) ({
+  ^bb0(%arg0: tensor<f32>, %arg1: tensor<f32>, %arg2: tensor<i32>, %arg3: tensor<i32>):
+    %pred = "mhlo.compare"(%arg0, %arg1) {
+      comparison_direction = #mhlo<comparison_direction GT>
+    } : (tensor<f32>, tensor<f32>) -> tensor<i1>
+    "mhlo.return"(%pred) : (tensor<i1>) -> ()
+  }) { dimension = 1 : i64, is_stable = true } : (
+    tensor<*xf32>,
+    tensor<5x?x?xi32, #mhlo.type_extensions<bounds = [?, 7, 6]>>
+  ) -> (tensor<*xf32>, tensor<*xi32>)
+  // CHECK: types0 = tensor<*xf32>
+  // CHECK-SAME: types1 = tensor<5x?x?xi32, #mhlo.type_extensions<bounds = [?, 7, 6]>>
+  %2 = "mhlo_test.get_return_types"(%0) : (tensor<*xf32>) -> tensor<*xindex>
+  func.return
+}
+
+// -----
+
 // CHECK-LABEL: func @outfeed
 func.func @outfeed(%arg0: tensor<3x3x3xi32>, %arg1: !mhlo.token) -> !mhlo.token {
   %0 = "mhlo.outfeed"(%arg0, %arg1) {
@@ -645,6 +680,16 @@ func.func @dynamic_update_slice(%arg0: tensor<4x4xi32>, %arg1: tensor<2x2xi32>, 
   %1 = "mhlo_test.get_return_type_components"(%0) : (tensor<4x4xi32>) -> tensor<4x4xindex>
   // CHECK: %1 = "mhlo_test.return_type_components"(%0) {dims0 = [4, 4], element_type0 = i32} : (tensor<4x4xi32>) -> tensor<4x4xindex>
   func.return %1 : tensor<4x4xindex>
+}
+
+// -----
+
+// CHECK-LABEL: @dynamic_update_slice_with_bounds
+func.func @dynamic_update_slice_with_bounds(%input: tensor<3x?x?xi64, #mhlo.type_extensions<bounds = [?, ?, 5]>>, %update: tensor<1x4x3xi64>, %start1: tensor<i64>, %start2: tensor<i64>, %start3 : tensor<i64>) -> tensor<*xindex> {
+  %0 = "mhlo.dynamic_update_slice"(%input, %update, %start1, %start2, %start3) : (tensor<3x?x?xi64, #mhlo.type_extensions<bounds = [?, ?, 5]>>, tensor<1x4x3xi64>, tensor<i64>, tensor<i64>, tensor<i64>) -> tensor<3x?x?xi64>
+  // CHECK: types0 = tensor<3x?x?xi64, #mhlo.type_extensions<bounds = [?, ?, 5]>>
+  %1 = "mhlo_test.get_return_types"(%0) : (tensor<3x?x?xi64>) -> tensor<*xindex>
+  func.return %1 : tensor<*xindex>
 }
 
 // -----
@@ -730,6 +775,33 @@ func.func @scatter(%input_tensor: tensor<200x100x300xf32>,
   %1 = "mhlo_test.get_return_types"(%0) : (tensor<200x100x300xf32>) -> tensor<200x100x300xindex>
   // CHECK: %1 = "mhlo_test.return_types"(%0) {types0 = tensor<200x100x300xf32>} : (tensor<200x100x300xf32>) -> tensor<200x100x300xindex>
   func.return %1 : tensor<200x100x300xindex>
+}
+
+// -----
+
+// CHECK-LABEL: func @scatter_bounds
+func.func @scatter_bounds(%input_tensor: tensor<200x?x?xf32, #mhlo.type_extensions<bounds = [?, ?, 301]>>,
+    %scatter_indices: tensor<10x2xi32>, %updates: tensor<10x300xf32>) ->
+      tensor<*xindex> {
+  %0 = "mhlo.scatter" (%input_tensor, %scatter_indices, %updates) ({
+  ^bb0(%lhs: tensor<f32>, %rhs: tensor<f32>):
+    %add = mhlo.add %lhs, %rhs : tensor<f32>
+    "mhlo.return"(%add) : (tensor<f32>) -> ()
+  }) {
+    scatter_dimension_numbers = #mhlo.scatter<
+      update_window_dims = [1],
+      inserted_window_dims = [0, 1],
+      scatter_dims_to_operand_dims = [0, 1],
+      index_vector_dim = 1
+    >,
+    indices_are_sorted = true,
+    unique_indices = true
+  } : (tensor<200x?x?xf32, #mhlo.type_extensions<bounds = [?, ?, 301]>>, tensor<10x2xi32>, tensor<10x300xf32>) ->
+      tensor<200x?x?xf32>
+
+  %1 = "mhlo_test.get_return_types"(%0) : (tensor<200x?x?xf32>) -> tensor<*xindex>
+  // CHECK: types0 = tensor<200x?x?xf32, #mhlo.type_extensions<bounds = [?, ?, 301]>>
+  func.return %1 : tensor<*xindex>
 }
 
 // -----

@@ -231,7 +231,20 @@ cc_library(
         "@llvm-project//mlir:Parser",
         "@llvm-project//mlir:Pass",
         "@llvm-project//mlir:ToLLVMIRTranslation",
-    ],
+    ] + select({
+        "//tensorflow/tsl:arm_any": [
+            "@llvm-project//llvm:AArch64AsmParser",
+        ],
+        "//tensorflow/tsl:linux_ppc64le": [
+            "@llvm-project//llvm:PowerPCAsmParser",
+        ],
+        "//tensorflow/tsl:macos_arm64": [
+            "@llvm-project//llvm:AArch64AsmParser",
+        ],
+        "//conditions:default": [
+            "@llvm-project//llvm:X86AsmParser",
+        ],
+    }),
 )
 
 cc_library(

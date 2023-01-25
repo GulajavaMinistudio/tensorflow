@@ -5,6 +5,16 @@
 * <DOCUMENT BREAKING CHANGES HERE>
 * <THIS SECTION SHOULD CONTAIN API, ABI AND BEHAVIORAL BREAKING CHANGES>
 
+*   Build, Compilation and Packaging
+
+    *   Removal of redundant packages: the `tensorflow-gpu` and `tf-nightly-gpu`
+        packages have been effectively removed and replaced with packages that
+        direct users to switch to `tensorflow` or `tf-nightly` respectively.
+        The naming difference was the only difference between the two sets of
+        packages ever since TensorFlow 2.1, so there is no loss of functionality
+        or GPU support. See
+        https://pypi.org/project/tensorflow-gpu for more details.
+
 *   `tf.function`:
 
     *   tf.function now uses the Python inspect library directly for parsing
@@ -120,6 +130,11 @@
         `rerandomize_each_iteration=True`, the `sample_from_datasets()`
         operation will use a different (deterministic) sequence of numbers every
         epoch.
+*   `tf.test`:
+    *   Added `tf.test.experimental.sync_devices`, which is useful for
+        accurately measuring performance in benchmarks.
+*   `tf.experimental.dtensor`:
+    *   Added experimental support to ReduceScatter fuse on GPU (NCCL).
 
 # Bug Fixes and Other Changes
 

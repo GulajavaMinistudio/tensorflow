@@ -18,7 +18,6 @@ limitations under the License.
 #include <utility>
 
 #include "gml_st/IR/gml_st_ops.h"
-#include "gml_st/interfaces/tiling_interface_impl.h"
 #include "gml_st/transforms/fusion/fusion.h"
 #include "gml_st/transforms/passes.h"
 #include "gml_st/transforms/peeling/peeling.h"
@@ -28,6 +27,7 @@ limitations under the License.
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Linalg/Transforms/TilingInterfaceImpl.h"
 #include "mlir/Dialect/Linalg/Utils/Utils.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
@@ -69,20 +69,23 @@ SmallVector<int64_t> getReductionDimTileSizes(int64_t reductionDim,
 LogicalResult validateOp(linalg::ReduceOp reduceOp, PatternRewriter &rewriter,
                          int64_t expectedRank) {
   ArrayRef<int64_t> reduceDimensions = reduceOp.getDimensions();
-  if (reduceDimensions.size() != 1)
+  if (reduceDimensions.size() != 1) {
     return rewriter.notifyMatchFailure(
         reduceOp, "expects 1 reduction dimension element. 0 or > 1 received.");
+  }
   OpOperandVector operands = reduceOp.getDpsInputOperands();
-  if (operands.size() != 1)
+  if (operands.size() != 1) {
     return rewriter.notifyMatchFailure(reduceOp,
                                        "expects 1 operand. 0 or > 1 received.");
+  }
   const int64_t operandRank =
       operands[0]->get().getType().cast<RankedTensorType>().getRank();
-  if (operandRank != expectedRank)
+  if (operandRank != expectedRank) {
     return rewriter.notifyMatchFailure(reduceOp, [&](::mlir::Diagnostic &diag) {
       diag << "expects rank " << expectedRank << ". " << operandRank
            << "received.";
     });
+  }
   return success();
 }
 
@@ -98,13 +101,15 @@ struct Reduce1DTransformPattern : public OpRewritePattern<linalg::ReduceOp> {
 
   LogicalResult matchAndRewrite(linalg::ReduceOp reduceOp,
                                 PatternRewriter &rewriter) const override {
-    if (hasLabel(reduceOp, kReduceTransformedLabel))
+    if (hasLabel(reduceOp, kReduceTransformedLabel)) {
       return rewriter.notifyMatchFailure(reduceOp,
                                          "has already been transformed.");
+    }
 
-    if (isa<gml_st::ParallelOp, gml_st::ForOp>(reduceOp->getParentOp()))
+    if (isa<gml_st::ParallelOp, gml_st::ForOp>(reduceOp->getParentOp())) {
       return rewriter.notifyMatchFailure(
           reduceOp, "has already been tiled by another pass.");
+    }
 
     if (failed(validateOp(reduceOp, rewriter, /*expectedRank=*/1)))
       return failure();
@@ -151,7 +156,7 @@ struct Reduce1DTransformPattern : public OpRewritePattern<linalg::ReduceOp> {
       Value inputSlice =
           tileAndReshapeInput(b, loc, ivs.front(), input, elementType);
 
-      MaterializeOp initSlice = create1DSlice(
+      tensor::ExtractSliceOp initSlice = create1DSlice(
           b, loc, inits.front(), b.getIndexAttr(0), b.getIndexAttr(vectorSize));
 
       // Create `linalg.reduce` to combine
@@ -191,8 +196,10 @@ struct Reduce1DTransformPattern : public OpRewritePattern<linalg::ReduceOp> {
       Value inputSlice =
           create1DSlice(b, loc, input, ivs.front(), remainderSize);
 
-      Value initSlice = b.create<gml_st::MaterializeOp>(
-          loc, inits.front(), /*offsets=*/SmallVector<OpFoldResult>{});
+      Value initSlice = b.create<tensor::ExtractSliceOp>(
+          loc, inits.front(), /*offsets=*/SmallVector<OpFoldResult>{},
+          /*sizes=*/SmallVector<OpFoldResult>{},
+          /*strides=*/SmallVector<OpFoldResult>{});
 
       auto newReduceOp = cloneReduceOp(b, reduceOp, inputSlice, initSlice);
 
@@ -238,14 +245,15 @@ struct Reduce1DTransformPattern : public OpRewritePattern<linalg::ReduceOp> {
                                    ValueRange{tileableBound, inputSize});
   }
 
-  MaterializeOp create1DSlice(OpBuilder &b, Location loc, Value source,
-                              OpFoldResult offset, OpFoldResult size) const {
+  tensor::ExtractSliceOp create1DSlice(OpBuilder &b, Location loc, Value source,
+                                       OpFoldResult offset,
+                                       OpFoldResult size) const {
     SmallVector<OpFoldResult> offsets{offset};
     SmallVector<OpFoldResult> sizes{size};
     SmallVector<OpFoldResult> strides{b.getIndexAttr(1)};
 
-    return b.create<gml_st::MaterializeOp>(loc, source, offsets, sizes,
-                                           strides);
+    return b.create<tensor::ExtractSliceOp>(loc, source, offsets, sizes,
+                                            strides);
   }
 
   Value cloneReduceOp(OpBuilder &b, linalg::ReduceOp reduceOp,
@@ -289,9 +297,10 @@ struct Reduce2DTransformPattern : public OpRewritePattern<linalg::ReduceOp> {
 
   LogicalResult matchAndRewrite(linalg::ReduceOp reduceOp,
                                 PatternRewriter &rewriter) const override {
-    if (hasLabel(reduceOp, kReduceTransformedLabel))
+    if (hasLabel(reduceOp, kReduceTransformedLabel)) {
       return rewriter.notifyMatchFailure(reduceOp,
                                          "has already been transformed.");
+    }
 
     if (failed(validateOp(reduceOp, rewriter, /*expectedRank=*/2)))
       return failure();
@@ -299,10 +308,11 @@ struct Reduce2DTransformPattern : public OpRewritePattern<linalg::ReduceOp> {
     auto cluster = getFusionCluster(reduceOp);
     auto fusionCluster = cluster.operations;
     auto *tilingRoot = cluster.root;
-    if (!isa<linalg::MapOp>(tilingRoot) && !isa<linalg::ReduceOp>(tilingRoot))
+    if (!isa<linalg::MapOp>(tilingRoot) && !isa<linalg::ReduceOp>(tilingRoot)) {
       return rewriter.notifyMatchFailure(
           tilingRoot,
           "Expected MapOp or ReduceOp as a root of fusion cluster.");
+    }
 
     // First level tiling: parallel dimension.
     auto tilingParallelDimsResult =
@@ -338,7 +348,7 @@ struct Reduce2DTransformPattern : public OpRewritePattern<linalg::ReduceOp> {
       }
       setLabel(op, kReduceTransformedLabel);
 
-      // Peel parallel loops.
+      //  Peel parallel loops.
       if (failed(peelReduction(rewriter, tilingParallelDimsResult.value(),
                                tilingReductionDimsResult.value())))
         return failure();
@@ -431,9 +441,10 @@ struct Reduce2DTransformPattern : public OpRewritePattern<linalg::ReduceOp> {
 
     // Peel reduction loop inside the main parallel loop, label the main loop as
     // "perfectly tiled" one, to enable vectorization after canonicalization.
-    if (auto loop = dyn_cast_or_null<ForOp>(tilingReductionDimsResult.loop)) {
-      auto peelingResult = peelAllLoops(loop, rewriter);
-      setLabel(loop, kPerfectlyTiledLoopLabel);
+    if (auto forLoop =
+            dyn_cast_or_null<ForOp>(tilingReductionDimsResult.loop)) {
+      auto peelingResult = peelAllLoops(forLoop, rewriter);
+      setLabel(forLoop, kPerfectlyTiledLoopLabel);
 
       // Tile ops in the peeled loop again, to size 1, so they can be
       // scalarized.
@@ -479,7 +490,7 @@ struct TransformReduceForCpuPass
   void getDependentDialects(DialectRegistry &registry) const final {
     registry.insert<mlir::gml_st::GmlStDialect, arith::ArithDialect,
                     linalg::LinalgDialect, tensor::TensorDialect>();
-    mlir::gml_st::registerGmlStTilingInterfaceExternalModels(registry);
+    linalg::registerTilingInterfaceExternalModels(registry);
   }
 
   void runOnOperation() override {
