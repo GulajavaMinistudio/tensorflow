@@ -1,4 +1,4 @@
-/* Copyright 2015 The TensorFlow Authors. All Rights Reserved.
+/* Copyright 2020 The TensorFlow Authors. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,19 +12,23 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
+#ifndef TENSORFLOW_LITE_TEST_UTIL_H_
+#define TENSORFLOW_LITE_TEST_UTIL_H_
 
+#include "gtest/gtest.h"
+#include "tensorflow/lite/core/shims/c/shims_test_util.h"
 
-#ifndef TENSORFLOW_COMPILER_XLA_STREAM_EXECUTOR_LIB_ERROR_H_
-#define TENSORFLOW_COMPILER_XLA_STREAM_EXECUTOR_LIB_ERROR_H_
+namespace tflite {
+namespace testing {
 
-#include "tensorflow/tsl/protobuf/error_codes.pb.h"  // IWYU pragma: export
+class Test : public ::testing::Test {
+ public:
+  void SetUp() override {
+    ASSERT_EQ(TfLiteInitializeShimsForTest(), 0);
+  }
+};
 
-namespace stream_executor {
-namespace port {
+}  // namespace testing
+}  // namespace tflite
 
-namespace error = tensorflow::error;
-
-}  // namespace port
-}  // namespace stream_executor
-
-#endif  // TENSORFLOW_COMPILER_XLA_STREAM_EXECUTOR_LIB_ERROR_H_
+#endif  // TENSORFLOW_LITE_TEST_UTIL_H_

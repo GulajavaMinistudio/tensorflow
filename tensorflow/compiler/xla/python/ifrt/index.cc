@@ -1,4 +1,4 @@
-/* Copyright 2015 The TensorFlow Authors. All Rights Reserved.
+/* Copyright 2022 The TensorFlow Authors. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -13,9 +13,23 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef TENSORFLOW_COMPILER_XLA_STREAM_EXECUTOR_LIB_INITIALIZE_H_
-#define TENSORFLOW_COMPILER_XLA_STREAM_EXECUTOR_LIB_INITIALIZE_H_
+#include "tensorflow/compiler/xla/python/ifrt/index.h"
 
-#include "tensorflow/compiler/xla/stream_executor/platform/initialize.h"
+#include <ostream>
+#include <string>
 
-#endif  // TENSORFLOW_COMPILER_XLA_STREAM_EXECUTOR_LIB_INITIALIZE_H_
+#include "absl/strings/str_join.h"
+
+namespace xla {
+namespace ifrt {
+
+std::string Index::DebugString() const {
+  return absl::StrCat("[", absl::StrJoin(elements_, ","), "]");
+}
+
+std::ostream& operator<<(std::ostream& os, const Index& index) {
+  return os << index.DebugString();
+}
+
+}  // namespace ifrt
+}  // namespace xla

@@ -1,4 +1,7 @@
-cc_binary(
+load("//tensorflow/compiler/xla:xla.bzl", "xla_cc_binary")
+load("//tensorflow/tsl/platform:rules_cc.bzl", "cc_library")
+
+xla_cc_binary(
     name = "mlir_replay",
     srcs = ["mlir_replay.cc"],
     deps = [
@@ -6,6 +9,7 @@ cc_binary(
         "//tensorflow/compiler/xla:debug_options_flags",
         "//tensorflow/compiler/xla/mlir/runtime/ir:rt",
         "//tensorflow/compiler/xla/mlir/tools/mlir_replay/public:compiler_trace_proto_cc",
+        "//tensorflow/compiler/xla/mlir/tools/mlir_replay/public:compiler_trace_proto_cc_impl",
         "//tensorflow/compiler/xla/mlir/tools/mlir_replay/public:execution_trace_proto_cc",
         "//tensorflow/compiler/xla/mlir_hlo:gml_st",
         "//tensorflow/compiler/xla/mlir_hlo:hlo_dialect_registration",
