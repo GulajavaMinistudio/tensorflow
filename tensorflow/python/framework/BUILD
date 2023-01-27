@@ -1312,6 +1312,7 @@ py_library(
         ":ops",
         ":tensor_util",
         ":type_spec",
+        ":type_spec_registry",
         "//tensorflow/python/types",
     ],
 )
@@ -1365,6 +1366,7 @@ py_library(
         ":tensor_shape",
         ":tensor_spec",
         ":type_spec",
+        ":type_spec_registry",
         # TODO(b/232002704) remove `:type_utils` import when used internally (by non-tests)
         # elsewhere
         ":type_utils",
@@ -1416,12 +1418,23 @@ pytype_library(
         ":composite_tensor",
         ":dtypes",
         ":tensor_shape",
+        ":type_spec_registry",
         "//tensorflow/core:protos_all_py",
         "//tensorflow/core/function/trace_type",
         "//tensorflow/python:platform",
         "//tensorflow/python/types",
         "//tensorflow/python/util",
         "//third_party/py/numpy",
+    ],
+)
+
+pytype_library(
+    name = "type_spec_registry",
+    srcs = ["type_spec_registry.py"],
+    srcs_version = "PY3",
+    visibility = visibility + ["//third_party/py/tensorflow_gnn:__subpackages__"],
+    deps = [
+        "//tensorflow/python/types",
     ],
 )
 
@@ -1451,6 +1464,7 @@ py_library(
         ":dtypes",
         ":tensor_shape",
         ":type_spec",
+        ":type_spec_registry",
         "//tensorflow/core:protos_all_py",
         "//tensorflow/core/function/trace_type",
         "//tensorflow/python/eager:graph_only_ops",
@@ -1960,6 +1974,7 @@ tf_py_test(
     deps = [
         ":extension_type",
         ":test_lib",
+        ":type_spec_registry",
         ":type_utils",
         "@absl_py//absl/testing:parameterized",
     ],
@@ -2018,6 +2033,7 @@ tf_py_test(
         ":for_generated_wrappers",
         ":test_lib",
         ":type_spec",
+        ":type_spec_registry",
         ":type_utils",
         "//tensorflow/core/function/trace_type",
         "//tensorflow/python:platform_test",

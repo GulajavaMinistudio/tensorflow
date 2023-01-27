@@ -5721,19 +5721,24 @@ class ConvertRandomShuffleOp : public OpRewritePattern<TF::RandomShuffleOp> {
 
   LogicalResult matchAndRewrite(TF::RandomShuffleOp op,
                                 PatternRewriter &rewriter) const override {
+    auto no_op = [&]() {
+      rewriter.replaceOp(op, op.getValue());
+      return success();
+    };
+
     auto input_type = op.getValue().getType().dyn_cast<RankedTensorType>();
     if (!input_type) return failure();
+    if (input_type.hasStaticShape() && input_type.getNumElements() <= 1)
+      // No shuffling is required, so copy input directly to output.
+      return no_op();
 
     int64_t input_rank = input_type.getRank();
     int64_t first_dim_size = input_type.getDimSize(0);
     if (ShapedType::isDynamic(first_dim_size)) return failure();
 
-    // We are shuffling along the first dimension. If its size is <= 1, then
-    // shuffling is a no-op.
-    if (first_dim_size <= 1) {
-      rewriter.replaceOp(op, op.getValue());
-      return success();
-    }
+    if (first_dim_size <= 1)
+      // No shuffling is required, so copy input directly to output.
+      return no_op();
 
     // For vectors, shuffle values by sorting instead of the obvious
     // Fisher-Yates algorithm. Fisher-Yates is simple to implement and correct,
@@ -5859,9 +5864,32 @@ class ConvertRandomShuffleOp : public OpRewritePattern<TF::RandomShuffleOp> {
         /*collapsed_slice_dims=*/{0},
         /*start_index_map=*/{0},
         /*index_vector_dim=*/1);
-    rewriter.replaceOpWithNewOp<mhlo::GatherOp>(
-        op, op.getType(), op.getValue(), swaped_indices, dims_attr,
-        GetI64ElementsAttr(slice_sizes, &rewriter));
+
+    SmallVector<Value> slice_sizes_values;
+    for (auto i = 0; i < slice_sizes.size(); ++i) {
+      if (slice_sizes[i] == tensorflow::kTFDynamicSize) {
+        Value i_const = rewriter.create<arith::ConstantOp>(
+            op.getLoc(), rewriter.getIndexAttr(i));
+        Value slice_size_index =
+            rewriter.create<shape::DimOp>(op.getLoc(), op.getValue(), i_const);
+        Value index_to_i64 = rewriter.create<arith::IndexCastOp>(
+            op.getLoc(), rewriter.getI64Type(), slice_size_index);
+        Value i64_to_tensor = rewriter.create<tensor::FromElementsOp>(
+            op.getLoc(),
+            tensorflow::GetTypeFromTFTensorShape({1}, rewriter.getI64Type()),
+            index_to_i64);
+        slice_sizes_values.push_back(i64_to_tensor);
+      } else {
+        slice_sizes_values.push_back(rewriter.create<mhlo::ConstantOp>(
+            op.getLoc(), GetI64ElementsAttr({slice_sizes[i]}, &rewriter)));
+      }
+    }
+
+    auto slice_sizes_concat = rewriter.create<mhlo::ConcatenateOp>(
+        op.getLoc(), slice_sizes_values, rewriter.getI64IntegerAttr(0));
+    rewriter.replaceOpWithNewOp<mhlo::DynamicGatherOp>(
+        op, op.getType(), op.getValue(), swaped_indices, slice_sizes_concat,
+        dims_attr);
 
     return success();
   }

@@ -5174,6 +5174,17 @@ func.func @tensor_scatter_max(%tensor: tensor<?x?x?xf32>, %indices: tensor<?x2xi
 
 // -----
 
+// CHECK-LABEL: @random_shuffle_num_elems_le_1
+func.func @random_shuffle_num_elems_le_1() -> tensor<f32> {
+  // CHECK: [[INPUT:%.*]] = mhlo.constant dense<1.000000e+20> : tensor<f32>
+  // CHECK-NEXT: return [[INPUT]]
+  %cst = "tf.Const"() {value = dense<1.000000e+20> : tensor<f32>} : () -> tensor<f32>
+  %0 = "tf.RandomShuffle"(%cst) {device = "", seed = -4294967297 : i64, seed2 = -2147483649 : i64} : (tensor<f32>) -> tensor<f32>
+  return %0 : tensor<f32>
+}
+
+// -----
+
 // CHECK-LABEL: @random_shuffle_first_dim_1
 // CHECK-SAME: [[INPUT:%.*]]: tensor<1x?xf32>
 func.func @random_shuffle_first_dim_1(%input: tensor<1x?xf32>) -> tensor<1x?xf32> {
@@ -5242,17 +5253,23 @@ func.func @random_shuffle_3D(%input: tensor<4x?x16xf32>) -> tensor<4x?x16xf32> {
   // CHECK:   mhlo.return [[NEW_IV]], [[ITER_ARG1]], [[INDICES2]]
   // CHECK: }
 
-  // CHECK: [[GATHER:%.*]] = "mhlo.gather"([[INPUT]], [[WHILE_OUT]]#2)
+  // CHECK: [[CONSTANT1:%.*]] = mhlo.constant dense<1> : tensor<1xi64>
+  // CHECK: [[ARITH_CONSTANT:%.*]] = arith.constant 1 : index
+  // CHECK: [[SHAPE_DIM:%.*]] = shape.dim %arg0, [[ARITH_CONSTANT]] : tensor<4x?x16xf32>, index -> index
+  // CHECK: [[INDEX_CAST:%.*]] = arith.index_cast [[SHAPE_DIM]] : index to i64
+  // CHECK: [[FROM_ELEMENTS:%.*]] = tensor.from_elements [[INDEX_CAST]] : tensor<1xi64>
+  // CHECK: [[CONSTANT2:%.*]] = mhlo.constant dense<16> : tensor<1xi64>
+  // CHECK: [[CONCATENATE:%.*]] = "mhlo.concatenate"([[CONSTANT1]], [[FROM_ELEMENTS]], [[CONSTANT2]]) {dimension = 0 : i64} : (tensor<1xi64>, tensor<1xi64>, tensor<1xi64>) -> tensor<3xi64>
+  // CHECK: [[DYNAMIC_GATHER:%.*]] = "mhlo.dynamic_gather"([[INPUT]], [[WHILE_OUT]]#2, [[CONCATENATE]])
   // CHECK-SAME:   dimension_numbers =
   // CHECK-SAME:     offset_dims = [1, 2]
   // CHECK-SAME:     collapsed_slice_dims = [0]
   // CHECK-SAME:     start_index_map = [0]
   // CHECK-SAME:     index_vector_dim = 1
   // CHECK-SAME: indices_are_sorted = false
-  // CHECK-SAME: slice_sizes = dense<[1, -1, 16]>
-  // CHECK: (tensor<4x?x16xf32>, tensor<4xi32>) -> tensor<4x?x16xf32>
+  // CHECK-SAME:: (tensor<4x?x16xf32>, tensor<4xi32>, tensor<3xi64>) -> tensor<4x?x16xf32>
 
-  // CHECK: return [[GATHER]]
+  // CHECK: return [[DYNAMIC_GATHER]]
 
   %0 = "tf.RandomShuffle"(%input) : (tensor<4x?x16xf32>) -> (tensor<4x?x16xf32>)
   func.return %0: tensor<4x?x16xf32>

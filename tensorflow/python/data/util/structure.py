@@ -26,6 +26,7 @@ from tensorflow.python.framework import sparse_tensor
 from tensorflow.python.framework import tensor_shape
 from tensorflow.python.framework import tensor_spec
 from tensorflow.python.framework import type_spec
+from tensorflow.python.framework import type_spec_registry
 from tensorflow.python.ops import resource_variable_ops
 from tensorflow.python.ops import tensor_array_ops
 from tensorflow.python.ops.ragged import ragged_tensor
@@ -107,9 +108,10 @@ def normalize_element(element, element_signature=None):
         normalized_components.append(
             ops.convert_to_tensor(t, name="component_%d" % i))
       else:
-        if hasattr(spec, "_tf_data_normalize") and callable(
-            spec._tf_data_normalize):  # pylint: disable=protected-access
-          normalized_components.append(spec._tf_data_normalize(t))  # pylint: disable=protected-access
+        # To avoid a circular dependency between dataset_ops and structure,
+        # we check the class name instead of using `isinstance`.
+        if spec.__class__.__name__ == "DatasetSpec":
+          normalized_components.append(t)
         elif isinstance(spec, sparse_tensor.SparseTensorSpec):
           normalized_components.append(sparse_tensor.SparseTensor.from_value(t))
         elif isinstance(spec, ragged_tensor.RaggedTensorSpec):
@@ -519,7 +521,7 @@ class NoneTensor(composite_tensor.CompositeTensor):
 
 # TODO(b/149584798): Move this to framework and add tests for non-tf.data
 # functionality.
-@type_spec.register("tf.NoneTensorSpec")
+@type_spec_registry.register("tf.NoneTensorSpec")
 class NoneTensorSpec(type_spec.BatchableTypeSpec):
   """Type specification for `None` value."""
 
