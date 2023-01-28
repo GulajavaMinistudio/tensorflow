@@ -148,18 +148,22 @@ cc_library(
     hdrs = ["gemm.h"],
     deps = [
         ":support",
+        "@com_google_absl//absl/container:node_hash_map",
+        "//tensorflow/compiler/xla:status",
         "//tensorflow/compiler/xla:xla_proto_cc",
         "//tensorflow/compiler/xla/runtime:custom_call",
         "//tensorflow/compiler/xla/runtime:custom_call_registry",
         "//tensorflow/compiler/xla/runtime:executable",
-        "//tensorflow/compiler/xla/runtime:logical_result",
         "//tensorflow/compiler/xla/runtime:state",
         "//tensorflow/compiler/xla/service:executable",
+        "//tensorflow/compiler/xla/service:hlo_module_config",
         "//tensorflow/compiler/xla/service/gpu:matmul_utils",
         "//tensorflow/compiler/xla/stream_executor:blas",
         "//tensorflow/compiler/xla/stream_executor:device_memory",
-        "@com_google_absl//absl/container:node_hash_map",
-    ],
+    ] + if_cuda_is_configured([
+        "//tensorflow/compiler/xla/service/gpu:gemm_algorithm_picker",
+        "//tensorflow/compiler/xla/stream_executor/gpu:redzone_allocator",
+    ]),
 )
 
 cc_library(
@@ -300,6 +304,7 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/synchronization",
+        "@tf_runtime//:async_value",
     ],
 )
 

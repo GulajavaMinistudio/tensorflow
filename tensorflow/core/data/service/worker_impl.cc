@@ -439,6 +439,15 @@ Status DataServiceWorkerImpl::GetWorkerTasks(
   return OkStatus();
 }
 
+Status DataServiceWorkerImpl::GetSnapshotTaskProgresses(
+    const GetSnapshotTaskProgressesRequest* request,
+    GetSnapshotTaskProgressesResponse* response) {
+  for (const auto& snapshot_task_progress : GetSnapshotTaskProgress()) {
+    *response->add_snapshot_task_progresses() = snapshot_task_progress;
+  }
+  return OkStatus();
+}
+
 void DataServiceWorkerImpl::TaskCompletionThread() TF_LOCKS_EXCLUDED(mu_) {
   while (true) {
     {
@@ -651,9 +660,10 @@ DataServiceWorkerImpl::MakeSnapshotTaskIterator(
   split_providers.reserve(snapshot_task.num_sources());
   for (int i = 0; i < snapshot_task.num_sources(); ++i) {
     split_providers.push_back(std::make_unique<SnapshotSplitProvider>(
-        config_.dispatcher_address(), config_.protocol(), snapshot_task,
-        /*source_index=*/i,
-        absl::Milliseconds(config_.dispatcher_timeout_ms())));
+        config_.dispatcher_address(), config_.protocol(), worker_address_,
+        snapshot_task,
+        /*source_index=*/i, absl::Milliseconds(config_.dispatcher_timeout_ms()),
+        Env::Default()));
   }
   std::unique_ptr<standalone::Iterator> iterator;
   TF_RETURN_IF_ERROR(

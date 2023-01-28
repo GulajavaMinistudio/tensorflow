@@ -371,15 +371,10 @@ class FuncGraph(ops.Graph):
 
       if placeholder is None:
 
-        def convert_to_placeholder(s):
-          if not isinstance(s, tensor_spec.DenseSpec):
-            raise TypeError(
-                "Expected a nest of `TypeSpec` objects, found %s of type %s." %
-                (s, type(s)))
-          return array_ops.placeholder(dtype=s.dtype, shape=s.shape)
-
-        placeholder = nest.map_structure(
-            convert_to_placeholder, spec, expand_composites=True)
+        trace_ctx = trace_type.InternalTracingContext(False)
+        capture_trace_type = trace_type.from_value(spec, trace_ctx)
+        placeholder_ctx = trace_type.InternalPlaceholderContext(self)
+        placeholder = capture_trace_type.placeholder_value(placeholder_ctx)
 
       def wrapped_closure():
 
@@ -403,16 +398,6 @@ class FuncGraph(ops.Graph):
           assert isinstance(
               graph,
               FuncGraph), "This API should only be used in TF2 enviroment."
-          # In the case of control flow, we need to capture the
-          # external_captures (deferred or not) of the body_graph (i.e.
-          # `WhileBodyFuncGraph) in `cond_graph` (i.e. WhileCondFuncGraph) and
-          # create the corresponding placeholders in `cond_graph` so that it
-          # expects to receive these as arguments. However, doing so requires
-          # having evaluated the call_time_value already (and maybe repeatedly),
-          # so we skip adding deferred_captures to the control flow graph but
-          # add it to its outer graph.
-          while graph.is_control_flow_graph:
-            graph = graph.outer_graph
 
           with graph.as_default():
             ret_nest = graph.capture_call_time_value(

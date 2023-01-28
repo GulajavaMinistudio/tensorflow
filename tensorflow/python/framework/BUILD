@@ -549,6 +549,8 @@ py_library(
         "//tensorflow/core:protos_all_py",
         "//tensorflow/python:platform",
         "//tensorflow/python/grappler:tf_optimizer",
+        "//tensorflow/python/util",
+        "//tensorflow/python/util:tf_export",
     ],
 )
 
@@ -1367,9 +1369,6 @@ py_library(
         ":tensor_spec",
         ":type_spec",
         ":type_spec_registry",
-        # TODO(b/232002704) remove `:type_utils` import when used internally (by non-tests)
-        # elsewhere
-        ":type_utils",
         "//tensorflow/python:composite_tensor_ops",
     ],
 )
