@@ -201,6 +201,7 @@ dtensor_test(
         "DTENSOR_DO_NOT_FUSE_REDUCE_SCATTER": "1",  # FIXME(b/266609048): timeout if fused.
     },
     tags = [
+        "no_oss",  # b/267022309
         "no_windows",
         "nosan",  # b/195537906
     ],
@@ -297,6 +298,9 @@ dtensor_test(
         "tpu": 10,
         TPU_V3_DONUT_BACKEND: 32,
     },
+    tags = [
+        "no_oss_py38",  # TODO(b/267017937)
+    ],
     deps = [
         ":test_util",
         "//tensorflow/dtensor/python:api",
