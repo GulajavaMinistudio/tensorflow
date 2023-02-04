@@ -325,15 +325,13 @@ bool CanInlineFunctionsPostLegalization(llvm::StringRef device_type) {
   return device_type == DEVICE_TPU_XLA_JIT;
 }
 
-// We generally have the following pass structure:
-// TensorFlow passes
-// Legalization passes
-// MHLO passes
+}  //  namespace
+
 void CreateConvertMlirToXlaHloPipeline(
     mlir::OpPassManager& pm, llvm::StringRef device_type, bool prefer_tf2xla,
     llvm::MutableArrayRef<std::unique_ptr<mlir::Pass>>
         custom_legalization_passes,
-    bool allow_partial_conversion = false) {
+    bool allow_partial_conversion) {
   bool legalize_chlo = true;
 
   // Note that the region-based control-flow produced here still contains
@@ -342,6 +340,13 @@ void CreateConvertMlirToXlaHloPipeline(
   pm.addPass(mlir::createInlinerPass());
   pm.addNestedPass<mlir::func::FuncOp>(
       mlir::TF::CreateDropWhileShapeInvariantPass());
+  // Create a replicated TensorList initialization ops for all of its uses. This
+  // pass undo some CSE because shape_inference is not correctly able to
+  // identify the shapes of TensorList initialization ops.
+  // This pass requires CanonicalizerPass before
+  // CreateTensorListOpsDecompositionPass for clean-ups.
+  pm.addNestedPass<mlir::func::FuncOp>(
+      mlir::TF::CreateReplicateTensorListInitOpsPass());
   pm.addNestedPass<mlir::func::FuncOp>(mlir::createCanonicalizerPass());
   // The SCCP pass performs constant propagation across the IR, which, for
   // example, propagates constant arguments into callee functions.
@@ -350,11 +355,6 @@ void CreateConvertMlirToXlaHloPipeline(
   pm.addPass(mlir::createSCCPPass());
   // Guarantee all functions have one use, which enables shape inference.
   pm.addPass(mlir::TF::CreateGuaranteeAllFuncsOneUsePass());
-  // Create a replicated TensorList initialization ops for all of its uses. This
-  // pass undo some CSE because shape_inference is not correctly able to
-  // identify the shapes of TensorList initialization ops.
-  pm.addNestedPass<mlir::func::FuncOp>(
-      mlir::TF::CreateReplicateTensorListInitOpsPass());
   // Run shape inference pass before tensorlist decomposition to get buffer
   // shape of uninitialized TensorLists.
   pm.addPass(mlir::TF::CreateTFShapeInferencePass());
@@ -437,8 +437,6 @@ void CreateConvertMlirToXlaHloPipeline(
   pm.addNestedPass<mlir::func::FuncOp>(
       mlir::mhlo::createSinkConstantsToControlFlowPass());
 }
-
-}  //  namespace
 
 Status RefineShapes(llvm::ArrayRef<TensorOrResourceShape> arg_shapes,
                     mlir::ModuleOp module) {
