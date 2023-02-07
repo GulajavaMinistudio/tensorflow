@@ -1023,7 +1023,6 @@ py_library(
         ":device",
         ":dtypes",
         ":error_interpolation",
-        ":indexed_slices",
         ":op_def_registry",
         ":registry",
         ":tensor_conversion_registry",
@@ -1079,6 +1078,7 @@ py_library(
         ":tensor_shape",
         ":type_spec",
         "//tensorflow/core:protos_all_py",
+        "//tensorflow/python:math_ops_gen",
         "//tensorflow/python:tf2",
         "//tensorflow/python/eager:context",
         "//tensorflow/python/saved_model:nested_structure_coder",
@@ -1961,6 +1961,32 @@ tf_py_test(
         "//tensorflow/python/eager:context",
         "//tensorflow/python/eager:function",
         "//tensorflow/python/util",
+    ],
+)
+
+# Test that op_allowlist works with ops with namespaces
+tf_gen_op_wrapper_py(
+    name = "test_namespace_ops",
+    out = "test_namespace_ops.py",
+    op_allowlist = ["Namespace>TestStringOutput"],
+    deps = [
+        ":test_ops_kernels",
+    ],
+)
+
+tf_py_test(
+    name = "op_allowlist_namespace_test",
+    size = "small",
+    srcs = ["op_allowlist_namespace_test.py"],
+    main = "op_allowlist_namespace_test.py",
+    python_version = "PY3",
+    tags = ["no_pip"],  # Avoid a missing test dependency error
+    deps = [
+        ":errors",
+        ":for_generated_wrappers",
+        ":framework",
+        ":test_lib",
+        ":test_namespace_ops",
     ],
 )
 

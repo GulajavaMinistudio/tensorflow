@@ -69,6 +69,9 @@ std::unique_ptr<OperationPass<func::FuncOp>> createCollapseShapePass();
 std::unique_ptr<OperationPass<func::FuncOp>> createCollapseShapePass(
     const CollapseShapePassOptions &options);
 
+// Pass to tile all tileable ops to size 1.
+std::unique_ptr<OperationPass<func::FuncOp>> createTileByOnePass();
+
 /// Pass to compose tensor.extract_slice/insert_slice ops.
 std::unique_ptr<OperationPass<func::FuncOp>>
 createComposeExtractInsertSlicePass();
@@ -127,7 +130,8 @@ std::unique_ptr<OperationPass<func::FuncOp>> createTransformMatmulForTritonPass(
 std::unique_ptr<OperationPass<func::FuncOp>> createFusionOfTensorOpsPass();
 
 /// Pass to convert ops on tensors with 1 element to scalar ops.
-std::unique_ptr<OperationPass<func::FuncOp>> createScalarizationPass();
+std::unique_ptr<OperationPass<func::FuncOp>> createScalarizationPass(
+    bool skipFillOpScalarization = false);
 
 /// Pass to transform a linalg.map op for CPU backend.
 std::unique_ptr<mlir::OperationPass<mlir::func::FuncOp>>
