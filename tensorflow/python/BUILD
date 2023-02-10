@@ -612,6 +612,7 @@ tf_gen_op_wrapper_private_py(
     name = "control_flow_ops_gen",
     visibility = [
         "//learning/brain/python/ops:__pkg__",
+        "//tensorflow:__subpackages__",
         "//tensorflow/python/kernel_tests:__pkg__",
         "//tensorflow/python/kernel_tests/control_flow:__pkg__",
     ],
@@ -1662,7 +1663,7 @@ py_library(
         ":control_flow_state",
         ":control_flow_util",
         ":default_gradient",
-        ":functional_ops",
+        ":functional_ops_gen",
         ":math_ops",
         ":platform",
         ":resource_variable_ops",
