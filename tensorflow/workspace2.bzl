@@ -301,10 +301,10 @@ def _tf_repositories():
         name = "png",
         build_file = "//third_party:png.BUILD",
         patch_file = ["//third_party:png_fix_rpi.patch"],
-        sha256 = "d4160037fa5d09fa7cff555037f2a7f2fefc99ca01e21723b19bfcda33015234",
-        strip_prefix = "libpng-1.6.38",
+        sha256 = "a00e9d2f2f664186e4202db9299397f851aea71b36a35e74910b8820e380d441",
+        strip_prefix = "libpng-1.6.39",
         system_build_file = "//third_party/systemlibs:png.BUILD",
-        urls = tf_mirror_urls("https://github.com/glennrp/libpng/archive/v1.6.38.tar.gz"),
+        urls = tf_mirror_urls("https://github.com/glennrp/libpng/archive/v1.6.39.tar.gz"),
     )
 
     tf_http_archive(
@@ -606,9 +606,9 @@ def _tf_repositories():
         name = "nccl_archive",
         build_file = "//third_party:nccl/archive.BUILD",
         patch_file = ["//third_party/nccl:archive.patch"],
-        sha256 = "7f7c738511a8876403fc574d13d48e7c250d934d755598d82e14bab12236fc64",
-        strip_prefix = "nccl-2.16.2-1",
-        urls = tf_mirror_urls("https://github.com/nvidia/nccl/archive/v2.16.2-1.tar.gz"),
+        sha256 = "0e3d7b6295beed81dc15002e88abf7a3b45b5c686b13b779ceac056f5612087f",
+        strip_prefix = "nccl-2.16.5-1",
+        urls = tf_mirror_urls("https://github.com/nvidia/nccl/archive/v2.16.5-1.tar.gz"),
     )
 
     java_import_external(
@@ -876,8 +876,9 @@ def _tf_repositories():
     tf_http_archive(
         name = "pybind11_protobuf",
         urls = tf_mirror_urls("https://github.com/pybind/pybind11_protobuf/archive/80f3440cd8fee124e077e2e47a8a17b78b451363.zip"),
-        sha256 = "",
+        sha256 = "c7ab64b1ccf9a678694a89035a8c865a693e4e872803778f91f0965c2f281d78",
         strip_prefix = "pybind11_protobuf-80f3440cd8fee124e077e2e47a8a17b78b451363",
+        patch_file = ["//third_party/pybind11_protobuf:remove_license.patch"],
     )
 
     tf_http_archive(

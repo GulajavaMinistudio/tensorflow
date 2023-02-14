@@ -1031,7 +1031,14 @@ Status LowerMLIRModule(mlir::ModuleOp mlir_module,
   mlir::PassManager pm(&mlir_context);
   if (VLOG_IS_ON(5)) {
     mlir_context.disableMultithreading();
-    pm.enableIRPrinting();
+    // Do not print large constants.
+    mlir::OpPrintingFlags printing_flags;
+    printing_flags.elideLargeElementsAttrs(32);
+    pm.enableIRPrinting(
+        [](mlir::Pass* pass, mlir::Operation* op) { return true; },
+        [](mlir::Pass* pass, mlir::Operation* op) { return true; },
+        /*printModuleScope=*/true, /*printAfterOnlyOnChange=*/true,
+        /*printAfterOnlyOnFailure=*/false, llvm::errs(), printing_flags);
   }
 
   xla::runtime::PassManager xla_pm(&pm);
@@ -1042,17 +1049,13 @@ Status LowerMLIRModule(mlir::ModuleOp mlir_module,
   options.outline_with_xla_framework = true;
   TF_RETURN_IF_ERROR(CreateHloXlaRuntimePipeline(xla_pm, options));
 
-  pm.addNestedPass<mlir::func::FuncOp>(mlir::arith::createArithExpandOpsPass());
-  pm.addNestedPass<mlir::func::FuncOp>(mlir::memref::createExpandOpsPass());
-  pm.addNestedPass<mlir::func::FuncOp>(mlir::createLowerAffinePass());
-  pm.addPass(mlir::mhlo::CreateLegalizeXLAFrameworkToLLVMPass());
-  pm.addPass(mlir::hlo::createGenericHostToLLVMPass());
-  pm.addPass(mlir::createReconcileUnrealizedCastsPass());
+  runtime::CpuPipelineOptions cpu_pipeline_opts;
+  CreateDefaultXlaCpuAOTCompilationPipeline(xla_pm, cpu_pipeline_opts);
+
   if (pm.run(mlir_module).failed()) {
     mlir_module->dump();
     return tsl::errors::Internal("Failed to compile through MLIR pipeline");
   }
-
   return OkStatus();
 }
 
