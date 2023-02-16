@@ -206,6 +206,7 @@ void CreateTPUBridgePipelineImpl(OpPassManager &pm) {
 }  // namespace
 
 void CreateTPUBridgePipeline(OpPassManager &pm) {
+  pm.addPass(CreateTPUValidateInputsPass());
   pm.addNestedPass<func::FuncOp>(
       TF::CreateCanonicalizeCompileAndReplicateAttributesPass());
   CreateTPUBridgePipelineImpl(pm);
@@ -391,6 +392,7 @@ void CreateTFXLABridgePipeline(OpPassManager &pm) {
   // Lift resource operations out of device computation. This step needs to be
   // done after inlining.
   pm.addPass(TFDevice::CreateResourceOpLiftingPass());
+  pm.addPass(TFDevice::CreateMarkOpsForOutsideCompilationPass());
   // Outline clusters into cluster functions.
   pm.addPass(TFDevice::CreateClusterOutliningPass());
   // Rewrite cluster functions into XLA  launch ops.
