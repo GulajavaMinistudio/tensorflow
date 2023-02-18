@@ -93,7 +93,6 @@ limitations under the License.
 #include "tensorflow/compiler/xla/service/gpu/dot_dimension_sorter.h"
 #include "tensorflow/compiler/xla/service/gpu/for_thunk.h"
 #include "tensorflow/compiler/xla/service/gpu/fusion_merger.h"
-#include "tensorflow/compiler/xla/service/gpu/gemm_algorithm_picker.h"
 #include "tensorflow/compiler/xla/service/gpu/gemm_broadcast_folding_rewriter.h"
 #include "tensorflow/compiler/xla/service/gpu/gemm_rewriter.h"
 #include "tensorflow/compiler/xla/service/gpu/gemm_rewriter_triton.h"
@@ -128,7 +127,6 @@ limitations under the License.
 #include "tensorflow/compiler/xla/service/gpu/runtime_intrinsics.h"
 #include "tensorflow/compiler/xla/service/gpu/scatter_slice_simplifier.h"
 #include "tensorflow/compiler/xla/service/gpu/sequential_thunk.h"
-#include "tensorflow/compiler/xla/service/gpu/softmax_fusion.h"
 #include "tensorflow/compiler/xla/service/gpu/tree_reduction_rewriter.h"
 #include "tensorflow/compiler/xla/service/gpu/variadic_op_splitter.h"
 #include "tensorflow/compiler/xla/service/gpu/while_thunk.h"
@@ -196,6 +194,7 @@ limitations under the License.
 #include "tensorflow/tsl/profiler/lib/traceme.h"
 
 #if GOOGLE_CUDA
+#include "tensorflow/compiler/xla/service/gpu/gemm_algorithm_picker.h"
 #include "tensorflow/compiler/xla/service/gpu/triton_autotuner.h"
 #endif  // GOOGLE_CUDA
 
@@ -367,6 +366,10 @@ Status GpuCompiler::OptimizeHloModule(
 
   AlgebraicSimplifierOptions layout_insensitive_algsimp_opts({},
                                                              ConvIsLowerable);
+
+  // GPU only supports canonical convolutions.
+  layout_insensitive_algsimp_opts.set_supports_non_canonical_dots(false);
+
   // "slow" minmax means we propagate nan.
   layout_insensitive_algsimp_opts.set_minmax_propagate_nan(
       !debug_options.xla_gpu_enable_fast_min_max());
@@ -796,6 +799,7 @@ Status GpuCompiler::OptimizeHloPostLayoutAssignment(
     // The LayoutAssignment pass may leave behind kCopy instructions which are
     // duplicate or NOPs, so remove them with algebraic simplification and CSE.
     AlgebraicSimplifierOptions options;
+    options.set_supports_non_canonical_dots(false);
     options.set_is_layout_sensitive(true);
     options.set_enable_conv_operand_swap(false);
     // "slow" minmax means we propagate nan.
@@ -845,15 +849,6 @@ Status GpuCompiler::OptimizeHloPostLayoutAssignment(
 
     pipeline.AddPass<ReductionDegenerateDimRemover>();
     pipeline.AddPass<ReductionLayoutNormalizer>();
-    // Run Softmax fusion after layout normalization. We expect a default layout
-    // in the softmax codegen pipeline. However we should run before
-    // ReductionDimensionGrouper, as that makes matching the softmax pattern
-    // harder.
-    if (debug_options.xla_gpu_enable_softmax_fusion()) {
-      pipeline.AddPass<HloPassFix<AlgebraicSimplifier>>(options);
-      pipeline.AddPass<SoftmaxFusion>();
-    }
-
     pipeline.AddPass<ReductionDimensionGrouper>();
     pipeline.AddPass<HloPassFix<ReductionSplitter>>();
     pipeline.AddPass<HloPassFix<GpuTreeReductionRewriter>>(
@@ -912,12 +907,18 @@ Status GpuCompiler::OptimizeHloPostLayoutAssignment(
     GpuConvAlgorithmPicker::ClearAutotuneResults();
     TF_RETURN_IF_ERROR(
         GpuConvAlgorithmPicker::LoadAutotuneResults(*autotune_results));
+
+#if GOOGLE_CUDA
     GemmAlgorithmPicker::ClearAutotuneResults();
     TF_RETURN_IF_ERROR(
         GemmAlgorithmPicker::LoadAutotuneResults(*autotune_results));
+#endif  // GOOGLE_CUDA
   }
   pipeline.AddPass<GpuConvAlgorithmPicker>(config);
+
+#if GOOGLE_CUDA
   pipeline.AddPass<GemmAlgorithmPicker>(config);
+#endif  // GOOGLE_CUDA
 
   // Clean up new_tuple described above.
   pipeline.AddPass<TupleSimplifier>();
@@ -926,6 +927,7 @@ Status GpuCompiler::OptimizeHloPostLayoutAssignment(
     // The LayoutAssignment pass may leave behind kCopy instructions which are
     // duplicate or NOPs, so remove them with algebraic simplification and CSE.
     AlgebraicSimplifierOptions options;
+    options.set_supports_non_canonical_dots(false);
     options.set_is_layout_sensitive(true);
     options.set_enable_conv_operand_swap(false);
     // "slow" minmax means we propagate nan.

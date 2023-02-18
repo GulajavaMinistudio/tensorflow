@@ -684,6 +684,7 @@ Status CpuCompiler::RunHloPassesThroughLayoutAssn(
     // TODO(b/209827141): XLA:CPU doesn't propagate NaN through min/max, but
     // other platforms do, so it should be changed.
     options.set_minmax_propagate_nan(false);
+    options.set_supports_non_canonical_dots(false);
     pipeline.AddPass<AlgebraicSimplifier>(options);
     pipeline.AddPass<SortSimplifier>();
     pipeline.AddPass<HloDCE>();
@@ -794,6 +795,7 @@ Status CpuCompiler::RunHloPassesAfterLayoutAssn(
         /*debug_only=*/true);
     AlgebraicSimplifierOptions options;
     options.set_is_layout_sensitive(true);
+    options.set_supports_non_canonical_dots(false);
     options.set_enable_dot_strength_reduction(false);
     // TODO(b/209827141): XLA:CPU doesn't propagate NaN through min/max, but
     // other platforms do, so it should be changed.
@@ -1027,7 +1029,7 @@ void InitializeLLVMCommandLineOptions(const HloModuleConfig& config) {
       config.debug_options().xla_backend_extra_options());
 }
 
-Status LowerMLIRModule(mlir::ModuleOp mlir_module,
+Status LowerMLIRModule(HloModule* module, mlir::ModuleOp mlir_module,
                        mlir::MLIRContext& mlir_context) {
   LoadMLIRDialects(mlir_context);
   mlir::PassManager pm(&mlir_context);
@@ -1049,6 +1051,8 @@ Status LowerMLIRModule(mlir::ModuleOp mlir_module,
       GetDebugOptionsFromFlags().xla_cpu_enable_mlir_tiling_and_fusion();
   options.sparse_bufferization = false;
   options.outline_with_xla_framework = true;
+  options.experimental_deallocation =
+      GetDebugOptionsFromFlags().xla_cpu_enable_experimental_deallocation();
   TF_RETURN_IF_ERROR(CreateHloXlaRuntimePipeline(xla_pm, options));
 
   runtime::CpuPipelineOptions cpu_pipeline_opts;
@@ -1611,13 +1615,16 @@ CpuCompiler::CompileAheadOfTime(std::unique_ptr<HloModuleGroup> module_group,
       TF_ASSIGN_OR_RETURN(
           auto mlir_module,
           createMLIRModule(module, mlir_context, assignment.get()));
-      TF_RETURN_IF_ERROR(LowerMLIRModule(*mlir_module, mlir_context));
+      TF_RETURN_IF_ERROR(LowerMLIRModule(module, *mlir_module, mlir_context));
 
       llvm::cast<mlir::LLVM::LLVMFuncOp>(
           mlir_module->lookupSymbol("main_xla_framework"))
           .setName(options.entry_point_name());
 
       llvm_module = mlir::translateModuleToLLVMIR(*mlir_module, llvm_context);
+      if (!llvm_module) {
+        return InternalError("Failed to translate module to LLVM IR");
+      }
       // Set missing information
       llvm_module->setDataLayout(target_machine->createDataLayout());
       llvm_module->setTargetTriple(triple.getTriple());
