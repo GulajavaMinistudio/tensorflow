@@ -212,10 +212,9 @@ func.func @fused_matmul(%arg0: tensor<1x32xf32>, %arg1: tensor<32x10xf32>,
 // CHECK-SAME:        %[[ARG2_:.*]] = %[[ARG2]]: tensor<10xf32>
 // CHECK-SAME:        %[[ARG0_:.*]] = %[[ARG0]]: tensor<1x32xf32>
 // CHECK-SAME:        %[[ARG1_:.*]] = %[[ARG1]]: tensor<32x10xf32>
-// CHECK-SAME:        %[[C0_:.*]] = %[[C0]]: f32
 // CHECK:           %[[EXPANDED:.*]] = tensor.expand_shape %[[ARG2_]]
 // CHECK:           %[[FILLED:.*]] = linalg.fill
-// CHECK-SAME:        ins(%[[C0_]] : f32)
+// CHECK-SAME:        ins(%[[C0]] : f32)
 // CHECK-SAME:        outs(%[[EMPTY_]] : tensor<1x10xf32>
 // CHECK:           %[[MATMUL:.*]] = linalg.matmul
 // CHECK-SAME:        ins(%[[ARG0_]], %[[ARG1_]]
@@ -224,3 +223,27 @@ func.func @fused_matmul(%arg0: tensor<1x32xf32>, %arg1: tensor<32x10xf32>,
 // CHECK-SAME:        ins(%[[MATMUL]], %[[EXPANDED]]
 // CHECK-SAME:        outs(%[[EMPTY_]]
 // CHECK:           gml_st.yield %[[MAP]]
+
+// -----
+
+func.func @value_used_in_op_region(%arg0: tensor<i1>,
+    %arg1: tensor<?xi64>, %arg2: tensor<?xi64>, %init: tensor<?xi64>)
+    -> tensor<?xi64> {
+  %extracted = tensor.extract %arg0[] : tensor<i1>
+  %mapped = linalg.map
+              ins(%arg1, %arg2 : tensor<?xi64>, tensor<?xi64>)
+              outs(%init : tensor<?xi64>)
+    (%in: i64, %in_1: i64) {
+      %3 = arith.select %extracted, %in, %in_1 : i64
+      linalg.yield %3 : i64
+    }
+  return %mapped : tensor<?xi64>
+}
+
+// CHECK-LABEL: func @value_used_in_op_region
+// CHECK-SAME:      (%[[ARG0:.*]]: tensor<i1>
+// CHECK:         %[[EXTRACTED:.*]] = tensor.extract %[[ARG0]]
+// CHECK:         gml_st.fusion
+// CHECK-SAME:        %[[EXTRACTED_:[a-zA-Z0-9]*]] = %[[EXTRACTED]]: i1
+// CHECK:         linalg.map
+// CHECK:           arith.select %[[EXTRACTED_]]

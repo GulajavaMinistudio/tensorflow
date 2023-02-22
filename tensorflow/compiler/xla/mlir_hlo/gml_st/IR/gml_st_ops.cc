@@ -45,6 +45,7 @@ limitations under the License.
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/Interfaces/ViewLikeInterface.h"
 #include "mlir/Transforms/InliningUtils.h"
+#include "mlir/Transforms/RegionUtils.h"
 
 namespace mlir {
 namespace {
@@ -255,20 +256,15 @@ struct FoldConstantsIntoMaterializeOp : public OpRewritePattern<MaterializeOp> {
 
   LogicalResult matchAndRewrite(MaterializeOp op,
                                 PatternRewriter &rewriter) const override {
-    // No constant operand, just return;
-    if (llvm::none_of(op.getOperands(), [](Value operand) {
-          return matchPattern(operand, matchConstantIndex());
-        }))
-      return failure();
-
-    // At least one of offsets/sizes/strides is a new constant.
-    // Form the new list of operands and constant attributes from the existing.
     SmallVector<OpFoldResult> mixedOffsets(op.getMixedOffsets());
     SmallVector<OpFoldResult> mixedSizes(op.getMixedSizes());
     SmallVector<OpFoldResult> mixedStrides(op.getMixedStrides());
-    canonicalizeSubViewPart(mixedOffsets, ShapedType::isDynamic);
-    canonicalizeSubViewPart(mixedSizes, ShapedType::isDynamic);
-    canonicalizeSubViewPart(mixedStrides, ShapedType::isDynamic);
+
+    // No constant operands were folded, just return;
+    if (failed(foldDynamicIndexList(rewriter, mixedOffsets)) &&
+        failed(foldDynamicIndexList(rewriter, mixedSizes)) &&
+        failed(foldDynamicIndexList(rewriter, mixedStrides)))
+      return failure();
 
     SmallVector<int64_t> staticSizes;
     SmallVector<Value> dynamicSizes;
@@ -841,20 +837,15 @@ struct FoldConstantsIntoTileType : public OpRewritePattern<TileOp> {
 
   LogicalResult matchAndRewrite(TileOp op,
                                 PatternRewriter &rewriter) const override {
-    // No constant operand, just return;
-    if (llvm::none_of(op.getOperands(), [](Value operand) {
-          return matchPattern(operand, matchConstantIndex());
-        }))
-      return failure();
-
-    // At least one of offsets/sizes/strides is a new constant.
-    // Form the new list of operands and constant attributes from the existing.
     SmallVector<OpFoldResult> mixedOffsets(op.getMixedOffsets());
     SmallVector<OpFoldResult> mixedSizes(op.getMixedSizes());
     SmallVector<OpFoldResult> mixedStrides(op.getMixedStrides());
-    canonicalizeSubViewPart(mixedOffsets, ShapedType::isDynamic);
-    canonicalizeSubViewPart(mixedSizes, ShapedType::isDynamic);
-    canonicalizeSubViewPart(mixedStrides, ShapedType::isDynamic);
+
+    // No constant operands were folded, just return;
+    if (failed(foldDynamicIndexList(rewriter, mixedOffsets)) &&
+        failed(foldDynamicIndexList(rewriter, mixedSizes)) &&
+        failed(foldDynamicIndexList(rewriter, mixedStrides)))
+      return failure();
 
     // Create the new tile in canonical form.
     TileOp newOp = rewriter.create<TileOp>(op.getLoc(), mixedOffsets,
@@ -1256,6 +1247,21 @@ ParseResult FusionOp::parse(OpAsmParser &parser, OperationState &result) {
 
   // Parser result types.
   if (parser.parseOptionalColonTypeList(result.types)) return failure();
+
+  return success();
+}
+
+LogicalResult FusionOp::verify() {
+  llvm::SetVector<Value> valuesDefinedAbove;
+  getUsedValuesDefinedAbove(getRegion(), getRegion(), valuesDefinedAbove);
+
+  for (Value v : valuesDefinedAbove) {
+    auto *definingOp = v.getDefiningOp();
+
+    if (!isa_and_nonnull<arith::ConstantOp>(definingOp))
+      return emitOpError() << "using value defined outside the region that is "
+                              "not 'arith.constant'.";
+  }
 
   return success();
 }
