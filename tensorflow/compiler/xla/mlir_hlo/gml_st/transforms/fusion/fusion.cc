@@ -23,6 +23,7 @@ limitations under the License.
 #include "gml_st/transforms/passes.h"
 #include "gml_st/transforms/peeling/peeling.h"
 #include "gml_st/transforms/transforms.h"
+#include "llvm/ADT/STLExtras.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -584,10 +585,6 @@ FailureOr<gml_st::FusionOp> wrapFusionCluster(
     }
   }
 
-  // We assume that a cluster has only one result for simplity for now. This
-  // restriction should be relaxed.
-  if (clusterResults.size() != 1) return failure();
-
   // 2. Create an empty op.
   OpBuilder::InsertionGuard guard(rewriter);
   rewriter.setInsertionPointAfter(fusionCluster.root);
@@ -617,8 +614,9 @@ FailureOr<gml_st::FusionOp> wrapFusionCluster(
     rewriter.clone(*op, mapper);
   }
 
-  auto yieldOp = rewriter.create<gml_st::YieldOp>(
-      loc, mapper.lookupOrDefault(clusterResults[0]));
+  SmallVector<Value> yieldOpOperands = llvm::to_vector(llvm::map_range(
+      clusterResults, [&](Value v) { return mapper.lookupOrDefault(v); }));
+  auto yieldOp = rewriter.create<gml_st::YieldOp>(loc, yieldOpOperands);
 
   // 5. Replace all uses of ops in the cluster with results of the new fusion
   // cluster op.
@@ -632,13 +630,22 @@ FailureOr<gml_st::FusionOp> wrapFusionCluster(
 
 LogicalResult inlineFusionCluster(FusionOp fusionOp,
                                   PatternRewriter& rewriter) {
-  InlinerInterface interface(rewriter.getContext());
-  if (failed(inlineRegion(interface, &fusionOp.getRegion(), fusionOp,
-                          fusionOp.getOperands(), fusionOp.getResults(),
-                          fusionOp.getLoc(),
-                          /*shouldCloneInlinedRegion=*/false)))
-    return failure();
-  rewriter.eraseOp(fusionOp);
+  OpBuilder::InsertionGuard guard(rewriter);
+  rewriter.setInsertionPointAfter(fusionOp);
+
+  IRMapping mapper;
+  mapper.map(fusionOp.getRegion().getArguments(), fusionOp.getOperands());
+
+  for (auto& op : fusionOp.getBody()->without_terminator()) {
+    rewriter.clone(op, mapper);
+  }
+
+  SmallVector<Value> yieldOpOperands = llvm::to_vector(
+      llvm::map_range(fusionOp.getTerminator().getOperands(),
+                      [&](Value v) { return mapper.lookupOrDefault(v); }));
+
+  rewriter.replaceOp(fusionOp, yieldOpOperands);
+
   return success();
 }
 
