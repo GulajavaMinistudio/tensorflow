@@ -1053,6 +1053,8 @@ Status LowerMLIRModule(HloModule* module, mlir::ModuleOp mlir_module,
   options.outline_with_xla_framework = true;
   options.experimental_deallocation =
       GetDebugOptionsFromFlags().xla_cpu_enable_experimental_deallocation();
+  // TODO(b/271126383): The flag should depend on the lowering target.
+  options.enable_avx2 = true;
   TF_RETURN_IF_ERROR(CreateHloXlaRuntimePipeline(xla_pm, options));
 
   runtime::CpuPipelineOptions cpu_pipeline_opts;
@@ -1320,7 +1322,7 @@ CpuCompiler::CompileLegacyCpuExecutable(std::unique_ptr<HloModule> module) {
 
   std::string ir_module_string;
   if (embed_ir_in_executable) {
-    ir_module_string = llvm_ir::DumpModuleToString(*llvm_module);
+    ir_module_string = llvm_ir::DumpToString(llvm_module.get());
   }
 
   TF_RETURN_IF_ERROR(VerifyLlvmModule(*llvm_module));
@@ -1357,9 +1359,8 @@ StatusOr<std::unique_ptr<XlaRuntimeCpuExecutable>> GetXlaRuntimeCpuExecutable(
     const XlaFrameworkMapping& xla_framework_mapping) {
   runtime::JitExecutable::Options opts =
       GetXlaRuntimeJitExecutableOptions(hlo_module);
-  std::string serialized_mlir;
-  llvm::raw_string_ostream os(serialized_mlir);
-  mlir_module.print(os);
+  std::string serialized_mlir = llvm_ir::DumpToString(mlir_module);
+
   absl::StatusOr<runtime::JitExecutable> jit_executable =
       runtime::JitExecutable::Instantiate(serialized_mlir, entry_point, opts);
   if (!jit_executable.ok()) {

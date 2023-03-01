@@ -15,6 +15,7 @@ limitations under the License.
 
 #include "gml_st/transforms/passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Func/Transforms/Passes.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
@@ -40,14 +41,23 @@ void addCPUTilingPipeline(OpPassManager& pm,
     pm.addNestedPass<FuncOp>(createFusionPlanningForCpuPass());
   }
 
+  // Outline and deduplicate fusion clusters.
+  if (options.enableFusionClusterOutlining) {
+    pm.addPass(createFusionOutliningPass());
+    pm.addPass(func::createDuplicateFunctionEliminationPass());
+  }
+
   pm.addNestedPass<FuncOp>(createTransformScatterForCpuPass());
   pm.addNestedPass<FuncOp>(createTransformReduceForCpuPass(
       options.vectorSize, options.reduction1DTileSize,
       options.reduction2DTileSizes));
-  pm.addNestedPass<FuncOp>(
-      createTransformDotForCpuPass(options.matmulTileSizes));
+  MatmulSizes fixedTileSizes = {options.matmulTileSizes[0],
+                                options.matmulTileSizes[1],
+                                options.matmulTileSizes[2]};
+  pm.addNestedPass<FuncOp>(createTransformDotForCpuPass(
+      [=](MatmulSizes) { return fixedTileSizes; }));
   pm.addNestedPass<FuncOp>(createTransformMatmulForCpuPass(
-      options.matmulTileSizes, options.lowerToMmt4d));
+      [=](MatmulSizes) { return fixedTileSizes; }, options.lowerToMmt4d));
   // TODO(b/270534416): Re-enable.
   // pm.addNestedPass<FuncOp>(createTransformGenericForCpuPass());
   pm.addNestedPass<FuncOp>(createTransformTransposeForCpuPass());

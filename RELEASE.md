@@ -5,6 +5,13 @@
 * <DOCUMENT BREAKING CHANGES HERE>
 * <THIS SECTION SHOULD CONTAIN API, ABI AND BEHAVIORAL BREAKING CHANGES>
 
+*  `tf.keras`
+
+    *  Remove the Keras scikit-learn API wrappers (`KerasClassifier` and
+       `KerasRegressor`), which had been deprecated in August 2021.
+       We recommend using [SciKeras](https://github.com/adriangb/scikeras)
+       instead.
+
 ## Known Caveats
 
 * <CAVEATS REGARDING THE RELEASE (BUT NOT BREAKING CHANGES).>
@@ -20,6 +27,9 @@
         `experimental_disable_delegate_clustering` to turn-off delegate
         clustering.
     *   Add int16x8 support for the built-in op `mirror_pad`
+    *   Add 16-bit int type support for built-in op `less`, `greater_than`
+        and `equal`.
+    *   Add int16 indices support for built-in op `gather`.
 
 *   `tf.keras`
 
