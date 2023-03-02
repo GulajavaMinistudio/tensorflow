@@ -20,6 +20,7 @@ limitations under the License.
 #include "tensorflow/compiler/mlir/lite/stablehlo/serializer/flatbuffer_translator.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cstdint>
 #include <iterator>
 #include <limits>
@@ -103,6 +104,19 @@ static flatbuffers::Offset<::stablehlo::flatbuf::Operator> CreateDivOperator(
     mlir::stablehlo::DivOp& hlo_op, flatbuffers::FlatBufferBuilder* fbb,
     uint32_t opcode_index, const std::vector<int32_t>& operands,
     const std::vector<int32_t>& results) {
+  auto inputs = fbb->CreateVector(operands);
+  auto outputs = fbb->CreateVector(results);
+
+  return ::stablehlo::flatbuf::CreateOperator(*fbb, opcode_index, inputs,
+                                              outputs);
+}
+
+static flatbuffers::Offset<::stablehlo::flatbuf::Operator>
+CreateSubtractOperator(mlir::stablehlo::SubtractOp& hlo_op,
+                       flatbuffers::FlatBufferBuilder* fbb,
+                       uint32_t opcode_index,
+                       const std::vector<int32_t>& operands,
+                       const std::vector<int32_t>& results) {
   auto inputs = fbb->CreateVector(operands);
   auto outputs = fbb->CreateVector(results);
 
@@ -268,6 +282,31 @@ CreateBroadcastInDimOperator(mlir::stablehlo::BroadcastInDimOp& hlo_op,
                                               outputs);
 }
 
+static flatbuffers::Offset<::stablehlo::flatbuf::Operator>
+CreateResizeBilinearOperator(mlir::stablehlo::CustomCallOp& hlo_op,
+                             flatbuffers::FlatBufferBuilder* fbb,
+                             uint32_t opcode_index,
+                             const std::vector<int32_t>& operands,
+                             const std::vector<int32_t>& results) {
+  auto inputs = fbb->CreateVector(operands);
+  auto outputs = fbb->CreateVector(results);
+
+  auto align_corners =
+      hlo_op->getAttr("align_corners").dyn_cast<mlir::BoolAttr>();
+  assert(align_corners);
+  auto half_pixel_center =
+      hlo_op->getAttr("half_pixel_centers").dyn_cast<mlir::BoolAttr>();
+  assert(half_pixel_center);
+
+  auto options = ::stablehlo::flatbuf::CreateResizeBilinearOptions(
+      *fbb, align_corners.getValue(), half_pixel_center.getValue());
+
+  return ::stablehlo::flatbuf::CreateOperator(
+      *fbb, opcode_index, inputs, outputs,
+      ::stablehlo::flatbuf::OperatorOptions_ResizeBilinearOptions,
+      options.Union());
+}
+
 llvm::Optional<flatbuffers::Offset<::stablehlo::flatbuf::Operator>>
 CreateFlatBufferOperator(mlir::Operation* op, uint32_t opcode_index,
                          const std::vector<int32_t>& operands,
@@ -282,6 +321,8 @@ CreateFlatBufferOperator(mlir::Operation* op, uint32_t opcode_index,
     return CreateLogisticOperator(hlo_op, fbb, opcode_index, operands, results);
   if (auto hlo_op = llvm::dyn_cast<mlir::stablehlo::DivOp>(op))
     return CreateDivOperator(hlo_op, fbb, opcode_index, operands, results);
+  if (auto hlo_op = llvm::dyn_cast<mlir::stablehlo::SubtractOp>(op))
+    return CreateSubtractOperator(hlo_op, fbb, opcode_index, operands, results);
   if (auto hlo_op = llvm::dyn_cast<mlir::stablehlo::MaxOp>(op))
     return CreateMaxOperator(hlo_op, fbb, opcode_index, operands, results);
   if (auto hlo_op = llvm::dyn_cast<mlir::stablehlo::ReshapeOp>(op))
@@ -294,6 +335,9 @@ CreateFlatBufferOperator(mlir::Operation* op, uint32_t opcode_index,
                                       results, subgraph_idx);
   if (auto hlo_op = llvm::dyn_cast<mlir::stablehlo::BroadcastInDimOp>(op))
     return CreateBroadcastInDimOperator(hlo_op, fbb, opcode_index, operands,
+                                        results);
+  if (auto hlo_op = llvm::dyn_cast<mlir::stablehlo::CustomCallOp>(op))
+    return CreateResizeBilinearOperator(hlo_op, fbb, opcode_index, operands,
                                         results);
   return std::nullopt;
 }
@@ -312,6 +356,8 @@ llvm::Optional<::stablehlo::flatbuf::OperatorCode> GetOpCode(
     return ::stablehlo::flatbuf::OperatorCode_ADD;
   if (isa<mlir::stablehlo::DotOp>(op))
     return ::stablehlo::flatbuf::OperatorCode_DOT;
+  if (isa<mlir::stablehlo::SubtractOp>(op))
+    return ::stablehlo::flatbuf::OperatorCode_SUBTRACT;
   if (isa<mlir::stablehlo::DivOp>(op))
     return ::stablehlo::flatbuf::OperatorCode_DIVIDE;
   if (isa<mlir::stablehlo::LogisticOp>(op))
@@ -326,6 +372,11 @@ llvm::Optional<::stablehlo::flatbuf::OperatorCode> GetOpCode(
     return ::stablehlo::flatbuf::OperatorCode_BROADCAST_IN_DIM;
   if (isa<mlir::stablehlo::ReduceWindowOp>(op))
     return ::stablehlo::flatbuf::OperatorCode_REDUCE_WINDOW;
+
+  // For now we assume the incoming custom op is a resize_bilinear, it is
+  // expected any other custom op will cause the program to error out
+  if (isa<mlir::stablehlo::CustomCallOp>(op))
+    return ::stablehlo::flatbuf::OperatorCode_RESIZE_BILINEAR;
   return std::nullopt;
 }
 
