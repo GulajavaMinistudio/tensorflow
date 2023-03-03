@@ -286,6 +286,7 @@ py_library(
 alias(
     name = "util",
     actual = "//tensorflow/python/util:util",
+    deprecation = "This target has been split. Depend on the sub-targets in //third_party/tensorflow/python/util instead.",
     visibility = visibility + [
         "//tensorflow:__pkg__",
         "//third_party/py/tensorflow_core:__subpackages__",
@@ -1350,6 +1351,7 @@ py_library(
         ":math_ops",
         ":platform",
         ":tensor_array_ops",
+        ":while_loop",
         "//tensorflow/core:protos_all_py",
         "//tensorflow/python/eager:context",
         "//tensorflow/python/framework:composite_tensor",
@@ -1379,6 +1381,24 @@ py_library(
         "//tensorflow/python/framework:dtypes",
         "//tensorflow/python/framework:ops",
         "//tensorflow/python/platform",
+        "//tensorflow/python/util",
+        "//tensorflow/python/util:tf_export",
+    ],
+)
+
+py_library(
+    name = "while_loop",
+    srcs = ["ops/while_loop.py"],
+    srcs_version = "PY3",
+    deps = [
+        ":control_flow_util",
+        ":math_ops",
+        ":tensor_array_ops",
+        "//tensorflow/python/eager:context",
+        "//tensorflow/python/framework:constant_op",
+        "//tensorflow/python/framework:ops",
+        "//tensorflow/python/framework:tensor_shape",
+        "//tensorflow/python/framework:type_spec",
         "//tensorflow/python/util",
         "//tensorflow/python/util:tf_export",
     ],
@@ -1645,7 +1665,7 @@ py_library(
         ":protos_all_py",
         "//tensorflow/python/client:pywrap_tf_session",
         "//tensorflow/python/framework:dtypes",
-        "//tensorflow/python/framework:ops",
+        "//tensorflow/python/types",
         "//tensorflow/python/util",
     ],
 )
@@ -3377,7 +3397,7 @@ py_library(
 pywrap_tensorflow_macro(
     name = "pywrap_tensorflow_internal",
     srcs = ["pywrap_tensorflow_internal.cc"],
-    dynamic_deps = select({
+    dynamic_deps = ["//tensorflow/tsl/python/lib/core:bfloat16.so"] + select({
         "//tensorflow:macos": [
             "//tensorflow:libtensorflow_cc.%s.dylib" % VERSION,
             "//tensorflow:libtensorflow_framework.%s.dylib" % VERSION,

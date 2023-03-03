@@ -21,7 +21,7 @@ limitations under the License.
 #include <vector>
 
 #include "llvm/Support/Casting.h"
-#include "pybind11/pybind11.h"
+#include "pybind11/pybind11.h"  // from @pybind11
 #include "tensorflow/compiler/xla/python/ifrt/array.h"
 #include "tensorflow/compiler/xla/python/pjrt_ifrt/pjrt_array.h"
 #include "tensorflow/compiler/xla/python/py_buffer.h"
@@ -190,6 +190,9 @@ class PyArray : public pybind11::object {
   Status BlockUntilReady() const;
 
   bool IsDeleted() const;
+
+  StatusOr<PyArray> CopyToDeviceWithSharding(ifrt::DeviceList devices,
+                                             pybind11::object dst_sharding);
 
  private:
   void CheckAndRearrange();
