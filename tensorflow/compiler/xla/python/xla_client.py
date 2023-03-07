@@ -21,7 +21,7 @@ import gzip
 import inspect
 import logging
 import os
-from typing import List, Mapping, Optional, Sequence, Tuple, Union
+from typing import Any, List, Mapping, Optional, Sequence, Tuple, Union
 
 from . import xla_extension as _xla
 import numpy as np
@@ -43,7 +43,7 @@ profiler = _xla.profiler
 
 # Just an internal arbitrary increasing number to help with backward-compatible
 # changes.
-_version = 133
+_version = 134
 
 # Version number for MLIR:Python components.
 mlir_api_version = 45
@@ -467,7 +467,9 @@ PmapSharding = _xla.PmapSharding
 GSPMDSharding = _xla.GSPMDSharding
 
 
-def register_custom_call_target(name, fn, platform='cpu'):
+def register_custom_call_target(
+    name: str, fn: Any, platform: str = 'cpu'
+) -> None:
   """Registers a custom call target.
 
   Args:

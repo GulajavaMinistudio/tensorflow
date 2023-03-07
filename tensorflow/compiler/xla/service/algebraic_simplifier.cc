@@ -2772,9 +2772,12 @@ Status AlgebraicSimplifierVisitor::HandleDot(HloInstruction* dot) {
       new_rhs = dot->AddInstruction(HloInstruction::CreateBroadcast(
           dot->shape(), new_rhs, rhs_broadcast_dims));
     }
-    return ReplaceWithNewInstruction(
-        dot, HloInstruction::CreateBinary(dot->shape(), HloOpcode::kMultiply,
-                                          new_lhs, new_rhs));
+    auto new_instruction = HloInstruction::CreateBinary(
+        dot->shape(), HloOpcode::kMultiply, new_lhs, new_rhs);
+    dot->SetupDerivedInstruction(new_lhs);
+    dot->SetupDerivedInstruction(new_rhs);
+    dot->SetupDerivedInstruction(new_instruction.get());
+    return ReplaceWithNewInstruction(dot, std::move(new_instruction));
   }
 
   // If the lhs or rhs have only batch and contracting dimensions, a dot can be
@@ -3665,7 +3668,8 @@ Status AlgebraicSimplifierVisitor::HandleBroadcast(HloInstruction* broadcast) {
   if (options_.is_layout_sensitive()) {
     return OkStatus();
   }
-  if (ShapeUtil::HasDegenerateDimensions(operand->shape())) {
+  if (options_.enable_normalize_broadcast_operand() &&
+      ShapeUtil::HasDegenerateDimensions(operand->shape())) {
     auto new_operand =
         operand->parent()->AddInstruction(HloInstruction::CreateReshape(
             ShapeUtil::DropDegenerateDimensions(operand->shape()), operand));

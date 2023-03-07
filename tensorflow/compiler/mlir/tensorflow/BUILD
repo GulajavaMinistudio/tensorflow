@@ -1187,6 +1187,7 @@ gentbl_cc_library(
 cc_library(
     name = "tensorflow_passes",
     srcs = [
+        "transforms/add_functions_for_exported_names.cc",
         "transforms/annotate_parameter_replication.cc",
         "transforms/batchmatmul_to_einsum.cc",
         "transforms/bridge.cc",
@@ -2422,6 +2423,7 @@ cc_library(
         "//tensorflow/core:lib",
         "//tensorflow/core/platform:crash_analysis",
         "//tensorflow/core/platform:logging",
+        "//tensorflow/tsl/lib/io:buffered_file",
         "@com_google_absl//absl/strings",
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:IR",

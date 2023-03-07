@@ -230,6 +230,9 @@ class GpuFloatSupport : public FloatSupport {
       case HloOpcode::kAllToAll:
       case HloOpcode::kCollectivePermute:
       case HloOpcode::kReduceScatter:
+      // Handled by Triton GEMM.
+      case HloOpcode::kDot:
+        return LowPrecisionType() == BF16;
       // Data movement only ops.
       case HloOpcode::kBroadcast:
       case HloOpcode::kConcatenate:
@@ -246,7 +249,6 @@ class GpuFloatSupport : public FloatSupport {
       case HloOpcode::kSlice:
       case HloOpcode::kTranspose:
       // Other special ops.
-      case HloOpcode::kDot:  // Handled by Triton GEMM.
       case HloOpcode::kBitcast:
         return true;
       default:
@@ -378,6 +380,8 @@ Status GpuCompiler::OptimizeHloModule(
   // "slow" minmax means we propagate nan.
   layout_insensitive_algsimp_opts.set_minmax_propagate_nan(
       !debug_options.xla_gpu_enable_fast_min_max());
+
+  layout_insensitive_algsimp_opts.set_enable_normalize_broadcast_operand(false);
 
   if (gpu_target_config.platform_name == "ROCM") {
     layout_insensitive_algsimp_opts.set_enable_conv_operand_swap(false);
@@ -804,6 +808,7 @@ Status GpuCompiler::OptimizeHloPostLayoutAssignment(
     options.set_supports_non_canonical_dots(false);
     options.set_is_layout_sensitive(true);
     options.set_enable_conv_operand_swap(false);
+    options.set_enable_normalize_broadcast_operand(false);
     // "slow" minmax means we propagate nan.
     options.set_minmax_propagate_nan(
         !debug_options.xla_gpu_enable_fast_min_max());
@@ -860,6 +865,10 @@ Status GpuCompiler::OptimizeHloPostLayoutAssignment(
 
   GpuFloatSupport bf16_support(BF16);
   pipeline.AddPass<FloatNormalization>(&bf16_support);
+  GpuFloatSupport f8e5m2_support(F8E5M2);
+  pipeline.AddPass<FloatNormalization>(&f8e5m2_support);
+  GpuFloatSupport f8e4m3fn_support(F8E4M3FN);
+  pipeline.AddPass<FloatNormalization>(&f8e4m3fn_support);
 
   // Remove `f32 -> bf16 -> f32` casts inserted by bf16 normalization.
   if (debug_options.xla_gpu_simplify_all_fp_conversions()) {
@@ -901,6 +910,7 @@ Status GpuCompiler::OptimizeHloPostLayoutAssignment(
     options.set_supports_non_canonical_dots(false);
     options.set_is_layout_sensitive(true);
     options.set_enable_conv_operand_swap(false);
+    options.set_enable_normalize_broadcast_operand(false);
     // "slow" minmax means we propagate nan.
     options.set_minmax_propagate_nan(
         !hlo_module->config().debug_options().xla_gpu_enable_fast_min_max());

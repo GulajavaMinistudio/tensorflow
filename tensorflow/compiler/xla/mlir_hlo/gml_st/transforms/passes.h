@@ -134,7 +134,7 @@ createTransformGenericForCpuPass();
 
 /// Pass to create fusion clusters.
 std::unique_ptr<mlir::OperationPass<mlir::func::FuncOp>>
-createFusionPlanningForCpuPass();
+createFusionPlanningForCpuPass(int64_t vectorSize = 8);
 
 /// Pass to outline fusion regions into functions.
 std::unique_ptr<OperationPass<mlir::ModuleOp>> createFusionOutliningPass();
@@ -143,8 +143,15 @@ std::unique_ptr<OperationPass<mlir::ModuleOp>> createFusionOutliningPass();
 std::unique_ptr<mlir::OperationPass<mlir::func::FuncOp>>
 createInlineFusionClustersPass();
 
+/// Pass to rewrite tensor.from_elements into tensor.insert.
+std::unique_ptr<mlir::OperationPass<mlir::func::FuncOp>>
+createRewriteFromElementsOpPass();
+
 /// Pass to add debug info to be propagated into LLVM backend.
 std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>> createAddDebugInfoPass();
+
+/// Populate pattern to remove single/zero iteration scf.forall dimensions.
+void populateCollapseForallOpDimensionsPattern(RewritePatternSet &patterns);
 
 struct GmlStCPUTilingOptions
     : public mlir::PassPipelineOptions<GmlStCPUTilingOptions> {
@@ -186,7 +193,7 @@ struct GmlStCPUTilingOptions
   Option<bool> enableFusionClusters{
       *this, "enable-fusion-clusters",
       llvm::cl::desc("Enable the pass to create gml_st.fusion clusters."),
-      llvm::cl::init(false)};
+      llvm::cl::init(true)};
 
   Option<bool> enableFusionClusterOutlining{
       *this, "enable-fusion-cluster-outlining",
