@@ -1,6 +1,7 @@
 load("//tensorflow/tsl/platform:rules_cc.bzl", "cc_library")
 load("//tensorflow/tsl:tsl.default.bzl", "get_compatible_with_cloud")
 load("@llvm-project//mlir:tblgen.bzl", "gentbl_cc_library", "gentbl_filegroup", "td_library")
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
 
 package(
     # copybara:uncomment default_applicable_licenses = ["//tensorflow:license"],
@@ -1461,6 +1462,7 @@ cc_library(
         "gml_st/transforms/cpu_tiling/cpu_tiling_pipeline.cc",
         "gml_st/transforms/cpu_tiling/fusion_outlining.cc",
         "gml_st/transforms/cpu_tiling/fusion_planning_for_cpu.cc",
+        "gml_st/transforms/cpu_tiling/transform_conv_for_cpu.cc",
         "gml_st/transforms/cpu_tiling/transform_dot_for_cpu.cc",
         "gml_st/transforms/cpu_tiling/transform_generic_for_cpu.cc",
         "gml_st/transforms/cpu_tiling/transform_map_for_cpu.cc",
@@ -1597,6 +1599,13 @@ cc_library(
         "@llvm-project//mlir:CAPIIRObjects",
     ],
     alwayslink = True,
+)
+
+build_test(
+    name = "mlir-hlo-opt_build_test",
+    targets = [
+        ":mlir-hlo-opt",
+    ],
 )
 
 cc_binary(
@@ -1981,6 +1990,13 @@ cc_library(
         "@llvm-project//mlir:FuncDialect",
         "@llvm-project//mlir:IR",
         "@llvm-project//mlir:Support",
+    ],
+)
+
+build_test(
+    name = "mlir-interpreter-runner_build_test",
+    targets = [
+        ":mlir-interpreter-runner",
     ],
 )
 

@@ -496,14 +496,10 @@ PYBIND11_MODULE(xla_extension, m) {
       .def("execute_with_token", &PyLoadedExecutable::ExecuteWithToken,
            py::arg("arguments"), py::arg("device") = std::nullopt)
       .def("execute_sharded_on_local_devices",
-           py::overload_cast<absl::Span<
-               const std::vector<std::variant<PyBuffer::object, PyArray>>>>(
-               &PyLoadedExecutable::ExecuteShardedOnLocalDevices),
+           &PyLoadedExecutable::ExecuteShardedOnLocalDevices,
            py::arg("arguments"))
       .def("execute_sharded_on_local_devices_with_tokens",
-           py::overload_cast<absl::Span<
-               const std::vector<std::variant<PyBuffer::object, PyArray>>>>(
-               &PyLoadedExecutable::ExecuteShardedOnLocalDevicesWithTokens),
+           &PyLoadedExecutable::ExecuteShardedOnLocalDevicesWithTokens,
            py::arg("arguments"))
       // TODO(parkers): Switch execute_sharded_on_local_devices* to this.
       .def("execute_sharded", &PyLoadedExecutable::ExecuteSharded,
@@ -534,9 +530,16 @@ PYBIND11_MODULE(xla_extension, m) {
 
   m.def("buffer_to_dlpack_managed_tensor", BufferToDLPackManagedTensor,
         py::arg("buffer"), py::arg("take_ownership") = true);
-  m.def("dlpack_managed_tensor_to_buffer", DLPackManagedTensorToBuffer,
-        py::arg("dlpack"), py::arg("cpu_backend") = nullptr,
-        py::arg("gpu_backend") = nullptr);
+  m.def(
+      "dlpack_managed_tensor_to_buffer",
+      [](const pybind11::capsule& tensor, std::shared_ptr<PyClient> cpu_client,
+         std::shared_ptr<PyClient> gpu_client) {
+        return DLPackManagedTensorToBuffer(tensor, std::move(cpu_client),
+                                           std::move(gpu_client),
+                                           jax::GetEnableJaxArray());
+      },
+      py::arg("dlpack"), py::arg("cpu_backend") = nullptr,
+      py::arg("gpu_backend") = nullptr);
 
   BuildProfilerSubmodule(&m);
   BuildOpsSubmodule(&m);

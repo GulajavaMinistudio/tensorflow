@@ -44,7 +44,8 @@
     *   Add 16-bit int type support for built-in op `less`, `greater_than`,
         `equal`
     *   Add 8-bit and 16-bit support for `floor_div` and `floor_mod`.
-    *   Add int16 indices support for built-in op `gather`.
+    *   Add int16 indices support for built-in op `gather` and `gather_nd`.
+    *   Add reference implementation for 16-bit int unquantized `add`.
 
 *   `tf.keras`
 
@@ -83,6 +84,12 @@
         `tf.nn.embedding_lookup_sparse` and
         `tf.nn.safe_embedding_lookup_sparse`, which enables a simplified and
         typically faster lookup procedure.
+
+*   `tf.SavedModel`
+
+    *   Introduce class method
+        `tf.saved_model.experimental.Fingerprint.from_proto(proto)`, which can
+        be used to construct a `Fingerprint` object directly from a protobuf.
 
 ## Bug Fixes and Other Changes
 

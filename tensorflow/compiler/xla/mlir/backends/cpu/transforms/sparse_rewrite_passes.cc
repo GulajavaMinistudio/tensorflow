@@ -33,18 +33,18 @@ namespace xla {
 namespace cpu {
 namespace {
 
-#define GEN_PASS_DEF_SPARSECUSTOMCALLTOPACKPASS
+#define GEN_PASS_DEF_SPARSECUSTOMCALLREWRITINGPASS
 #include "tensorflow/compiler/xla/mlir/backends/cpu/transforms/passes.h.inc"
 
 using namespace mlir;  // NOLINT
 
-class SparseCustomCallToPackPass
-    : public impl::SparseCustomCallToPackPassBase<SparseCustomCallToPackPass> {
+class SparseCustomCallRewritingPass
+    : public impl::SparseCustomCallRewritingPassBase<
+          SparseCustomCallRewritingPass> {
   void runOnOperation() override;
 };
 
-class SparseCustomCallToPackRewriter
-    : public OpRewritePattern<mhlo::CustomCallOp> {
+class SparseCustomCallRewriter : public OpRewritePattern<mhlo::CustomCallOp> {
   using OpRewritePattern<mhlo::CustomCallOp>::OpRewritePattern;
   // Rewrites a CustomCallOp to target 'sparse_tensor_pack/unpack' to
   // the corresponding sparse_tensor::PackOp and sparse_tensor::UnpackOp.
@@ -52,6 +52,7 @@ class SparseCustomCallToPackRewriter
                                 PatternRewriter& rewriter) const override {
     const StringRef sparse_pack_call_name = "sparse_tensor_pack";
     const StringRef sparse_unpack_call_name = "sparse_tensor_unpack";
+    const StringRef sparse_transpose_call_name = "sparse_tensor_transpose";
 
     if (op.getCallTargetName().equals(sparse_pack_call_name)) {
       assert(op.getInputs().size() == 2 && "Need two arrays (data/indices)");
@@ -86,6 +87,26 @@ class SparseCustomCallToPackRewriter
       unpack_ret_v.back() = tensor_nnz;
       rewriter.replaceOp(op, unpack_ret_v);
       return success();
+    } else if (op.getCallTargetName().equals(sparse_transpose_call_name)) {
+      assert(op.getInputs().size() >= 2 && "Need argument and permutation");
+      assert(op.getResults().size() == 1 && "Need one output tensor");
+      // Rebuild the permutation from the parameters.
+      unsigned sz = op.getInputs().size() - 1;
+      llvm::SmallVector<int64_t> permutation_array(sz);
+      for (int64_t i = 0; i < sz; i++) {
+        auto input = op.getInputs()[i + 1].getDefiningOp<mhlo::ConstantOp>();
+        auto attr = input.getValue().cast<DenseElementsAttr>();
+        permutation_array[i] = attr.getValues<uint64_t>()[0];
+      }
+      DenseIntElementsAttr permutation = DenseIntElementsAttr::get(
+          RankedTensorType::get(permutation_array.size(),
+                                rewriter.getI64Type()),
+          permutation_array);
+      // Reconstruct the transpose operation.
+      Value ret_sp_tensor = op.getResults()[0];
+      rewriter.replaceOpWithNewOp<mhlo::TransposeOp>(
+          op, ret_sp_tensor.getType(), op.getInputs()[0], permutation);
+      return success();
     }
     // Returns failure on unmatched call target.
     return failure();
@@ -106,12 +127,12 @@ class ReallocToAllocRewriter : public OpRewritePattern<memref::ReallocOp> {
   }
 };
 
-void SparseCustomCallToPackPass::runOnOperation() {
+void SparseCustomCallRewritingPass::runOnOperation() {
   func::FuncOp func = getOperation();
   MLIRContext* ctx = func.getContext();
 
   RewritePatternSet patterns(ctx);
-  patterns.insert<SparseCustomCallToPackRewriter>(ctx);
+  patterns.insert<SparseCustomCallRewriter>(ctx);
 
   if (failed(applyPatternsAndFoldGreedily(func, std::move(patterns)))) {
     return signalPassFailure();
@@ -121,8 +142,8 @@ void SparseCustomCallToPackPass::runOnOperation() {
 }  // namespace
 
 std::unique_ptr<OperationPass<func::FuncOp>>
-createSparseCustomCallToPackUnpackOpPass() {
-  return std::make_unique<SparseCustomCallToPackPass>();
+createSparseCustomCallRewritingPass() {
+  return std::make_unique<SparseCustomCallRewritingPass>();
 }
 
 }  // namespace cpu
