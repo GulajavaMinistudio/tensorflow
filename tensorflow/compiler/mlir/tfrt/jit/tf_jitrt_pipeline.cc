@@ -122,7 +122,6 @@ void CreateTfJitRtPipeline(OpPassManager& pm,
 
   pm.addNestedPass<FuncOp>(mlir::mhlo::createGroupReductionDimensionsPass());
   pm.addNestedPass<FuncOp>(mlir::mhlo::createHloCanonicalizeScatterPass());
-  pm.addNestedPass<FuncOp>(mlir::mhlo::createHloCanonicalizeGatherPass());
   pm.addNestedPass<FuncOp>(mlir::mhlo::createHloCanonicalizeDotPass());
 
   // Also, try to simplify reshape operations.
@@ -201,9 +200,6 @@ void CreateTfJitRtPipeline(OpPassManager& pm,
 
   // Remove trivial copy operations.
   pm.addNestedPass<FuncOp>(CreateLinalgTrivialCopyRemovalPass());
-
-  if (options.vectorize)
-    pm.addNestedPass<FuncOp>(mlir::gml_st::createGmlStToScfPass());
 
   pm.addPass(mlir::createBufferizationToMemRefPass());
   pm.addPass(mlir::createCSEPass());

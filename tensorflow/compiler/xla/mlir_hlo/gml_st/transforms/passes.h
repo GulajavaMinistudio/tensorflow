@@ -41,11 +41,6 @@ struct MatmulSizes {
 
 using MatmulTileSizeComputationFn = std::function<MatmulSizes(MatmulSizes)>;
 
-/// Pass to tile ops using TilingInterface.
-std::unique_ptr<OperationPass<func::FuncOp>> createTilingPass(
-    StringRef opName = "", StringRef opLabel = "", bool distribute = true,
-    ArrayRef<int64_t> tileSizes = {});
-
 /// Pass to fuse producers into a tiled consumer.
 std::unique_ptr<OperationPass<func::FuncOp>> createFusionPass(
     StringRef producer = "", StringRef consumer = "");
@@ -71,10 +66,6 @@ std::unique_ptr<OperationPass<func::FuncOp>> createTileByOnePass();
 /// Pass to compose tensor.extract_slice/insert_slice ops.
 std::unique_ptr<OperationPass<func::FuncOp>>
 createComposeExtractInsertSlicePass();
-
-/// Create a pass to convert `gml_st.loop` to `scf.for` and `scf.parallel`
-/// loops and memref.load/memref.store accesses.
-std::unique_ptr<OperationPass<func::FuncOp>> createGmlStToScfPass();
 
 /// Pass to vectorize compute ops and scf.for loops that are tiled perfectly.
 std::unique_ptr<OperationPass<func::FuncOp>> createVectorizeForCPUPass();

@@ -21,12 +21,14 @@ limitations under the License.
 #include <queue>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "absl/memory/memory.h"
 #include "tensorflow/core/common_runtime/dma_helper.h"
 #include "tensorflow/core/data/name_utils.h"
 #include "tensorflow/core/framework/dataset.h"
 #include "tensorflow/core/framework/graph.pb.h"
+#include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor.pb.h"
 #include "tensorflow/core/lib/io/buffered_inputstream.h"
 #include "tensorflow/core/lib/io/random_inputstream.h"
@@ -138,7 +140,7 @@ Status TFRecordWriter::WriteTensors(const std::vector<Tensor>& tensors) {
     // Creating raw pointer here because std::move() in a releases in OSS TF
     // will result in a smart pointer being moved upon function creation, which
     // will result in proto_buffer == nullptr when WriteRecord happens.
-    auto proto_buffer = new std::string();
+    auto* proto_buffer = new std::string();
     proto.SerializeToString(proto_buffer);
     absl::Cord proto_serialized = absl::MakeCordFromExternal(
         *proto_buffer,
@@ -738,11 +740,17 @@ Status TFRecordReader::ReadTensors(std::vector<Tensor>* read_tensors) {
     TF_RETURN_IF_ERROR(record_reader_->ReadRecord(&offset_, &record));
 
     TensorProto proto;
-    proto.ParseFromArray(record.data(), record.size());
+    if (!proto.ParseFromArray(record.data(), record.size())) {
+      return errors::DataLoss(
+          "Unable to parse tensor from stored proto in file: ", filename_,
+          ", record ", offset_, ". Serialized proto: ", record);
+    }
 
     Tensor tensor;
     if (!tensor.FromProto(proto)) {
-      return errors::DataLoss("Unable to parse tensor from stored proto.");
+      return errors::DataLoss(
+          "Unable to parse tensor from stored proto in file: ", filename_,
+          ", record ", offset_, ". TensorProto: ", proto.ShortDebugString());
     }
 
     read_tensors->push_back(std::move(tensor));

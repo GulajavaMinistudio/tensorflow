@@ -1,4 +1,4 @@
-/* Copyright 2021 The TensorFlow Authors. All Rights Reserved.
+/* Copyright 2023 The TensorFlow Authors. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,19 +12,21 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
-#ifndef TENSORFLOW_CORE_TFRT_TPU_TPU_RESOURCES_H_
-#define TENSORFLOW_CORE_TFRT_TPU_TPU_RESOURCES_H_
 
-// This file contains stub implementations for Google internal TPU APIs.
+#ifndef MLIR_HLO_MHLO_UTILS_MHLO_RNG_UTILS_H_
+#define MLIR_HLO_MHLO_UTILS_MHLO_RNG_UTILS_H_
 
-namespace tfrt {
+#include "mhlo/IR/hlo_ops.h"
+#include "mlir/IR/Value.h"
 
-namespace tpu {
-class TpuModelResource {
-};
-}  // namespace tpu
+namespace mlir {
+namespace mhlo {
 
-inline void AddTpuResources(class ResourceContext* resource_context, tpu::TpuModelResource* tpu_model_resource) {}
-}  // namespace tfrt
+LogicalResult generateLinalgThreeFry(OpBuilder& builder, Location loc,
+                                     ShapedType resultTy, Value& state,
+                                     Value& result);
 
-#endif  // TENSORFLOW_CORE_TFRT_TPU_TPU_RESOURCES_H_
+}  // namespace mhlo
+}  // namespace mlir
+
+#endif  // MLIR_HLO_MHLO_UTILS_MHLO_RNG_UTILS_H_
