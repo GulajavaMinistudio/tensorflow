@@ -73,12 +73,15 @@ std::unique_ptr<OperationPass<func::FuncOp>> createVectorizeForCPUPass();
 /// Pass to vectorize `memref.copy`.
 std::unique_ptr<OperationPass<func::FuncOp>> createVectorizeCopyPass();
 
-/// Pass to eliminate dead `memref.copy`.
-std::unique_ptr<OperationPass<func::FuncOp>> createSimplifyDeadCopyPass();
+/// Pass to remove redundant `memref.copy` ops.
+std::unique_ptr<OperationPass<func::FuncOp>> createNaiveCopyRemovalPass();
 
 /// Pass to gradually lower vector ops to SCF.
 std::unique_ptr<OperationPass<func::FuncOp>> createLowerVectorsPass(
     bool enableAVX2 = true);
+
+/// Pass to pack linalg.matmul as linalg.mmt4d.
+std::unique_ptr<OperationPass<func::FuncOp>> createPackMatmulPass();
 
 /// Pass to transform a conv op for CPU backend.
 std::unique_ptr<OperationPass<func::FuncOp>> createTransformConvForCpuPass();
@@ -92,8 +95,13 @@ std::unique_ptr<OperationPass<func::FuncOp>> createTransformDotForCpuPass(
 
 /// Pass to transform a linalg.matmul op for CPU backend.
 std::unique_ptr<OperationPass<func::FuncOp>> createTransformMatmulForCpuPass(
-    MatmulTileSizeComputationFn tileSizeFn = nullptr,
-    bool lowerToMmt4DOp = false);
+    MatmulTileSizeComputationFn tileSizeFn = nullptr);
+
+/// Pass to transform tensor.pack/unpack ops for CPU backend.
+std::unique_ptr<OperationPass<func::FuncOp>> createTransformPackForCpuPass();
+
+/// Pass to transform a linalg.mmt4d op for CPU backend.
+std::unique_ptr<OperationPass<func::FuncOp>> createTransformMmt4DForCpuPass();
 
 /// Pass to fuse linalg on tensor operations.
 std::unique_ptr<OperationPass<func::FuncOp>> createFusionOfTensorOpsPass();
@@ -117,14 +125,6 @@ createTransformReverseForCpuPass(int64_t vectorSize = 8);
 /// Pass to transform a linalg.transpose op for CPU backend.
 std::unique_ptr<mlir::OperationPass<mlir::func::FuncOp>>
 createTransformTransposeForCpuPass(ArrayRef<int64_t> tileSizes = std::nullopt);
-
-/// Pass to transform a thlo.sort op for CPU backend.
-std::unique_ptr<mlir::OperationPass<mlir::func::FuncOp>>
-createTransformSortForCpuPass();
-
-/// Pass to transform a linalg.generic op for CPU backend.
-std::unique_ptr<mlir::OperationPass<mlir::func::FuncOp>>
-createTransformGenericForCpuPass();
 
 /// Pass to create fusion clusters.
 std::unique_ptr<mlir::OperationPass<mlir::func::FuncOp>>
@@ -191,7 +191,7 @@ struct GmlStCPUTilingOptions
   Option<bool> enableFusionClusters{
       *this, "enable-fusion-clusters",
       llvm::cl::desc("Enable the pass to create gml_st.fusion clusters."),
-      llvm::cl::init(true)};
+      llvm::cl::init(false)};
 
   Option<bool> enableFusionClusterOutlining{
       *this, "enable-fusion-cluster-outlining",

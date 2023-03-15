@@ -56,7 +56,7 @@ genrule(
     ],
     cmd = "$(location gen_quantized_function_library) --output_file $(RULEDIR)/passes/quantized_function_library.h --src '$(SRCS)'",
     compatible_with = get_compatible_with_cloud(),
-    exec_tools = ["gen_quantized_function_library"],
+    tools = ["gen_quantized_function_library"],
 )
 
 cc_library(
@@ -429,6 +429,7 @@ cc_library(
         "//tensorflow/core/platform:path",
         "//tensorflow/lite/kernels:padding",
         "//tensorflow/lite/kernels/internal:quantization_util",
+        "//tensorflow/tsl/platform:str_util",
         "//tensorflow/tsl/protobuf:protos_all_cc",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/cleanup",
