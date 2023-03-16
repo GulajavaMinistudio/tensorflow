@@ -25,6 +25,7 @@ visibility = [
     "//third_party/py/tensorflow_numerics:__subpackages__",
     "//tensorflow_models/google:__subpackages__",
     "//learning/brain/google/data:__subpackages__",
+    "//learning/brain/experimental/tfq:__subpackages__",
 ]
 
 package(
@@ -159,20 +160,6 @@ cc_library(
     alwayslink = 1,
 )
 
-tf_cc_test(
-    name = "python_op_gen_test",
-    srcs = ["python_op_gen_test.cc"],
-    deps = [
-        ":op_reg_offset_proto_cc",
-        ":python_op_gen",
-        "//tensorflow/core:framework",
-        "//tensorflow/core:op_gen_lib",
-        "//tensorflow/core:protos_all_cc",
-        "//tensorflow/core:test",
-        "//tensorflow/core:test_main",
-    ],
-)
-
 tf_proto_library(
     name = "op_reg_offset_proto",
     srcs = ["op_reg_offset.proto"],
@@ -234,6 +221,7 @@ tf_cc_test(
 
 py_library(
     name = "for_generated_wrappers",
+    deprecation = "Depending on this target can cause build dependency cycles. Depend on the fine-grained sub-targets instead.",
     srcs_version = "PY3",
     visibility = ["//visibility:public"],
     deps = [
@@ -256,6 +244,7 @@ py_library(
 # circular dependencies, as "function" uses generated op wrappers.
 py_library(
     name = "for_generated_wrappers_v2",
+    deprecation = "Depending on this target can cause build dependency cycles. Depend on the fine-grained sub-targets instead.",
     srcs_version = "PY3",
     visibility = ["//visibility:public"],
     deps = [
@@ -1027,6 +1016,7 @@ py_library(
         ":op_def_registry",
         ":registry",
         ":stack",
+        ":tensor_conversion",
         ":tensor_conversion_registry",
         ":tensor_shape",
         ":tensor_util",
@@ -1100,6 +1090,18 @@ tf_py_test(
         ":composite_tensor_gradient",
         "//tensorflow/python:ops",
         "//tensorflow/python/platform:test",
+    ],
+)
+
+py_library(
+    name = "tensor_conversion",
+    srcs = ["tensor_conversion.py"],
+    srcs_version = "PY3",
+    deps = [
+        ":tensor_conversion_registry",
+        "//tensorflow/python/util",
+        "//tensorflow/python/util:deprecation",
+        "//tensorflow/python/util:tf_export",
     ],
 )
 

@@ -48,7 +48,6 @@ py_library(
     visibility = ["//tensorflow:__subpackages__"],
     deps = [
         ":core",
-        "//tensorflow/python/autograph/lang",
         "//tensorflow/python/autograph/operators",
         "//tensorflow/python/autograph/pyct",
         "//tensorflow/python/autograph/pyct/static_analysis",
