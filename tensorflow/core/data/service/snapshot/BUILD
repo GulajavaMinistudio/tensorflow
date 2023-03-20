@@ -166,6 +166,7 @@ cc_library(
     deps = [
         ":file_utils",
         ":path_utils",
+        ":utils",
         "//tensorflow/core:framework",
         "//tensorflow/core:lib",
         "//tensorflow/core:protos_all_cc",
@@ -214,7 +215,11 @@ cc_library(
     deps = [
         ":path_utils",
         "//tensorflow/core:framework",
+        "//tensorflow/core:graph",
+        "//tensorflow/core:lib",
         "//tensorflow/core:protos_all_cc",
+        "//tensorflow/core/data:captured_function",
+        "//tensorflow/core/data:name_utils",
         "//tensorflow/core/data:snapshot_utils",
         "//tensorflow/core/data/service:common",
         "//tensorflow/tsl/platform:env",
@@ -364,6 +369,10 @@ cc_library(
     deps = [
         "//tensorflow/core:framework",
         "//tensorflow/core:protos_all_cc",
+        "//tensorflow/core/framework:tensor_proto_cc",
+        "//tensorflow/tsl/platform:errors",
+        "//tensorflow/tsl/platform:status",
+        "@com_google_absl//absl/strings",
     ],
 )
 
@@ -377,7 +386,10 @@ tf_cc_test(
         "//tensorflow/core:protos_all_cc",
         "//tensorflow/core:test",
         "//tensorflow/core:test_main",
+        "//tensorflow/core/framework:dataset_proto_cc",
         "//tensorflow/core/framework:types_proto_cc",
+        "//tensorflow/tsl/platform:errors",
         "//tensorflow/tsl/platform:protobuf",
+        "//tensorflow/tsl/platform:status",
     ],
 )

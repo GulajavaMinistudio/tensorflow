@@ -54,6 +54,7 @@ py_library(
         "//tensorflow/python/data/experimental/ops:cardinality",
         "//tensorflow/python/data/experimental/ops:scan_ops",
         "//tensorflow/python/data/experimental/ops:take_while_ops",
+        "//tensorflow/python/framework:tensor_conversion",
         "//third_party/py/numpy",
     ],
 )
@@ -127,7 +128,8 @@ py_test(
     deps = [
         ":operators",
         "//tensorflow/python:client_testlib",
-        "//tensorflow/python/autograph/core",
+        "//tensorflow/python/autograph/core:converter",
+        "//tensorflow/python/autograph/core:function_wrappers",
         # TODO(b/145618471): Remove this transitive dependency.
         "//tensorflow/python/distribute:input_lib",
         "//tensorflow/python/ops/parallel_for:control_flow_ops",
