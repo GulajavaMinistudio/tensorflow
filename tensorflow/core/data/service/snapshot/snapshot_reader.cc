@@ -21,7 +21,7 @@ limitations under the License.
 
 #include "tensorflow/core/data/captured_function.h"
 #include "tensorflow/core/data/name_utils.h"
-#include "tensorflow/core/data/service/common.h"
+#include "tensorflow/core/data/service/snapshot/file_utils.h"
 #include "tensorflow/core/data/snapshot_utils.h"
 #include "tensorflow/core/framework/dataset.h"
 #include "tensorflow/core/framework/op_kernel.h"
@@ -31,6 +31,7 @@ limitations under the License.
 #include "tensorflow/tsl/platform/env.h"
 #include "tensorflow/tsl/platform/errors.h"
 #include "tensorflow/tsl/platform/path.h"
+#include "tensorflow/tsl/platform/refcount.h"
 #include "tensorflow/tsl/platform/status.h"
 #include "tensorflow/tsl/platform/statusor.h"
 
@@ -157,9 +158,9 @@ class ReaderDatasetOp::Dataset : public DatasetBase {
 
 Status MakeNestedDataset(const SnapshotReaderParams& params,
                          DatasetBase** output) {
-  std::vector<std::string> chunk_files;
-  TF_RETURN_IF_ERROR(
-      params.env->GetChildren(params.CommittedChunksDirectory(), &chunk_files));
+  TF_ASSIGN_OR_RETURN(
+      std::vector<std::string> chunk_files,
+      GetChildren(params.CommittedChunksDirectory(), params.env));
 
   std::vector<DatasetBase*> datasets;
   datasets.reserve(chunk_files.size());
@@ -180,10 +181,10 @@ Status MakeNestedDataset(const SnapshotReaderParams& params,
 
 }  // namespace
 
-Status MakeSnapshotReaderDataset(
+StatusOr<core::RefCountPtr<DatasetBase>> MakeSnapshotReaderDataset(
     const SnapshotReaderParams& params,
     InstantiatedCapturedFunction& instantiated_captured_func,
-    IteratorContext* ctx, core::RefCountPtr<DatasetBase>* output) {
+    IteratorContext* ctx) {
   DatasetBase* dataset_of_snapshot_files;
   TF_RETURN_IF_ERROR(MakeNestedDataset(params, &dataset_of_snapshot_files));
 
@@ -204,71 +205,11 @@ Status MakeSnapshotReaderDataset(
         "argument. Got ",
         reader_output.size(), ".");
   }
-  DatasetBase* output_dataset_ptr = nullptr;
+  DatasetBase* output_dataset = nullptr;
   TF_RETURN_IF_ERROR(
-      GetDatasetFromVariantTensor(reader_output[0], &output_dataset_ptr));
-  output_dataset_ptr->Ref();
-  output->reset(output_dataset_ptr);
-  return OkStatus();
-}
-
-SnapshotReader::SnapshotReader(const SnapshotReaderParams& params)
-    : params_(params) {}
-
-StatusOr<GetNextResult> SnapshotReader::GetNext() {
-  TF_RETURN_IF_ERROR(EnsureInitialized());
-  while (!end_of_sequence_) {
-    GetNextResult result;
-    Status status = tfrecord_reader_->ReadTensors(&result.tensors);
-    if (status.ok()) {
-      return result;
-    }
-    if (!errors::IsOutOfRange(status)) {
-      return status;
-    }
-    TF_RETURN_IF_ERROR(InitializeNextRecordReader());
-  }
-  return GetNextResult::EndOfSequence();
-}
-
-Status SnapshotReader::EnsureInitialized() {
-  if (!chunk_files_.empty()) {
-    return OkStatus();
-  }
-
-  TF_ASSIGN_OR_RETURN(chunk_files_, GetChunkFiles());
-  TF_RETURN_IF_ERROR(InitializeNextRecordReader());
-  if (end_of_sequence_) {
-    return errors::NotFound("Failed to read distributed tf.data snapshot ",
-                            params_.DebugString(), ": No snapshot is written.");
-  }
-  return OkStatus();
-}
-
-StatusOr<std::vector<std::string>> SnapshotReader::GetChunkFiles() {
-  std::string chunks_directory = params_.CommittedChunksDirectory();
-  std::vector<string> chunk_files;
-  TF_RETURN_IF_ERROR(params_.env->GetChildren(chunks_directory, &chunk_files));
-  for (std::string& chunk_file : chunk_files) {
-    chunk_file = tsl::io::JoinPath(chunks_directory, chunk_file);
-  }
-  return chunk_files;
-}
-
-Status SnapshotReader::InitializeNextRecordReader() {
-  if (next_chunk_index_ >= chunk_files_.size()) {
-    end_of_sequence_ = true;
-    tfrecord_reader_ = nullptr;
-    return OkStatus();
-  }
-  tfrecord_reader_ = std::make_unique<snapshot_util::TFRecordReader>(
-      chunk_files_[next_chunk_index_], params_.metadata.compression(),
-      params_.dtypes, kTFRecordReaderOutputBufferSize);
-  TF_RETURN_IF_ERROR(tfrecord_reader_->Initialize(params_.env));
-  LOG(INFO) << "Starting to read distributed tf.data snapshot "
-            << params_.DebugString() << ", chunk " << next_chunk_index_;
-  ++next_chunk_index_;
-  return OkStatus();
+      GetDatasetFromVariantTensor(reader_output[0], &output_dataset));
+  output_dataset->Ref();
+  return core::RefCountPtr<DatasetBase>(output_dataset);
 }
 
 }  // namespace data
