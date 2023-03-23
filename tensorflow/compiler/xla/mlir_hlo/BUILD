@@ -414,6 +414,7 @@ cc_library(
         "deallocation/transforms/deallocate.cc",
         "deallocation/transforms/deallocation_to_scf.cc",
         "deallocation/transforms/split_alloc_tensors.cc",
+        "deallocation/transforms/xla_buffer_arg_rewrite.cc",
     ],
     hdrs = ["deallocation/transforms/passes.h"],
     strip_include_prefix = ".",
@@ -1519,6 +1520,7 @@ cc_library(
         "gml_st/transforms/tiling/tiling.h",
         "gml_st/transforms/vectorization/vectorization.h",
         "gml_st/utils/linalg_utils.h",
+        "gml_st/utils/tensor_utils.h",
     ],
     strip_include_prefix = ".",
     deps = [

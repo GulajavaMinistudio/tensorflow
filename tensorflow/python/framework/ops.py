@@ -3226,10 +3226,10 @@ class Graph(pywrap_tf_session.GraphHandle):
     """If this graph contains functions, copy them to `graph_def`."""
     bytesize = starting_bytesize
     for f in self._functions.values():
-      bytesize += f.definition.ByteSize()
+      bytesize += f.cached_definition.ByteSize()
       if bytesize >= (1 << 31) or bytesize < 0:
         raise ValueError("GraphDef cannot be larger than 2GB.")
-      graph_def.library.function.extend([f.definition])
+      graph_def.library.function.extend([f.cached_definition])
       if f.grad_func_name:
         grad_def = function_pb2.GradientDef()
         grad_def.function_name = f.name
@@ -3380,6 +3380,24 @@ class Graph(pywrap_tf_session.GraphHandle):
       The function def proto.
     """
     return self._functions.get(compat.as_str(name), None)
+
+  def _add_function_recursive(self, function, overwrite=False):
+    """Adds function to the graph including other functions in its graph."""
+
+    if self._is_function(function.name):
+      if overwrite:
+        self._remove_function(function.name)
+        self._add_function(function)
+    else:
+      self._add_function(function)
+
+    for f in function.graph._functions.values():  # pylint: disable=protected-access
+      if self._is_function(f.name):
+        if overwrite:
+          self._remove_function(f.name)
+          self._add_function(f)
+      else:
+        self._add_function(f)
 
   def _add_function(self, function):
     """Adds a function to the graph.
