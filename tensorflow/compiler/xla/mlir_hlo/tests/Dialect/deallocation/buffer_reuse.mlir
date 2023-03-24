@@ -386,7 +386,6 @@ func.func @copy_to_out_param(
 // CHECK-NEXT: "some.op"(%[[ARG]])
 // CHECK-NEXT: return
 
-
 // -----
 
 func.func @copy_to_out_param_no_restrict(
@@ -472,3 +471,36 @@ func.func @copy_to_out_param_and_change_src_and_copy(
 // CHECK-NEXT: memref.store
 // CHECK-NEXT: "other.op"(%[[ARG1]])
 // CHECK-NEXT: return
+
+// -----
+
+func.func @copy_from_param_to_param(
+    %arg0: memref<i32>, %arg1: memref<i32> { deallocation.restrict = true }) {
+  memref.copy %arg0, %arg1 : memref<i32> to memref<i32>
+  return
+}
+
+// CHECK-LABEL: @copy_from_param_to_param(
+// CHECK-NEXT: memref.copy
+// CHECK-NEXT: return
+
+// -----
+
+func.func @elide_non_trailing(%lb: index, %ub: index, %step: index, %dummy: index) -> index {
+  %alloc = memref.alloc() : memref<i32>
+  %cast = memref.cast %alloc : memref<i32> to memref<*xi32>
+  %ret:3 = scf.for %i = %lb to %ub step %step iter_args(%arg0 = %alloc, %arg1 = %cast, %arg2 = %dummy)
+     -> (memref<i32>, memref<*xi32>, index) {
+    "test.dummy"(%arg0) : (memref<i32>) -> ()
+    memref.dealloc %arg1: memref<*xi32>
+    %alloc0 = memref.alloc() : memref<i32>
+    %cast0 = memref.cast %alloc0 : memref<i32> to memref<*xi32>
+    scf.yield %alloc0, %cast0, %arg2 : memref<i32>, memref<*xi32>, index
+  }
+  memref.dealloc %ret#1 : memref<*xi32>
+  return %ret#2 : index
+}
+
+// CHECK-LABEL: @elide_non_trailing
+// CHECK: %[[RET:.*]]:2 = scf.for
+// CHECK: return %[[RET]]#1
