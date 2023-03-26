@@ -39,13 +39,11 @@ add_mlir_library(GmlStPasses
   cpu_tiling/transform_conv_for_cpu.cc
   cpu_tiling/transform_dot_for_cpu.cc
   cpu_tiling/transform_elementwise_for_cpu.cc
-  cpu_tiling/transform_matmul_for_cpu.cc
   cpu_tiling/transform_mmt4d_for_cpu.cc
   cpu_tiling/transform_pack_for_cpu.cc
   cpu_tiling/transform_reduce_for_cpu.cc
   cpu_tiling/transform_scatter_for_cpu.cc
   fusion/fusion.cc
-  passes.cc
   peeling/peeling.cc
   rewrite_from_elements_op/rewrite_from_elements_op.cc
   rewrite_scf_forall/rewrite_scf_forall.cc
