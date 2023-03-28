@@ -896,9 +896,11 @@ cc_library(
     name = "builtin_ops_list",
     compatible_with = get_compatible_with_portable(),
     textual_hdrs = ["builtin_ops_list.inc"],
-    visibility = [
-        "//tensorflow/lite:__subpackages__",
-    ],
+)
+
+exports_files(
+    srcs = ["builtin_ops_list.inc"],
+    visibility = ["//tensorflow/lite:__subpackages__"],
 )
 
 # For internal usage by shared libraries only.
@@ -2672,18 +2674,6 @@ cc_test(
         "@com_google_googletest//:gtest",
         "@flatbuffers",
     ],
-)
-
-filegroup(
-    name = "all_files",
-    srcs = glob(
-        ["**/*"],
-        exclude = [
-            "**/METADATA",
-            "**/OWNERS",
-        ],
-    ),
-    visibility = ["//tensorflow:__subpackages__"],
 )
 
 cc_test(
