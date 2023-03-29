@@ -2269,7 +2269,6 @@ py_library(
     srcs_version = "PY3",
     deps = [
         ":array_ops",
-        ":cond",
         ":handle_data_util",
         ":list_ops_gen",
         "//third_party/py/numpy",
@@ -3051,6 +3050,15 @@ py_library(
         "//tensorflow/python/trackable:base",
         "//tensorflow/python/util",
         "//tensorflow/python/util:tf_should_use",
+    ],
+)
+
+py_library(
+    name = "ref_variable",
+    srcs = ["ops/ref_variable.py"],
+    srcs_version = "PY3",
+    deps = [
+        ":variables",
     ],
 )
 

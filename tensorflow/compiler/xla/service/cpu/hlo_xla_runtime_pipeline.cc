@@ -84,7 +84,8 @@ void AddSparsificationPasses(mlir::OpPassManager& pm) {
   pm.addPass(mlir::createPreSparsificationRewritePass());
   pm.addPass(mlir::createSparsificationAndBufferizationPass(
       GetBufferizationOptions(), mlir::SparsificationOptions(),
-      mlir::SparseTensorConversionOptions(), /*enableRuntimeLibrary=*/false,
+      mlir::SparseTensorConversionOptions(), /*createSparseDeallocs=*/false,
+      /*enableRuntimeLibrary=*/false,
       /*enableBufferInitialization=*/false,
       /*vectorLength=*/0,
       /*enableVLAVectorization=*/false,
@@ -242,9 +243,11 @@ static Status CreateHloXlaPipeline(
     pm.addNestedPass<FuncOp>(
         mlir::deallocation::createXlaBufferArgRewritePass());
     pm.addNestedPass<FuncOp>(mlir::deallocation::createDeallocatePass());
-    pm.addNestedPass<FuncOp>(mlir::createCanonicalizerPass());
+    pm.addNestedPass<FuncOp>(
+        mlir::deallocation::createDeallocationSimplificationPass());
     pm.addNestedPass<FuncOp>(mlir::deallocation::createBufferReusePass());
-    pm.addNestedPass<FuncOp>(mlir::createCanonicalizerPass());
+    pm.addNestedPass<FuncOp>(
+        mlir::deallocation::createDeallocationSimplificationPass());
     pm.addNestedPass<FuncOp>(mlir::deallocation::createDeallocationToScfPass());
   } else {
     pm.addNestedPass<FuncOp>(
@@ -273,8 +276,6 @@ static Status CreateHloXlaPipeline(
   pm.addNestedPass<FuncOp>(xla::cpu::createLegalizeI1VectorTransferOpsPass());
   pm.addNestedPass<FuncOp>(
       xla::cpu::createConvertXlaCpuMemRefElementCastToLLVMPass());
-  pm.addNestedPass<FuncOp>(
-      mlir::deallocation::createConvertDeallocationOpsToLLVM());
   return OkStatus();
 }
 
