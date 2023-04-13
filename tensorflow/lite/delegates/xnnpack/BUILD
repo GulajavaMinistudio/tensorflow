@@ -129,6 +129,40 @@ cc_library(
     }),
 )
 
+# Enable logging of delegation errors in XNNPACK delegate
+config_setting(
+    name = "tflite_with_xnnpack_logging_explicit_true",
+    define_values = {"tflite_with_xnnpack_logging": "true"},
+)
+
+# Disable logging of delegation errors in XNNPACK delegate
+config_setting(
+    name = "tflite_with_xnnpack_logging_explicit_false",
+    define_values = {"tflite_with_xnnpack_logging": "false"},
+)
+
+# Default setting for logging of delegation errors in XNNPACK delegate
+cc_library(
+    name = "tflite_with_xnnpack_logging_default",
+    compatible_with = get_compatible_with_portable(),
+    defines = [],
+)
+
+cc_library(
+    name = "tflite_with_xnnpack_logging",
+    compatible_with = get_compatible_with_portable(),
+    defines = select({
+        ":tflite_with_xnnpack_logging_explicit_true": ["XNNPACK_DELEGATE_ENABLE_LOGGING=1"],
+        ":tflite_with_xnnpack_logging_explicit_false": [],
+        "//conditions:default": [],
+    }),
+    deps = select({
+        ":tflite_with_xnnpack_logging_explicit_true": [],
+        ":tflite_with_xnnpack_logging_explicit_false": [],
+        "//conditions:default": [":tflite_with_xnnpack_logging_default"],
+    }),
+)
+
 cc_library(
     name = "xnnpack_delegate_test",
     testonly = True,
@@ -151,6 +185,7 @@ cc_library(
     deps = [
         ":quantization_util",
         ":tflite_with_xnnpack_dynamic_fully_connected",
+        ":tflite_with_xnnpack_logging",
         ":tflite_with_xnnpack_qs8",
         ":tflite_with_xnnpack_qu8",
         "//tensorflow/lite:kernel_api",
@@ -163,6 +198,7 @@ cc_library(
         "//tensorflow/lite/kernels/internal:compatibility",
         "//tensorflow/lite/kernels/internal:tensor",
         "//tensorflow/lite/kernels/internal/utils:sparsity_format_converter",
+        "//tensorflow/lite/schema:schema_fbs",
         "//tensorflow/lite/tools/optimize:reduced_precision_support",
         "@XNNPACK//:xnnpack_for_tflite",
     ],
@@ -196,6 +232,7 @@ cc_library(
         "//tensorflow/lite/kernels/internal:compatibility",
         "//tensorflow/lite/kernels/internal:tensor",
         "//tensorflow/lite/kernels/internal/utils:sparsity_format_converter",
+        "//tensorflow/lite/schema:schema_fbs",
         "//tensorflow/lite/tools/optimize:reduced_precision_support",
         "@XNNPACK//:XNNPACK_test_mode",
     ],
