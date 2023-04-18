@@ -156,6 +156,7 @@ py_library(
     deps = [
         "//tensorflow/python:errors",
         "//tensorflow/python:pywrap_tfe",
+        "//tensorflow/python/platform:tf_logging",
     ],
 )
 
@@ -214,6 +215,7 @@ py_library(
         "//tensorflow/python:tfrt_utils",
         "//tensorflow/python/util:compat",
         "//tensorflow/python/util:deprecation",
+        "//tensorflow/python/util:function_utils",
         "//tensorflow/python/util:is_in_graph_mode",
         "//tensorflow/python/util:tf_decorator",
         "//tensorflow/python/util:tf_export",
@@ -447,6 +449,7 @@ cuda_py_test(
         "//tensorflow/python:framework_ops",
         "//tensorflow/python:framework_test_lib",
         "//tensorflow/python:pywrap_tfe",
+        "//tensorflow/python/platform:tf_logging",
         "//third_party/py/numpy",
     ],
 )
@@ -475,7 +478,6 @@ py_library(
         "//tensorflow/python:lib",
         "//tensorflow/python:pywrap_tfe",
         "//tensorflow/python:tensor_shape",
-        "//tensorflow/python:util",
         "//tensorflow/python/framework:tensor_conversion_registry",
         "//tensorflow/python/util:compat",
     ],
