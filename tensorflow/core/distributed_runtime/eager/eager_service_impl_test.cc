@@ -51,7 +51,7 @@ namespace {
 
 class TestEagerServiceImpl : public EagerServiceImpl {
  public:
-  explicit TestEagerServiceImpl(const WorkerEnv* env) : EagerServiceImpl(env) {}
+  explicit TestEagerServiceImpl(WorkerEnv* env) : EagerServiceImpl(env) {}
   Status GetEagerContext(const uint64 context_id, EagerContext** ctx) {
     ServerContext* context = nullptr;
     TF_RETURN_IF_ERROR(GetServerContext(context_id, &context));
@@ -1244,9 +1244,9 @@ TEST_F(EagerServiceImplTest, RequestsToMasterTest) {
   auto remote_mgr =
       std::make_unique<tensorflow::eager::RemoteMgr>(/*is_master=*/true, ctx);
   TF_ASSERT_OK(ctx->InitializeRemoteWorker(
+      /*worker_env=*/nullptr, /*worker_session=*/nullptr,
       /*remote_eager_workers=*/nullptr, /*remote_device_mgr=*/nullptr,
       /*remote_contexts=*/{}, context_id, /*context_view_id=*/0,
-      /*rendezvous_creator=*/nullptr,
       /*cluster_flr=*/nullptr, std::move(remote_mgr),
       /*resource_deallocator=*/nullptr));
 
