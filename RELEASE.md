@@ -97,6 +97,8 @@
     *   Added support for `class_weight` for 3+ dimensional targets (e.g.
         image segmentation masks) in `Model.fit`.
     *   Added a new loss, `keras.losses.CategoricalFocalCrossentropy`.
+    *   Remove the `tf.keras.dtensor.experimental.layout_map_scope()`. You can
+        user the `tf.keras.dtensor.experimental.LayoutMap.scope()` instead.
 
 *   `tf.function`:
 
@@ -116,9 +118,14 @@
         typically faster lookup procedure.
 
 *   `tf.data`
-    
+
     *   `tf.data.Dataset.zip` now supports Python-style zipping, i.e.
         `Dataset.zip(a, b, c)`.
+    *   `tf.data.Dataset.shuffle` now supports full shuffling. To specify that
+        data should be fully shuffled, use
+        `dataset = dataset.shuffle(dataset.cardinality())`. This will load the
+        full dataset into memory so that it can be shuffled, so make sure to
+        only use this with datasets of filenames or other small datasets.
 
 *   `tf.math`
 

@@ -22,6 +22,7 @@ limitations under the License.
 #include "tensorflow/compiler/mlir/tensorflow/ir/tf_structs.h"
 #include "tensorflow/compiler/mlir/tensorflow/transforms/bridge.h"
 #include "tensorflow/compiler/mlir/tensorflow/utils/device_util.h"
+#include "tensorflow/compiler/mlir/tf2xla/graph_analysis.h"
 #include "tensorflow/compiler/tf2xla/tf2xla_defs.h"
 #include "tensorflow/core/common_runtime/device_set.h"
 #include "tensorflow/core/framework/metrics.h"
@@ -293,12 +294,22 @@ Status MlirBridgePass::Run(const std::string& function_name,
     }
     VLOG(1) << "Running MLIR TPU Bridge";
     mlir_bridge_gauge_v2->GetCell()->Set(true);
-    return mlir::TFTPU::TPUBridge(module,
-                                  /*enable_logging=*/VLOG_IS_ON(1),
-                                  fallback_enabled, function_name);
+    return mlir::TFTPU::TPUBridge(module, fallback_enabled, function_name);
+  }
+
+  if (GraphHasFeaturesUnsupportedByMlirGenericBridge(graph,
+                                                     &function_library)) {
+    VLOG(1) << "Skipping MLIR CPU/GPU Bridge, disabled because graph has "
+               "unsupported features.";
+    metrics::UpdateTfMlirBridgeFirstPhaseCounter(
+        /*device type*/ "cpu/gpu",
+        /*bridge version*/ "tfxla",
+        /*fallback_enabled*/ false,
+        /*result*/ "invalid_graph");
+    return OkStatus();
   }
   VLOG(1) << "Running MLIR CPU/GPU Bridge";
-  return mlir::TF::RunTFXLABridge(module, VLOG_IS_ON(1), function_name);
+  return mlir::TF::RunTFXLABridge(module, function_name);
 }
 
 MlirOptimizationPassState MlirBridgeV1CompatPass::GetPassState(
@@ -392,8 +403,7 @@ Status MlirBridgeV1CompatPass::Run(const GraphOptimizationPassOptions& options,
 
   mlir_bridge_gauge_v1->GetCell()->Set(true);
 
-  return mlir::TFTPU::TPUBridgeV1Compat(
-      module, /*enable_logging=*/VLOG_IS_ON(1), fallback_enabled);
+  return mlir::TFTPU::TPUBridgeV1Compat(module, fallback_enabled);
 }
 
 }  // namespace tensorflow
