@@ -808,8 +808,7 @@ class Tensor(
 
   def __hash__(self):
     g = getattr(self, "graph", None)
-    if (Tensor._USE_EQUALITY and executing_eagerly_outside_functions() and
-        (g is None or g.building_function)):
+    if (Tensor._USE_EQUALITY and (g is None or g.building_function)):
       raise TypeError("Tensor is unhashable. "
                       "Instead, use tensor.ref() as the key.")
     else:
@@ -951,13 +950,12 @@ class Tensor(
     return object_identity.Reference(self)
 
   def __tf_tracing_type__(self, signature_context):
-    spec = tensor_spec.TensorSpec(
-        self.shape, self.dtype).__tf_tracing_type__(signature_context)
-    # TODO(b/263894631): Store handle data in the TensorSpec itself. Once
-    # implemented, the following section under the if condition can be removed.
     if self.dtype == dtypes.resource or self.dtype == dtypes.variant:
       handle_data = handle_data_util.get_handle_data(self)
-      signature_context.add_handledata(id(spec), handle_data)
+      dtype = dtypes.DType(self.dtype._type_enum, handle_data)
+    else:
+      dtype = self.dtype
+    spec = tensor_spec.TensorSpec(self.shape, dtype)
     return spec
 
   def __tf_tensor__(
@@ -1684,7 +1682,7 @@ def _NodeDef(op_type, name, attrs=None):
 
 
 # Copied from core/framework/node_def_util.cc
-# TODO(mrry,joshl): Consolidate this validation in C++ code.
+# TODO(mrry,josh11b): Consolidate this validation in C++ code.
 _VALID_OP_NAME_REGEX = re.compile(r"^[A-Za-z0-9.][A-Za-z0-9_.\\/>-]*$")
 _VALID_SCOPE_NAME_REGEX = re.compile(r"^[A-Za-z0-9_.\\/>-]*$")
 
@@ -5898,7 +5896,7 @@ def _get_graph_from_inputs(op_input_list, graph=None):
   original_graph_element = None
   for op_input in op_input_list:
     # Determine if this is a valid graph_element.
-    # TODO(joshl): Note that we exclude subclasses of Tensor. Need to clean this
+    # TODO(josh11b): Note that we exclude subclasses of Tensor. Need to clean this
     # up.
     graph_element = None
     if isinstance(op_input, (Operation, internal.NativeObject)) and (

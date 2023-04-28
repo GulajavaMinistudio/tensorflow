@@ -29,6 +29,7 @@ limitations under the License.
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"  // from @llvm-project
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"  // from @llvm-project
 #include "mlir/Dialect/Func/IR/FuncOps.h"  // from @llvm-project
+#include "mlir/Dialect/Func/Transforms/Passes.h"  // from @llvm-project
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"  // from @llvm-project
 #include "mlir/Dialect/Linalg/Passes.h"  // from @llvm-project
 #include "mlir/Dialect/Linalg/Transforms/BufferizableOpInterfaceImpl.h"  // from @llvm-project
@@ -164,8 +165,11 @@ static Status CreateHloXlaPipeline(
   pm.addNestedPass<mlir::func::FuncOp>(
       mlir::mhlo::createLegalizeControlFlowPass());
   pm.addPass(::mlir::mhlo::createLegalizeToArithmeticPass());
-  pm.addNestedPass<mlir::func::FuncOp>(
-      xla::cpu::createLegalizeCollectiveOpsPass());
+  // Outlined ABI doesn't support XLA Runtime FFI.
+  if (!options.outline_with_xla_framework) {
+    pm.addNestedPass<mlir::func::FuncOp>(
+        xla::cpu::createLegalizeLibraryOpsPass());
+  }
   pm.addNestedPass<mlir::func::FuncOp>(
       mlir::mhlo::createMhloExpandOpsSimplifierPass());
   pm.addNestedPass<mlir::func::FuncOp>(
@@ -210,6 +214,7 @@ static Status CreateHloXlaPipeline(
       opts.enableFusionClusters = true;
       opts.enableFusionClusterOutlining = true;
     }
+    opts.inlineFusionClusters = false;
     mlir::gml_st::addCPUTilingPipeline(pm, opts);
 
   } else {
@@ -253,6 +258,9 @@ static Status CreateHloXlaPipeline(
     pm.addPass(mlir::hlo::createOneShotBufferizePass());
   }
   pm.addNestedPass<mlir::func::FuncOp>(createRewriteReallocToAllocPass());
+  pm.addPass(mlir::gml_st::createFusionOutliningPass());
+  pm.addPass(mlir::func::createDuplicateFunctionEliminationPass());
+  pm.addNestedPass<FuncOp>(mlir::gml_st::createInlineFusionClustersPass());
 
   if (options.enable_tiling_and_fusion) {
     pm.addNestedPass<FuncOp>(mlir::gml_st::createVectorizeCopyPass());

@@ -193,8 +193,6 @@ namespace xla {
 namespace gpu {
 namespace {
 
-
-
 bool ConvIsLowerable(HloInstruction* conv) {
   return GpuConvRewriter::ConvIsLowerable(conv);
 }
@@ -594,7 +592,8 @@ Status GpuCompiler::OptimizeHloModule(HloModule* hlo_module,
     HloPassPipeline collectives_pipeline("collective-optimizations");
     collectives_pipeline.AddPass<AllReduceFolder>();
     collectives_pipeline.AddPass<ReduceScatterCreator>();
-    collectives_pipeline.AddPass<AllReduceReassociate>();
+    collectives_pipeline.AddPass<AllReduceReassociate>(
+        debug_options.xla_gpu_enable_reassociation_for_converted_ar());
     collectives_pipeline.AddPass<ReduceScatterReassociate>();
     collectives_pipeline.AddPass<WhileLoopAllReduceCodeMotion>(
         /*enable_reduce_scatter=*/hlo_module->config()
@@ -1531,7 +1530,6 @@ StatusOr<std::unique_ptr<AotCompilationResult>> GpuCompiler::Export(
           gpu_executable->constants());
   return result;
 }
-
 
 StatusOr<std::unique_ptr<Executable>> CompileLmhloToExecutable(
     GpuCompiler* compiler, mlir::ModuleOp module, std::string module_name,

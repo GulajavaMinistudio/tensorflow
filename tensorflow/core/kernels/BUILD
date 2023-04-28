@@ -3947,7 +3947,7 @@ tf_cuda_cc_test(
 )
 
 # conv_grad_ops currently has to be built with conv_ops*.
-# TODO(joshl, zhengxq): put these a separate libraries in ":nn" below once
+# TODO(josh11b, zhengxq): put these a separate libraries in ":nn" below once
 # conv_ops_gpu.h has be separated into its own library.
 tf_kernel_library(
     name = "conv_ops",
@@ -4691,6 +4691,7 @@ cc_library(
     name = "stateless_random_ops_v2_util",
     hdrs = ["stateless_random_ops_v2_util.h"],
     deps = [
+        ":random_op",
         ":stateless_random_ops_v2_header",
         "//tensorflow/core:framework",
     ],

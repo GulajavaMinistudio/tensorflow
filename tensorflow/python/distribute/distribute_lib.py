@@ -220,8 +220,10 @@ from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import control_flow_ops
 from tensorflow.python.ops import custom_gradient
 from tensorflow.python.ops import math_ops
+from tensorflow.python.ops import ref_variable
 from tensorflow.python.ops import summary_ops_v2
 from tensorflow.python.ops import variable_scope
+from tensorflow.python.ops import variable_v1
 from tensorflow.python.platform import tf_logging
 from tensorflow.python.trackable import base as trackable
 from tensorflow.python.types import distribute as ds_types
@@ -1165,8 +1167,8 @@ class StrategyBase(object):
   """
   # pylint: enable=line-too-long
 
-  # TODO(joshl): Partitioned computations, state; sharding
-  # TODO(joshl): Model parallelism: "replicas" with multiple devices; shuffling
+  # TODO(josh11b): Partitioned computations, state; sharding
+  # TODO(josh11b): Model parallelism: "replicas" with multiple devices; shuffling
 
   def __init__(self, extended):
     self._extended = extended
@@ -1775,7 +1777,7 @@ class StrategyBase(object):
     Returns:
       A `Tensor`.
     """
-    # TODO(joshl): support `value` being a nest.
+    # TODO(josh11b): support `value` being a nest.
     _require_cross_replica_or_default_context_extended(self._extended)
     if isinstance(reduce_op, six.string_types):
       reduce_op = reduce_util.ReduceOp(reduce_op.upper())
@@ -1844,7 +1846,7 @@ class StrategyBase(object):
       else:
         raise TypeError(
             "Expected `axis` to be an integer, tuple or list not: %r" % axis)
-      # TODO(joshl): Should we cast denom to v.dtype here instead of after the
+      # TODO(josh11b): Should we cast denom to v.dtype here instead of after the
       # reduce is complete?
       return numer, denom
 
@@ -1860,7 +1862,7 @@ class StrategyBase(object):
     else:
       numer, denom = self.run(mean_reduce_helper, args=(value,))
 
-    # TODO(joshl): Should batch reduce here instead of doing two.
+    # TODO(josh11b): Should batch reduce here instead of doing two.
     numer = self._extended._reduce(reduce_util.ReduceOp.SUM, numer)  # pylint: disable=protected-access
     denom = self._extended._reduce(reduce_util.ReduceOp.SUM, denom)  # pylint: disable=protected-access
     denom = math_ops.cast(denom, numer.dtype)
@@ -2386,7 +2388,7 @@ class StrategyV1(StrategyBase):
     return self._extended._update_config_proto(config_proto)  # pylint: disable=protected-access
 
 
-# NOTE(joshl): For any strategy that needs to support tf.compat.v1,
+# NOTE(josh11b): For any strategy that needs to support tf.compat.v1,
 # instead descend from StrategyExtendedV1.
 @tf_export("distribute.StrategyExtended", v1=[])
 class StrategyExtendedV2(object):
@@ -3057,13 +3059,13 @@ class StrategyExtendedV2(object):
   def worker_devices(self):
     """Returns the tuple of all devices used to for compute replica execution.
     """
-    # TODO(joshl): More docstring
+    # TODO(josh11b): More docstring
     raise NotImplementedError("must be implemented in descendants")
 
   @property
   def parameter_devices(self):
     """Returns the tuple of all devices used to place variables."""
-    # TODO(joshl): More docstring
+    # TODO(josh11b): More docstring
     raise NotImplementedError("must be implemented in descendants")
 
   def _configure(self,
@@ -3137,7 +3139,7 @@ class StrategyExtendedV1(StrategyExtendedV2):
       A value mirrored to `destinations` devices.
     """
     assert destinations is not None  # from old strategy.broadcast()
-    # TODO(joshl): More docstring
+    # TODO(josh11b): More docstring
     _require_cross_replica_or_default_context_extended(self)
     assert not isinstance(destinations, (list, tuple))
     return self._broadcast_to(tensor, destinations)
@@ -3640,7 +3642,7 @@ class ReplicaContextBase(object):
 
       return nest.pack_sequence_as(value, grad_wrapper(*flattened_value))
 
-  # TODO(joshl): Implement `start_all_reduce(method, t)` for efficient
+  # TODO(josh11b): Implement `start_all_reduce(method, t)` for efficient
   # all-reduce. It would return a function returning the result of reducing `t`
   # across all replicas. The caller would wait to call this function until they
   # needed the reduce result, allowing an efficient implementation:
@@ -4026,8 +4028,8 @@ class _DefaultDistributionExtended(StrategyExtendedV1):
   def _experimental_make_numpy_dataset(self, numpy_input, session):
     numpy_flat = nest.flatten(numpy_input)
     vars_flat = tuple(
-        variable_scope.variable(array_ops.zeros(i.shape, i.dtype),
-                                trainable=False, use_resource=True)
+        variable_v1.VariableV1(array_ops.zeros(i.shape, i.dtype),
+                               trainable=False, use_resource=True)
         for i in numpy_flat
     )
     for v, i in zip(vars_flat, numpy_flat):
@@ -4046,7 +4048,7 @@ class _DefaultDistributionExtended(StrategyExtendedV1):
       return fn(*args, **kwargs)
 
   def _reduce_to(self, reduce_op, value, destinations, options):
-    # TODO(joshl): Use destinations?
+    # TODO(josh11b): Use destinations?
     del reduce_op, destinations, options
     return value
 
@@ -4060,7 +4062,7 @@ class _DefaultDistributionExtended(StrategyExtendedV1):
     return self._update_non_slot(var, fn, (var,) + tuple(args), kwargs, group)
 
   def _update_non_slot(self, colocate_with, fn, args, kwargs, should_group):
-    # TODO(joshl): Figure out what we should be passing to UpdateContext()
+    # TODO(josh11b): Figure out what we should be passing to UpdateContext()
     # once that value is used for something.
     with UpdateContext(colocate_with):
       result = fn(*args, **kwargs)
@@ -4172,7 +4174,7 @@ class _DefaultReplicaContext(ReplicaContext):
 # So here we catch any attempts to deserialize variables
 # when using distribution strategies.
 # pylint: disable=protected-access
-_original_from_proto = variable_scope._from_proto_fn
+_original_from_proto = ref_variable._from_proto_fn
 
 
 def _from_proto_fn(v, import_scope=None):
@@ -4183,7 +4185,7 @@ def _from_proto_fn(v, import_scope=None):
   else:
     return _original_from_proto(v, import_scope=import_scope)
 
-variable_scope._from_proto_fn = _from_proto_fn
+ref_variable._from_proto_fn = _from_proto_fn
 # pylint: enable=protected-access
 
 

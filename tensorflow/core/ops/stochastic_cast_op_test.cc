@@ -12,9 +12,18 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
-#ifndef TENSORFLOW_LITE_CORE_SHIMS_C_EXPERIMENTAL_ACCELERATION_CONFIGURATION_GPU_PLUGIN_H_
-#define TENSORFLOW_LITE_CORE_SHIMS_C_EXPERIMENTAL_ACCELERATION_CONFIGURATION_GPU_PLUGIN_H_
 
-#include "tensorflow/lite/core/acceleration/configuration/c/gpu_plugin.h"
+#include "tensorflow/core/framework/shape_inference_testutil.h"
+#include "tensorflow/core/platform/test.h"
 
-#endif  // TENSORFLOW_LITE_CORE_SHIMS_C_EXPERIMENTAL_ACCELERATION_CONFIGURATION_GPU_PLUGIN_H_
+namespace tensorflow {
+
+TEST(StochasticCastOpTest, StochasticCastToIntShapeInference) {
+  ShapeInferenceTestOp op("StochasticCastToInt");
+
+  INFER_OK(op, "[4,2];[1];[1];[]", "in0");
+  INFER_ERROR("Shape must be rank 1 but is rank 2", op, "[4,2];[1,2];[1];[]");
+  INFER_ERROR("Shape must be rank 1 but is rank 2", op, "[4,2];[1];[1,2];[]");
+  INFER_ERROR("Shape must be rank 0 but is rank 1", op, "[4,2];[1];[1];[1]");
+}
+}  // namespace tensorflow
