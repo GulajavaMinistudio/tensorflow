@@ -5103,13 +5103,6 @@ py_library(
 )
 
 alias(
-    name = "platform",
-    actual = "//tensorflow/python/platform:platform",
-    deprecation = "This target has been split. Depend on the sub-targets instead.",
-    visibility = ["//visibility:public"],
-)
-
-alias(
     name = "client_testlib",
     actual = "//tensorflow/python/platform:client_testlib",
 )
