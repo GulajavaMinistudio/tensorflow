@@ -188,13 +188,13 @@ void MakeTfObjectType(PyObject** py_type) {
   type->tp_dealloc = [](PyObject* self) {
     VLOG(3) << "Destroy: " << T::kTypeName;
     PyObject_GC_UnTrack(self);
+    PyTypeObject* tp = Py_TYPE(self);
     PyObject_ClearWeakRefs(self);
 
     T* o = reinterpret_cast<T*>(self);
     Py_CLEAR(o->dict);
     o->~T();
 
-    PyTypeObject* tp = Py_TYPE(self);
     tp->tp_free(self);
     Py_DECREF(tp);
   };
@@ -787,7 +787,6 @@ void PyGraph::Dismantle() {
   for (auto& op : op_list) {
     AsPyTfObject<PyOperation>(op.ptr())->Dismantle();
   }
-  PyDict_Clear(dict);
   op_list = py::list();
   ops_by_id.clear();
   ops_by_name.clear();

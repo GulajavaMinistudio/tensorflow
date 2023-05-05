@@ -178,6 +178,7 @@ py_library(
         ":proto_ops",
         ":pywrap_tensorflow",
         ":pywrap_tfe",
+        ":random_crop_ops",
         ":ref_variable",
         ":rnn_ops_gen",
         ":script_ops",
@@ -2604,6 +2605,25 @@ py_library(
     ],
 )
 
+py_strict_library(
+    name = "random_crop_ops",
+    srcs = ["ops/random_crop_ops.py"],
+    srcs_version = "PY3",
+    deps = [
+        ":array_ops",
+        ":control_flow_assert",
+        ":control_flow_ops",
+        ":math_ops",
+        ":random_ops",
+        ":stateless_random_ops",
+        "//tensorflow/python/framework:dtypes",
+        "//tensorflow/python/framework:ops",
+        "//tensorflow/python/util:deprecation",
+        "//tensorflow/python/util:dispatch",
+        "//tensorflow/python/util:tf_export",
+    ],
+)
+
 py_library(
     name = "stateful_random_ops",
     srcs = ["ops/stateful_random_ops.py"],
@@ -3221,10 +3241,8 @@ py_library(
     deps = [
         ":array_ops",
         ":init_ops",
-        ":ref_variable",
         ":resource_variable_ops",
         ":tf2",
-        ":variable_v1",
         ":variables",
         "//tensorflow/python/eager:context",
         "//tensorflow/python/eager:monitoring",
@@ -3280,6 +3298,7 @@ py_library(
         ":resource_variable_ops",
         ":state_ops",
         ":state_ops_gen",
+        ":variable_scope",
         ":variable_v1",
         ":variables",
         "//tensorflow/core:protos_all_py",
@@ -3293,7 +3312,6 @@ py_library(
         "//tensorflow/python/types:core",
         "//tensorflow/python/util:compat",
         "//tensorflow/python/util:deprecation",
-        "//tensorflow/python/util:lazy_loader",
     ],
 )
 
@@ -3304,6 +3322,7 @@ py_library(
     deps = [
         ":cond",
         ":state_ops",
+        ":variable_scope",
         ":variables",
         "//tensorflow/python/framework:ops",
         "//tensorflow/python/util:tf_export",

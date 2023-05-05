@@ -516,8 +516,8 @@ def _map_function_arguments_to_created_inputs(
     function_arguments: A list of argument placeholders in the function body.
     signature_key: The name of the signature being exported, for error messages.
     function_name: The name of the function, for error messages.
-    defaults: A dictionary mapping (signature_key, user_specified_name) to
-      Tensor representing default values.
+    defaults: A dictionary mapping signature_key to dictionary of
+      user_specified_name to Tensor representing default values.
 
   Returns:
     A tuple of (mapped_inputs, exterior_placeholders)
@@ -563,7 +563,7 @@ def _map_function_arguments_to_created_inputs(
           "structures unless unique names are specified for each. Use "
           "tf.TensorSpec(..., name=...) to provide a name for a Tensor "
           "input.")
-    default_value = defaults.get((signature_key, user_input_name))
+    default_value = defaults.get(signature_key, {}).get(user_input_name)
     if default_value is not None:
       placeholder_with_default = array_ops.placeholder_with_default(
           input=default_value.numpy(),
@@ -592,8 +592,8 @@ def _generate_signatures(signature_functions, object_map, defaults=None):
       which will be used to generate SignatureDefs.
     object_map: A dictionary that contains mappings from signature functions to
       concrete functions in the exported graph.
-    defaults: A dictionary mapping (signature_key, user_specified_name) to
-      Tensor representing default values.
+    defaults: A dictionary mapping signature_key to dictionary of
+      user_specified_name to Tensor representing default values.
 
   Returns:
     Each function in the `signature_functions` dictionary is called with
@@ -823,8 +823,8 @@ def _fill_meta_graph_def(
       functions containing signatures to add to the MetaGraph.
     namespace_whitelist: List of strings containing whitelisted op namespaces.
     save_custom_gradients: Whether to save custom gradients.
-    defaults: A dictionary mapping (signature_key, user_specified_name) to
-      Tensor representing default values.
+    defaults: A dictionary mapping signature_key to dictionary of
+      user_specified_name to Tensor representing default values.
 
   Returns:
     A tuple of (_AssetInfo, Graph) containing the captured assets and
@@ -1099,7 +1099,7 @@ def save(obj, export_dir, signatures=None, options=None):
   """Exports a [tf.Module](https://www.tensorflow.org/api_docs/python/tf/Module) (and subclasses) `obj` to [SavedModel format](https://www.tensorflow.org/guide/saved_model#the_savedmodel_format_on_disk).
 
   The `obj` must inherit from the [`Trackable`
-  class](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/python/training/tracking/base.py#L591).
+  class](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/python/trackable/base.py#L278).
 
   Example usage:
 
