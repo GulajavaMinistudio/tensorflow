@@ -275,6 +275,7 @@ py_strict_library(
         "//tensorflow/core:protos_all_py",
         "//tensorflow/python:errors",
         "//tensorflow/python:framework_ops",
+        "//tensorflow/python/framework:tensor_util",
         "//tensorflow/python/util:deprecation",
         "//tensorflow/python/util:tf_export",
     ],
@@ -872,6 +873,7 @@ tf_python_pybind_extension(
     features = ["-layering_check"],
     visibility = [
         "//tensorflow/python/checkpoint:__subpackages__",
+        "//tensorflow/python/tpu:__pkg__",
         "//tensorflow/python/training:__subpackages__",
     ],
     deps = [
