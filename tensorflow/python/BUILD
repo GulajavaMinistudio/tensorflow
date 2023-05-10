@@ -772,6 +772,7 @@ tf_gen_op_wrapper_private_py(
     visibility = [
         "//learning/brain/python/ops:__pkg__",
         "//tensorflow/python/kernel_tests:__pkg__",
+        "//tensorflow/python/kernel_tests/data_structures:__pkg__",
         "//tensorflow/python/training:__pkg__",
     ],
 )
@@ -948,6 +949,7 @@ tf_gen_op_wrapper_private_py(
 
 tf_gen_op_wrapper_private_py(
     name = "sparse_ops_gen",
+    visibility = visibility + ["//tensorflow/python/kernel_tests/sparse_ops:__pkg__"],
 )
 
 tf_gen_op_wrapper_private_py(
