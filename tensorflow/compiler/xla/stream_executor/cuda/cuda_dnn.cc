@@ -746,6 +746,8 @@ class CudnnFilterDescriptor {
 // Additionally, users can specify an additional errata JSON file via
 // CUDNN_ERRATA_JSON_FILE at runtime.
 // We are also excluding two flavors of ConvFwd_eng42 due to b/234183340.
+// Excluding ConvFwd_Add_Add_eng32 to avoid misaligned address on A100,
+// see b/279920986.
 const json* CudnnExecutionPlanEngineFilterStatic() {
   static absl::string_view filter_str = R"({
       "version" : 1,
@@ -784,6 +786,28 @@ const json* CudnnExecutionPlanEngineFilterStatic() {
             },
             "cudnn_version_start" : 8000,
             "cudnn_version_end"   : -1
+          },
+          { "rule_id"             : "ConvFwd_Add_Add_eng34_k24=11",
+            "operation"           : "ConvFwd_Add_Add",
+            "engine"              : 34,
+            "cudnn_version_start" : 8700,
+            "cudnn_version_end"   : 8900
+          },
+          { "rule_id"             : "ConvFwd_Add_Add_ReluFwd_eng15_k5=1_k6=0_k7=1_k10=1",
+            "operation"           : "ConvFwd_Add_Add_ReluFwd",
+            "engine"              : 15,
+            "knob"                : ["k5=1", "k6=0", "k7=1", "k10=1"],
+            "cudnn_version_start" : 8900,
+            "cudnn_version_end"   : -1,
+            "comment"             : "b/281585171"
+          },
+          { "rule_id"             : "ConvFwd_Add_Add_eng15_k5=1_k6=0_k7=1_k10=1",
+            "operation"           : "ConvFwd_Add_Add",
+            "engine"              : 15,
+            "knob"                : ["k5=1", "k6=0", "k7=1", "k10=1"],
+            "cudnn_version_start" : 8900,
+            "cudnn_version_end"   : -1,
+            "comment"             : "b/281887114"
           }
       ]})";
   static const json* json_handle = new json(json::parse(filter_str));
