@@ -221,6 +221,7 @@ xla_cc_test(
         ":topk_kernel",
         "//tensorflow/compiler/xla:xla_data_proto_cc",
         "//tensorflow/compiler/xla/stream_executor/gpu:gpu_types_header",
+        "//tensorflow/compiler/xla/stream_executor/host:host_platform",
         "//tensorflow/tsl/platform:test",
         "//tensorflow/tsl/platform:test_benchmark",
         "//tensorflow/tsl/platform:test_main",
@@ -355,6 +356,8 @@ cc_library(
         "//tensorflow/compiler/xla/runtime:custom_call_registry",
         "//tensorflow/compiler/xla/runtime:executable",
         "//tensorflow/compiler/xla/service:executable",
+        "//tensorflow/compiler/xla/service:stream_pool",
+        "//tensorflow/compiler/xla/stream_executor",
         "//tensorflow/tsl/platform:statusor",
     ],
 )
@@ -378,6 +381,7 @@ cc_library(
     srcs = ["kernel_launch.cc"],
     hdrs = ["kernel_launch.h"],
     deps = [
+        ":concurrent_region",
         ":support",
         "//tensorflow/compiler/xla:types",
         "//tensorflow/compiler/xla/runtime:custom_call",

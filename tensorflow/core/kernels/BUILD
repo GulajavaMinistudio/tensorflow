@@ -3765,6 +3765,7 @@ tf_cuda_cc_test(
     size = "small",
     srcs = ["matmul_op_test.cc"],
     tags = [
+        "no_arm64",  # b/282068262
         "no_armv7",  # b/280582913
     ],
     deps = [
@@ -6344,6 +6345,7 @@ filegroup(
         "dilation_ops.h",
         "fake_quant_ops_functor.h",
         "fill_empty_rows_functor.h",
+        "function_ops.h",
         "fused_batch_norm_op.h",
         "inplace_ops.cc",
         "inplace_ops_functor.h",

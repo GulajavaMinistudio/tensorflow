@@ -2,7 +2,7 @@
 # Public targets:
 #  ":platform" - Low-level and platform-specific Python code.
 
-load("//tensorflow:strict.default.bzl", "py_strict_library")
+load("//tensorflow:strict.default.bzl", "py_strict_library", "py_strict_test")
 load("//tensorflow:tensorflow.bzl", "VERSION", "cc_header_only_library", "clean_dep", "if_google", "if_mlir", "if_oss", "if_windows", "if_xla_available", "py_test", "tf_enable_mlir_bridge", "tf_python_pybind_static_deps", "tsl_async_value_deps")
 load("//tensorflow:tensorflow.default.bzl", "cuda_py_test", "get_compatible_with_portable", "pywrap_tensorflow_macro", "tf_external_workspace_visible", "tf_monitoring_python_deps", "tf_py_test", "tf_pybind_cc_library_wrapper", "tf_python_pybind_extension")
 load(
@@ -520,6 +520,7 @@ tf_gen_op_wrapper_private_py(
     name = "functional_ops_gen",
     visibility = [
         "//learning/brain/python/ops:__pkg__",
+        "//tensorflow/python/eager/polymorphic_function:__pkg__",
         "//tensorflow/python/kernel_tests/control_flow:__pkg__",
     ],
 )
@@ -726,6 +727,7 @@ tf_gen_op_wrapper_private_py(
     visibility = [
         "//learning/brain/python/ops:__pkg__",
         "//tensorflow/python/kernel_tests/image_ops:__pkg__",
+        "//tensorflow/python/ops/parallel_for:__pkg__",
     ],
 )
 
@@ -872,6 +874,7 @@ tf_gen_op_wrapper_private_py(
         "//learning/brain/python/ops:__pkg__",
         "//tensorflow/python/autograph/operators:__pkg__",
         "//tensorflow/python/data/ops:__pkg__",
+        "//tensorflow/python/ops/parallel_for:__pkg__",
     ],
 )
 
@@ -879,7 +882,9 @@ tf_gen_op_wrapper_private_py(
     name = "random_ops_gen",
     visibility = [
         "//learning/brain/python/ops:__pkg__",
+        "//tensorflow/python/eager/polymorphic_function:__pkg__",
         "//tensorflow/python/kernel_tests/random:__pkg__",
+        "//tensorflow/python/ops/parallel_for:__pkg__",
     ],
 )
 
@@ -952,6 +957,7 @@ tf_gen_op_wrapper_private_py(
         "//learning/brain/python/ops:__pkg__",
         "//tensorflow/python/framework:__pkg__",
         "//tensorflow/python/kernel_tests:__pkg__",
+        "//tensorflow/python/kernel_tests/array_ops:__pkg__",
         "//tensorflow/python/kernel_tests/control_flow:__pkg__",
         "//tensorflow/python/kernel_tests/variables:__pkg__",
         "//tensorflow/python/training:__pkg__",
@@ -1595,7 +1601,7 @@ py_strict_library(
         "//tensorflow/core:protos_all_py",
         "//tensorflow/python/eager:context",
         "//tensorflow/python/eager/polymorphic_function:atomic_function",
-        "//tensorflow/python/eager/polymorphic_function:monomorphic_function",
+        "//tensorflow/python/eager/polymorphic_function:concrete_function",
         "//tensorflow/python/eager/polymorphic_function:tracing_compiler",
         "//tensorflow/python/eager/polymorphic_function:transform",
         "//tensorflow/python/framework:func_graph",
@@ -2824,7 +2830,6 @@ py_library(
         ":control_flow_ops",
         ":math_ops",
         ":sparse_ops_gen",
-        ":special_math_ops",
         "//tensorflow/python/framework:constant_op",
         "//tensorflow/python/framework:dtypes",
         "//tensorflow/python/framework:fast_tensor_util",
@@ -4525,6 +4530,20 @@ py_test(
         "//tensorflow/python/framework:ops",
         "//tensorflow/python/framework:tensor_spec",
         "//tensorflow/python/framework:test_lib",
+    ],
+)
+
+py_strict_test(
+    name = "ops/array_ops_shape_test",
+    srcs = ["ops/array_ops_shape_test.py"],
+    env = {"TF_FLAG_TF_SHAPE_DEFAULT_INT64": "true"},
+    python_version = "PY3",
+    srcs_version = "PY3",
+    deps = [
+        ":array_ops",
+        ":client_testlib",
+        "//tensorflow/core/config:flags_py",
+        "//tensorflow/python/framework:dtypes",
     ],
 )
 

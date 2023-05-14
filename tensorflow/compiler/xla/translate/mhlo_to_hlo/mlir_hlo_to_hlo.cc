@@ -549,24 +549,14 @@ static xla::ScatterDimensionNumbers Convert_scatter_dimension_numbers(
   return output;
 }
 
-// Extracts sharding from attribute string.
-static std::optional<xla::OpSharding> CreateOpShardingFromStringRef(
-    llvm::StringRef sharding_str) {
-  xla::OpSharding sharding_proto;
-  if (sharding_proto.ParseFromString(sharding_str.str())) return sharding_proto;
-  StatusOr<xla::HloSharding> sharding = xla::ParseSharding(sharding_str.str());
-  if (sharding.ok()) return sharding->ToProto();
-  return std::nullopt;
-}
-
 // Returns an OpSharding proto from the "sharding" attribute of the op. If the
 // op doesn't have a sharding attribute or the sharding attribute is invalid,
 // returns std::nullopt.
 static std::optional<xla::OpSharding> CreateOpShardingFromAttribute(
     mlir::Operation* op) {
-  auto sharding = op->getAttrOfType<mlir::StringAttr>(kShardingAttr);
-  if (!sharding) return std::nullopt;
-  return CreateOpShardingFromStringRef(sharding.getValue());
+  auto shardingAttr = op->getAttrOfType<mlir::StringAttr>(kShardingAttr);
+  if (!shardingAttr) return std::nullopt;
+  return xla::ConvertSharding(shardingAttr.getValue());
 }
 
 // Returns a FrontendAttributes proto from the "frontend_attributes" attribute
@@ -632,14 +622,14 @@ static void ExtractShardingsFromFunction(
   for (int i = 0, end = function.getNumArguments(); i < end; ++i)
     if (auto sharding =
             function.getArgAttrOfType<mlir::StringAttr>(i, kShardingAttr))
-      (*arg_shardings)[i] = CreateOpShardingFromStringRef(sharding.getValue());
+      (*arg_shardings)[i] = xla::ConvertSharding(sharding.getValue());
 
   ret_shardings->resize(function.getNumResults(),
                         std::optional<xla::OpSharding>());
   for (int i = 0, end = function.getNumResults(); i < end; ++i)
     if (auto sharding =
             function.getResultAttrOfType<mlir::StringAttr>(i, kShardingAttr))
-      (*ret_shardings)[i] = CreateOpShardingFromStringRef(sharding.getValue());
+      (*ret_shardings)[i] = xla::ConvertSharding(sharding.getValue());
 }
 
 namespace mlir {
@@ -1449,9 +1439,9 @@ LogicalResult ExportXlaOp(DomainOp op, OpLoweringContext ctx) {
   if (failed(GetXlaOp(op.getOperand(), valueMap, &operand, op)))
     return failure();
 
-  auto entry = CreateOpShardingFromStringRef(op.getEntryMetadata());
+  auto entry = xla::ConvertSharding(op.getEntryMetadata());
   if (!entry) return failure();
-  auto exit = CreateOpShardingFromStringRef(op.getExitMetadata());
+  auto exit = xla::ConvertSharding(op.getExitMetadata());
   if (!exit) return failure();
 
   valueMap[op] = xla::internal::XlaBuilderFriend::BuildDomain(
@@ -1692,6 +1682,8 @@ LogicalResult ExportXlaOp(CustomCallOp op, OpLoweringContext ctx) {
   //        `input` is only a subset of the overall computation in SPMD or
   //        distributed pipelines, where the true input size cannot be deferred
   //        by the `input` shape.
+  //    + is_fallback:bool : use the CPU/GPU fallback instead of the TPU
+  //        implementation that uses PartialReduce (optional)
   //
   // The operands are a sequence of inputs over which to search, followed
   // by a list of initial values for each tensor in the first
@@ -1754,7 +1746,7 @@ LogicalResult ExportXlaOp(CustomCallOp op, OpLoweringContext ctx) {
       auto name = attr.getName();
       if (!(name == "top_k" || name == "reduction_dim" ||
             name == "recall_target" || name == "aggregate_to_topk" ||
-            name == "reduction_input_size_override"))
+            name == "reduction_input_size_override" || name == "is_fallback"))
         return op.emitOpError()
                << name.getValue() << " is not a supported backend_config"
                << " attribute for ApproxTopK";
@@ -1784,17 +1776,27 @@ LogicalResult ExportXlaOp(CustomCallOp op, OpLoweringContext ctx) {
                << " attribute in backend_config must be of f32 type";
       return success();
     };
+    auto checkBoolAttr =
+        [&](const std::string& attr_name) -> mlir::LogicalResult {
+      if (!backend_config.contains(attr_name))
+        return op.emitOpError()
+               << "Missing " << attr_name << " attribute in backend_config";
+      auto attr = backend_config.getAs<BoolAttr>(attr_name);
+      if (!attr)
+        return op.emitOpError()
+               << attr_name
+               << " attribute in backend_config must be of bool type";
+      return success();
+    };
     if (failed(checkI64Attr("top_k"))) return failure();
     if (failed(checkI64Attr("reduction_dim"))) return failure();
     if (failed(checkF32Attr("recall_target"))) return failure();
-    if (!backend_config.get("aggregate_to_topk"))
-      return op.emitOpError(
-          "Missing aggregate_to_topk attribute in backend_config");
-    if (!backend_config.getAs<BoolAttr>("aggregate_to_topk"))
-      return op.emitOpError(
-          "aggregate_to_topk attribute in backend_config must be of bool "
-          "type");
+    if (failed(checkBoolAttr("aggregate_to_topk"))) return failure();
     if (failed(checkI64Attr("reduction_input_size_override"))) return failure();
+    bool has_is_fallback = backend_config.contains("is_fallback");
+    if (has_is_fallback && !backend_config.getAs<BoolAttr>("is_fallback"))
+      return op.emitOpError()
+             << "is_fallback attribute in backend_config must be of bool type";
 
     int64_t top_k = backend_config.getAs<IntegerAttr>("top_k").getInt();
     int64_t reduction_dim =
@@ -1807,6 +1809,8 @@ LogicalResult ExportXlaOp(CustomCallOp op, OpLoweringContext ctx) {
     int64_t reduction_input_size_override =
         backend_config.getAs<IntegerAttr>("reduction_input_size_override")
             .getInt();
+    bool is_fallback = has_is_fallback &&
+                       backend_config.getAs<BoolAttr>("is_fallback").getValue();
 
     // (C1)
     if (args.size() % 2 != 0) {
@@ -1913,9 +1917,16 @@ LogicalResult ExportXlaOp(CustomCallOp op, OpLoweringContext ctx) {
             input_types[0].getShape()[reduction_dim])
       return op.emitOpError() << "reduction_input_size_override out of range";
 
-    auto cc_op = xla::ApproxTopK(
-        ctx.builder, inputs, init_values, top_k, reduction_dim, comparator,
-        recall_target, aggregate_to_topk, reduction_input_size_override);
+    xla::XlaOp cc_op;
+    if (is_fallback) {
+      cc_op = xla::ApproxTopKFallback(
+          ctx.builder, inputs, init_values, top_k, reduction_dim, comparator,
+          recall_target, aggregate_to_topk, reduction_input_size_override);
+    } else {
+      cc_op = xla::ApproxTopK(ctx.builder, inputs, init_values, top_k,
+                              reduction_dim, comparator, recall_target,
+                              aggregate_to_topk, reduction_input_size_override);
+    }
     for (const auto& item : llvm::enumerate(op.getResults())) {
       value_map[item.value()] = xla::GetTupleElement(cc_op, item.index());
     }
@@ -3506,14 +3517,13 @@ xla::Status ConvertMlirHloToHlo(mlir::ModuleOp module, xla::HloProto* hlo_proto,
   if (auto spmd_output_sharding = module->getAttrOfType<mlir::StringAttr>(
           "mhlo.spmd_output_sharding")) {
     *hlo_module.mutable_spmd_output_sharding() =
-        *CreateOpShardingFromStringRef(spmd_output_sharding.getValue());
+        *xla::ConvertSharding(spmd_output_sharding.getValue());
   }
   if (auto spmd_parameters_sharding = module->getAttrOfType<mlir::ArrayAttr>(
           "mhlo.spmd_parameters_shardings")) {
     for (const auto& sharding : spmd_parameters_sharding.getValue()) {
       *hlo_module.add_spmd_parameters_shardings() =
-          *CreateOpShardingFromStringRef(
-              sharding.cast<mlir::StringAttr>().getValue());
+          *xla::ConvertSharding(sharding.cast<mlir::StringAttr>().getValue());
     }
   }
   hlo_proto->mutable_hlo_module()->Swap(&hlo_module);
