@@ -368,6 +368,7 @@ tf_py_strict_test(
         "//tensorflow/python:session",
         "//tensorflow/python:sparse_ops",
         "//tensorflow/python:sparse_tensor",
+        "//tensorflow/python:stateless_random_ops",
         "//tensorflow/python:tensor_array_ops",
         "//tensorflow/python:training",
         "//tensorflow/python:variable_scope",
@@ -1183,7 +1184,7 @@ tf_py_strict_test(
 
 tf_py_strict_test(
     name = "take_test",
-    size = "small",
+    size = "medium",
     srcs = ["take_test.py"],
     shard_count = 4,
     deps = [
@@ -1252,7 +1253,7 @@ py_strict_library(
 
 tf_py_strict_test(
     name = "text_line_dataset_test",
-    size = "small",
+    size = "medium",
     srcs = ["text_line_dataset_test.py"],
     shard_count = 4,
     deps = [

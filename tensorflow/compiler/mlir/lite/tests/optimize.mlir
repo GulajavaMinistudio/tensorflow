@@ -2622,31 +2622,40 @@ func.func @ReplaceReshapeEqualOneHotDynamicBatch(%arg0: tensor<?xi32>) -> (tenso
   %2 = "tfl.cast"(%1) : (tensor<?x10xi1>) -> tensor<?x10xf32>
   func.return %2 : tensor<?x10xf32>
 
-  // CHECK-DAG: %[[CST:.*]] = arith.constant dense<0> : tensor<1xi32>
+  // CHECK-DAG: %[[CST:.*]] = arith.constant dense<-1> : tensor<1xi32>
   // CHECK-DAG: %[[CST_0:.*]] = arith.constant dense<10> : tensor<i32>
   // CHECK-DAG: %[[CST_1:.*]] = arith.constant dense<1.000000e+00> : tensor<f32>
   // CHECK-DAG: %[[CST_2:.*]] = arith.constant dense<0.000000e+00> : tensor<f32>
   // CHECK-DAG: %[[CST_3:.*]] = arith.constant dense<-1> : tensor<i32>
   // CHECK: %[[EXPAND_DIMS:.*]] = "tfl.expand_dims"(%arg0, %[[CST_3]]) : (tensor<?xi32>, tensor<i32>) -> tensor<?x1xi32>
-  // CHECK: %[[RESHAPE:.*]] = "tfl.reshape"(%0, %[[CST]]) : (tensor<?x1xi32>, tensor<1xi32>) -> tensor<0xi32>
-  // CHECK: %[[ONE_HOT:.*]] = "tfl.one_hot"(%1, %[[CST_0]], %[[CST_1]], %[[CST_2]]) {axis = -1 : i32} : (tensor<0xi32>, tensor<i32>, tensor<f32>, tensor<f32>) -> tensor<?x10xf32>
+  // CHECK: %[[RESHAPE:.*]] = "tfl.reshape"(%0, %[[CST]]) : (tensor<?x1xi32>, tensor<1xi32>) -> tensor<?xi32>
+  // CHECK: %[[ONE_HOT:.*]] = "tfl.one_hot"(%1, %[[CST_0]], %[[CST_1]], %[[CST_2]]) {axis = -1 : i32} : (tensor<?xi32>, tensor<i32>, tensor<f32>, tensor<f32>) -> tensor<?x10xf32>
   // CHECK-NEXT: return %[[ONE_HOT]]
 }
 
 // CHECK-LABEL: noReplaceReshapeEqualWithOneHotDynamicNonBatch
 func.func @noReplaceReshapeEqualWithOneHotDynamicNonBatch(%arg0: tensor<1x?xi32>) -> tensor<1x?x10xf32> {
-  %cst = arith.constant dense<-1> : tensor<i32>
-  %cst_0 = arith.constant dense<[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]> : tensor<10xi32>
-  %0 = "tfl.expand_dims"(%arg0, %cst) : (tensor<1x?xi32>, tensor<i32>) -> tensor<1x?x1xi32>
-  %1 = "tfl.equal"(%0, %cst_0) : (tensor<1x?x1xi32>, tensor<10xi32>) -> tensor<1x?x10xi1>
+  %cst = arith.constant dense<[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]> : tensor<10xi32>
+  %1 = "tfl.equal"(%arg0, %cst) : (tensor<1x?xi32>, tensor<10xi32>) -> tensor<1x?x10xi1>
   %2 = "tfl.cast"(%1) : (tensor<1x?x10xi1>) -> tensor<1x?x10xf32>
   func.return %2 : tensor<1x?x10xf32>
 
-  // CHECK-DAG: %[[CST:.*]] = arith.constant dense<-1> : tensor<i32>
-  // CHECK-DAG: %[[CST_0:.*]] = arith.constant dense<[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]> : tensor<10xi32>
-  // CHECK: %[[EXPAND_DIMS:.*]] = "tfl.expand_dims"(%arg0, %[[CST]]) : (tensor<1x?xi32>, tensor<i32>) -> tensor<1x?x1xi32>
-  // CHECK: %[[EQUAL:.*]] = "tfl.equal"(%[[EXPAND_DIMS]], %[[CST_0]]) : (tensor<1x?x1xi32>, tensor<10xi32>) -> tensor<1x?x10xi1>
+  // CHECK-DAG: %[[CST:.*]] = arith.constant dense<[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]> : tensor<10xi32>
+  // CHECK: %[[EQUAL:.*]] = "tfl.equal"(%arg0, %[[CST]]) : (tensor<1x?xi32>, tensor<10xi32>) -> tensor<1x?x10xi1>
   // CHECK: %[[CAST:.*]] = "tfl.cast"(%[[EQUAL]]) : (tensor<1x?x10xi1>) -> tensor<1x?x10xf32>
+  // CHECK-NEXT: return %[[CAST]]
+}
+
+// CHECK-LABEL: noReplaceReshapeEqualWithOneHotDynamicNonBatchRank1
+func.func @noReplaceReshapeEqualWithOneHotDynamicNonBatchRank1(%arg0: tensor<?xi32>) -> tensor<?x10xf32> {
+  %cst = arith.constant dense<[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]> : tensor<10xi32>
+  %1 = "tfl.equal"(%arg0, %cst) : (tensor<?xi32>, tensor<10xi32>) -> tensor<?x10xi1>
+  %2 = "tfl.cast"(%1) : (tensor<?x10xi1>) -> tensor<?x10xf32>
+  func.return %2 : tensor<?x10xf32>
+
+  // CHECK-DAG: %[[CST:.*]] = arith.constant dense<[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]> : tensor<10xi32>
+  // CHECK: %[[EQUAL:.*]] = "tfl.equal"(%arg0, %[[CST]]) : (tensor<?xi32>, tensor<10xi32>) -> tensor<?x10xi1>
+  // CHECK: %[[CAST:.*]] = "tfl.cast"(%[[EQUAL]]) : (tensor<?x10xi1>) -> tensor<?x10xf32>
   // CHECK-NEXT: return %[[CAST]]
 }
 
