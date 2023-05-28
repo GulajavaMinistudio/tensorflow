@@ -242,10 +242,15 @@ py_library(
         "//tensorflow/python/grappler:tf_optimizer",
         "//tensorflow/python/module",
         "//tensorflow/python/ops/distributions",
+        "//tensorflow/python/ops/distributions:bijector_test_util",
+        "//tensorflow/python/ops/distributions:identity_bijector",
         "//tensorflow/python/ops/linalg",
         "//tensorflow/python/ops/linalg:linear_operator_test_util",
         "//tensorflow/python/ops/linalg/sparse:sparse_py",
         "//tensorflow/python/ops/losses",
+        "//tensorflow/python/ops/numpy_ops:np_config",
+        "//tensorflow/python/ops/numpy_ops:np_random",
+        "//tensorflow/python/ops/numpy_ops:numpy",
         "//tensorflow/python/ops/parallel_for",
         "//tensorflow/python/ops/ragged",
         "//tensorflow/python/ops/signal",
@@ -293,6 +298,7 @@ py_library(
         "//tensorflow/python/util:all_util",
         "//tensorflow/python/util:compat",
         "//tensorflow/python/util:dispatch",
+        "//tensorflow/python/util:module_wrapper",
         "//tensorflow/python/util:tf_export",
         "//third_party/py/numpy",
     ],
@@ -323,6 +329,7 @@ py_library(
     deps = [
         ":no_contrib",
         "//tensorflow/core/function/trace_type",
+        "//tensorflow/python/data",
         "//tensorflow/python/distribute:merge_call_interim",
         "//tensorflow/python/distribute:multi_process_runner",
         "//tensorflow/python/distribute:multi_worker_test_base",
@@ -1140,10 +1147,7 @@ cuda_py_test(
 
 py_library(
     name = "array_ops",
-    srcs = [
-        "ops/array_ops.py",
-        "ops/inplace_ops.py",
-    ],
+    srcs = ["ops/array_ops.py"],
     srcs_version = "PY3",
     visibility = visibility,
     deps = [
@@ -1182,6 +1186,20 @@ py_library(
         "//tensorflow/python/framework:ops",
         "//tensorflow/python/util:dispatch",
         "//tensorflow/python/util:tf_export",
+    ],
+)
+
+py_library(
+    name = "inplace_ops",
+    srcs = ["ops/inplace_ops.py"],
+    srcs_version = "PY3",
+    deps = [
+        ":array_ops",
+        ":array_ops_gen",
+        ":math_ops",
+        "//tensorflow/python/framework:dtypes",
+        "//tensorflow/python/framework:ops",
+        "//tensorflow/python/util:deprecation",
     ],
 )
 
@@ -1781,6 +1799,7 @@ py_library(
         ":array_ops",
         ":ctc_ops_gen",
         ":functional_ops",
+        ":inplace_ops",
         ":nn_grad",
         "//tensorflow/python/framework",
         "//tensorflow/python/framework:constant_op",
@@ -2745,6 +2764,7 @@ py_library(
     deps = [
         ":array_ops",
         ":script_ops_gen",
+        ":sort_ops",
         "//tensorflow/python/autograph/operators:py_builtins",
         "//tensorflow/python/eager:backprop",
         "//tensorflow/python/eager:backprop_util",
@@ -2835,6 +2855,7 @@ py_library(
         ":control_flow_ops",
         ":math_ops",
         ":sparse_ops_gen",
+        ":special_math_ops",
         "//tensorflow/python/framework:constant_op",
         "//tensorflow/python/framework:dtypes",
         "//tensorflow/python/framework:fast_tensor_util",
