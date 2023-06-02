@@ -1,4 +1,4 @@
-/* Copyright 2019 The TensorFlow Authors. All Rights Reserved.
+/* Copyright 2023 The TensorFlow Authors. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -679,15 +679,55 @@ foreach ValueOp = [TFL_CeilOp, TFL_ExpOp, TFL_FloorOp, TFL_NegOp,
 // if called without a ranked tensor it will fail.
 def GetShape: NativeCodeCall<"GetShape($0)">;
 
+// Returns truncated shape of a ranked-tensor.
+// Truncated, here, means eliminating any contiguous 1s' in the lower
+// dimentions of the tensor
+def GetTruncatedShape: NativeCodeCall<"GetShape($0, true)">;
+
 // Returns True if the operand type is RankedTensorType and valid.
 def HasValidRankedTensor : Constraint<CPred<
   "$0.getType().isa<RankedTensorType>() && "
   "$0.getType().cast<RankedTensorType>().getNumDynamicDims() <= 1">>;
 
+// Check if the truncated shape of the lhs is equal to the shape of rhs
+def IsTruncatedShapeEqualTo : Constraint<CPred<
+  "GetShape($0, true) == GetShape($1)">>;
+
 def ConvertSqueezeToReshape : Pat<
   (TFL_SqueezeOp:$squeeze_op $input, $squeeze_dims),
   (TFL_ReshapeOp $input, (Arith_ConstantOp (GetShape $squeeze_op))),
   [(HasValidRankedTensor $squeeze_op)]>;
+
+// Pattern to perform the following optimization
+// transpose [1xAxB] -> [1xBxA]
+//    |
+// reshape [1xBxA] -> [BxA]
+//    |
+// transpose [BxA] -> [AxB]
+//    ||
+// reshape [1xAxB] -> [AxB]
+def ConvertTrasposeReshapeTransposeToReshape : Pat<
+  (TFL_TransposeOp:$second_transpose
+    (TFL_ReshapeOp:$middle_reshape
+      (TFL_TransposeOp:$first_transpose $input, $permutation2),
+        $shape),
+      $permutation1),
+  (TFL_ReshapeOp $input, (Arith_ConstantOp (GetTruncatedShape $input))),
+  [(IsTruncatedShapeEqualTo $first_transpose, $middle_reshape),
+   (IsTruncatedShapeEqualTo $input, $second_transpose)]>;
+
+// Function to map final permutation to initial permutation
+// initial -> permutation1 -> permutation2 -> final
+def RemapPermutation: NativeCodeCall<"RemapPermutation($0, $1)">;
+
+// Pattern to fuse redundant tanspose op
+def FoldDoubleTranspose : Pat<
+  (TFL_TransposeOp
+    (TFL_TransposeOp:$transpose_out1 $input, (Arith_ConstantOp:$permutation1 $p1)),
+    (Arith_ConstantOp:$permutation2 $p2)),
+  (TFL_TransposeOp $input,
+    (Arith_ConstantOp (RemapPermutation $permutation1, $permutation2))),
+  [(HasOneUse $transpose_out1)]>;
 
 // Convert expand_dims to reshape if possible.
 def ConvertExpandDimsToReshape : Pat<

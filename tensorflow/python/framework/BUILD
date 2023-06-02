@@ -1121,6 +1121,7 @@ py_strict_library(
         ":c_api_util",
         ":composite_tensor",
         ":device",
+        ":device_spec",
         ":dtypes",
         ":errors",
         ":op_callbacks",
@@ -1532,6 +1533,43 @@ py_strict_library(
         "//tensorflow/python/util:_pywrap_utils",
         "//tensorflow/python/util:tf_export",
         "//third_party/py/numpy",
+    ],
+)
+
+py_strict_library(
+    name = "weak_tensor",
+    srcs = ["weak_tensor.py"],
+    srcs_version = "PY3",
+    deps = [
+        ":dtypes",
+        ":errors",
+        ":extension_type",
+        ":ops",
+        "//tensorflow/python/eager:context",
+        "//third_party/py/numpy",
+    ],
+)
+
+tf_py_strict_test(
+    name = "weak_tensor_test",
+    srcs = ["weak_tensor_test.py"],
+    main = "weak_tensor_test.py",
+    python_version = "PY3",
+    srcs_version = "PY3",
+    tags = ["no_pip"],  # weak_tensor_test is not available in pip.
+    deps = [
+        ":constant_op",
+        ":dtypes",
+        ":errors",
+        ":ops",
+        ":tensor_spec",
+        ":test_lib",
+        ":weak_tensor",
+        "//tensorflow/python:platform_test",
+        "//tensorflow/python/eager:def_function",
+        "//tensorflow/python/module",
+        "//tensorflow/python/saved_model:load",
+        "//tensorflow/python/saved_model:save",
     ],
 )
 
