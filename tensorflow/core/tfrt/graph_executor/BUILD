@@ -14,6 +14,7 @@ package_group(
         "//learning/brain/tfrt/support/...",
         "//smartass/brain/inference/...",
         "//tensorflow/core/tfrt/...",
+        "//tensorflow/core/tfrt/graph_executor/python/...",
         "//tensorflow_serving/servables/tensorflow/google/...",
     ],
 )
@@ -211,6 +212,7 @@ cc_library(
     hdrs = ["sync_resource_state.h"],
     visibility = ["//visibility:public"],
     deps = [
+        "//tensorflow_serving/util:any_ptr",
         "@tf_runtime//:tensor",
     ],
 )
