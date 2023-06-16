@@ -617,7 +617,6 @@ xla_cc_test(
     name = "outfeed_receiver_test_cpu",
     size = "small",
     srcs = ["outfeed_receiver_test.cc"],
-    tags = ["nomsan"],
     deps = [
         ":outfeed_receiver",
         "//tensorflow/compiler/xla:test",
@@ -729,6 +728,7 @@ cc_library(
         "//tensorflow/tsl/platform:errors",
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:FuncDialect",
+        "@llvm-project//mlir:FuncExtensions",
         "@llvm-project//mlir:IR",
         "@llvm-project//mlir:Parser",
         "@llvm-project//mlir:Pass",
@@ -752,6 +752,7 @@ cc_library(
         "@com_google_absl//absl/status",
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:FuncDialect",
+        "@llvm-project//mlir:FuncExtensions",
         "@llvm-project//mlir:IR",
         "@llvm-project//mlir:Parser",
         "@llvm-project//mlir:Pass",
