@@ -141,6 +141,20 @@ ScopedActivateContext::ScopedActivateContext(GpuContext* cuda_context) {
 
   auto* tls = &tls_data.get();
 
+  // If this is an outermost scope, we must not assume that the CUDA context has
+  // been left in the same state we left it. Other code may have run on this
+  // thread and altered the context.
+  if (tls->depth == 0) {
+    VLOG(3) << "ScopedActivateContext switching to " << cuda_context->id();
+    FAIL_IF_CUDA_RES_ERROR(cuCtxSetCurrent(cuda_context->context()),
+                           "Failed setting context");
+    tls->depth = 1;
+    tls->id = cuda_context->id();
+    tls->context = cuda_context;
+    to_restore_ = nullptr;
+    return;
+  }
+
   tls->depth++;
   if (tls->id == cuda_context->id()) {
     if (kVerifyGpuContext) {
@@ -456,11 +470,13 @@ bool DeviceOptionsToContextFlags(const DeviceOptions& device_options,
           << " gdy: " << grid_dim_y << " gdz: " << grid_dim_z
           << " bdx: " << block_dim_x << " bdy: " << block_dim_y
           << " bdz: " << block_dim_z;
-  RETURN_IF_CUDA_RES_ERROR(
-      cuFuncSetAttribute(function,
-                         CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
-                         shared_mem_bytes),
-      "Failed to set shared memory size");
+  if (shared_mem_bytes != 0) {
+    RETURN_IF_CUDA_RES_ERROR(
+        cuFuncSetAttribute(function,
+                           CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
+                           shared_mem_bytes),
+        "Failed to set shared memory size");
+  }
   RETURN_IF_CUDA_RES_ERROR(
       cuLaunchKernel(function, grid_dim_x, grid_dim_y, grid_dim_z, block_dim_x,
                      block_dim_y, block_dim_z, shared_mem_bytes, stream,
