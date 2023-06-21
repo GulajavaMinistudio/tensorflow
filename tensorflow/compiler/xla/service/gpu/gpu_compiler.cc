@@ -345,6 +345,13 @@ Status GpuCompiler::OptimizeHloModule(HloModule* hlo_module,
   // GPU only supports canonical convolutions.
   layout_insensitive_algsimp_opts.set_supports_non_canonical_dots(false);
 
+  // On GPU we deem it safe to convert mul(conv(input, filter), c) to
+  // conv(input, mul(filter, c)).  (This is not 100% true if you are running a
+  // conv with tf32 precision, because the first multiply works in fp32 mode,
+  // and the second effectively gets truncated to tf32.  But it's close enough,
+  // and tf32 is, for the most part, invisible to users.)
+  layout_insensitive_algsimp_opts.set_enable_scalar_multiply_reduction(true);
+
   // "slow" minmax means we propagate nan.
   layout_insensitive_algsimp_opts.set_minmax_propagate_nan(
       !debug_options.xla_gpu_enable_fast_min_max());
@@ -856,6 +863,7 @@ Status GpuCompiler::OptimizeHloPostLayoutAssignment(
     options.set_supports_non_canonical_dots(false);
     options.set_is_layout_sensitive(true);
     options.set_enable_conv_operand_swap(false);
+    options.set_enable_scalar_multiply_reduction(true);
     // "slow" minmax means we propagate nan.
     options.set_minmax_propagate_nan(
         !debug_options.xla_gpu_enable_fast_min_max());
@@ -993,6 +1001,7 @@ Status GpuCompiler::OptimizeHloPostLayoutAssignment(
     options.set_supports_non_canonical_dots(false);
     options.set_is_layout_sensitive(true);
     options.set_enable_conv_operand_swap(false);
+    options.set_enable_scalar_multiply_reduction(true);
     // "slow" minmax means we propagate nan.
     options.set_minmax_propagate_nan(
         !hlo_module->config().debug_options().xla_gpu_enable_fast_min_max());
@@ -1722,13 +1731,12 @@ std::optional<bool> GpuCompiler::FusionCanShareBufferHint(
   }
 
   // We need to make sure that the fusion parameter is accessed in the same
-  // iteration order as the fusion output. Also, there should not be two fusion
-  // outputs that consume the fusion parameter, because we do not want to share
-  // the same fusion operand with two different fusion outputs. To make sure
+  // iteration order as the fusion output. Also, there should not be any other
+  // fusion output that accesses it in a different iteration order. To make sure
   // that the iteration order is the same, we only allow ops on the path from
   // fusion parameter to fusion output which are elementwise (no copy) or
-  // bitcast or a dynamic update slice with the first operand being on this
-  // path.
+  // bitcast or an elementwise dynamic update slice (i.e. with the first operand
+  // being on this path).
   HloInstruction* fusion_param =
       user->fused_parameter(user->operand_index(operand));
   HloInstruction* output = user->fused_expression_root();
@@ -1745,23 +1753,17 @@ std::optional<bool> GpuCompiler::FusionCanShareBufferHint(
     q.pop();
     if (hlo_operand == output) {
       found_path_to_output = true;
-      // The output should have at most 1 user: the tuple op (in case of a
-      // multi-output fusion)
-      if (hlo_operand->user_count() > 1) {
-        return false;
-      }
-      continue;
+      // We still need to process the users of 'hlo_operand'. There can be other
+      // users in addition to the tuple user.
     }
     for (HloInstruction* hlo : hlo_operand->users()) {
       if (visited.contains(hlo)) {
         continue;
       }
-      // This check also catches the case that we reach a different fusion
-      // output, as that fusion output would have a tuple op as user, which we
-      // do not allow here.
       if ((!hlo->IsElementwiseOnOperand(hlo->operand_index(hlo_operand)) ||
            hlo->opcode() == HloOpcode::kCopy) &&
-          hlo->opcode() != HloOpcode::kBitcast) {
+          hlo->opcode() != HloOpcode::kBitcast &&
+          hlo->opcode() != HloOpcode::kTuple) {
         return false;
       }
       visited.insert(hlo);

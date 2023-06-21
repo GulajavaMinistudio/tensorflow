@@ -572,17 +572,17 @@ class TritonAutotunerVisitor : public DfsHloRewriteVisitor {
                                              launch_dimensions[0], stream));
     TF_RETURN_IF_ERROR(stream->BlockHostUntilDone());
 
-    StatusOr<se::gpu::GpuTimer> timer =
-        se::gpu::GpuTimer::Create(se::gpu::AsGpuStream(stream));
-    TF_RETURN_IF_ERROR(timer.status());
+    TF_ASSIGN_OR_RETURN(
+        auto timer, se::gpu::GpuTimer::Create(se::gpu::AsGpuStream(stream)));
     TF_RETURN_IF_ERROR(ExecuteKernelOnStream(*matmul_kernel, matmul_args,
                                              launch_dimensions[0], stream));
     if (have_reduction) {
       TF_RETURN_IF_ERROR(ExecuteKernelOnStream(*reduce_kernel, reduce_args,
                                                launch_dimensions[1], stream));
     }
-    TF_RETURN_IF_ERROR(timer->Stop());
-    return std::make_optional(absl::Nanoseconds(timer->Nanoseconds()));
+    TF_ASSIGN_OR_RETURN(absl::Duration timer_duration,
+                        timer.GetElapsedDuration());
+    return std::make_optional(timer_duration);
   }
 
   StatusOr<std::unique_ptr<Executable>> CompileMatmulWithCublas(
@@ -985,36 +985,13 @@ StatusOr<bool> TritonAutotuner::Run(
 }
 
 Status TritonAutotuner::WriteAutotuneResults(AutotuneResults* results) {
-  // TODO(anlunx): Remove duplication with gpu_conv_algorithm_picker.
   absl::MutexLock lock(&autotune_cache_mu);
-
-  for (const auto& [k, result] : autotune_cache) {
-    const auto& [model_str, hlo] = k;
-    auto& entry = *results->add_dots();
-    entry.set_device(model_str);
-    entry.set_hlo(hlo);
-    *entry.mutable_result() = result;
-  }
-
-  // Sort the results so that they're deterministic.
-  std::sort(results->mutable_dots()->pointer_begin(),
-            results->mutable_dots()->pointer_end(),
-            [](const auto* a, const auto* b) {
-              return std::make_pair(absl::string_view(a->device()),
-                                    absl::string_view(a->hlo())) <
-                     std::make_pair(absl::string_view(b->device()),
-                                    absl::string_view(b->hlo()));
-            });
-  return OkStatus();
+  return SerializeAutotuneResults(autotune_cache, results);
 }
 
 Status TritonAutotuner::LoadAutotuneResults(const AutotuneResults& results) {
   absl::MutexLock lock(&autotune_cache_mu);
-  for (const auto& result : results.convs()) {
-    autotune_cache[std::make_tuple(result.device(), result.hlo())] =
-        result.result();
-  }
-  return OkStatus();
+  return ::xla::gpu::LoadAutotuneResults(autotune_cache, results);
 }
 
 void TritonAutotuner::ClearAutotuneResults() {
