@@ -337,6 +337,7 @@ py_library(
         ":no_contrib",
         "//tensorflow/core/function/trace_type",
         "//tensorflow/python/data",
+        "//tensorflow/python/distribute",
         "//tensorflow/python/distribute:merge_call_interim",
         "//tensorflow/python/distribute:multi_process_runner",
         "//tensorflow/python/distribute:multi_worker_test_base",
@@ -489,15 +490,6 @@ py_strict_library(
     deps = ["//tensorflow/python/framework:test_lib"],
 )
 
-py_strict_library(
-    name = "gradients",
-    tags = ["avoid_dep"],
-    deps = [
-        "//tensorflow/python/ops:custom_gradient",
-        "//tensorflow/python/ops:gradients",
-    ],
-)
-
 # TODO(b/285020435): Update usages and then remove.
 py_strict_library(
     name = "image_ops",
@@ -505,16 +497,6 @@ py_strict_library(
     deps = [
         "//tensorflow/python/ops:image_ops",
         "//tensorflow/python/ops:image_ops_impl",
-    ],
-)
-
-# TODO(b/285020435): Update usages and then remove.
-py_strict_library(
-    name = "nn",
-    tags = ["avoid_dep"],
-    deps = [
-        "//tensorflow/python/ops:nn",
-        "//tensorflow/python/ops:nn_impl",
     ],
 )
 

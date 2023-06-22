@@ -129,6 +129,7 @@ limitations under the License.
 #include "tensorflow/compiler/xla/service/gpu/reduction_splitter.h"
 #include "tensorflow/compiler/xla/service/gpu/runtime_intrinsics.h"
 #include "tensorflow/compiler/xla/service/gpu/scatter_slice_simplifier.h"
+#include "tensorflow/compiler/xla/service/gpu/softmax_rewriter_triton.h"
 #include "tensorflow/compiler/xla/service/gpu/topk_specializer.h"
 #include "tensorflow/compiler/xla/service/gpu/topk_splitter.h"
 #include "tensorflow/compiler/xla/service/gpu/tree_reduction_rewriter.h"
@@ -196,6 +197,7 @@ limitations under the License.
 #include "tensorflow/tsl/profiler/lib/traceme.h"
 
 #if GOOGLE_CUDA
+#include "tensorflow/compiler/xla/autotune_serialize.h"
 #include "tensorflow/compiler/xla/service/gpu/gemm_algorithm_picker.h"
 #include "tensorflow/compiler/xla/service/gpu/triton_autotuner.h"
 #elif TENSORFLOW_USE_ROCM
@@ -694,11 +696,18 @@ Status GpuCompiler::OptimizeHloModule(HloModule* hlo_module,
         HloVerifierOpts{}.MakeLayoutSensitive().WithInstructionCanChangeLayout(
             LayoutAssignment::InstructionCanChangeLayout),
         /*debug_only=*/true);
-    fusion.AddPass<GpuInstructionFusion>(/*may_duplicate=*/false,
-                                         gpu_device_info);
-    fusion.AddPass<GpuInstructionFusion>(/*may_duplicate=*/true,
-                                         gpu_device_info);
-    fusion.AddPass<FusionMerger>(gpu_device_info, ShapeSizeBytesFunction());
+
+    if (debug_options.xla_gpu_enable_priority_fusion()) {
+      fusion.AddPass<GpuInstructionFusion>(/*may_duplicate=*/false,
+                                           gpu_device_info,
+                                           /*priority_fusion=*/true);
+    } else {
+      fusion.AddPass<GpuInstructionFusion>(/*may_duplicate=*/false,
+                                           gpu_device_info);
+      fusion.AddPass<GpuInstructionFusion>(/*may_duplicate=*/true,
+                                           gpu_device_info);
+      fusion.AddPass<FusionMerger>(gpu_device_info, ShapeSizeBytesFunction());
+    }
     // Running CSE affects how many users an op has. This plays a role in what
     // we detect as a tiled transpose fusion.
     fusion.AddPass<HloCSE>(/*is_layout_sensitive=*/true,
@@ -904,6 +913,15 @@ Status GpuCompiler::OptimizeHloPostLayoutAssignment(
 
     pipeline.AddPass<ReductionDegenerateDimRemover>();
     pipeline.AddPass<ReductionLayoutNormalizer>();
+    // Run Softmax fusion after layout normalization. We expect a default layout
+    // in the softmax codegen pipeline. However we should run before
+    // ReductionDimensionGrouper, as that makes matching the softmax pattern
+    // harder.
+    if (debug_options.xla_gpu_enable_triton_softmax_fusion()) {
+      pipeline.AddPass<HloPassFix<AlgebraicSimplifier>>(options);
+      pipeline.AddPass<SoftmaxRewriterTriton>(gpu_target_config.gpu_version);
+    }
+
     pipeline.AddPass<ReductionDimensionGrouper>();
     pipeline.AddPass<HloPassFix<ReductionSplitter>>();
     pipeline.AddPass<HloPassFix<GpuTreeReductionRewriter>>(
@@ -1017,6 +1035,17 @@ Status GpuCompiler::OptimizeHloPostLayoutAssignment(
 StatusOr<std::unique_ptr<HloModule>> GpuCompiler::RunHloPasses(
     std::unique_ptr<HloModule> module, se::StreamExecutor* stream_exec,
     const CompileOptions& options) {
+#if GOOGLE_CUDA
+  const DebugOptions& debug_options = module->config().debug_options();
+
+  // We are doing this before the timer is started.
+  if (absl::string_view file_path =
+          debug_options.xla_gpu_load_autotune_results_from();
+      !file_path.empty()) {
+    TF_RETURN_IF_ERROR(LoadAutotuneResultsFromFileOnce(file_path));
+  }
+#endif  // GOOGLE_CUDA
+
   // We dump the post-optimization HLO in RunBackend so no need to dump it here.
   XLA_SCOPED_LOGGING_TIMER(
       absl::StrCat("GpuCompiler::RunHloPasses for ", module->name()));
@@ -1037,6 +1066,17 @@ StatusOr<std::unique_ptr<HloModule>> GpuCompiler::RunHloPasses(
   // This won't record values for calls that error out (because if they error
   // out we have no way of telling how far through the process we got).
   RecordHloPassesDuration(end_usecs - start_usecs);
+
+#if GOOGLE_CUDA
+  // We are doing this after the timer is finished.
+  if (absl::string_view file_path =
+          debug_options.xla_gpu_dump_autotune_results_to();
+      !file_path.empty()) {
+    // Warning: This writes the autotune results at every compilation, possibly
+    // multiple times per process.
+    TF_RETURN_IF_ERROR(SerializeAutotuneResultsToFile(file_path));
+  }
+#endif  // GOOGLE_CUDA
 
   return std::move(module);
 }
