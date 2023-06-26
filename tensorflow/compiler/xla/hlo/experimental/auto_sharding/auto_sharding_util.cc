@@ -174,8 +174,8 @@ HloSharding BroadcastSharding(const HloSharding& input_spec,
     target_tile_assignment_dimensions.push_back(
         input_spec.tile_assignment().dimensions().back());
   }
-  Array<int64_t> new_tile_assignment = input_spec.tile_assignment();
-  new_tile_assignment.Reshape(target_tile_assignment_dimensions);
+  auto new_tile_assignment =
+      input_spec.tile_assignment().Reshape(target_tile_assignment_dimensions);
 
   return input_spec.ReplicateOnLastTileDim()
              ? HloSharding::PartialTile(new_tile_assignment)
@@ -1182,11 +1182,11 @@ bool IsValidTileAssignment(const HloSharding& spec) {
   }
 
   // Check all tile dims
-  const Array<int64_t>& tile_assignment = spec.tile_assignment();
+  const auto& tile_assignment = spec.tile_assignment();
   for (int i = 0; i < tile_assignment.num_dimensions(); i++) {
     if (tile_assignment.dim(i) != 1) {
       std::vector<int64_t> device_ids =
-          GetValuesAlongOneDim(tile_assignment, i).value();
+          GetValuesAlongOneDim(tile_assignment.array(), i).value();
       auto status_or_delta = CheckArithmeticSequence(device_ids);
       if (!status_or_delta.ok()) {
         return false;
@@ -1243,7 +1243,7 @@ absl::StatusOr<std::vector<int64_t>> GetTensorDimToMeshDimNoCrash(
   do {
     auto transposed_mesh = Transpose(mesh, axes);
     if (std::equal(transposed_mesh.begin(), transposed_mesh.end(),
-                   spec.tile_assignment().begin())) {
+                   spec.tile_assignment().array().begin())) {
       found = true;
       break;
     }
@@ -2153,13 +2153,19 @@ void ComputeInstructionExecutionCountsHelper(
   for (auto instruction : computation->instructions()) {
     (*instruction_execution_counts)[instruction] = computation_execution_count;
     if (instruction->opcode() == HloOpcode::kWhile) {
+      int64_t while_body_condition_execution_count =
+          computation_execution_count * loop_iteration_count_estimate;
       ComputeInstructionExecutionCountsHelper(
-          instruction->while_body(), loop_iteration_count_estimate,
-          computation_execution_count * loop_iteration_count_estimate,
+          instruction->while_body(),
+          /*computation_execution_count */
+          while_body_condition_execution_count,
+          /*loop_iteration_count_estimate*/ loop_iteration_count_estimate,
           instruction_execution_counts);
       ComputeInstructionExecutionCountsHelper(
-          instruction->while_condition(), loop_iteration_count_estimate,
-          computation_execution_count * loop_iteration_count_estimate,
+          instruction->while_condition(),
+          /*computation_execution_count */
+          while_body_condition_execution_count,
+          /*loop_iteration_count_estimate*/ loop_iteration_count_estimate,
           instruction_execution_counts);
     }
   }

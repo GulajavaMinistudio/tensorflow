@@ -639,17 +639,6 @@ tf_gen_op_wrapper_private_py(
 )
 
 tf_gen_op_wrapper_private_py(
-    name = "risc_ops_gen",
-    visibility = [
-        "//tensorflow/python:__pkg__",
-        "//tensorflow/python/ops/risc:__pkg__",
-    ],
-    deps = [
-        "//tensorflow/core:risc_ops_op_lib",
-    ],
-)
-
-tf_gen_op_wrapper_private_py(
     name = "rnn_ops_gen",
     visibility = [
         "//tensorflow/python:__pkg__",
@@ -1261,7 +1250,7 @@ py_strict_library(
         "//tensorflow/python/eager:context",
         "//tensorflow/python/eager/polymorphic_function:atomic_function",
         "//tensorflow/python/eager/polymorphic_function:concrete_function",
-        "//tensorflow/python/eager/polymorphic_function:tracing_compiler",
+        "//tensorflow/python/eager/polymorphic_function:tracing_compilation",
         "//tensorflow/python/eager/polymorphic_function:transform",
         "//tensorflow/python/framework:func_graph",
         "//tensorflow/python/framework:function_def_to_graph",
@@ -4428,7 +4417,11 @@ py_strict_test(
         "//tensorflow/python/framework:ops",
         "//tensorflow/python/framework:test_lib",
         "//tensorflow/python/framework:weak_tensor",
+        "//tensorflow/python/ops/numpy_ops:np_array_ops",
+        "//tensorflow/python/ops/numpy_ops:np_config",
+        "//tensorflow/python/ops/numpy_ops:np_math_ops",
         "//tensorflow/python/platform:test",
+        "@absl_py//absl/testing:parameterized",
     ],
 )
 
@@ -4447,5 +4440,7 @@ py_strict_library(
         ":nn_ops",
         ":nn_ops_gen",
         ":special_math_ops",
+        "//tensorflow/python/ops/numpy_ops:np_array_ops",
+        "//tensorflow/python/ops/numpy_ops:np_math_ops",
     ],
 )

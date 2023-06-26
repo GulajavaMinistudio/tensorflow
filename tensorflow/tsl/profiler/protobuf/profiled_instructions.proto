@@ -1,4 +1,4 @@
-/* Copyright 2022 The TensorFlow Authors. All Rights Reserved.
+/* Copyright 2023 The TensorFlow Authors. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,21 +12,22 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
-#ifndef TENSORFLOW_CORE_PROFILER_UTILS_TPU_XPLANE_UTILS_H_
-#define TENSORFLOW_CORE_PROFILER_UTILS_TPU_XPLANE_UTILS_H_
 
-#include <vector>
+syntax = "proto3";
 
-#include "tensorflow/core/profiler/protobuf/xplane.pb.h"
-#include "tensorflow/tsl/profiler/utils/tpu_xplane_utils.h"
+package tensorflow.profiler;
 
-namespace tensorflow {
-namespace profiler {
-
-using tsl::profiler::FindMutableTensorCorePlanes;  // NOLINT
-using tsl::profiler::FindTensorCorePlanes;         // NOLINT
-
-}  // namespace profiler
-}  // namespace tensorflow
-
-#endif  // TENSORFLOW_CORE_PROFILER_UTILS_TPU_XPLANE_UTILS_H_
+// Next ID: 3
+message ProfiledInstructionsProto {
+  message InstructionCost {
+    string name = 1;
+    double cost_us = 2;
+  }
+  message Latency {
+    string source = 1;
+    string target = 2;
+    double latency_us = 3;
+  }
+  repeated InstructionCost costs = 1;
+  repeated Latency latencies = 2;
+}

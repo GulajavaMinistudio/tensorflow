@@ -567,7 +567,7 @@ cc_library(
         ":gpu_executable",
         ":gpu_float_support",
         ":gpu_fusible",
-        ":gpu_serializable_autotuner",
+        ":autotuner_util",
         ":instruction_fusion",
         ":ir_emission_utils",
         ":ir_emitter_triton",
@@ -1268,7 +1268,7 @@ cc_library(
         ":ir_emission_utils",
         ":matmul_utils",
         ":stream_executor_util",
-        ":gpu_serializable_autotuner",
+        ":autotuner_util",
         "@com_google_absl//absl/strings",
         "//tensorflow/compiler/xla:autotune_results_proto_cc",
         "//tensorflow/compiler/xla/hlo/ir:hlo",
@@ -1292,16 +1292,23 @@ cc_library(
 )
 
 cc_library(
-    name = "gpu_serializable_autotuner",
-    srcs = ["gpu_serializable_autotuner.cc"],
-    hdrs = ["gpu_serializable_autotuner.h"],
-    deps = [
+    name = "autotuner_util",
+    srcs = if_gpu_is_configured(["autotuner_util.cc"]),
+    hdrs = if_gpu_is_configured(["autotuner_util.h"]),
+    deps = if_gpu_is_configured([
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/strings",
+        ":stream_executor_util",
         "//tensorflow/compiler/xla:autotune_results_proto_cc",
         "//tensorflow/compiler/xla:types",
+        "//tensorflow/compiler/xla:xla_proto_cc",
         "//tensorflow/compiler/xla/hlo/ir:hlo",
         "//tensorflow/compiler/xla/stream_executor",
+        "//tensorflow/compiler/xla/stream_executor/gpu:redzone_allocator",
         "//tensorflow/tsl/protobuf:autotuning_proto_cc",
-    ],
+        "//tensorflow/tsl/platform:env",
+        "//tensorflow/tsl/platform:protobuf",
+    ]),
 )
 
 xla_cc_test(
@@ -1467,17 +1474,19 @@ xla_cc_test(
 
 cc_library(
     name = "gpu_conv_algorithm_picker",
-    srcs = ["gpu_conv_algorithm_picker.cc"],
-    hdrs = ["gpu_conv_algorithm_picker.h"],
+    srcs = if_gpu_is_configured(["gpu_conv_algorithm_picker.cc"]),
+    hdrs = if_gpu_is_configured(["gpu_conv_algorithm_picker.h"]),
     copts = if_cuda_is_configured(["-DGOOGLE_CUDA=1"]),
-    deps = [
+    deps = if_gpu_is_configured([
         ":backend_configs_cc",
         ":gpu_asm_opts_util",
         ":gpu_autotuning_proto_cc",
         ":gpu_conv_runner",
-        ":gpu_serializable_autotuner",
         ":hlo_algorithm_denylist",
         ":stream_executor_util",
+        "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
         "//tensorflow/compiler/xla:autotune_results_proto_cc",
         "//tensorflow/compiler/xla:literal_util",
         "//tensorflow/compiler/xla:util",
@@ -1493,10 +1502,7 @@ cc_library(
         "//tensorflow/tsl/platform:numbers",
         "//tensorflow/tsl/protobuf:autotuning_proto_cc",
         "//tensorflow/tsl/util/proto:proto_utils",
-        "@com_google_absl//absl/algorithm:container",
-        "@com_google_absl//absl/strings",
-        "@com_google_absl//absl/strings:str_format",
-    ] + if_cuda_is_configured([
+        ":autotuner_util",
         ":buffer_comparator",
         "@local_config_cuda//cuda:cudnn_header",
         "//tensorflow/compiler/xla/stream_executor/gpu:redzone_allocator",
@@ -1505,7 +1511,7 @@ cc_library(
 
 xla_cc_test(
     name = "gpu_conv_algorithm_picker_test",
-    srcs = ["gpu_conv_algorithm_picker_test.cc"],
+    srcs = if_gpu_is_configured(["gpu_conv_algorithm_picker_test.cc"]),
     tags = [
         "gpu",
         "no_oss",
@@ -2237,7 +2243,6 @@ cc_library(
         ":gpu_reduce_scatter_creator",
         ":gpu_sanitize_constant_names",
         ":gpu_scatter_expander",
-        ":gpu_serializable_autotuner",
         ":gpu_shape_verifier",
         ":hlo_fusion_stats",
         ":horizontal_input_fusion",
@@ -2389,7 +2394,7 @@ cc_library(
     ] + if_cuda_is_configured([
         ":gemm_algorithm_picker",
         ":triton_autotuner",
-        "//tensorflow/compiler/xla:autotune_serialize",
+        ":autotuner_util",
     ]),
 )
 
@@ -2410,6 +2415,18 @@ xla_cc_test(
         "@com_google_absl//absl/log:scoped_mock_log",
         "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest",
+    ],
+)
+
+xla_cc_test(
+    name = "auto_sharding_gpu_compiler_test",
+    srcs = ["auto_sharding_gpu_compiler_test.cc"],
+    tags = tf_cuda_tests_tags() + ["no_oss"],  # TODO(b/277355322): Make autosharding work in OSS
+    deps = [
+        "//tensorflow/compiler/xla/hlo/utils:hlo_matchers",
+        "//tensorflow/compiler/xla/service:gpu_plugin",
+        "//tensorflow/compiler/xla/tests:hlo_test_base",
+        "//tensorflow/compiler/xla/tests:xla_internal_test_main",
     ],
 )
 
@@ -2453,7 +2470,7 @@ cc_library(
         ":metrics",
         ":target_constants",
         ":triangular_solve_rewriter",
-        ":gpu_serializable_autotuner",
+        ":autotuner_util",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/container:node_hash_map",
         "@com_google_absl//absl/strings:str_format",
@@ -2736,6 +2753,7 @@ cc_library(
         "//tensorflow/compiler/xla/service:profile_guided_latency_estimator",
         "//tensorflow/tsl/platform:env",
         "//tensorflow/tsl/platform:protobuf",
+        "//tensorflow/tsl/profiler/protobuf:profiled_instructions_proto_cc_impl",
         "@com_google_absl//absl/memory",
     ],
 )
@@ -2749,15 +2767,13 @@ xla_cc_test(
     deps = [
         ":gpu_device_info",
         ":gpu_hlo_schedule",
-        "//tensorflow/compiler/xla:xla_proto_cc",
         "//tensorflow/compiler/xla/hlo/ir:hlo",
         "//tensorflow/compiler/xla/hlo/utils:hlo_query",
         "//tensorflow/compiler/xla/service:gpu_plugin",
         "//tensorflow/compiler/xla/tests:hlo_test_base",
         "//tensorflow/compiler/xla/tests:test_utils",
         "//tensorflow/compiler/xla/tests:xla_internal_test_main",
-        "@com_google_absl//absl/memory",
-        "@com_google_absl//absl/strings:str_format",
+        "//tensorflow/tsl/profiler/protobuf:profiled_instructions_proto_cc",
     ],
 )
 
@@ -3817,4 +3833,20 @@ xla_cc_test(
         "//tensorflow/compiler/xla/tests:xla_internal_test_main",
         "@com_google_absl//absl/strings",
     ],
+)
+
+xla_cc_test(
+    name = "autotuner_util_test",
+    srcs = if_cuda_is_configured(["autotuner_util_test.cc"]),
+    deps = if_cuda_is_configured([
+        ":autotuner_util",
+        "//tensorflow/compiler/xla:autotune_results_proto_cc",
+        "@com_google_googletest//:gtest",
+        "@com_google_absl//absl/base:log_severity",
+        "@com_google_absl//absl/log:scoped_mock_log",
+        "@com_google_absl//absl/strings",
+        "//tensorflow/compiler/xla/tests:hlo_test_base",
+        "//tensorflow/tsl/lib/core:status_test_util",
+        "//tensorflow/tsl/platform:protobuf",
+    ]) + ["//tensorflow/compiler/xla/tests:xla_internal_test_main"],
 )
