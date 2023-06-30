@@ -49,6 +49,7 @@ cc_library(
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@llvm-project//llvm:Support",
+        "@llvm-project//mlir:IR",
     ],
 )
 
@@ -63,6 +64,44 @@ tf_proto_library(
     name = "xla_compiler_proto",
     srcs = ["xla_compiler.proto"],
     protodeps = ["//tensorflow/compiler/xla/pjrt:compile_options_proto"],
+)
+
+cc_library(
+    name = "xla_program_serdes",
+    srcs = ["xla_program_serdes.cc"],
+    deps = [
+        ":xla_ifrt",
+        "//tensorflow/compiler/xla/mlir_hlo:mhlo_passes",
+        "//tensorflow/compiler/xla/python/ifrt:serdes",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@llvm-project//llvm:Support",
+        "@llvm-project//mlir:FuncDialect",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Pass",
+        "@llvm-project//mlir:ReconcileUnrealizedCasts",
+        "@llvm-project//mlir:Support",
+        "@stablehlo//:stablehlo_portable_api",
+        "@stablehlo//:stablehlo_serialization",
+    ],
+    alwayslink = 1,
+)
+
+xla_cc_test(
+    name = "xla_program_serdes_test",
+    srcs = ["xla_program_serdes_test.cc"],
+    deps = [
+        ":xla_ifrt",
+        ":xla_program_serdes",
+        "//tensorflow/compiler/xla/mlir_hlo",
+        "//tensorflow/compiler/xla/pjrt:mlir_to_hlo",
+        "//tensorflow/compiler/xla/python/ifrt:serdes",
+        "@com_google_googletest//:gtest_main",
+        "@llvm-project//llvm:Support",
+        "@llvm-project//mlir:FuncDialect",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Support",
+    ],
 )
 
 # TODO(hyeontaek): Move this target out of pjrt_ifrt.
@@ -129,6 +168,7 @@ cc_library(
         "//tensorflow/tsl/platform:statusor",
         "@com_google_absl//absl/container:inlined_vector",
         "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/types:span",
         "@llvm-project//llvm:Support",

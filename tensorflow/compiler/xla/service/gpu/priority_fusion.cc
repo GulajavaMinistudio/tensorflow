@@ -20,6 +20,7 @@ limitations under the License.
 #include <iterator>
 #include <map>
 #include <memory>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -154,9 +155,15 @@ class GpuPriorityFusionQueue : public FusionQueue {
     }
     to_update_priority_.insert(fusion);
 
+    // When current_consumers_ is empty, we will need to dequeue a new producer
+    // next time, so we update the priorities now.
     if (current_consumers_.empty()) {
-      // When current_consumers_ is empty, we will need to dequeue a new
-      // producer next time, so we update the priorities now.
+      // Revisit costs of all updated ops. It's important to update cost
+      // analysis before recalculating priorities.
+      for (auto instruction : to_update_priority_) {
+        TF_CHECK_OK(cost_analysis_.RevisitInstruction(instruction));
+      }
+
       for (auto instruction : to_update_priority_) {
         auto reverse_it = reverse_map_.find(instruction);
         const auto new_priority = CalculateProducerPriority(instruction);
@@ -203,9 +210,8 @@ class GpuPriorityFusionQueue : public FusionQueue {
     std::vector<HloInstruction*> fusible_users = GetFusibleUsers(producer);
 
     GpuPerformanceModel::RunTimes t = GpuPerformanceModel::EstimateRunTimes(
-        producer, &cost_analysis_, gpu_device_info_, fusible_users,
-        // producer, &cost_analysis_, gpu_device_info_, producer->users(),
-        /*multi_output=*/false);
+        producer, &cost_analysis_, gpu_device_info_, std::nullopt,
+        fusible_users, /*multi_output=*/false);
 
     return absl::ToInt64Nanoseconds(t.time_unfused - t.time_fused);
   }

@@ -38,6 +38,7 @@ limitations under the License.
 #include "absl/types/span.h"
 #include "llvm/IR/LLVMContext.h"
 #include "tensorflow/compiler/xla/autotune_results.pb.h"
+#include "tensorflow/compiler/xla/autotuning.pb.h"
 #include "tensorflow/compiler/xla/hlo/ir/dfs_hlo_visitor_with_default.h"
 #include "tensorflow/compiler/xla/hlo/ir/hlo_clone_context.h"
 #include "tensorflow/compiler/xla/hlo/ir/hlo_computation.h"
@@ -84,15 +85,12 @@ limitations under the License.
 #include "tensorflow/tsl/platform/status.h"
 #include "tensorflow/tsl/platform/statusor.h"
 #include "tensorflow/tsl/platform/threadpool.h"
-#include "tensorflow/tsl/protobuf/autotuning.pb.h"
 #include "tensorflow/tsl/util/proto/proto_utils.h"
 
 namespace xla {
 namespace gpu {
 
 namespace {
-
-using tensorflow::AutotuneResult;
 
 // Constructs an autotuning key for a gemm performed in Triton.
 static AutotuneResult::TritonGemmKey GemmKey(int64_t block_m, int64_t block_n,
@@ -347,9 +345,24 @@ class TritonAutotunerVisitor : public DfsHloRewriteVisitor {
     }
 
     // The intermediate one does not need to be initialized.
-    TF_ASSIGN_OR_RETURN(se::DeviceMemoryBase intermediate_buffer,
-                        rz_allocator.AllocateBytes(
-                            ShapeUtil::ByteSizeOf(root->shape()) * kMaxSplitK));
+    const bool disable_reduced_precision_reduction =
+        instr->GetModule()
+            ->config()
+            .debug_options()
+            .xla_gpu_triton_gemm_disable_reduced_precision_reduction();
+
+    PrimitiveType output_type = root->shape().element_type();
+    PrimitiveType accumulator_type = output_type == PrimitiveType::F64
+                                         ? PrimitiveType::F64
+                                         : PrimitiveType::F32;
+    TF_ASSIGN_OR_RETURN(
+        se::DeviceMemoryBase intermediate_buffer,
+        rz_allocator.AllocateBytes(ShapeUtil::ElementsIn(root->shape()) *
+                                   ShapeUtil::ByteSizeOfPrimitiveType(
+                                       disable_reduced_precision_reduction
+                                           ? accumulator_type
+                                           : output_type) *
+                                   kMaxSplitK));
 
     TF_ASSIGN_OR_RETURN(se::DeviceMemoryBase output_buffer,
                         AutotunerUtil::CreateBuffer(rz_allocator, root->shape(),
@@ -498,6 +511,9 @@ class TritonAutotunerVisitor : public DfsHloRewriteVisitor {
         original_computation.parent()->config().debug_options();
     // Use cuBLAS gemm.
     options.set_xla_gpu_enable_triton_gemm(false);
+    // Avoid any autotuning: the result is only used to check numerics,
+    // use default algorithms to save compilation time and memory.
+    options.set_xla_gpu_autotune_level(0);
     // Avoid dumping compilation steps.
     options.set_xla_dump_to("");
     options.set_xla_gpu_dump_autotune_results_to("");
@@ -731,7 +747,7 @@ class TritonAutotunerVisitor : public DfsHloRewriteVisitor {
         std::string ptx,
         nvptx::CompileToPtx(compile_module_results.llvm_module.get(),
                             device_description.cuda_compute_capability(),
-                            new_hlo_module->config()));
+                            new_hlo_module->config().debug_options()));
 
     se::GpuAsmOpts ptxas_config =
         PtxOptsFromDebugOptions(new_hlo_module->config().debug_options());

@@ -286,7 +286,7 @@ py_library(
         "//tensorflow/python/tpu:functional",
         "//tensorflow/python/tpu:preempted_hook_py",
         "//tensorflow/python/tpu:tpu_noestimator",
-        "//tensorflow/python/training",
+        "//tensorflow/python/training:evaluation",
         "//tensorflow/python/training:saver",
         "//tensorflow/python/training:saver_test_utils",
         "//tensorflow/python/types:core",
@@ -344,6 +344,16 @@ py_library(
         "//tensorflow/python/distribute:sharded_variable",
         "//tensorflow/python/distribute/failure_handling:failure_handling_lib",
         "//tensorflow/python/distribute/failure_handling:preemption_watcher",
+        "//tensorflow/python/framework",
+        "//tensorflow/python/framework:combinations",
+        "//tensorflow/python/framework:composite_tensor",
+        "//tensorflow/python/framework:config",
+        "//tensorflow/python/framework:errors",
+        "//tensorflow/python/framework:extension_type",
+        "//tensorflow/python/framework:graph_util",
+        "//tensorflow/python/framework:ops",
+        "//tensorflow/python/framework:test_combinations_lib",
+        "//tensorflow/python/framework:versions",
         "//tensorflow/python/ops:audio_ops_gen",
         "//tensorflow/python/ops:bincount_ops",
         "//tensorflow/python/ops:bitwise_ops",
@@ -1251,20 +1261,6 @@ py_strict_library(
         "//tensorflow/python/platform:_pywrap_tf2",
         "//tensorflow/python/util:tf_export",
     ],
-)
-
-py_strict_library(
-    name = "platform_test",
-    srcs_version = "PY3",
-    deps = ["//tensorflow/python/platform:test"],
-)
-
-py_strict_library(
-    name = "learning_rate_decay",
-    # This rule depends on a target that only python:__pkg__ has visibility for.
-    srcs = ["//tensorflow/python/training:learning_rate_decay.py"],
-    srcs_version = "PY3",
-    deps = ["//tensorflow/python/keras/optimizer_v2:legacy_learning_rate_decay"],
 )
 
 # copybara:uncomment_begin(google-only)
