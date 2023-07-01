@@ -721,10 +721,12 @@ class TritonAutotunerVisitor : public DfsHloRewriteVisitor {
         device_description.rocm_compute_capability(),
         DummyCanShareBufferFunction,
         /*pointer_size=*/8, &compile_module_results);
-    if (!compilation_status.ok()) {
+    if (compilation_status.code() == absl::StatusCode::kResourceExhausted) {
       VLOG(2) << "Compilation of autotuning variant failed: "
               << compilation_status;
       return {std::nullopt};
+    } else if (!compilation_status.ok()) {
+      return compilation_status;
     }
 
     std::vector<std::string> kernel_names;
@@ -770,10 +772,10 @@ class TritonAutotunerVisitor : public DfsHloRewriteVisitor {
 };
 
 // Search space for exhaustive matmul autotuning.
-constexpr std::array<int, 5> BLOCK_SIZES = {16, 32, 64, 128, 256};
+constexpr std::array<int, 6> BLOCK_SIZES = {16, 32, 64, 128, 256, 512};
 constexpr std::array<int, 4> NUM_STAGES = {1, 2, 3, 4};
 constexpr std::array<int, 4> NUM_WARPS = {2, 4, 8, 16};
-constexpr std::array<int, 4> SPLIT_K = {1, 2, 4, 8};
+constexpr std::array<int, 5> SPLIT_K = {1, 2, 4, 8, 16};
 
 std::vector<AutotuneResult::TritonGemmKey> GetExhaustiveMatmulAutotuneConfigs(
     const se::CudaComputeCapability compute_capability) {

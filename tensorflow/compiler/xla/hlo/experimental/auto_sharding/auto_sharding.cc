@@ -2229,18 +2229,6 @@ void PrintLargestInstructions(
   }
 }
 
-struct AutoShardingSolverResult {
- public:
-  AutoShardingSolverResult(
-      StatusOr<std::tuple<std::vector<int64_t>, std::vector<int64_t>, double>>
-          status,
-      bool skip_auto_sharding)
-      : status(status), skip_auto_sharding(skip_auto_sharding) {}
-  StatusOr<std::tuple<std::vector<int64_t>, std::vector<int64_t>, double>>
-      status;
-  bool skip_auto_sharding;
-};
-
 // NOLINTEND
 
 // We formulate the auto sharding process as the following ILP problem:
@@ -2287,24 +2275,6 @@ struct AutoShardingSolverResult {
 //        s[i][p] + s[j][q] <= 1 if v[p, q] == 1.0
 // Serialize parameters of the ILP problem as numpy arrays and call the python
 // solver.
-
-struct AutoShardingSolverRequest {
-  int64_t num_nodes;
-  int64_t memory_budget;
-  std::vector<int> s_len;
-  std::vector<int> s_follow;
-  std::vector<std::pair<int, int>> e;
-  std::vector<std::vector<int>> live;
-  std::vector<std::vector<double>> c;
-  std::vector<std::vector<double>> d;
-  std::vector<std::vector<double>> m;
-  std::vector<std::vector<double>> r;
-  std::vector<std::pair<int, int>> a;
-  std::vector<std::vector<double>> v;
-  std::vector<std::string> instruction_names;
-  std::optional<int64_t> solver_timeout_in_seconds;
-  bool crash_at_infinity_costs_check;
-};
 
 AutoShardingSolverResult CallORToolsSolver(
     const AutoShardingSolverRequest& request) {
@@ -2653,6 +2623,60 @@ AutoShardingSolverResult CallORToolsSolver(
       false);
 }
 
+bool AutoShardingEvaluation::operator==(
+    const AutoShardingEvaluation& other) const {
+  return violation_codes == other.violation_codes &&
+         total_communication_cost == other.total_communication_cost &&
+         total_computation_cost == other.total_computation_cost &&
+         total_resharding_cost == other.total_resharding_cost &&
+         total_cost == other.total_cost;
+}
+
+AutoShardingEvaluation Evaluate(const AutoShardingSolverRequest& request,
+                                const AutoShardingSolverResult& result) {
+  const std::vector<int64_t>& s_val = std::get<0>(*result.status);
+  const std::vector<int64_t>& e_val = std::get<1>(*result.status);
+  AutoShardingEvaluation evaluation;
+  // Compute violations.
+  for (size_t i = 0; i < request.num_nodes; ++i) {
+    if (request.s_follow[i] >= 0 && s_val[i] != s_val[request.s_follow[i]]) {
+      evaluation.violation_codes.insert(kFollowerViolationCode);
+    }
+  }
+  for (size_t i = 0; i < request.a.size(); ++i) {
+    const std::pair<int, int>& alias = request.a[i];
+    size_t p = s_val[alias.first], q = s_val[alias.second];
+    if (request.v[i][p * request.s_len[alias.second] + q] > 0.5) {
+      evaluation.violation_codes.insert(kAliasViolationCode);
+    }
+  }
+  if (request.memory_budget > 0) {
+    for (size_t t = 0; t < request.live.size(); ++t) {
+      double total_memory_cost = 0.0;
+      for (auto i : request.live[t]) {
+        total_memory_cost += request.m[i][s_val[i]];
+      }
+      if (total_memory_cost > request.memory_budget) {
+        evaluation.violation_codes.insert(kMemoryViolationCode);
+      }
+    }
+  }
+  // Compute metrics.
+  for (size_t i = 0; i < request.num_nodes; ++i) {
+    const int64_t j = s_val[i];
+    evaluation.total_communication_cost += request.d[i][j];
+    evaluation.total_computation_cost += request.c[i][j];
+  }
+  for (size_t i = 0; i < request.e.size(); ++i) {
+    const int64_t j = e_val[i];
+    evaluation.total_resharding_cost += request.r[i][j];
+  }
+  evaluation.total_cost += evaluation.total_communication_cost;
+  evaluation.total_cost += evaluation.total_computation_cost;
+  evaluation.total_cost += evaluation.total_resharding_cost;
+  return evaluation;
+}
+
 AutoShardingSolverResult CallSolver(
     const HloInstructionSequence& sequence, const LivenessSet& liveness_set,
     const StrategyMap& strategy_map, const LeafStrategies& leaf_strategies,
@@ -2772,7 +2796,14 @@ AutoShardingSolverResult CallSolver(
                                  value->index());
     }
   }
-  return CallORToolsSolver(request);
+  const AutoShardingSolverResult result = CallORToolsSolver(request);
+  const AutoShardingEvaluation evaluation = Evaluate(request, result);
+  LOG(INFO) << "Total Communication Cost: "
+            << evaluation.total_communication_cost;
+  LOG(INFO) << "Total Computation Cost: " << evaluation.total_computation_cost;
+  LOG(INFO) << "Total Resharding Cost: " << evaluation.total_resharding_cost;
+  LOG(INFO) << "Total Cost: " << evaluation.total_cost;
+  return result;
 }
 
 void CheckHloSharding(const HloInstructionSequence& sequence,
@@ -4493,6 +4524,12 @@ bool ModuleHasUserShardings(const HloModule* module) {
 AutoSharding::AutoSharding(const AutoShardingOption& option)
     : option_(option) {}
 
+bool IsSmallTensor(const HloInstruction* ins,
+                   const AutoShardingOption& option) {
+  return !ins->shape().IsTuple() &&
+         ShapeUtil::ByteSizeOf(ins->shape()) <= option.small_tensor_byte_size;
+}
+
 StatusOr<bool> AutoSharding::Run(
     HloModule* module,
     const absl::flat_hash_set<absl::string_view>& execution_threads) {
@@ -4513,6 +4550,19 @@ StatusOr<bool> AutoSharding::Run(
 
   TF_RETURN_IF_ERROR(option_.CheckAndSetup());
   VLOG(1) << "AutoShardingOptions:\n" << option_.ToString();
+
+  if (option_.small_tensor_byte_size > 0) {
+    for (auto computation : module->computations()) {
+      for (auto instruction : computation->instructions()) {
+        if (!instruction->has_sharding() && !instruction->shape().IsTuple() &&
+            IsSmallTensor(instruction, option_)) {
+          VLOG(1) << "Replicated small tensor: " << instruction->name()
+                  << "                     " << module->name();
+          instruction->set_sharding(HloSharding::Replicate());
+        }
+      }
+    }
+  }
 
   bool asymmetrical_mesh_dims = false;
   for (size_t i = 0; i < option_.device_mesh_shape.size(); ++i) {
