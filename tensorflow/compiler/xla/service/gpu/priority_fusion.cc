@@ -225,6 +225,11 @@ class GpuPriorityFusionQueue : public FusionQueue {
   Priority CalculateProducerPriority(HloInstruction* producer) {
     std::vector<HloInstruction*> fusible_users = GetFusibleUsers(producer);
 
+    // Don't bother computing cost for non-fusible ops.
+    if (fusible_users.empty()) {
+      return std::numeric_limits<Priority>::min();
+    }
+
     GpuPerformanceModel::RunTimes t = GpuPerformanceModel::EstimateRunTimes(
         producer, &cost_analysis_, gpu_device_info_, std::nullopt,
         fusible_users, /*multi_output=*/false);
@@ -317,10 +322,6 @@ FusionDecision GpuPriorityFusion::ShouldFuseInexpensiveChecks(
     HloInstruction* consumer, int64_t operand_index) {
   HloInstruction* producer = consumer->mutable_operand(operand_index);
 
-  // Output fusions are not currently supported on GPUs.
-  if (producer->opcode() == HloOpcode::kFusion) {
-    return "the producer is a fusion";
-  }
   // Cost condition: not fuse (simple, expensive producers) and (consumers who
   // reuse operand elements).
   if (producer->opcode() != HloOpcode::kFusion && is_expensive(*producer) &&
@@ -335,36 +336,43 @@ FusionDecision GpuPriorityFusion::ShouldFuseInexpensiveChecks(
     return "fusing the producer would break read coalescing";
   }
 
-  if (NoFusionPossible fusible =
-          !IsProducerConsumerFusible(*producer, *consumer)) {
-    return !fusible;
+  if (auto fusible = IsProducerConsumerFusible(*producer, *consumer);
+      !fusible) {
+    return fusible;
   }
 
   if (CreatesHeavyComputation(*producer, *consumer)) {
     return "the fusion would create a heavy computation";
   }
 
-  if (NoFusionPossible fusible =
-          !InstructionFusion::ShouldFuse(consumer, operand_index)) {
-    return !fusible;
-  }
-  return {};
+  return InstructionFusion::ShouldFuse(consumer, operand_index);
 }
 
 FusionDecision GpuPriorityFusion::ShouldFuse(HloInstruction* consumer,
                                              int64_t operand_index) {
-  if (NoFusionPossible fusible =
-          !ShouldFuseInexpensiveChecks(consumer, operand_index)) {
-    return !fusible;
+  if (auto fusible = ShouldFuseInexpensiveChecks(consumer, operand_index);
+      !fusible) {
+    return fusible;
   }
 
   auto producer = consumer->operand(operand_index);
 
   // The following checks are potentially expensive.
-  if (NoFusionPossible too_large =
-          !FusionFitsInBudget(*consumer, *producer, device_info_,
-                              /*is_consumer_producer_fusion=*/true)) {
-    return !too_large;
+  if (auto fusible = FusionFitsInBudget(*consumer, *producer, device_info_,
+                                        /*is_consumer_producer_fusion=*/true);
+      !fusible) {
+    return fusible;
+  }
+
+  // Also check that our emitter can handle the fusion node. We currently can
+  // have exponential time/memory requirements for emitting certain fusion
+  // kernels, in which case we don't want to fuse.
+  // TODO(b/119692968): Remove this once we have fixed our fusion emitter.
+  // TODO(kramerb): Re-enable caching of FusionNodeIndexingEvaluation. It
+  // doesn't get invalidated when fusions are merged.
+  if (consumer->opcode() == HloOpcode::kFusion &&
+      FusionNodeIndexingEvaluation(consumer).CodeDuplicationTooHigh(producer)) {
+    return "the fusion would result in an overly large code duplication";
   }
 
   return {};
@@ -377,6 +385,10 @@ HloInstruction::FusionKind GpuPriorityFusion::ChooseKind(
 
 HloInstruction* GpuPriorityFusion::FuseInstruction(
     HloInstruction* fusion_instruction, HloInstruction* producer) {
+  if (producer->opcode() == HloOpcode::kFusion) {
+    fusion_instruction->MergeFusionInstruction(producer);
+    return fusion_instruction;
+  }
   return InstructionFusion::FuseInstruction(fusion_instruction, producer);
 }
 

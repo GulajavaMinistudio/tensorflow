@@ -16,6 +16,7 @@ limitations under the License.
 #include "tensorflow/compiler/xla/service/gpu/multi_output_fusion.h"
 
 #include <algorithm>
+#include <iterator>
 #include <memory>
 #include <vector>
 
@@ -100,6 +101,12 @@ std::vector<HloInstruction*> GetProducerConsumerMultiOutputFusionCandidates(
   bool dump_fusion =
       module->config().debug_options().xla_dump_fusion_visualization();
 
+  // If the producer is not a valid candidate for MOF, no need to check any of
+  // its users.
+  if (!IsProducerMultiOutputFusible(*producer)) {
+    return fusion_candidates;
+  }
+
   // If there is only one user, and it is not a multi-output fusion node, this
   // fusion possibility was already considered and rejected by the FusionMerger
   // pass. No need to try again!
@@ -129,9 +136,10 @@ std::vector<HloInstruction*> GetProducerConsumerMultiOutputFusionCandidates(
           << "consumer not eligible as multi-output fusion root.");
       continue;
     }
-    if (NoFusionPossible fusible =
-            !IsProducerConsumerMultiOutputFusible(*producer, *consumer)) {
-      dump_negative_explanation(!fusible);
+    if (auto fusible =
+            ShapesCompatibleForMultiOutputFusion(*producer, *consumer);
+        !fusible) {
+      dump_negative_explanation(fusible);
       continue;
     }
     // Do not fuse a producer if the other operands of the fusion are
@@ -186,15 +194,10 @@ std::vector<HloInstruction*> GetProducerConsumerMultiOutputFusionCandidates(
   return fusion_candidates;
 }
 
-FusionDecision IsSiblingFusionCandidate(const HloInstruction* instr) {
-  if (instr->user_count() == 0) {
-    return "user count is zero";
-  }
-  if (!IsFusibleAsMultiOutputFusionRoot(*instr)) {
-    return "not fusible as MOF root";
-  }
-  if (IsNestableVariadicReduction(*instr)) {
-    return "merging with variadic reductions is not supported yet";
+bool IsSiblingFusionCandidate(const HloInstruction* instr) {
+  if (instr->users().empty() || !IsFusibleAsMultiOutputFusionRoot(*instr) ||
+      IsNestableVariadicReduction(*instr)) {
+    return false;
   }
   // Check if the users of multioutput fusion is not a get-tuple-element.
   // If this is the case, we bail out because the transformation assumes
@@ -202,11 +205,11 @@ FusionDecision IsSiblingFusionCandidate(const HloInstruction* instr) {
   if (instr->IsMultiOutputFusion()) {
     for (HloInstruction* user : instr->users()) {
       if (user->opcode() != HloOpcode::kGetTupleElement) {
-        return "there exists a non-GTE user";
+        return false;
       }
     }
   }
-  return {};
+  return true;
 }
 
 }  // namespace
@@ -228,7 +231,10 @@ bool GpuMultiOutputFusion::FuseSiblings(HloInstruction* parent,
     return false;
   }
   bool changed = false;
-  std::vector<HloInstruction*> siblings = parent->users();
+  std::vector<HloInstruction*> siblings;
+  // Only consider siblings that are fusion candidates.
+  absl::c_copy_if(parent->users(), std::back_inserter(siblings),
+                  IsSiblingFusionCandidate);
   // Sort the siblings such that multi-output fusion ops occur first, followed
   // by fusion ops, followed by unfused ops.
   absl::c_stable_sort(siblings,
@@ -237,32 +243,31 @@ bool GpuMultiOutputFusion::FuseSiblings(HloInstruction* parent,
                       });
   for (auto i = siblings.begin(); i != siblings.end(); ++i) {
     VLOG(3) << "Considering " << (*i)->name();
-    if ((*i)->opcode() != HloOpcode::kFusion || !IsSiblingFusionCandidate(*i)) {
+    if ((*i)->opcode() != HloOpcode::kFusion) {
       continue;
     }
     for (auto j = i + 1; j != siblings.end();) {
-      auto is_disconnected = [&](const HloInstruction* a,
-                                 const HloInstruction* b) -> FusionDecision {
-        if (reachability_->IsConnected(a, b)) {
-          return FusionDecision{} << a->name() << " and " << b->name()
-                                  << " are connected";
-        }
-        return {};
-      };
-
       VLOG(3) << "Considering " << (*i)->name() << " and " << (*j)->name();
 
-      if (NoFusionPossible sibling_fusible =
-              (!IsSiblingFusionCandidate(*j) || !is_disconnected(*i, *j) ||
-               !ShapesCompatibleForMultiOutputFusion(*(*i), *(*j)) ||
-               !LegalToFuse(*i, *j, device_info_, fusion_info_cache))) {
+      auto sibling_fusible = [&]() -> FusionDecision {
+        if (reachability_->IsConnected(*i, *j)) {
+          return absl::string_view(absl::StrCat(
+              (*i)->name(), " and ", (*j)->name(), " are connected"));
+        }
+        if (auto compatible = ShapesCompatibleForMultiOutputFusion(**i, **j);
+            !compatible) {
+          return compatible;
+        }
+        return LegalToFuse(*i, *j, device_info_, fusion_info_cache);
+      }();
+      if (!sibling_fusible) {
         // We pick `j` arbitrarily as a consumer.
         if (dump_fusion) {
           RegisterFusionState(
               *computation,
               absl::StrCat("Not fusing siblings |", (**i).name(), "| and |",
                            (**j).name(),
-                           "| due to: ", (!sibling_fusible).Explain()),
+                           "| due to: ", sibling_fusible.Explain()),
               // Randomly pick one consumer.
               /*consumer=*/**i,
               /*producer=*/parent);
