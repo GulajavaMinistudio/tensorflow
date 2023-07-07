@@ -558,6 +558,7 @@ cc_library(
     srcs = if_cuda_is_configured(["triton_autotuner.cc"]),
     hdrs = if_cuda_is_configured(["triton_autotuner.h"]),
     deps = if_cuda_is_configured([
+        ":backend_configs_cc",
         ":buffer_comparator",
         ":compile_module_to_llvm_ir",
         ":gemm_algorithm_picker",
@@ -566,6 +567,7 @@ cc_library(
         ":gpu_asm_opts_util",
         ":gpu_device_info",
         ":gpu_executable",
+        ":gpu_executable_run_options",
         ":gpu_float_support",
         ":gpu_fusible",
         ":autotuner_util",
@@ -1169,6 +1171,7 @@ cc_library(
     hdrs = ["gemm_rewriter_triton.h"],
     deps = [
         ":backend_configs_cc",
+        ":cublas_padding_requirements",
         ":gpu_types",
         ":ir_emission_utils",
         ":matmul_utils",
@@ -1219,6 +1222,7 @@ xla_cc_test(
     name = "gemm_rewriter_triton_test",
     srcs = ["gemm_rewriter_triton_test.cc"],
     deps = [
+        ":cublas_padding_requirements",
         ":gemm_rewriter_triton",
         "//tensorflow/compiler/xla:shape_util",
         "//tensorflow/compiler/xla/hlo/ir:hlo",
@@ -2134,8 +2138,21 @@ cc_library(
         "//tensorflow/compiler/xla:literal_util",
         "//tensorflow/compiler/xla:util",
         "//tensorflow/compiler/xla:window_util",
+        "//tensorflow/compiler/xla:xla_data_proto_cc",
         "//tensorflow/compiler/xla/hlo/ir:hlo",
         "//tensorflow/compiler/xla/service:hlo_pass",
+        "//tensorflow/compiler/xla/stream_executor:device_description",
+    ],
+)
+
+cc_library(
+    name = "cublas_padding_requirements",
+    srcs = ["cublas_padding_requirements.cc"],
+    hdrs = ["cublas_padding_requirements.h"],
+    deps = [
+        "//tensorflow/compiler/xla:util",
+        "//tensorflow/compiler/xla/hlo/ir:hlo",
+        "//tensorflow/compiler/xla/stream_executor:device_description",
     ],
 )
 
@@ -2294,7 +2311,6 @@ cc_library(
         ":all_reduce_blueconnect",
         ":compile_module_to_llvm_ir",
         ":conv_layout_normalization",
-        ":copy_fusion",
         ":dot_dimension_sorter",
         ":executable_proto_cc",
         ":fusion_merger",
@@ -2522,6 +2538,7 @@ cc_library(
         ":autotuner_util",
         ":cublas_cudnn",
         ":cublas_pad_for_gemms",
+        ":cublas_padding_requirements",
         ":cudnn_fused_conv_rewriter",
         ":cudnn_fused_mha_rewriter",
         ":cudnn_pad_for_convolutions",

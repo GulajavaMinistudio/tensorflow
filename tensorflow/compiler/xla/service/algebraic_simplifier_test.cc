@@ -532,57 +532,6 @@ TEST_F(AlgebraicSimplifierTest,
                                                   m::ConstantScalar(4.0))))));
 }
 
-// Test that mul(conv(a, b), broadcast(c)) is simplified to
-// conv(a, mul(b, broadcast(c)))
-TEST_F(AlgebraicSimplifierTest, MultiplyConvolutionBroadcastReorder) {
-  const char* kModuleStr = R"(
-    HloModule m
-    test {
-      in = f32[5,4,4,1] parameter(0)
-      filter = f32[2,2,1,2] constant({{{{1.1, 1.2}}, {{2.1, 2.2}}},
-                                      {{{3.1, 3.2}}, {{4.1, 4.2}}}})
-      conv = f32[5,3,3,2] convolution(in, filter),
-               window={size=2x2}, dim_labels=b01f_01io->b01f
-      scale = f32[2] constant({1.0, 1.1})
-      bcast = f32[5,3,3,2] broadcast(scale), dimensions={3}
-      ROOT multiply1 = f32[5,3,3,2] multiply(conv, bcast)
-    }
-  )";
-
-  TF_ASSERT_OK_AND_ASSIGN(auto m, ParseAndReturnVerifiedModule(kModuleStr));
-  AlgebraicSimplifierOptions opts = default_options_;
-  opts.set_enable_scalar_multiply_reduction(true);
-  ASSERT_TRUE(AlgebraicSimplifier(opts).Run(m.get()).value());
-  EXPECT_THAT(
-      m->entry_computation()->root_instruction(),
-      GmockMatch(m::Convolution(
-          m::Parameter(0),
-          m::MultiplyAnyOrder(m::Constant(), m::Broadcast(m::Constant())))));
-}
-
-// Test that mul(conv(a, b), broadcast(c)) should not be simplified if broadcast
-// dimension is not the same as convolution output feature dimension.
-TEST_F(AlgebraicSimplifierTest, DoNotMultiplyConvolutionBroadcastReorder) {
-  const char* kModuleStr = R"(
-    HloModule m
-    test {
-      in = f32[5,3,3,1] parameter(0)
-      filter = f32[2,2,1,2] constant({{{{1.1, 1.2}}, {{2.1, 2.2}}},
-                                      {{{3.1, 3.2}}, {{4.1, 4.2}}}})
-      conv = f32[5,2,2,2] convolution(in, filter),
-               window={size=2x2}, dim_labels=b01f_01io->b01f
-      scale = f32[2] constant({1.0, 1.1})
-      bcast = f32[5,2,2,2] broadcast(scale), dimensions={2}
-      ROOT multiply1 = f32[5,2,2,2] multiply(conv, bcast)
-    }
-  )";
-
-  TF_ASSERT_OK_AND_ASSIGN(auto m, ParseAndReturnVerifiedModule(kModuleStr));
-  AlgebraicSimplifierOptions opts = default_options_;
-  opts.set_enable_scalar_multiply_reduction(true);
-  ASSERT_FALSE(RunHloPass(AlgebraicSimplifier(opts), m.get()).value());
-}
-
 // Test that select(true, a, b) is simplified to a
 TEST_F(AlgebraicSimplifierTest, SelectTrue) {
   Shape r0s32 = ShapeUtil::MakeShape(S32, {});
@@ -8202,6 +8151,23 @@ TEST_F(AlgebraicSimplifierTest, MultiplySelfRsqrt_NegativeTestCase) {
   EXPECT_EQ(FindInstruction(m.get(), HloOpcode::kBroadcast), nullptr);
   EXPECT_EQ(m->entry_computation()->root_instruction()->operand(2)->opcode(),
             HloOpcode::kMultiply);
+}
+
+TEST_F(AlgebraicSimplifierTest, MultiplyNegateNegate) {
+  const char* kModuleStr = R"(
+    HloModule m
+    test {
+      p0 = f32[] parameter(0)
+      p1 = f32[] parameter(1)
+      neg0 = f32[] negate(p0)
+      neg1 = f32[] negate(p1)
+      ROOT mul = f32[] multiply(neg0, neg1)
+    }
+  )";
+  TF_ASSERT_OK_AND_ASSIGN(auto m, ParseAndReturnVerifiedModule(kModuleStr));
+  ASSERT_TRUE(AlgebraicSimplifier(default_options_).Run(m.get()).value());
+  EXPECT_THAT(m->entry_computation()->root_instruction(),
+              GmockMatch(m::Multiply(m::Parameter(0), m::Parameter(1))));
 }
 
 TEST_F(AlgebraicSimplifierTest, AbsEliminationBatchnormTraining) {
