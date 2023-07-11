@@ -117,6 +117,7 @@ static Status LowerToXlaGpuRuntime(mlir::ModuleOp module,
 
   GpuPipelineOpts opts;
   opts.cuda_graph_level = debug_options.xla_gpu_cuda_graph_level();
+  opts.min_graph_size = debug_options.xla_gpu_cuda_graph_min_graph_size();
   opts.enable_concurrent_region =
       debug_options.xla_gpu_cuda_graph_enable_concurrent_region();
   populateXlaGpuRuntimePasses(pm, thunk_sequence, opts);
@@ -427,10 +428,7 @@ Status CompileModuleToLlvmIrImpl(
     RecordHloToLlvmDuration(end_usecs - start_usecs);
   }
 
-  // TODO(ezhulenev): Remove the FP8 check once https://reviews.llvm.org/D140088
-  // is submitted. Currently we can't emit LLVM IR with fp8 types.
-  if (IsXlaRuntimeExecutableEnabled(hlo_module->config()) &&
-      !HasFp8(*hlo_module)) {
+  if (IsXlaRuntimeExecutableEnabled(hlo_module->config())) {
     std::vector<int64_t> buffer_sizes;
     llvm::transform(
         results->allocations, std::back_inserter(buffer_sizes),
