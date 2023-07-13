@@ -148,12 +148,9 @@ class TritonAutotunerVisitor : public DfsHloRewriteVisitor {
 
     const DebugOptions& debug_opts = fusion.parent()->config().debug_options();
 
-    se::RedzoneAllocator rz_allocator(
-        stream, allocator, PtxOptsFromDebugOptions(debug_opts),
-        /*memory_limit=*/std::numeric_limits<int64_t>::max(),
-        /*redzone_size=*/config_.should_check_correctness()
-            ? debug_opts.xla_gpu_redzone_padding_bytes()
-            : 0);
+    TF_ASSIGN_OR_RETURN(
+        se::RedzoneAllocator rz_allocator,
+        AutotunerUtil::CreateRedzoneAllocator(config_, debug_opts));
 
     se::DeviceMemoryBase reference_buffer;
     if (config_.should_check_correctness()) {
@@ -180,7 +177,7 @@ class TritonAutotunerVisitor : public DfsHloRewriteVisitor {
           AutotuneResult config;
           *config.mutable_triton() = conf;
           StatusOr<Executable*> res =
-              autotuner_compile_util_->Compile(fusion, config, cache_key, [&] {
+              autotuner_compile_util_->Compile(config, cache_key, [&] {
                 return TritonGemmAutotuneExtractor(conf, gpu_device_info,
                                                    fusion.FusionInstruction());
               });
@@ -280,11 +277,11 @@ class TritonAutotunerVisitor : public DfsHloRewriteVisitor {
     AutotuneResult config;
     *config.mutable_triton() = autotune_config;
 
-    std::vector<se::DeviceMemoryBase> used_buffers;
-    absl::c_copy(input_buffers, std::back_inserter(used_buffers));
+    ShapedBuffer output(hlo_computation.root_instruction()->shape(), 0);
+    output.set_buffer(output_buffer, ShapeIndex{});
+
     return autotuner_compile_util_->GenerateAndProfileExecutable(
-        hlo_computation, config, cache_key, stream, used_buffers, output_buffer,
-        [&] {
+        config, cache_key, stream, input_buffers, std::move(output), [&] {
           return TritonGemmAutotuneExtractor(
               autotune_config, GetGpuDeviceInfo(config_.GetExecutor()),
               hlo_computation.FusionInstruction());
@@ -349,10 +346,13 @@ class TritonAutotunerVisitor : public DfsHloRewriteVisitor {
     gemm.set_algorithm(0);
     *res.mutable_gemm() = gemm;
 
+    ShapedBuffer output(original_computation.root_instruction()->shape(), 0);
+    output.set_buffer(output_buffer, ShapeIndex{});
+
     TF_ASSIGN_OR_RETURN(std::optional<absl::Duration> duration,
                         autotuner_compile_util_->GenerateAndProfileExecutable(
-                            original_computation, res, cache_key, stream,
-                            input_buffers, output_buffer, [&] {
+                            res, cache_key, stream, input_buffers,
+                            std::move(output), [&] {
                               return CublasGemmAutotuneExtractor(
                                   GetGpuDeviceInfo(config_.GetExecutor()),
                                   &original_computation);
@@ -471,20 +471,9 @@ StatusOr<bool> TritonAutotuner::Run(
     return false;
   }
 
-  std::optional<AutotunerCompileUtil> autotuner_compile_util;
-  if (!config_.IsDeviceless()) {
-    // TODO(cheshire): The ones below should not be needed.
-    se::StreamExecutor* stream_exec = config_.GetExecutor();
-    se::DeviceMemoryAllocator* allocator = config_.GetAllocator()
-                                               ? config_.GetAllocator()
-                                               : stream_exec->GetAllocator();
-    TF_ASSIGN_OR_RETURN(se::Stream* const stream,
-                        allocator->GetStream(stream_exec->device_ordinal()));
-    TF_ASSIGN_OR_RETURN(AutotunerCompileUtil util,
-                        AutotunerCompileUtil::Create(*stream, *allocator));
-    autotuner_compile_util.emplace(util);
-  }
-
+  TF_ASSIGN_OR_RETURN(
+      std::optional<AutotunerCompileUtil> autotuner_compile_util,
+      AutotunerCompileUtil::Create(config_, module->config().debug_options()));
   return TritonAutotunerVisitor{config_, thread_pool_, autotuner_compile_util}
       .RunOnModule(module, execution_threads);
 }

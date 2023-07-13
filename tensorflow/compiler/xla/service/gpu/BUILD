@@ -984,8 +984,8 @@ cc_library(
     srcs = ["ir_emission_utils.cc"],
     hdrs = ["ir_emission_utils.h"],
     compatible_with = get_compatible_with_portable(),
+    defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]),
     deps = [
-        ":gpu_asm_opts_util",
         ":target_util",
         "//tensorflow/compiler/xla:xla_data_proto_cc",
         "//tensorflow/compiler/xla/hlo/ir:hlo",
@@ -996,12 +996,14 @@ cc_library(
         "//tensorflow/compiler/xla/service/llvm_ir:llvm_type_conversion_util",
         "//tensorflow/compiler/xla/service/llvm_ir:llvm_util",
         "//tensorflow/compiler/xla/stream_executor",
-        "//tensorflow/compiler/xla/stream_executor/gpu:asm_compiler",
         "//tensorflow/compiler/xla/translate/mhlo_to_hlo:type_to_shape",
         "@com_google_absl//absl/container:flat_hash_set",
         "@llvm-project//llvm:Core",
         "@llvm-project//mlir:ArithDialect",
-    ],
+    ] + if_cuda_is_configured([
+        ":gpu_asm_opts_util",
+        "//tensorflow/compiler/xla/stream_executor/gpu:asm_compiler",
+    ]),
 )
 
 xla_cc_test(
@@ -1497,9 +1499,9 @@ xla_cc_test(
 )
 
 cc_library(
-    name = "gpu_conv_algorithm_picker",
-    srcs = if_gpu_is_configured(["gpu_conv_algorithm_picker.cc"]),
-    hdrs = if_gpu_is_configured(["gpu_conv_algorithm_picker.h"]),
+    name = "conv_algorithm_picker",
+    srcs = if_gpu_is_configured(["conv_algorithm_picker.cc"]),
+    hdrs = if_gpu_is_configured(["conv_algorithm_picker.h"]),
     copts = if_cuda_is_configured(["-DGOOGLE_CUDA=1"]) + if_rocm_is_configured([
         "-DTENSORFLOW_USE_ROCM=1",
     ]),
@@ -1536,8 +1538,8 @@ cc_library(
 )
 
 xla_cc_test(
-    name = "gpu_conv_algorithm_picker_test",
-    srcs = if_gpu_is_configured(["gpu_conv_algorithm_picker_test.cc"]),
+    name = "conv_algorithm_picker_test",
+    srcs = if_gpu_is_configured(["conv_algorithm_picker_test.cc"]),
     tags = [
         "gpu",
         "no_oss",
@@ -1546,7 +1548,7 @@ xla_cc_test(
         "requires-gpu-sm70",
     ],
     deps = [
-        ":gpu_conv_algorithm_picker",
+        ":conv_algorithm_picker",
         ":gpu_conv_rewriter",
         "//tensorflow/compiler/xla/service:gpu_plugin",
         "//tensorflow/compiler/xla/service:pattern_matcher",
@@ -2562,7 +2564,7 @@ cc_library(
         ":gemm_algorithm_picker",
         ":gpu_asm_opts_util",
         ":gpu_compiler",
-        ":gpu_conv_algorithm_picker",
+        ":conv_algorithm_picker",
         ":gpu_conv_padding_legalization",
         ":gpu_conv_rewriter",
         ":gpu_executable",
@@ -2686,7 +2688,7 @@ cc_library(
         ":cusolver_rewriter",
         ":gemm_rewriter",
         ":gpu_compiler",
-        ":gpu_conv_algorithm_picker",
+        ":conv_algorithm_picker",
         ":gpu_conv_padding_legalization",
         ":gpu_conv_rewriter",
         ":gpu_layout_assignment",
@@ -3165,6 +3167,7 @@ xla_cc_test(
 xla_cc_test(
     name = "cudnn_fused_conv_rewriter_test",
     srcs = ["cudnn_fused_conv_rewriter_test.cc"],
+    shard_count = 10,
     tags = [
         "gpu",
         "no_oss",

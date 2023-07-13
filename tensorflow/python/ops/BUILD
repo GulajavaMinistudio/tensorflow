@@ -1,4 +1,3 @@
-load("//tensorflow:pytype.default.bzl", "pytype_strict_library")
 load("//tensorflow:strict.default.bzl", "py_strict_library", "py_strict_test")
 load("//tensorflow:tensorflow.default.bzl", "cuda_py_strict_test", "tf_py_strict_test")
 load("//tensorflow/python:build_defs.bzl", "tf_gen_op_strict_wrapper_private_py")
@@ -1629,6 +1628,8 @@ py_strict_library(
         ":tensor_array_ops",
         ":unconnected_gradients",
         ":while_loop",
+        "//tensorflow/python/debug/lib:debug_gradients",
+        "//tensorflow/python/debug/lib:dumping_callback",
         "//tensorflow/python/framework:dtypes",
         "//tensorflow/python/framework:ops",
         "//tensorflow/python/ops/linalg/sparse:sparse_csr_matrix_grad",
@@ -3158,7 +3159,7 @@ py_strict_library(
 
 cuda_py_strict_test(
     name = "bitwise_ops_test",
-    size = "medium",
+    size = "small",
     srcs = ["bitwise_ops_test.py"],
     main = "bitwise_ops_test.py",
     python_version = "PY3",
@@ -3503,7 +3504,7 @@ cuda_py_strict_test(
 
 cuda_py_strict_test(
     name = "math_grad_test",
-    size = "medium",
+    size = "small",
     srcs = ["math_grad_test.py"],
     main = "math_grad_test.py",
     python_version = "PY3",
@@ -4449,10 +4450,26 @@ py_strict_library(
     name = "weak_tensor_ops",
     srcs = ["weak_tensor_ops.py"],
     deps = [
-        ":weak_tensor_ops_list",
+        ":array_ops",
+        ":array_ops_gen",
+        ":bitwise_ops_gen",
+        ":clip_ops",
+        ":image_ops_impl",
+        ":math_ops",
+        ":math_ops_gen",
+        ":nn_impl",
+        ":nn_ops",
+        ":nn_ops_gen",
+        ":special_math_ops",
+        "//tensorflow/python/framework:flexible_dtypes",
+        "//tensorflow/python/framework:ops",
         "//tensorflow/python/framework:tensor",
         "//tensorflow/python/framework:weak_tensor",
+        "//tensorflow/python/ops/numpy_ops:np_array_ops",
+        "//tensorflow/python/ops/numpy_ops:np_math_ops",
+        "//tensorflow/python/platform:tf_logging",
         "//tensorflow/python/util:dispatch",
+        "//tensorflow/python/util:tf_decorator",
     ],
 )
 
@@ -4467,9 +4484,10 @@ py_strict_test(
         ":image_ops_impl",
         ":math_ops",
         ":weak_tensor_ops",
-        ":weak_tensor_ops_list",
+        ":weak_tensor_test_util",
         "//tensorflow/python/framework:constant_op",
         "//tensorflow/python/framework:dtypes",
+        "//tensorflow/python/framework:extension_type",
         "//tensorflow/python/framework:ops",
         "//tensorflow/python/framework:tensor",
         "//tensorflow/python/framework:test_lib",
@@ -4477,33 +4495,47 @@ py_strict_test(
         "//tensorflow/python/ops/numpy_ops:np_array_ops",
         "//tensorflow/python/ops/numpy_ops:np_config",
         "//tensorflow/python/ops/numpy_ops:np_math_ops",
+        "//tensorflow/python/ops/ragged:ragged_tensor",
         "//tensorflow/python/platform:test",
+        "//tensorflow/python/util:dispatch",
+        "//third_party/py/numpy",
+        "@absl_py//absl/testing:parameterized",
+    ],
+)
+
+py_strict_test(
+    name = "weak_tensor_math_ops_test",
+    srcs = ["weak_tensor_math_ops_test.py"],
+    deps = [
+        ":array_ops",
+        ":math_ops",
+        ":tensor_array_ops",
+        ":weak_tensor_ops",
+        ":weak_tensor_test_util",
+        "//tensorflow/core:protos_all_py",
+        "//tensorflow/python:tf2",
+        "//tensorflow/python/eager:backprop",
+        "//tensorflow/python/eager:context",
+        "//tensorflow/python/eager:def_function",
+        "//tensorflow/python/framework:dtypes",
+        "//tensorflow/python/framework:ops",
+        "//tensorflow/python/framework:tensor",
+        "//tensorflow/python/framework:test_lib",
+        "//tensorflow/python/framework:weak_tensor",
+        "//tensorflow/python/ops/ragged:ragged_factory_ops",
+        "//tensorflow/python/platform:test",
+        "//third_party/py/numpy",
         "@absl_py//absl/testing:parameterized",
     ],
 )
 
 py_strict_library(
-    name = "weak_tensor_ops_list",
-    srcs = ["weak_tensor_ops_list.py"],
-    deps = [
-        ":array_ops",
-        ":array_ops_gen",
-        ":bitwise_ops_gen",
-        ":clip_ops",
-        ":image_ops_impl",
-        ":math_ops",
-        ":math_ops_gen",
-        ":nn_impl",
-        ":nn_ops",
-        ":nn_ops_gen",
-        ":special_math_ops",
-        "//tensorflow/python/ops/numpy_ops:np_array_ops",
-        "//tensorflow/python/ops/numpy_ops:np_math_ops",
-    ],
-)
-
-pytype_strict_library(
     name = "weak_tensor_test_util",
     srcs = ["weak_tensor_test_util.py"],
-    deps = ["//tensorflow/python/framework:ops"],
+    deps = [
+        "//tensorflow/python/framework:constant_op",
+        "//tensorflow/python/framework:ops",
+        "//tensorflow/python/framework:weak_tensor",
+        "//third_party/py/numpy",
+    ],
 )
