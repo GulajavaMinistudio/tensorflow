@@ -19,7 +19,6 @@ limitations under the License.
 #include <array>
 #include <cstdint>
 #include <iterator>
-#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -46,7 +45,6 @@ limitations under the License.
 #include "tensorflow/compiler/xla/service/gpu/buffer_comparator.h"
 #include "tensorflow/compiler/xla/service/gpu/gemm_rewriter.h"
 #include "tensorflow/compiler/xla/service/gpu/gemm_rewriter_triton.h"
-#include "tensorflow/compiler/xla/service/gpu/gpu_asm_opts_util.h"
 #include "tensorflow/compiler/xla/service/gpu/gpu_device_info.h"
 #include "tensorflow/compiler/xla/service/gpu/gpu_float_support.h"
 #include "tensorflow/compiler/xla/service/gpu/gpu_fusible.h"
@@ -69,6 +67,8 @@ limitations under the License.
 
 namespace xla {
 namespace gpu {
+
+using ProfilingOutput = AutotunerCompileUtil::ProfilingOutput;
 
 namespace {
 
@@ -152,13 +152,7 @@ class TritonAutotunerVisitor : public DfsHloRewriteVisitor {
         se::RedzoneAllocator rz_allocator,
         AutotunerUtil::CreateRedzoneAllocator(config_, debug_opts));
 
-    se::DeviceMemoryBase reference_buffer;
-    if (config_.should_check_correctness()) {
-      TF_ASSIGN_OR_RETURN(
-          reference_buffer,
-          rz_allocator.AllocateBytes(ShapeUtil::ByteSizeOf(root->shape())));
-    }
-
+    std::optional<ScopedShapedBuffer> reference_buffer;
     BufferComparator comparator(root->shape(), fusion.parent()->config());
 
     const std::vector<AutotuneResult::TritonGemmKey> configurations =
@@ -201,13 +195,10 @@ class TritonAutotunerVisitor : public DfsHloRewriteVisitor {
     }
 
     if (config_.should_check_correctness()) {
-      TF_RETURN_IF_ERROR(RunMatmulWithCublas(fusion, stream, allocator, inputs,
-                                             reference_buffer, cache_key));
+      TF_ASSIGN_OR_RETURN(
+          reference_buffer,
+          RunMatmulWithCublas(fusion, stream, allocator, inputs, cache_key));
     }
-
-    TF_ASSIGN_OR_RETURN(
-        se::DeviceMemoryBase output_buffer,
-        rz_allocator.AllocateBytes(ShapeUtil::ByteSizeOf(root->shape())));
 
     std::vector<AutotuneResult> results;
     for (const AutotuneResult::TritonGemmKey& conf : configurations) {
@@ -216,17 +207,18 @@ class TritonAutotunerVisitor : public DfsHloRewriteVisitor {
       AutotuneResult res;
       *res.mutable_triton() = conf;
 
-      TF_ASSIGN_OR_RETURN(std::optional<absl::Duration> duration,
-                          RunMatmulWithConfig(fusion, conf, stream, inputs,
-                                              output_buffer, cache_key));
+      TF_ASSIGN_OR_RETURN(
+          std::optional<ProfilingOutput> profiling_output,
+          RunMatmulWithConfig(fusion, conf, stream, inputs, cache_key));
 
-      if (!duration) {
+      if (!profiling_output) {
         VLOG(1) << "Skipping this tiling.";
         continue;
       }
 
-      VLOG(1) << "Running the kernel took: " << *duration;
-      *res.mutable_run_time() = tsl::proto_utils::ToDurationProto(*duration);
+      VLOG(1) << "Running the kernel took: " << profiling_output->duration;
+      *res.mutable_run_time() =
+          tsl::proto_utils::ToDurationProto(profiling_output->duration);
 
       if (config_.should_check_correctness()) {
         TF_ASSIGN_OR_RETURN(
@@ -243,8 +235,9 @@ class TritonAutotunerVisitor : public DfsHloRewriteVisitor {
 
         TF_ASSIGN_OR_RETURN(
             bool outputs_match,
-            comparator.CompareEqual(stream, /*current=*/output_buffer,
-                                    /*expected=*/reference_buffer));
+            comparator.CompareEqual(
+                stream, /*current=*/profiling_output->output.root_buffer(),
+                /*expected=*/reference_buffer->root_buffer()));
         if (!outputs_match) {
           LOG(ERROR) << "Results do not match the reference. "
                      << "This is likely a bug/unexpected loss of precision.";
@@ -269,19 +262,16 @@ class TritonAutotunerVisitor : public DfsHloRewriteVisitor {
   //
   // `cache_key`: The cache key corresponding to the code of the fusion and the
   // device type. Passing it to avoid recalculating it everywhere it's needed.
-  StatusOr<std::optional<absl::Duration>> RunMatmulWithConfig(
+  StatusOr<std::optional<ProfilingOutput>> RunMatmulWithConfig(
       const HloComputation& hlo_computation,
       const AutotuneResult::TritonGemmKey& autotune_config, se::Stream* stream,
       absl::Span<se::DeviceMemoryBase const> input_buffers,
-      se::DeviceMemoryBase output_buffer, const AutotuneCacheKey& cache_key) {
+      const AutotuneCacheKey& cache_key) {
     AutotuneResult config;
     *config.mutable_triton() = autotune_config;
 
-    ShapedBuffer output(hlo_computation.root_instruction()->shape(), 0);
-    output.set_buffer(output_buffer, ShapeIndex{});
-
     return autotuner_compile_util_->GenerateAndProfileExecutable(
-        config, cache_key, stream, input_buffers, std::move(output), [&] {
+        config, cache_key, stream, input_buffers, [&] {
           return TritonGemmAutotuneExtractor(
               autotune_config, GetGpuDeviceInfo(config_.GetExecutor()),
               hlo_computation.FusionInstruction());
@@ -333,11 +323,11 @@ class TritonAutotunerVisitor : public DfsHloRewriteVisitor {
   //
   // `cache_key`: The cache key corresponding to the code of the fusion and the
   // device type. Passing it to avoid recalculating it everywhere it's needed.
-  Status RunMatmulWithCublas(
+  StatusOr<ScopedShapedBuffer> RunMatmulWithCublas(
       const HloComputation& original_computation, se::Stream* stream,
       se::DeviceMemoryAllocator* allocator,
       absl::Span<se::DeviceMemoryBase const> input_buffers,
-      se::DeviceMemoryBase output_buffer, const AutotuneCacheKey& cache_key) {
+      const AutotuneCacheKey& cache_key) {
     AutotuneResult res;
 
     // We need some value to cache compilation. We associate the compiled module
@@ -346,19 +336,15 @@ class TritonAutotunerVisitor : public DfsHloRewriteVisitor {
     gemm.set_algorithm(0);
     *res.mutable_gemm() = gemm;
 
-    ShapedBuffer output(original_computation.root_instruction()->shape(), 0);
-    output.set_buffer(output_buffer, ShapeIndex{});
-
-    TF_ASSIGN_OR_RETURN(std::optional<absl::Duration> duration,
+    TF_ASSIGN_OR_RETURN(std::optional<ProfilingOutput> output,
                         autotuner_compile_util_->GenerateAndProfileExecutable(
-                            res, cache_key, stream, input_buffers,
-                            std::move(output), [&] {
+                            res, cache_key, stream, input_buffers, [&] {
                               return CublasGemmAutotuneExtractor(
                                   GetGpuDeviceInfo(config_.GetExecutor()),
                                   &original_computation);
                             }));
-    TF_RET_CHECK(duration.has_value());
-    return OkStatus();
+    TF_RET_CHECK(output.has_value());
+    return std::move(output->output);
   }
 
   StatusOr<std::unique_ptr<HloModule>> CublasGemmAutotuneExtractor(

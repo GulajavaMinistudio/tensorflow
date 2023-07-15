@@ -41,9 +41,6 @@ limitations under the License.
 #include "tensorflow/compiler/xla/service/gpu/gpu_executable_run_options.h"
 #include "tensorflow/compiler/xla/service/gpu/ir_emission_utils.h"
 #include "tensorflow/compiler/xla/service/hlo_module_config.h"
-#include "tensorflow/compiler/xla/service/platform_util.h"
-#include "tensorflow/compiler/xla/service/shaped_buffer.h"
-#include "tensorflow/compiler/xla/status_macros.h"
 #include "tensorflow/compiler/xla/stream_executor/device_memory.h"
 #include "tensorflow/compiler/xla/stream_executor/gpu/gpu_stream.h"
 #include "tensorflow/compiler/xla/stream_executor/gpu/gpu_timer.h"
@@ -126,11 +123,11 @@ AutotunerCompileUtil::AutotunerCompileUtil(const AutotuneConfig& config,
   opts_.set_xla_gpu_cuda_graph_level(0);
 }
 
-StatusOr<std::optional<absl::Duration>>
+StatusOr<std::optional<AutotunerCompileUtil::ProfilingOutput>>
 AutotunerCompileUtil::GenerateAndProfileExecutable(
     const AutotuneResult& config, const AutotuneCacheKey& cache_key,
     se::Stream* stream, absl::Span<se::DeviceMemoryBase const> input_buffers,
-    ShapedBuffer output_buffer, GenerateModuleFn extractor) {
+    GenerateModuleFn extractor) {
   TF_ASSIGN_OR_RETURN(Executable * executable,
                       Compile(config, cache_key, std::move(extractor)));
 
@@ -154,25 +151,8 @@ AutotunerCompileUtil::GenerateAndProfileExecutable(
                       Execute(*executable, std::move(execution_inputs)));
   TF_ASSIGN_OR_RETURN(absl::Duration timer_duration,
                       timer.GetElapsedDuration());
-  ScopedShapedBuffer result = execution_output.ConsumeResult();
-
-  // TODO(cheshire): Copying should not be required. Instead, we can add a new
-  // aliased parameter.
-  Shape shape = result.on_device_shape();
-  TF_RET_CHECK(shape == output_buffer.on_device_shape());
-  if (shape.IsTuple()) {
-    for (int64_t i = 0; i < ShapeUtil::TupleElementCount(shape); ++i) {
-      TF_RET_CHECK(!shape.tuple_shapes(i).IsTuple());
-      stream->ThenMemcpy(output_buffer.buffers().mutable_element(ShapeIndex{i}),
-                         result.buffer(ShapeIndex{i}),
-                         ShapeUtil::ByteSizeOf(shape.tuple_shapes(i)));
-    }
-  } else {
-    stream->ThenMemcpy(output_buffer.buffers().mutable_element(ShapeIndex{}),
-                       result.buffer(ShapeIndex{}),
-                       ShapeUtil::ByteSizeOf(shape));
-  }
-  return std::make_optional(timer_duration);
+  return std::make_optional<ProfilingOutput>(
+      timer_duration, execution_output.Commit().ConsumeResult());
 }
 
 StatusOr<Executable*> AutotunerCompileUtil::Compile(
@@ -207,7 +187,10 @@ StatusOr<std::unique_ptr<Executable>> AutotunerCompileUtil::CompileNoCache(
   (*new_hlo_module)->config().set_debug_options(opts_);
 
   StatusOr<std::unique_ptr<Executable>> out = compiler_->RunBackend(
-      std::move(*new_hlo_module), &stream_executor_, &allocator_);
+      std::move(*new_hlo_module), &stream_executor_,
+      Compiler::CompileOptions{&allocator_, /*thread_pool=*/nullptr,
+                               /*layout_canonicalization_callback=*/{},
+                               /*enable_debug_info_manager=*/false});
   if (out.status().code() == absl::StatusCode::kResourceExhausted) {
     // Being out of shared memory budget is an expected failure.
     return std::unique_ptr<Executable>();
