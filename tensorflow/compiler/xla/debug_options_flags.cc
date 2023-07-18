@@ -117,9 +117,10 @@ DebugOptions DefaultDebugOptionsIgnoringFlags() {
 
   opts.set_xla_allow_excess_precision(true);
   opts.set_xla_force_host_platform_device_count(1);
-  opts.set_xla_gpu_all_reduce_combine_threshold_bytes(30 * 1024 * 1024);
-  opts.set_xla_gpu_all_gather_combine_threshold_bytes(1024 * 1024 * 1024);
-  opts.set_xla_gpu_reduce_scatter_combine_threshold_bytes(30 * 1024 * 1024);
+  constexpr int64_t kDefaultThreshold = 30 * 1024 * 1024;
+  opts.set_xla_gpu_all_reduce_combine_threshold_bytes(kDefaultThreshold);
+  opts.set_xla_gpu_all_gather_combine_threshold_bytes(kDefaultThreshold);
+  opts.set_xla_gpu_reduce_scatter_combine_threshold_bytes(kDefaultThreshold);
   opts.set_xla_gpu_enable_async_all_reduce(true);
   opts.set_xla_gpu_enable_reassociation_for_converted_ar(true);
 
@@ -160,7 +161,7 @@ DebugOptions DefaultDebugOptionsIgnoringFlags() {
   opts.set_xla_gpu_enable_triton_gemm(true);
   opts.set_xla_gpu_enable_cudnn_int8x32_convolution_reordering(true);
   opts.set_xla_gpu_triton_gemm_any(false);
-  opts.set_xla_gpu_enable_triton_softmax_fusion(false);
+  opts.set_xla_gpu_enable_triton_softmax_fusion(true);
   opts.set_xla_gpu_triton_fusion_level(1);
 
   // Moving reduce-scatter out of while loops can increase memory footprint, so
