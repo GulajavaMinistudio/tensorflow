@@ -33,6 +33,7 @@ limitations under the License.
 #include "mlir/Support/LogicalResult.h"  // from @llvm-project
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"  // from @llvm-project
 #include "stablehlo/dialect/StablehloOps.h"  // from @stablehlo
+#include "tensorflow/compiler/mlir/lite/stablehlo/transforms/passes.h"
 
 #define DEBUG_TYPE "stablehlo-compose-uniform-quantized-type"
 

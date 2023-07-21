@@ -1230,9 +1230,6 @@ class ConvertDynamicUpdateSliceOp
     if (update_type == nullptr || start_indices_type == nullptr)
       return rewriter.notifyMatchFailure(
           op, "update and start_indices should have ShapedType");
-    if (!operand_type.hasStaticShape() || !update_type.hasStaticShape())
-      return rewriter.notifyMatchFailure(
-          op, "shape of operand and update should be static");
 
     Type idx_type = start_indices_type.getElementType();
     int64_t shape_dim = operand_type.getRank();
@@ -3736,6 +3733,97 @@ class ConvertGetDimensionSizeOp
   }
 };
 
+class ConvertRealDynamicSliceOp
+    : public OpConversionPattern<mhlo::RealDynamicSliceOp> {
+ public:
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(
+      mhlo::RealDynamicSliceOp real_dynamic_slice_op, OpAdaptor adaptor,
+      ConversionPatternRewriter& rewriter) const final {
+    auto start_indices_type = real_dynamic_slice_op.getStartIndices()
+                                  .getType()
+                                  .cast<RankedTensorType>();
+    auto end_indices_type = real_dynamic_slice_op.getLimitIndices()
+                                .getType()
+                                .cast<RankedTensorType>();
+
+    if (start_indices_type.getNumDynamicDims() != 0 ||
+        end_indices_type.getNumDynamicDims() != 0) {
+      return rewriter.notifyMatchFailure(
+          real_dynamic_slice_op,
+          "Start indices and limit indices must not have dynamic dimensions.");
+    }
+    rewriter.replaceOpWithNewOp<StridedSliceOp>(
+        real_dynamic_slice_op, real_dynamic_slice_op.getType(),
+        real_dynamic_slice_op.getOperand(),
+        real_dynamic_slice_op.getStartIndices(),
+        real_dynamic_slice_op.getLimitIndices(),
+        real_dynamic_slice_op.getStrides());
+    return success();
+  };
+};
+
+class ConvertDynamicIotaOp : public OpConversionPattern<mhlo::DynamicIotaOp> {
+ public:
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(
+      mhlo::DynamicIotaOp dynamic_iota_op, OpAdaptor adaptor,
+      ConversionPatternRewriter& rewriter) const final {
+    RankedTensorType type =
+        dynamic_iota_op.getType().dyn_cast_or_null<RankedTensorType>();
+    if (!type || type.getElementType().isUnsignedInteger(64)) {
+      return rewriter.notifyMatchFailure(dynamic_iota_op,
+                                         "TF::RangeOp doesn't support UI64");
+    }
+    // Only support 1D for now.
+    if (type.getRank() > 1 || dynamic_iota_op.getIotaDimension() != 0) {
+      return rewriter.notifyMatchFailure(
+          dynamic_iota_op, [&](::mlir::Diagnostic& diag) {
+            diag << "Only 1D DynamicIotaOp with iota dimension 0 is supported";
+          });
+    }
+
+    const uint64_t dimension = dynamic_iota_op.getIotaDimension();
+    Type element_type = type.getElementType();
+    Attribute start, delta;
+    if (element_type.isa<FloatType>()) {
+      start = rewriter.getFloatAttr(element_type, 0.0);
+      delta = rewriter.getFloatAttr(element_type, 1.0);
+    } else if (element_type.isa<IntegerType>()) {
+      start = rewriter.getIntegerAttr(element_type, 0);
+      delta = rewriter.getIntegerAttr(element_type, 1);
+    } else {
+      return failure();
+    }
+    auto output_shape = dynamic_iota_op.getOperand();
+    if (element_type.isa<FloatType>()) {
+      auto cast_type =
+          output_shape.getType().cast<ShapedType>().clone(element_type);
+      output_shape = rewriter.create<TF::CastOp>(dynamic_iota_op.getLoc(),
+                                                 cast_type, output_shape);
+    }
+    DenseIntElementsAttr scalar_attr = DenseIntElementsAttr::get(
+        RankedTensorType::get({0}, rewriter.getI32Type()),
+        llvm::ArrayRef<int32_t>({}));
+    auto scalar_shape =
+        rewriter.create<TF::ConstOp>(dynamic_iota_op.getLoc(), scalar_attr);
+    auto limit_scalar = rewriter.create<TF::ReshapeOp>(
+        dynamic_iota_op.getLoc(), RankedTensorType::get({}, element_type),
+        output_shape, scalar_shape);
+    auto range_type =
+        RankedTensorType::get({type.getShape()[dimension]}, element_type);
+    Value start_op =
+        rewriter.create<TF::ConstOp>(dynamic_iota_op.getLoc(), start);
+    Value delta_op =
+        rewriter.create<TF::ConstOp>(dynamic_iota_op.getLoc(), delta);
+    Value range_op = rewriter.create<TF::RangeOp>(
+        dynamic_iota_op.getLoc(), range_type, start_op, limit_scalar, delta_op);
+    rewriter.replaceOp(dynamic_iota_op, range_op);
+    return success();
+  }
+};
 // Returns true if broadcast_dimensions obey Tensorflow convention, as in new
 // dimensions are added as prefix.
 bool IsTFStyleBroadcast(DenseIntElementsAttr broadcast_dimensions,
@@ -3838,7 +3926,8 @@ void PopulateLegalizeHloToTfPatterns(RewritePatternSet* patterns,
             ConvertReduceOpToTfMin, ConvertReduceOpToTfAll,
             ConvertReduceOpToTfAny, ConvertReduceOpToTfSum, ConvertSortToTfTopk,
             ConvertIotaOpToTfRange, ConvertWhileOp, ConvertLoweredCumSumOp,
-            ConvertLoweredCumProdOp, ConvertGetDimensionSizeOp>(context);
+            ConvertLoweredCumProdOp, ConvertGetDimensionSizeOp,
+            ConvertDynamicIotaOp, ConvertRealDynamicSliceOp>(context);
   populateWithGenerated(*patterns);
 }
 

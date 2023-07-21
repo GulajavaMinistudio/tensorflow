@@ -18,6 +18,8 @@ limitations under the License.
 
 #include <memory>
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"  // from @llvm-project
+#include "mlir/IR/BuiltinOps.h"  // from @llvm-project
 #include "mlir/Pass/Pass.h"  // from @llvm-project
 
 namespace mlir {
@@ -38,7 +40,17 @@ std::unique_ptr<Pass> createOptimizePass();
 
 // Creates a pass that finds quantization patterns and compose them to uniform
 // quantized types.
-std::unique_ptr<Pass> CreateComposeUniformQuantizedTypePass();
+std::unique_ptr<OperationPass<ModuleOp>>
+CreateComposeUniformQuantizedTypePass();
+
+// Creates a pass that finds stablehlo ops that accept or produce uniform
+// quantized typed tensors and converts them to equivalent ops in the TFLite
+// dialect.
+std::unique_ptr<OperationPass<func::FuncOp>>
+CreateUniformQuantizedStablehloToTflPass();
+
+#define GEN_PASS_REGISTRATION
+#include "tensorflow/compiler/mlir/lite/stablehlo/transforms/passes.h.inc"
 
 }  // namespace odml
 }  // namespace mlir

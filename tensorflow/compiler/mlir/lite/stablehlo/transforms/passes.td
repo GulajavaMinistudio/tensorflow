@@ -17,7 +17,7 @@ include "mlir/Pass/PassBase.td"
 
 def ComposeUniformQuantizedTypePass : Pass<"compose-uniform-quantized-type", "ModuleOp"> {
   let summary = "Compose uniform quantized types in StableHLO.";
-  let constructor = "CreateComposeUniformQuantizedTypePass()";
+  let constructor = "mlir::odml::CreateComposeUniformQuantizedTypePass()";
   let description = [{
     Identifies uniform quantization patterns and composes them to uniform
     quantized types. This pass targets a specific set of models that are
@@ -55,5 +55,20 @@ def ComposeUniformQuantizedTypePass : Pass<"compose-uniform-quantized-type", "Mo
   let dependentDialects = [
     "stablehlo::StablehloDialect",
     "quant::QuantizationDialect",
+  ];
+}
+
+def UniformQuantizedStablehloToTflPass
+    : Pass<"uniform-quantized-stablehlo-to-tfl", "mlir::func::FuncOp"> {
+  let summary = "Converts StableHLO ops using uniform quantized types to equivalent TFL ops.";
+  let constructor = "mlir::odml::CreateUniformQuantizedStablehloToTflPass()";
+  let description = [{
+    Converts StableHLO ops that accept or return uniform quantized types to
+    equivalent ops in the TFLite dialect.
+  }];
+  let dependentDialects = [
+    "stablehlo::StablehloDialect",
+    "quant::QuantizationDialect",
+    "mlir::TFL::TFLDialect",
   ];
 }

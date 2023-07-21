@@ -109,6 +109,7 @@ DebugOptions DefaultDebugOptionsIgnoringFlags() {
   opts.set_xla_gpu_enable_persistent_temp_buffers(false);
   opts.set_xla_gpu_cuda_graph_min_graph_size(5);
   opts.set_xla_gpu_cuda_graph_enable_concurrent_region(false);
+  opts.set_xla_gpu_cuda_graph_eviction_timeout_seconds(60);
 
   // Despite the name, fast min/max on GPUs does not seem to be any faster, and
   // adds very counter-intuitive "NaN-swallowing" behavior.
@@ -146,6 +147,7 @@ DebugOptions DefaultDebugOptionsIgnoringFlags() {
   opts.set_xla_gpu_enable_highest_priority_async_stream(false);
   opts.set_xla_gpu_enable_pipelined_all_reduce(false);
   opts.set_xla_gpu_enable_pipelined_all_gather(false);
+  opts.set_xla_gpu_enable_pipelined_reduce_scatter(false);
 
   opts.set_xla_cpu_enable_mlir_tiling_and_fusion(true);
   opts.set_xla_cpu_enable_custom_matmul_tiling(false);
@@ -170,7 +172,7 @@ DebugOptions DefaultDebugOptionsIgnoringFlags() {
 
   opts.set_xla_gpu_collective_inflation_factor(1);
 
-  opts.set_xla_gpu_enable_experimental_block_size(true);
+  opts.set_xla_gpu_enable_experimental_block_size(false);
   opts.set_xla_gpu_exhaustive_tiling_search(false);
 
   opts.set_xla_gpu_enable_priority_fusion(false);
@@ -905,7 +907,7 @@ void MakeDebugOptionsFlags(std::vector<tsl::Flag>* flag_list,
       "Instantiate a cuda graph after the time a captured function is executed "
       "reaches the threshold."));
   flag_list->push_back(tsl::Flag(
-      "xla_gpu_cuda_graph_capture_threshold",
+      "xla_gpu_cuda_graph_min_graph_size",
       int32_setter_for(&DebugOptions::set_xla_gpu_cuda_graph_min_graph_size),
       debug_options->xla_gpu_cuda_graph_min_graph_size(),
       "Capture a region as a function to be launched as cuda graph if the "
@@ -917,6 +919,14 @@ void MakeDebugOptionsFlags(std::vector<tsl::Flag>* flag_list,
       debug_options->xla_gpu_cuda_graph_enable_concurrent_region(),
       "Identify concurrent regions in cuda graphs and execute them "
       "concurrently."));
+  flag_list->push_back(tsl::Flag(
+      "xla_gpu_cuda_graph_eviction_timeout_seconds",
+      int32_setter_for(
+          &DebugOptions::set_xla_gpu_cuda_graph_eviction_timeout_seconds),
+      debug_options->xla_gpu_cuda_graph_eviction_timeout_seconds(),
+      "Timeout in seconds to evict instantiated Gpu graphs from device. When "
+      "XLA instantiates new Gpu graphs, it evicts graphs that were not "
+      "recently executed to free space on device."));
 
   flag_list->push_back(tsl::Flag(
       "xla_gpu_enable_persistent_temp_buffers",
@@ -1071,6 +1081,12 @@ void MakeDebugOptionsFlags(std::vector<tsl::Flag>* flag_list,
       bool_setter_for(&DebugOptions::set_xla_gpu_enable_pipelined_all_gather),
       debug_options->xla_gpu_enable_pipelined_all_gather(),
       "Enable pipelinling of all-gather instructions."));
+  flag_list->push_back(
+      tsl::Flag("xla_gpu_enable_pipelined_reduce_scatter",
+                bool_setter_for(
+                    &DebugOptions::set_xla_gpu_enable_pipelined_reduce_scatter),
+                debug_options->xla_gpu_enable_pipelined_reduce_scatter(),
+                "Enable pipelinling of reduce-scatter instructions."));
   flag_list->push_back(tsl::Flag(
       "xla_partitioning_algorithm", setter_for_xla_partitioning_algorithm,
       DebugOptions::PartitioningAlgorithm_Name(
@@ -1160,6 +1176,13 @@ void MakeDebugOptionsFlags(std::vector<tsl::Flag>* flag_list,
       int32_setter_for(&DebugOptions::set_xla_gpu_triton_fusion_level),
       debug_options->xla_gpu_triton_fusion_level(),
       "Triton fusion level, higher levels mean more fused operations."));
+  flag_list->push_back(tsl::Flag(
+      "xla_gpu_dump_autotuned_triton_fusions",
+      bool_setter_for(&DebugOptions::set_xla_gpu_dump_autotuned_triton_fusions),
+      debug_options->xla_gpu_dump_autotuned_triton_fusions(),
+      "Dumps autotuned Triton fusions to the directory specified by "
+      "xla_dump_to or stdout. Each fusion is dumped only once, as an optimized "
+      "HLO."));
 }  // NOLINT(readability/fn_size)
 
 // Allocates flag_values and flag_objects; this function must not be called more
