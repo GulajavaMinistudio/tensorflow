@@ -27,6 +27,7 @@ limitations under the License.
 #include "tensorflow/compiler/xla/hlo/ir/hlo_opcode.h"
 #include "tensorflow/compiler/xla/service/gpu/ir_emitter.h"
 #include "tensorflow/compiler/xla/service/gpu/ir_emitter_context.h"
+#include "tensorflow/compiler/xla/service/gpu/kernel_reuse_cache.h"
 #include "tensorflow/compiler/xla/service/llvm_ir/buffer_assignment_util.h"
 #include "tensorflow/compiler/xla/service/llvm_ir/llvm_util.h"
 #include "tensorflow/compiler/xla/service/llvm_ir/tuple_ops.h"
@@ -40,8 +41,7 @@ class IrEmitterNested : public IrEmitter {
   // Constructs an LLVM IR emitter for a nested HLO computation. `function` is
   // the containing IR function this emitter produces IR to. See
   // IrEmitter::IrEmitter for the meanings of other arguments.
-  IrEmitterNested(const HloModuleConfig& hlo_module_config,
-                  const HloComputation& nested_computation,
+  IrEmitterNested(const HloComputation& nested_computation,
                   IrEmitterContext* ir_emitter_context);
 
   IrEmitterNested(const IrEmitterNested&) = delete;
@@ -77,18 +77,25 @@ class IrEmitterNested : public IrEmitter {
   const HloComputation& nested_computation_;
 };
 
-IrEmitterNested::IrEmitterNested(const HloModuleConfig& hlo_module_config,
-                                 const HloComputation& nested_computation,
+IrEmitterNested::IrEmitterNested(const HloComputation& nested_computation,
                                  IrEmitterContext* ir_emitter_context)
-    : IrEmitter(hlo_module_config, ir_emitter_context, /*is_nested=*/true),
+    : IrEmitter(ir_emitter_context,
+                /*is_nested=*/true),
       nested_computation_(nested_computation) {}
 
 // Nested function serves the same purpose on GPU as a thread-local function on
 // a CPU.
 StatusOr<llvm::Function*> IrEmitterNested::CodegenNestedComputation() {
-  std::string function_name = llvm_ir::SanitizeFunctionName(absl::StrCat(
-      nested_computation_.name(), "_",
-      absl::Hex(reinterpret_cast<intptr_t>(&nested_computation_))));
+  // Include a fingerprint of the HLO in the function name. Currently, codegen
+  // is invoked on temporary HLO objects, which means the address of the
+  // computation is not necessarily unique.
+  std::string fingerprint = GetComputationFingerprint(&nested_computation_, {});
+  size_t hash = absl::Hash<std::string>{}(fingerprint);
+  std::string function_name = llvm_ir::SanitizeFunctionName(
+      absl::StrCat(nested_computation_.name(), "_",
+                   absl::Hex(reinterpret_cast<intptr_t>(&nested_computation_)),
+                   "_", absl::Hex(hash)));
+
   auto* function =
       ir_emitter_context_->llvm_module()->getFunction(function_name);
   if (function) return function;
@@ -461,7 +468,6 @@ bool MaybeEmitDirectAtomicOperation(llvm::IRBuilder<>* builder,
 //
 Status EmitAtomicOperationUsingCAS(llvm::IRBuilder<>* builder,
                                    IrEmitterContext& ir_emitter_context,
-                                   const HloModuleConfig& hlo_module_config,
                                    const HloComputation& computation,
                                    llvm::Value* output_address,
                                    llvm::Value* source_address,
@@ -549,7 +555,7 @@ Status EmitAtomicOperationUsingCAS(llvm::IRBuilder<>* builder,
   builder->CreateStore(cas_old_output, cas_new_output_address);
   // Emits code to calculate new_output = operation(old_output, source);
   TF_RETURN_IF_ERROR(CallNestedComputation(
-      builder, ir_emitter_context, hlo_module_config, computation,
+      builder, ir_emitter_context, computation,
       {binop_output_address, source_address}, binop_output_address));
 
   llvm::Value* cas_new_output =
@@ -594,16 +600,14 @@ Status EmitAtomicOperationUsingCAS(llvm::IRBuilder<>* builder,
 
 Status CallNestedComputation(llvm::IRBuilder<>* builder,
                              IrEmitterContext& ir_emitter_context,
-                             const HloModuleConfig& hlo_module_config,
                              const HloComputation& computation,
                              absl::Span<llvm::Value* const> operands,
                              llvm::Value* output) {
   TF_RET_CHECK(computation.num_parameters() > 0);
 
-  TF_ASSIGN_OR_RETURN(
-      llvm::Function * emitted_function,
-      IrEmitterNested(hlo_module_config, computation, &ir_emitter_context)
-          .CodegenNestedComputation());
+  TF_ASSIGN_OR_RETURN(llvm::Function * emitted_function,
+                      IrEmitterNested(computation, &ir_emitter_context)
+                          .CodegenNestedComputation());
 
   // Operands are in default address space for non-AMDGPU target.
   // However for AMDGPU target, addrspacecast alloca variables from
@@ -623,7 +627,7 @@ Status CallNestedComputation(llvm::IRBuilder<>* builder,
 
 StatusOr<std::vector<llvm::Value*>> CallNestedComputationWithScalars(
     llvm::IRBuilder<>* builder, IrEmitterContext& ir_emitter_context,
-    const HloModuleConfig& hlo_module_config, const HloComputation& computation,
+    const HloComputation& computation,
     absl::Span<llvm::Value* const> parameter_elements) {
   std::vector<llvm::Value*> parameter_buffers;
   for (llvm::Value* parameter_element : parameter_elements) {
@@ -633,13 +637,12 @@ StatusOr<std::vector<llvm::Value*>> CallNestedComputationWithScalars(
   }
 
   return CallNestedComputationWithScalarAddrs(builder, ir_emitter_context,
-                                              hlo_module_config, computation,
-                                              parameter_buffers);
+                                              computation, parameter_buffers);
 }
 
 StatusOr<std::vector<llvm::Value*>> CallNestedComputationWithScalarAddrs(
     llvm::IRBuilder<>* builder, IrEmitterContext& ir_emitter_context,
-    const HloModuleConfig& hlo_module_config, const HloComputation& computation,
+    const HloComputation& computation,
     absl::Span<llvm::Value* const> parameter_elements_addrs) {
   const Shape& return_shape = computation.root_instruction()->shape();
   llvm::Type* return_buffer_type = llvm_ir::ShapeToIrType(
@@ -659,9 +662,9 @@ StatusOr<std::vector<llvm::Value*>> CallNestedComputationWithScalarAddrs(
     llvm_ir::EmitTuple(tuple_array, allocas_for_returned_scalars, builder);
   }
 
-  TF_RETURN_IF_ERROR(CallNestedComputation(
-      builder, ir_emitter_context, hlo_module_config, computation,
-      parameter_elements_addrs, return_buffer));
+  TF_RETURN_IF_ERROR(
+      CallNestedComputation(builder, ir_emitter_context, computation,
+                            parameter_elements_addrs, return_buffer));
 
   std::vector<llvm::Value*> returned_scalars;
   returned_scalars.reserve(allocas_for_returned_scalars.size());
@@ -675,9 +678,8 @@ StatusOr<std::vector<llvm::Value*>> CallNestedComputationWithScalarAddrs(
 
 Status EmitAtomicOperationForNestedComputation(
     llvm::IRBuilder<>* builder, IrEmitterContext& ir_emitter_context,
-    const HloModuleConfig& hlo_module_config, const HloComputation& computation,
-    llvm::Value* output_address, llvm::Value* source_address,
-    llvm::Type* element_type) {
+    const HloComputation& computation, llvm::Value* output_address,
+    llvm::Value* source_address, llvm::Type* element_type) {
   if (computation.num_parameters() != 2) {
     // TODO(b/30258929): We only accept binary computations so far.
     return Unimplemented(
@@ -691,9 +693,9 @@ Status EmitAtomicOperationForNestedComputation(
     return OkStatus();
   }
 
-  return EmitAtomicOperationUsingCAS(
-      builder, ir_emitter_context, hlo_module_config, computation,
-      output_address, source_address, element_type);
+  return EmitAtomicOperationUsingCAS(builder, ir_emitter_context, computation,
+                                     output_address, source_address,
+                                     element_type);
 }
 
 }  // namespace gpu

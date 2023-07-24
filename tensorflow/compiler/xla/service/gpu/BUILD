@@ -407,6 +407,7 @@ cc_library(
         ":hlo_fusion_analysis",
         ":hlo_to_ir_bindings",
         ":ir_emitter_context",
+        ":kernel_reuse_cache",
         ":target_util",
         "//tensorflow/compiler/xla:literal",
         "//tensorflow/compiler/xla:shape_util",
@@ -938,7 +939,6 @@ cc_library(
         "//tensorflow/compiler/xla/stream_executor/gpu:gpu_types_header",
         "//tensorflow/tsl/platform:errors",
         "//tensorflow/tsl/platform:logging",
-        "//tensorflow/tsl/platform:random",
         "//tensorflow/tsl/platform:status",
         "//tensorflow/tsl/profiler/lib:scoped_annotation",
         "//tensorflow/tsl/profiler/lib:traceme",
@@ -3648,8 +3648,9 @@ cc_library(
         "//tensorflow/compiler/xla/stream_executor/gpu:asm_compiler",
         "//tensorflow/compiler/xla/stream_executor/gpu:gpu_asm_opts",
     ]) + if_rocm_is_configured([
+        "//tensorflow/compiler/xla/stream_executor/gpu:gpu_stream_header",
         "//tensorflow/compiler/xla/stream_executor/rocm:rocm_helpers",
-    ]) + ["//tensorflow/compiler/xla/stream_executor/gpu:gpu_stream_header"],
+    ]),
 )
 
 cc_library(
