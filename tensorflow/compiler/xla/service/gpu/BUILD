@@ -300,8 +300,8 @@ cc_library(
     name = "ir_emitter_unnested",
     srcs = ["ir_emitter_unnested.cc"],
     hdrs = ["ir_emitter_unnested.h"],
-    copts = if_cuda_is_configured(["-DGOOGLE_CUDA=1"]) + if_rocm_hipblaslt([
-        "-DTF_HIPBLASLT=1",
+    local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]) + if_rocm_is_configured(["TENSORFLOW_USE_ROCM=1"]) + if_rocm_hipblaslt([
+        "TF_HIPBLASLT=1",
     ]),
     deps = [
         ":backend_configs_cc",
@@ -313,6 +313,7 @@ cc_library(
         ":gpu_device_info",
         ":gpu_executable",
         ":gpu_fused_mha_runner",
+        ":gpu_fusible",
         ":hlo_fusion_analysis",
         ":hlo_to_ir_bindings",
         ":ir_emission_utils",
@@ -324,6 +325,7 @@ cc_library(
         ":matmul_utils",
         ":nccl_collective_thunks",
         ":parallel_loop_emitter",
+        ":reduction_utils",
         ":target_util",
         ":thunk",
         "//tensorflow/compiler/xla:autotuning_proto_cc",
@@ -880,6 +882,9 @@ cc_library(
         "sequential_thunk.h",
         "while_thunk.h",
     ],
+    local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]) + if_rocm_is_configured([
+        "TENSORFLOW_USE_ROCM=1",
+    ]),
     deps = [
         ":backend_configs_cc",
         ":buffer_allocations",
@@ -987,7 +992,6 @@ cc_library(
     srcs = ["ir_emission_utils.cc"],
     hdrs = ["ir_emission_utils.h"],
     compatible_with = get_compatible_with_portable(),
-    defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]),
     deps = [
         ":target_util",
         "//tensorflow/compiler/xla:xla_data_proto_cc",
@@ -1005,10 +1009,7 @@ cc_library(
         "@com_google_absl//absl/container:flat_hash_set",
         "@llvm-project//llvm:Core",
         "@llvm-project//mlir:ArithDialect",
-    ] + if_cuda_is_configured([
-        ":gpu_asm_opts_util",
-        "//tensorflow/compiler/xla/stream_executor/gpu:asm_compiler",
-    ]),
+    ],
 )
 
 xla_cc_test(
@@ -1025,6 +1026,25 @@ xla_cc_test(
         "@llvm-project//mlir:IR",
         "@llvm-project//mlir:Parser",
     ],
+)
+
+cc_library(
+    name = "reduction_utils",
+    srcs = ["reduction_utils.cc"],
+    hdrs = ["reduction_utils.h"],
+    local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]),
+    deps = [
+        "//tensorflow/compiler/xla:shape_util",
+        "//tensorflow/compiler/xla:util",
+        "//tensorflow/compiler/xla/hlo/ir:hlo",
+        "//tensorflow/compiler/xla/service:hlo_module_config",
+        "//tensorflow/tsl/platform:logging",
+        "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/types:span",
+    ] + if_cuda_is_configured([
+        ":gpu_asm_opts_util",
+        "//tensorflow/compiler/xla/stream_executor/gpu:asm_compiler",
+    ]),
 )
 
 cc_library(
@@ -1120,7 +1140,7 @@ cc_library(
     name = "gemm_rewriter",
     srcs = ["gemm_rewriter.cc"],
     hdrs = ["gemm_rewriter.h"],
-    defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]),
+    local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]),
     deps = [
         ":backend_configs_cc",
         ":cublas_cudnn",
@@ -1247,6 +1267,9 @@ cc_library(
     hdrs = if_cuda_is_configured(["cublas_lt_matmul_thunk.h"]) + if_rocm_is_configured([
         "cublas_lt_matmul_thunk.h",
     ]),
+    local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]) + if_rocm_is_configured([
+        "TENSORFLOW_USE_ROCM=1",
+    ]),
     deps = if_gpu_is_configured([
         ":matmul_utils",
         ":thunk",
@@ -1268,6 +1291,7 @@ cc_library(
     name = "gemm_algorithm_picker",
     srcs = if_cuda_is_configured(["gemm_algorithm_picker.cc"]),
     hdrs = if_cuda_is_configured(["gemm_algorithm_picker.h"]),
+    local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]),
     deps = if_cuda_is_configured([
         ":backend_configs_cc",
         ":buffer_comparator",
@@ -1360,6 +1384,7 @@ xla_cc_test(
         "requires-gpu-sm70",
     ],
     deps = [
+        ":backend_configs_cc",
         ":gemm_algorithm_picker",
         ":gemm_rewriter",
         "//tensorflow/compiler/xla/service:gpu_plugin",
@@ -1380,7 +1405,7 @@ cc_library(
     srcs = ["matmul_utils.cc"],
     hdrs = ["matmul_utils.h"],
     compatible_with = get_compatible_with_portable(),
-    defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]) + if_rocm_is_configured([
+    local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]) + if_rocm_is_configured([
         "TENSORFLOW_USE_ROCM=1",
     ]),
     deps = [
@@ -1512,8 +1537,8 @@ cc_library(
     name = "conv_algorithm_picker",
     srcs = if_gpu_is_configured(["conv_algorithm_picker.cc"]),
     hdrs = if_gpu_is_configured(["conv_algorithm_picker.h"]),
-    copts = if_cuda_is_configured(["-DGOOGLE_CUDA=1"]) + if_rocm_is_configured([
-        "-DTENSORFLOW_USE_ROCM=1",
+    local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]) + if_rocm_is_configured([
+        "TENSORFLOW_USE_ROCM=1",
     ]),
     deps = if_gpu_is_configured([
         ":backend_configs_cc",
@@ -2291,6 +2316,9 @@ cc_library(
     hdrs = if_gpu_is_configured([
         "gpu_compiler.h",
     ]),
+    local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]) + if_rocm_is_configured([
+        "TENSORFLOW_USE_ROCM=1",
+    ]),
     deps = if_gpu_is_configured([
         ":alias_passthrough_params",
         ":all_reduce_blueconnect",
@@ -2331,6 +2359,7 @@ cc_library(
         ":reduction_dimension_grouper",
         ":reduction_layout_normalizer",
         ":reduction_splitter",
+        ":reduction_utils",
         ":runtime_intrinsics",
         ":scatter_slice_simplifier",
         ":softmax_rewriter_triton",
@@ -2736,7 +2765,7 @@ cc_library(
         "infeed_manager.h",
         "outfeed_manager.h",
     ],
-    copts = if_cuda_is_configured(["-DGOOGLE_CUDA=1"]),
+    local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]),
     deps = [
         ":xfeed_queue",
         "//tensorflow/compiler/xla:literal",
@@ -2946,13 +2975,14 @@ cc_library(
         "hlo_fusion_analysis.h",
         "kernel_mapping_scheme.h",
     ],
-    copts = if_cuda_is_configured(["-DGOOGLE_CUDA=1"]),
+    local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]),
     deps = [
         ":backend_configs_cc",
         ":gpu_device_info",
         ":gpu_fusible",
         ":ir_emission_utils",
         ":launch_dimensions",
+        ":reduction_utils",
         "//tensorflow/compiler/xla:shape_util",
         "//tensorflow/compiler/xla:statusor",
         "//tensorflow/compiler/xla:union_find",
@@ -3121,6 +3151,7 @@ cc_library(
     deps = [
         ":gpu_device_info",
         ":ir_emission_utils",
+        ":reduction_utils",
         "//tensorflow/compiler/xla:shape_util",
         "//tensorflow/compiler/xla/hlo/ir:hlo",
         "//tensorflow/compiler/xla/service:instruction_fusion",
@@ -3232,6 +3263,21 @@ xla_cc_test(
         "//tensorflow/tsl/platform:test_main",
         "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest_main",
+    ],
+)
+
+xla_test(
+    name = "float_support_test",
+    srcs = ["float_support_test.cc"],
+    backend_tags = {"gpu": [
+        "requires-gpu-sm80",
+    ]},
+    backends = [
+        "gpu",
+    ],
+    deps = [
+        "//tensorflow/compiler/xla/tests:hlo_test_base",
+        "//tensorflow/compiler/xla/tests:xla_internal_test_main",
     ],
 )
 
@@ -3472,7 +3518,7 @@ cc_library(
     srcs = ["reduction_splitter.cc"],
     hdrs = ["reduction_splitter.h"],
     deps = [
-        ":ir_emission_utils",
+        ":reduction_utils",
         "//tensorflow/compiler/xla:shape_util",
         "//tensorflow/compiler/xla/hlo/ir:hlo",
         "//tensorflow/compiler/xla/service:hlo_pass",
@@ -3518,7 +3564,7 @@ cc_library(
     hdrs = ["tree_reduction_rewriter.h"],
     deps = [
         ":gpu_types",
-        ":ir_emission_utils",
+        ":reduction_utils",
         "//tensorflow/compiler/xla:shape_util",
         "//tensorflow/compiler/xla:statusor",
         "//tensorflow/compiler/xla:util",
@@ -3923,6 +3969,7 @@ cc_library(
     hdrs = ["copy_fusion.h"],
     deps = [
         ":ir_emission_utils",
+        ":reduction_utils",
         "//tensorflow/compiler/xla:statusor",
         "//tensorflow/compiler/xla/hlo/ir:hlo",
         "//tensorflow/compiler/xla/service:hlo_pass",
