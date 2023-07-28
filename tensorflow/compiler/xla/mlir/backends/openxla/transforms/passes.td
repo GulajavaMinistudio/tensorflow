@@ -30,6 +30,7 @@ def ConvertToOpenXla : Pass<"xla-gpu-to-openxla", "mlir::ModuleOp"> {
   let dependentDialects = [
     "mlir::iree_compiler::IREE::Input::IREEInputDialect",
     "mlir::scf::SCFDialect",
+    "xla::gpu::XlaGpuDialect",
   ];
 }
 

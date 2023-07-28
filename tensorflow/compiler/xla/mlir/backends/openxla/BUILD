@@ -7,6 +7,15 @@ package(
     licenses = ["notice"],
 )
 
+# Add `--define=xla_gpu_with_openxla_compiler=1` to build command to enable experimental
+# OpenXLA/IREE backend compiler.
+config_setting(
+    name = "with_openxla_compiler",
+    values = {
+        "define": "xla_gpu_with_openxla_compiler=1",
+    },
+)
+
 # copybara:uncomment_begin(not supported in OSS build)
 #
 # build_test(
@@ -21,6 +30,7 @@ package(
 #         "@llvm-project//mlir:FuncDialect",
 #         "@llvm-project//mlir:MemRefDialect",
 #         "@llvm-project//mlir:MlirOptLib",
+#         "@llvm-project//mlir:Transforms",
 #         "//tensorflow/compiler/xla/mlir/backends/openxla/transforms:passes",
 #         "//tensorflow/compiler/xla/mlir_hlo:lhlo",
 #         "//tensorflow/compiler/xla/mlir_hlo:lhlo_gpu",
