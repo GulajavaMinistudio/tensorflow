@@ -1,4 +1,5 @@
 load("//tensorflow/compiler/xla:xla.bzl", "xla_cc_binary")
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 
 package(
@@ -7,13 +8,16 @@ package(
     licenses = ["notice"],
 )
 
-# Add `--define=xla_gpu_with_openxla_compiler=1` to build command to enable experimental
-# OpenXLA/IREE backend compiler.
+# Add `--//third_party/tensorflow/compiler/xla/mlir/backends/openxla:enable` to build command to
+# enable experimental backend compiler and runtime.
+bool_flag(
+    name = "enable",
+    build_setting_default = False,
+)
+
 config_setting(
-    name = "with_openxla_compiler",
-    values = {
-        "define": "xla_gpu_with_openxla_compiler=1",
-    },
+    name = "enabled",
+    flag_values = {":enable": "True"},
 )
 
 # copybara:uncomment_begin(not supported in OSS build)
@@ -34,6 +38,7 @@ config_setting(
 #         "//tensorflow/compiler/xla/mlir/backends/openxla/transforms:passes",
 #         "//tensorflow/compiler/xla/mlir_hlo:lhlo",
 #         "//tensorflow/compiler/xla/mlir_hlo:lhlo_gpu",
+#         "//tensorflow/tsl/platform:platform_port",
 #     ],
 # )
 #
