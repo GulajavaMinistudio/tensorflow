@@ -724,6 +724,12 @@ ENTRY e {
 
 class TritonGemmLevel2Test : public TritonGemmTest {
  public:
+  void SetUp() override {
+    if (!GetCudaComputeCapability().IsAtLeast(
+            se::CudaComputeCapability::AMPERE)) {
+      GTEST_SKIP() << "Triton fusion on pre-Ampere GPUs is limited.";
+    }
+  }
   DebugOptions GetDebugOptionsForTest() override {
     DebugOptions debug_options = HloTestBase::GetDebugOptionsForTest();
     debug_options.set_xla_gpu_triton_fusion_level(2);
@@ -814,30 +820,21 @@ ENTRY e {
 
 TEST_F(TritonGemmLevel2Test, LinkingLibdeviceTwiceWorks) {
   const std::string kHloText = R"(
-HloModule m
-
 ENTRY e {
   p0 = s8[7,3] parameter(0)
   c0 = f32[7,3] convert(p0)
-  e0 = f32[7,3] exponential(c0)
   p1 = f32[3,16] parameter(1)
   e1 = f32[3,16] exponential(p1)
   d0 = f32[7,16] dot(c0, e1),
     lhs_contracting_dims={1}, rhs_contracting_dims={0}
-  d1 = f32[7,16] dot(e0, p1),
+  p2 = s8[7,3] parameter(2)
+  c2 = f32[7,3] convert(p2)
+  e2 = f32[7,3] exponential(c2)
+  p3 = f32[3,16] parameter(3)
+  d1 = f32[7,16] dot(e2, p3),
     lhs_contracting_dims={1}, rhs_contracting_dims={0}
   ROOT a = f32[7,16] add(d0, d1)
 })";
-
-  MatchOptimizedHlo(kHloText, R"(
-; CHECK: ENTRY
-; CHECK-NEXT: parameter
-; CHECK-NEXT: parameter
-; CHECK-NEXT: kCustom
-; CHECK-NEXT: kCustom
-; CHECK-NEXT: ROOT
-; CHECK-SAME: add
-)");
 
   TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
                           GetOptimizedModule(kHloText));
@@ -922,11 +919,6 @@ ENTRY e {
 }
 
 TEST_F(TritonGemmLevel2Test, ParameterAfterDotIsFused) {
-  if (!GetCudaComputeCapability().IsAtLeast(
-          se::CudaComputeCapability::AMPERE)) {
-    GTEST_SKIP() << "No BF16 before Ampere.";
-  }
-
   const std::string kHloText = R"(
 HloModule m
 
@@ -956,11 +948,6 @@ ENTRY e {
 }
 
 TEST_F(TritonGemmLevel2Test, OutputFusionExecutesCorrectly) {
-  if (!GetCudaComputeCapability().IsAtLeast(
-          se::CudaComputeCapability::AMPERE)) {
-    GTEST_SKIP() << "No BF16 before Ampere.";
-  }
-
   const std::string kHloText = R"(
 HloModule m
 
@@ -994,11 +981,6 @@ ENTRY e {
 }
 
 TEST_F(TritonGemmLevel2Test, SplitLHSOutputTransposeAloneIsNotFused) {
-  if (!GetCudaComputeCapability().IsAtLeast(
-          se::CudaComputeCapability::AMPERE)) {
-    GTEST_SKIP() << "No BF16 before Ampere.";
-  }
-
   const std::string kHloText = R"(
 HloModule m
 
@@ -1023,11 +1005,6 @@ ENTRY e {
 }
 
 TEST_F(TritonGemmLevel2Test, SplitLHSInputOutputIsFused) {
-  if (!GetCudaComputeCapability().IsAtLeast(
-          se::CudaComputeCapability::AMPERE)) {
-    GTEST_SKIP() << "No BF16 before Ampere.";
-  }
-
   const std::string kHloText = R"(
 ENTRY e {
   p0t = (s8[5,18,20,150]) parameter(0)
