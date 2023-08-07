@@ -571,6 +571,9 @@ constexpr int kIoToleranceBytes = 1024;
 
 // Tells that fusing an instruction as an input is efficient.
 bool IsInputWorthFusing(const HloInstruction& hlo) {
+  if (hlo_query::IsScalarConstant(&hlo)) {
+    return true;
+  }
   if (hlo.user_count() > 1) {
     return false;
   }
