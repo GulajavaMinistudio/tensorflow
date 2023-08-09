@@ -493,6 +493,7 @@ cc_library(
         ":status_casters",
         "//tensorflow/compiler/xla/client:xla_computation",
         "//tensorflow/compiler/xla/hlo/ir:hlo",
+        "//tensorflow/compiler/xla/hlo/utils:hlo_query",
         "//tensorflow/compiler/xla/hlo/utils:hlo_sharding_util",
         "//tensorflow/compiler/xla/service:custom_call_sharding_helper",
         "//tensorflow/compiler/xla/service/spmd:spmd_partitioner",
@@ -891,7 +892,6 @@ cc_library(
         "//tensorflow/compiler/xla/service:hlo_pass",
         "//tensorflow/compiler/xla/service:hlo_proto_cc",
         "//tensorflow/compiler/xla/service:name_uniquer",
-        "//tensorflow/compiler/xla/service:platform_util",
         "//tensorflow/compiler/xla/service:tuple_simplifier",
         "//tensorflow/tsl/lib/strings:proto_serialization",
         "@com_google_absl//absl/hash",
@@ -1035,6 +1035,7 @@ tsl_pybind_extension(
         "//tensorflow/compiler/xla/python/pjrt_ifrt",
         "//tensorflow/tsl/distributed_runtime/preemption:preemption_sync_manager",
         "//tensorflow/tsl/platform:logging",
+        "//tensorflow/tsl/platform/cloud:gcs_file_system",
         "//tensorflow/tsl/python/lib/core:numpy",
         "//third_party/python_runtime:headers",  # buildcleaner: keep
         "@com_google_absl//absl/strings",
@@ -1044,7 +1045,6 @@ tsl_pybind_extension(
     ] + select({
         ":gpu_enabled": [
             "//tensorflow/compiler/xla/pjrt/gpu:se_gpu_pjrt_client",
-            "//tensorflow/tsl/platform/cloud:gcs_file_system",
         ],
         "//conditions:default": [],
     }) + select({

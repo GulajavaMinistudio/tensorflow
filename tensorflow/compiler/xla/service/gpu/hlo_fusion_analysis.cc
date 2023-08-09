@@ -27,10 +27,12 @@ limitations under the License.
 #include "tensorflow/compiler/xla/hlo/ir/hlo_casting_utils.h"
 #include "tensorflow/compiler/xla/hlo/ir/hlo_computation.h"
 #include "tensorflow/compiler/xla/hlo/ir/hlo_instruction.h"
+#include "tensorflow/compiler/xla/hlo/ir/hlo_instructions.h"
 #include "tensorflow/compiler/xla/hlo/ir/hlo_opcode.h"
 #include "tensorflow/compiler/xla/hlo/utils/hlo_query.h"
 #include "tensorflow/compiler/xla/primitive_util.h"
 #include "tensorflow/compiler/xla/service/gpu/backend_configs.pb.h"
+#include "tensorflow/compiler/xla/service/gpu/gpu_device_info.h"
 #include "tensorflow/compiler/xla/service/gpu/gpu_fusible.h"
 #include "tensorflow/compiler/xla/service/gpu/ir_emission_utils.h"
 #include "tensorflow/compiler/xla/service/gpu/kernel_mapping_scheme.h"
@@ -38,6 +40,7 @@ limitations under the License.
 #include "tensorflow/compiler/xla/shape.h"
 #include "tensorflow/compiler/xla/shape_util.h"
 #include "tensorflow/compiler/xla/statusor.h"
+#include "tensorflow/compiler/xla/stream_executor/device_description.h"
 #include "tensorflow/compiler/xla/union_find.h"
 
 namespace xla {
@@ -48,21 +51,24 @@ const auto kDimX = TilingScheme::DimX;
 const auto kLinearIndexingX = TilingScheme::LinearIndexingX;
 const auto kStridedIndexingX = TilingScheme::StridedIndexingX;
 
-// Returns true if the fusion output contains non-strided slices only.
-bool IsInputFusibleNonStridedSlices(const HloInstruction* root) {
-  if (root->opcode() == HloOpcode::kTuple) {
-    return absl::c_all_of(root->operands(), IsInputFusibleNonStridedSlices);
-  }
-  auto slice = DynCast<HloSliceInstruction>(root);
+// Returns true if `instr` is a non-strided slice.
+bool IsSliceWithUnitStrides(const HloInstruction* instr) {
+  auto slice = DynCast<HloSliceInstruction>(instr);
   return slice && absl::c_all_of(slice->slice_strides(),
                                  [](int64_t stride) { return stride == 1; });
 }
 
+// Returns true if the fusion output contains non-strided slices only.
+bool IsInputFusibleNonStridedSlices(
+    const std::vector<HloInstruction*>& fusion_roots) {
+  return absl::c_all_of(fusion_roots, IsSliceWithUnitStrides);
+}
+
 // Returns true if all slice inputs in a tuple are equal (ignoring type).
-bool AllSliceInputsAreCompatible(const HloInstruction* root) {
-  const Shape& first_slice_operand_shape =
-      root->operand(0)->operand(0)->shape();
-  return absl::c_all_of(root->operands(), [&](const HloInstruction* slice) {
+bool AllSliceInputsAreCompatible(
+    const std::vector<HloInstruction*>& fusion_roots) {
+  const Shape& first_slice_operand_shape = fusion_roots[0]->operand(0)->shape();
+  return absl::c_all_of(fusion_roots, [&](const HloInstruction* slice) {
     return ShapeUtil::EqualIgnoringElementType(slice->operand(0)->shape(),
                                                first_slice_operand_shape);
   });
@@ -221,40 +227,66 @@ int64_t NearestPowerOfTwo(int64_t v) {
   return upper - v < v - lower ? upper : lower;
 }
 
+// Returns a description of a transpose hero, that is compatible with all roots.
+//
+// A root is compatible with the transpose hero if:
+//   * Either the root has a traspose hero with the same normalized dimensions
+//   * Or the root output shape is equal to the the transpose input shape
+std::optional<TransposeDescription> FindConsistentTransposeHero(
+    const std::vector<HloInstruction*>& hlo_roots) {
+  std::optional<TransposeDescription> tiled_transpose_hero;
+  std::vector<HloInstruction*> non_transpose_roots;
+
+  for (auto* root : hlo_roots) {
+    if (auto tr = FindAnyTiledTranspose(*root)) {
+      if (!tiled_transpose_hero) {
+        // First transpose hero found.
+        tiled_transpose_hero = tr;
+      } else if (!tiled_transpose_hero->IsEquivalent(*tr)) {
+        // Transpose heroes have different shape.
+        return std::nullopt;
+      }
+    } else {
+      non_transpose_roots.push_back(root);
+    }
+  }
+
+  if (!tiled_transpose_hero) return std::nullopt;
+
+  for (auto* root : non_transpose_roots) {
+    // Roots that don't have a transpose hero, should have a shape compatible
+    // with the transpose input.
+    if (!ShapeUtil::IsReshapeOrTransposeBitcast(
+            root->shape(), tiled_transpose_hero->input_shape(),
+            /*ignore_element_type=*/true)) {
+      return std::nullopt;
+    }
+  }
+
+  return tiled_transpose_hero;
+}
+
 }  // namespace
+
+// static
+StatusOr<HloFusionAnalysis> HloFusionAnalysis::Create(
+    const HloFusionInstruction* fusion, const GpuDeviceInfo* device_info,
+    se::CudaComputeCapability compute_capability) {
+  TF_ASSIGN_OR_RETURN(auto backend_config,
+                      fusion->backend_config<FusionBackendConfig>());
+
+  auto hlo_roots = GetFusionRoots(*fusion->fused_instructions_computation());
+  std::optional<TransposeDescription> tiled_transpose_hero =
+      FindConsistentTransposeHero(hlo_roots);
+
+  return HloFusionAnalysis(fusion, std::move(backend_config),
+                           std::move(hlo_roots), device_info,
+                           compute_capability, tiled_transpose_hero);
+}
 
 // Returns true if the fusion has consistent transpose heros.
 bool HloFusionAnalysis::HasConsistentTransposeHeros() const {
-  if (!tiled_transpose_) {
-    return false;
-  }
-
-  const HloInstruction* first_transpose =
-      &FindNonTrivialHero(*root_with_tiled_transpose_);
-  const Shape& transpose_in_shape = first_transpose->operand(0)->shape();
-  std::optional<TransposeDescription> first_tiled_transpose =
-      FindAnyTiledTranspose(*first_transpose);
-
-  // We need the following invariant:
-  // For every tuple element:
-  //  -> EITHER it's a kCopy: S{L} -> S{L'}
-  //  -> OR it's an elementwise op of shape S{L}
-  for (HloInstruction* root : fusion_roots()) {
-    std::optional<TransposeDescription> tiled_transpose =
-        FindAnyTiledTranspose(*root);
-    if (tiled_transpose) {
-      if (*tiled_transpose != *first_tiled_transpose) {
-        return false;
-      }
-    } else {
-      if (!ShapeUtil::IsReshapeOrTransposeBitcast(
-              root->shape(), transpose_in_shape,
-              /*ignore_element_type=*/true)) {
-        return false;
-      }
-    }
-  }
-  return true;
+  return tiled_transpose_.has_value();
 }
 
 HloFusionAnalysis::EmitterFusionKind HloFusionAnalysis::GetEmitterFusionKind()
@@ -266,27 +298,26 @@ HloFusionAnalysis::EmitterFusionKind HloFusionAnalysis::GetEmitterFusionKind()
   }
 #endif
 
+  const auto& roots = fusion_roots();
   HloComputation* fused_computation = fusion_->fused_instructions_computation();
-  if (HasAnyUnnestedReductionRoot(fused_computation)) {
+  if (HasFirstRealReductionHero(*fused_computation)) {
     return EmitterFusionKind::kReduction;
   }
+
   // We expect that the last dimension is swapped with a different dimension.
   if (HasConsistentTransposeHeros() && tiled_transpose_->permutation[2] != 2) {
     return EmitterFusionKind::kTranspose;
   }
 
-  const HloInstruction* fusion_root = fused_computation->root_instruction();
-  if (fusion_->shape().tuple_shapes_size() > 1 &&
-      IsInputFusibleNonStridedSlices(fusion_root)) {
-    // The emitter doesn't support all cases. If it's not supported, fallback
-    // to ElementalIrEmitter.
-    if (fusion_root->opcode() == HloOpcode::kTuple &&
-        !AllSliceInputsAreCompatible(fusion_root)) {
-      return EmitterFusionKind::kLoop;
+  if (roots.size() > 1) {
+    if (IsInputFusibleNonStridedSlices(roots) &&
+        AllSliceInputsAreCompatible(roots)) {
+      return EmitterFusionKind::kInputSlices;
     }
-    return EmitterFusionKind::kInputSlices;
+    return EmitterFusionKind::kLoop;
   }
-  if (fusion_root->opcode() == HloOpcode::kScatter) {
+
+  if (roots[0]->opcode() == HloOpcode::kScatter) {
     return EmitterFusionKind::kScatter;
   }
 
@@ -360,14 +391,10 @@ namespace {
 // We always use the first reduce root that triggers unnested reduction emitter
 // as the hero reduction, since all the reductions are required to have the same
 // shape and layout as verified by `IsFusedReductionOutputConsistent()`.
-HloInstruction* FindHeroReduction(absl::Span<HloInstruction*> roots) {
-  auto it = absl::c_find_if(roots, [](HloInstruction* instr) {
-    return IsReductionFromOrToContiguousDimensions(*instr);
-  });
-  if (it == roots.end()) {
-    return nullptr;
-  }
-  return *it;
+const HloInstruction* FindHeroReduction(const HloComputation& computation) {
+  const HloInstruction* first_reduce = FindFirstRealReductionHero(computation);
+  CHECK_NE(first_reduce, nullptr);
+  return first_reduce;
 }
 }  // namespace
 
@@ -376,9 +403,8 @@ const ReductionCodegenInfo* HloFusionAnalysis::GetReductionCodegenInfo() {
     return &reduction_codegen_info_.value();
   }
 
-  HloInstruction* hero_reduction =
-      FindHeroReduction(absl::Span<HloInstruction*>(fusion_roots_));
-  CHECK_NE(hero_reduction, nullptr);
+  const HloInstruction* hero_reduction =
+      FindHeroReduction(*fused_computation());
 
   auto reduction_codegen_info = ComputeReductionCodegenInfo(hero_reduction);
   reduction_codegen_info_.emplace(std::move(reduction_codegen_info));
@@ -552,7 +578,7 @@ HloFusionAnalysis::GroupDisjointReductions() const {
 
   for (HloInstruction* root : fusion_roots()) {
     disjoint_sets[root].Get() = root;
-    if (!IsReductionFromOrToContiguousDimensions(*root)) {
+    if (!HasRealReductionHero(root)) {
       if (!first_non_reduction_root) {
         first_non_reduction_root = root;
       } else {
@@ -567,8 +593,8 @@ HloFusionAnalysis::GroupDisjointReductions() const {
     std::vector<HloInstruction*> reached_output_ids;
     bool added_to_reduce = false;
     for (HloInstruction* output : fusion_roots()) {
-      if (IsReductionFromOrToContiguousDimensions(*output) &&
-          (hlo_query::IsBroadcastedConstantOrScalar(*instr))) {
+      bool has_real_hero = HasRealReductionHero(output);
+      if (has_real_hero && (hlo_query::IsBroadcastedConstantOrScalar(*instr))) {
         if (added_to_reduce) {
           // Do not group more than one output reduce instructions through
           // broadcasted constants or scalars, as the recomputation should be
@@ -583,7 +609,7 @@ HloFusionAnalysis::GroupDisjointReductions() const {
         VLOG(3) << "Reaching " << output->ToString() << " from "
                 << instr->ToString();
         reached_output_ids.push_back(output);
-        if (IsReductionFromOrToContiguousDimensions(*output)) {
+        if (has_real_hero) {
           added_to_reduce = true;
         }
       }
@@ -702,7 +728,7 @@ int HloFusionAnalysis::CalculateVirtualThreadScalingFactorForReduction(
 }
 
 ReductionCodegenInfo HloFusionAnalysis::ComputeReductionCodegenInfo(
-    HloInstruction* hero_reduction) const {
+    const HloInstruction* hero_reduction) const {
   Shape input_shape = hero_reduction->operand(0)->shape();
   ReductionDimensions reduction_dimensions =
       GetReductionKindAndContiguousComponents(*hero_reduction);
