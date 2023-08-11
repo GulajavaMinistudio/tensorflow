@@ -100,7 +100,8 @@ bool IsReduceInputFusion(const HloInstruction& instr) {
 }
 
 bool IsInputFusibleReduction(const HloInstruction& instr) {
-  return IsReduceInputFusion(instr) || HasRealReductionHero(&instr);
+  return IsReduceInputFusion(instr) ||
+         IsReductionFromOrToContiguousDimensions(instr);
 }
 
 bool IsNestableVariadicReduction(const HloInstruction& instr) {
@@ -345,30 +346,6 @@ static bool AllSatisfy(const HloInstruction& instr,
       });
 }
 
-namespace {
-// Whether 'instr' is an intermediate node for reduction fusion.
-bool IsReduceIntermediate(const HloInstruction* instr) {
-  if (instr->operand_count() > 1 || instr->user_count() > 1) {
-    return false;
-  }
-
-  // Only support elementwise ops that don't introduce additional compute.
-  // More benchmarking and better cost model are needed to enable this for
-  // more compute ops.
-  switch (instr->opcode()) {
-    case HloOpcode::kBitcast:
-    case HloOpcode::kBitcastConvert:
-    case HloOpcode::kConvert:
-      return true;
-    case HloOpcode::kReshape:
-      return ShapeUtil::ReshapeIsBitcast(instr->operand(0)->shape(),
-                                         instr->shape());
-    default:
-      return false;
-  }
-}
-}  // namespace
-
 FusionDecision IsProducerConsumerFusible(const HloInstruction& producer,
                                          const HloInstruction& consumer) {
   if (!IsLoopFusibleAsProducer(producer) &&
@@ -377,8 +354,10 @@ FusionDecision IsProducerConsumerFusible(const HloInstruction& producer,
     return "the producer is not loop-fusible";
   }
 
-  if (IsReductionFromOrToContiguousDimensions(producer)) {
-    if (!AllSatisfy(consumer, &IsReduceIntermediate)) {
+  if (IsInputFusibleReduction(producer)) {
+    if (!AllSatisfy(consumer, [](const HloInstruction* hlo) {
+          return IsIntermediate(hlo, /*allowed_operand_count=*/1);
+        })) {
       return "Reductions from/to continuous dims epilogue not fusible";
     }
 
@@ -818,15 +797,20 @@ bool HasAnyTiledTransposeRoot(const HloComputation& computation) {
 }
 
 bool HasAnyUnnestedReductionRoot(const HloComputation& computation) {
-  return absl::c_any_of(
-      GetFusionRoots(computation),
-      [&](const HloInstruction* instr) { return HasRealReductionHero(instr); });
+  return HasAnyUnnestedReductionRoot(GetFusionRoots(computation));
+}
+
+bool HasAnyUnnestedReductionRoot(
+    const std::vector<HloInstruction*>& fusion_roots) {
+  return absl::c_any_of(fusion_roots, [](const HloInstruction* instr) {
+    return HasRealReductionHero(instr);
+  });
 }
 
 static const HloInstruction* FindNonTrivialReductionHero(
     const HloInstruction& instr) {
   const HloInstruction* idx = &instr;
-  while (IsReduceIntermediate(idx) && idx->operand_count() == 1) {
+  while (IsIntermediate(idx, /*allowed_operand_count=*/1)) {
     idx = idx->operand(0);
   }
   if (IsReductionFromOrToContiguousDimensions(*idx)) {
@@ -835,10 +819,10 @@ static const HloInstruction* FindNonTrivialReductionHero(
   return nullptr;
 }
 
-const HloInstruction* FindFirstRealReductionHero(const HloComputation& cmp) {
-  std::vector<HloInstruction*> roots = GetFusionRoots(cmp);
-  CHECK(!roots.empty());
-  for (HloInstruction* r : roots) {
+const HloInstruction* FindFirstRealReductionHero(
+    const std::vector<HloInstruction*>& fusion_roots) {
+  CHECK(!fusion_roots.empty());
+  for (HloInstruction* r : fusion_roots) {
     const HloInstruction* hero = FindRealReductionHero(r);
     if (hero != nullptr) {
       return hero;
@@ -859,12 +843,12 @@ const HloInstruction* FindRealReductionHero(const HloInstruction* hlo) {
   return nullptr;
 }
 
-bool HasFirstRealReductionHero(const HloComputation& cmp) {
-  return FindFirstRealReductionHero(cmp) != nullptr;
-}
-
 bool HasRealReductionHero(const HloInstruction* hlo) {
   return FindRealReductionHero(hlo) != nullptr;
+}
+
+bool HasRealReductionHero(const std::vector<HloInstruction*>& fusion_roots) {
+  return FindFirstRealReductionHero(fusion_roots) != nullptr;
 }
 
 }  // namespace gpu

@@ -58,7 +58,7 @@ limitations under the License.
 #include "tensorflow/compiler/xla/python/pjrt_ifrt/pjrt_client.h"
 #ifdef XLA_PYTHON_ENABLE_TPU
 #include "tensorflow/compiler/xla/pjrt/tpu_client.h"
-#include "tensorflow/compiler/xla/stream_executor/tpu/tpu_initializer_framework_helper.h"  // NOLINT(unused-includes): required for tensorflow::tpu::FindAndLoadTpuLibrary
+#include "tensorflow/compiler/xla/stream_executor/tpu/tpu_initializer_framework_helper.h"  // NOLINT(unused-includes): required for tensorflow::tpu::LoadTpuLibraryAndInitializeTpuStructFns
 #endif  // XLA_PYTHON_ENABLE_TPU
 #include "tensorflow/compiler/xla/pjrt/pjrt_api.h"
 #include "tensorflow/compiler/xla/python/custom_call_sharding.h"
@@ -74,6 +74,7 @@ limitations under the License.
 #include "tensorflow/compiler/xla/python/py_array.h"
 #include "tensorflow/compiler/xla/python/py_buffer.h"
 #include "tensorflow/compiler/xla/python/py_compile_only_client.h"
+#include "tensorflow/compiler/xla/python/py_device_list.h"
 #include "tensorflow/compiler/xla/python/py_executable.h"
 #include "tensorflow/compiler/xla/python/python_ref_manager.h"
 #include "tensorflow/compiler/xla/python/pytree.h"
@@ -533,14 +534,13 @@ PYBIND11_MODULE(xla_extension, m) {
           -> std::shared_ptr<PyClient> {
         py::gil_scoped_release gil_release;
 #ifdef XLA_PYTHON_ENABLE_TPU
-    // TODO(b/262050449): use a common plugin discovery mechanism, rather than
-    // having TPU-specific code here.
-#if !defined(PLATFORM_GOOGLE) || defined(LIBTPU_STATIC)
+#if defined(LIBTPU_ON_GCE)
         if (absl::AsciiStrToLower(platform_name) == "tpu") {
           // TODO(b/261484192): handle device specific initialization.
-          xla::ThrowIfError(tensorflow::tpu::FindAndLoadTpuLibrary());
+          xla::ThrowIfError(
+              tensorflow::tpu::LoadTpuLibraryAndInitializeTpuStructFns());
         }
-#endif
+#endif  // LIBTPU_ON_GCE
 #endif  // XLA_PYTHON_ENABLE_TPU
         PjRtClient::KeyValueGetCallback kv_get = nullptr;
         PjRtClient::KeyValuePutCallback kv_put = nullptr;
@@ -595,6 +595,7 @@ PYBIND11_MODULE(xla_extension, m) {
         });
 
   TF_CHECK_OK(PyArray::RegisterTypes(m));
+  jax::RegisterDeviceList(m);
   jax::RegisterSharding(m);
 
   py::class_<CompiledMemoryStats>(m, "CompiledMemoryStats")

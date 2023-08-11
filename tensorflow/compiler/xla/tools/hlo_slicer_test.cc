@@ -17,10 +17,12 @@ limitations under the License.
 
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include "absl/log/check.h"
 #include "absl/types/span.h"
 #include "tensorflow/compiler/xla/hlo/ir/hlo_computation.h"
 #include "tensorflow/compiler/xla/hlo/ir/hlo_instruction.h"
@@ -842,15 +844,20 @@ TEST_F(HloSlicerTest, TestSliceModuleAndExtract) {
   auto add0 = FindInstruction(hlo_module.get(), "add.0");
 
   // slice_starting_instructions: {alpha, y}.
-  // forward_slicing_config: kNca.
-  // backward_slicing_config: true.
+  // forward_slicing: kNca.
+  // backward_slicing: true.
   {
     std::vector<const HloInstruction*> relevant_instructions({alpha, y});
-    std::unique_ptr<HloModule> sliced_module = SliceModuleAndExtract(
-        hlo_module.get(),
-        /*slice_starting_instructions=*/absl::MakeSpan(relevant_instructions),
-        /*forward_slicing_config=*/ForwardSliceConfig::kNca,
-        /*backward_slicing_config=*/true);
+    SlicingConfiguration slicing_config = {
+        /*forward_slicing=*/SlicingConfiguration::ForwardSlicingConfig::kNca,
+        /*backward_slicing=*/true};
+    std::vector<std::unique_ptr<HloModule>> sliced_modules =
+        SliceModuleAndExtract(hlo_module.get(),
+                              /*slice_starting_instructions=*/
+                              absl::MakeSpan(relevant_instructions),
+                              /*slicing_configuration=*/slicing_config);
+    CHECK_EQ(sliced_modules.size(), 1);
+    auto sliced_module = std::move(sliced_modules[0]);
 
     // Test forward slicing: the extracted module should root at `add.0`, which
     // is the nearest common ancestor of `alpha` and `y`.
@@ -873,15 +880,20 @@ TEST_F(HloSlicerTest, TestSliceModuleAndExtract) {
   }
 
   // slice_starting_instructions: {alpha, y}.
-  // forward_slicing_config: kRoot.
-  // backward_slicing_config: true.
+  // forward_slicing: kRoot.
+  // backward_slicing: true.
   {
     std::vector<const HloInstruction*> relevant_instructions({alpha, y});
-    std::unique_ptr<HloModule> sliced_module = SliceModuleAndExtract(
-        hlo_module.get(),
-        /*slice_starting_instructions=*/absl::MakeSpan(relevant_instructions),
-        /*forward_slicing_config=*/ForwardSliceConfig::kRoot,
-        /*backward_slicing_config=*/true);
+    SlicingConfiguration slicing_config = {
+        /*forward_slicing=*/SlicingConfiguration::ForwardSlicingConfig::kRoot,
+        /*backward_slicing=*/true};
+    std::vector<std::unique_ptr<HloModule>> sliced_modules =
+        SliceModuleAndExtract(hlo_module.get(),
+                              /*slice_starting_instructions=*/
+                              absl::MakeSpan(relevant_instructions),
+                              /*slicing_configuration=*/slicing_config);
+    CHECK_EQ(sliced_modules.size(), 1);
+    auto sliced_module = std::move(sliced_modules[0]);
 
     // Test forward slicing: the extracted module should root at `add.1`, which
     // is the original root instruction of entry computation.
@@ -904,15 +916,20 @@ TEST_F(HloSlicerTest, TestSliceModuleAndExtract) {
   }
 
   // slice_starting_instructions: {y}.
-  // forward_slicing_config: kRoot.
-  // backward_slicing_config: true.
+  // forward_slicing: kRoot.
+  // backward_slicing: true.
   {
     std::vector<const HloInstruction*> relevant_instructions({y});
-    std::unique_ptr<HloModule> sliced_module = SliceModuleAndExtract(
-        hlo_module.get(),
-        /*slice_starting_instructions=*/absl::MakeSpan(relevant_instructions),
-        /*forward_slicing_config=*/ForwardSliceConfig::kRoot,
-        /*backward_slicing_config=*/true);
+    SlicingConfiguration slicing_config = {
+        /*forward_slicing=*/SlicingConfiguration::ForwardSlicingConfig::kRoot,
+        /*backward_slicing=*/true};
+    std::vector<std::unique_ptr<HloModule>> sliced_modules =
+        SliceModuleAndExtract(hlo_module.get(),
+                              /*slice_starting_instructions=*/
+                              absl::MakeSpan(relevant_instructions),
+                              /*slicing_configuration=*/slicing_config);
+    CHECK_EQ(sliced_modules.size(), 1);
+    auto sliced_module = std::move(sliced_modules[0]);
 
     // Test forward slicing: the extracted module should root at `add.1`, which
     // is the original root instruction of entry computation.
@@ -937,15 +954,20 @@ TEST_F(HloSlicerTest, TestSliceModuleAndExtract) {
   }
 
   // slice_starting_instructions: {alpha, y}.
-  // forward_slicing_config: kRoot.
-  // backward_slicing_config: false.
+  // forward_slicing: kRoot.
+  // backward_slicing: false.
   {
     std::vector<const HloInstruction*> relevant_instructions({add0});
-    std::unique_ptr<HloModule> sliced_module = SliceModuleAndExtract(
-        hlo_module.get(),
-        /*slice_starting_instructions=*/absl::MakeSpan(relevant_instructions),
-        /*forward_slicing_config=*/ForwardSliceConfig::kRoot,
-        /*backward_slicing_config=*/false);
+    SlicingConfiguration slicing_config = {
+        /*forward_slicing=*/SlicingConfiguration::ForwardSlicingConfig::kRoot,
+        /*backward_slicing=*/false};
+    std::vector<std::unique_ptr<HloModule>> sliced_modules =
+        SliceModuleAndExtract(hlo_module.get(),
+                              /*slice_starting_instructions=*/
+                              absl::MakeSpan(relevant_instructions),
+                              /*slicing_configuration=*/slicing_config);
+    CHECK_EQ(sliced_modules.size(), 1);
+    auto sliced_module = std::move(sliced_modules[0]);
 
     // Test forward slicing: the extracted module should root at `add.1`, which
     // is the original root instruction of entry computation.
@@ -957,6 +979,105 @@ TEST_F(HloSlicerTest, TestSliceModuleAndExtract) {
     // Test backward slicing: The computation `calculate_alpha` and
     // `calculate_y` should not be included.
     EXPECT_EQ(sliced_module->computation_count(), 1);
+  }
+}
+
+TEST_F(HloSlicerTest, TestSliceModuleAndExtractRemoveSharding) {
+  const std::string& hlo_string = R"(
+  HloModule axpy_module
+    ENTRY axpy_computation {
+    %constant.39733 = bf16[] constant(111)
+    %broadcast.39734 = bf16[8,1,12288]{2,1,0} broadcast(bf16[] %constant.39733), dimensions={}
+    %multiply.39766 = bf16[8,1,12288]{2,1,0} multiply(bf16[8,1,12288]{2,1,0} %broadcast.39734, bf16[8,1,12288]{2,1,0} %broadcast.39734)
+    %custom-call.39767 = bf16[8,1,12288]{2,1,0} custom-call(bf16[8,1,12288]{2,1,0} %multiply.39766), custom_call_target="Sharding", sharding={replicated}
+    ROOT %add.39786 = bf16[8,1,12288]{2,1,0} add(bf16[8,1,12288]{2,1,0} %custom-call.39767, bf16[8,1,12288]{2,1,0} %custom-call.39767)
+    }
+  )";
+
+  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> hlo_module,
+                          ParseAndReturnVerifiedModule(hlo_string));
+
+  HloInstruction* multiply_39766 =
+      FindInstruction(hlo_module.get(), "multiply.39766");
+
+  // slice_starting_instructions: {multiply_39766 }.
+  // forward_slicing: kRoot.
+  // backward_slicing: false.
+  // remove_sharding: true.
+  {
+    std::vector<const HloInstruction*> relevant_instructions({multiply_39766});
+    SlicingConfiguration slicing_config = {
+        /*forward_slicing=*/SlicingConfiguration::ForwardSlicingConfig::kRoot,
+        /*backward_slicing=*/false, /*remove_sharding=*/true};
+    std::vector<std::unique_ptr<HloModule>> sliced_modules =
+        SliceModuleAndExtract(hlo_module.get(),
+                              /*slice_starting_instructions=*/
+                              absl::MakeSpan(relevant_instructions),
+                              /*slicing_configuration=*/slicing_config);
+    CHECK_EQ(sliced_modules.size(), 1);
+    auto sliced_module = std::move(sliced_modules[0]);
+
+    // Test if the custom-call to sharding is removed.
+    for (HloInstruction* instruction :
+         sliced_module->entry_computation()->instructions()) {
+      CHECK_NE(instruction->opcode(), HloOpcode::kCustomCall);
+    }
+
+    // Check that both the operands of %add.39786 are %multiply.39766.
+    for (HloInstruction* instruction :
+         sliced_module->entry_computation()->root_instruction()->operands()) {
+      CHECK_EQ(instruction->name(), "multiply.39766");
+    }
+  }
+}
+
+TEST_F(HloSlicerTest, TestSliceModuleAndExtractReduceTupleParameter) {
+  const std::string& hlo_string = R"(
+  HloModule axpy_module
+    ENTRY axpy_computation (p.0: (s32[], s32[3]{0}), p.1: (s32[3]{0}, s32[])) -> s32[] {
+      p.0 = (s32[], s32[3]{0}) parameter(0)
+      gte.0 = s32[] get-tuple-element(p.0), index=0    
+      p.1 = (s32[3]{0}, s32[]) parameter(1)
+      gte.1 = s32[] get-tuple-element(p.1), index=1    
+      ROOT add.0 = s32[] add(gte.0, gte.1)
+    }
+  )";
+
+  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> hlo_module,
+                          ParseAndReturnVerifiedModule(hlo_string));
+
+  HloInstruction* add_0 = FindInstruction(hlo_module.get(), "add.0");
+  CHECK_NE(add_0, nullptr);
+
+  // slice_starting_instructions: {add.0}.
+  // forward_slicing: kRoot.
+  // backward_slicing: true.
+  // remove_sharding: false.
+  // reduce_tuple_parameter: true.
+  {
+    // Slice the whole hlo module and reduce the tuple parameter (p.0 and p.1).
+    std::vector<const HloInstruction*> relevant_instructions({add_0});
+    SlicingConfiguration slicing_config = {
+        /*forward_slicing=*/SlicingConfiguration::ForwardSlicingConfig::kRoot,
+        /*backward_slicing=*/true, /*remove_sharding=*/false,
+        /*reduce_tuple_parameter=*/true};
+    std::vector<std::unique_ptr<HloModule>> sliced_modules =
+        SliceModuleAndExtract(hlo_module.get(),
+                              /*slice_starting_instructions=*/
+                              absl::MakeSpan(relevant_instructions),
+                              /*slicing_configuration=*/slicing_config);
+    CHECK_EQ(sliced_modules.size(), 1);
+    auto sliced_module = std::move(sliced_modules[0]);
+
+    // Check that the new p.0 only has one element.
+    HloInstruction* p_0 = FindInstruction(sliced_module.get(), "p.0");
+    CHECK_NE(p_0, nullptr);
+    CHECK_EQ(p_0->shape().tuple_shapes_size(), 1);
+
+    // Check that the new p.1 only has one element.
+    HloInstruction* p_1 = FindInstruction(sliced_module.get(), "p.1");
+    CHECK_NE(p_1, nullptr);
+    CHECK_EQ(p_1->shape().tuple_shapes_size(), 1);
   }
 }
 

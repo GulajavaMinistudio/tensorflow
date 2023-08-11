@@ -297,10 +297,9 @@ HloFusionAnalysis::EmitterFusionKind HloFusionAnalysis::GetEmitterFusionKind()
     return EmitterFusionKind::kTriton;
   }
 #endif
-
   const auto& roots = fusion_roots();
-  HloComputation* fused_computation = fusion_->fused_instructions_computation();
-  if (HasFirstRealReductionHero(*fused_computation)) {
+
+  if (HasRealReductionHero(roots)) {
     return EmitterFusionKind::kReduction;
   }
 
@@ -324,17 +323,13 @@ HloFusionAnalysis::EmitterFusionKind HloFusionAnalysis::GetEmitterFusionKind()
   return EmitterFusionKind::kLoop;
 }
 
-StatusOr<LaunchDimensions> HloFusionAnalysis::GetLaunchDimensions(
-    bool use_experimental_block_size) {
+StatusOr<LaunchDimensions> HloFusionAnalysis::GetLaunchDimensions() {
   auto emitter_fusion_kind = GetEmitterFusionKind();
   switch (emitter_fusion_kind) {
     case EmitterFusionKind::kLoop: {
       // Disable experimental block size if few_waves or row_vectorized enabled.
       auto loop_fusion_config = GetLoopFusionConfig();
-      use_experimental_block_size &= !(loop_fusion_config->row_vectorized) &&
-                                     !(loop_fusion_config->few_waves);
       return CalculateLaunchDimensions(GetElementShape(), *device_info_,
-                                       use_experimental_block_size,
                                        *loop_fusion_config);
     }
     case EmitterFusionKind::kReduction: {
@@ -366,8 +361,7 @@ StatusOr<LaunchDimensions> HloFusionAnalysis::GetLaunchDimensions(
         shape = root->operands()[0]->operands()[0]->shape();
       }
       constexpr int kUnrollFactor = 1;
-      return CalculateLaunchDimensions(
-          shape, *device_info_, use_experimental_block_size, {kUnrollFactor});
+      return CalculateLaunchDimensions(shape, *device_info_, {kUnrollFactor});
     }
     case EmitterFusionKind::kScatter: {
       const auto& root_shape = fusion_->fused_instructions_computation()
@@ -378,7 +372,6 @@ StatusOr<LaunchDimensions> HloFusionAnalysis::GetLaunchDimensions(
                           : num_elements % 2 == 0 ? 2
                                                   : 1;
       return CalculateLaunchDimensions(root_shape, *device_info_,
-                                       use_experimental_block_size,
                                        {unroll_factor, /*few_waves=*/false});
     }
     case EmitterFusionKind::kTriton:
@@ -391,8 +384,9 @@ namespace {
 // We always use the first reduce root that triggers unnested reduction emitter
 // as the hero reduction, since all the reductions are required to have the same
 // shape and layout as verified by `IsFusedReductionOutputConsistent()`.
-const HloInstruction* FindHeroReduction(const HloComputation& computation) {
-  const HloInstruction* first_reduce = FindFirstRealReductionHero(computation);
+const HloInstruction* FindHeroReduction(
+    const std::vector<HloInstruction*>& fusion_roots) {
+  const HloInstruction* first_reduce = FindFirstRealReductionHero(fusion_roots);
   CHECK_NE(first_reduce, nullptr);
   return first_reduce;
 }
@@ -403,8 +397,7 @@ const ReductionCodegenInfo* HloFusionAnalysis::GetReductionCodegenInfo() {
     return &reduction_codegen_info_.value();
   }
 
-  const HloInstruction* hero_reduction =
-      FindHeroReduction(*fused_computation());
+  const HloInstruction* hero_reduction = FindHeroReduction(fusion_roots());
 
   auto reduction_codegen_info = ComputeReductionCodegenInfo(hero_reduction);
   reduction_codegen_info_.emplace(std::move(reduction_codegen_info));
@@ -576,14 +569,15 @@ HloFusionAnalysis::GroupDisjointReductions() const {
   // non-reduction roots into one group to avoid read-after-write conflicts.
   HloInstruction* first_non_reduction_root = nullptr;
 
+  absl::flat_hash_set<HloInstruction*> roots_with_reduction;
   for (HloInstruction* root : fusion_roots()) {
     disjoint_sets[root].Get() = root;
-    if (!HasRealReductionHero(root)) {
-      if (!first_non_reduction_root) {
-        first_non_reduction_root = root;
-      } else {
-        disjoint_sets[first_non_reduction_root].Merge(&disjoint_sets[root]);
-      }
+    if (HasRealReductionHero(root)) {
+      roots_with_reduction.insert(root);
+    } else if (first_non_reduction_root) {
+      disjoint_sets[first_non_reduction_root].Merge(&disjoint_sets[root]);
+    } else {
+      first_non_reduction_root = root;
     }
   }
 
@@ -593,7 +587,7 @@ HloFusionAnalysis::GroupDisjointReductions() const {
     std::vector<HloInstruction*> reached_output_ids;
     bool added_to_reduce = false;
     for (HloInstruction* output : fusion_roots()) {
-      bool has_real_hero = HasRealReductionHero(output);
+      bool has_real_hero = roots_with_reduction.contains(output);
       if (has_real_hero && (hlo_query::IsBroadcastedConstantOrScalar(*instr))) {
         if (added_to_reduce) {
           // Do not group more than one output reduce instructions through

@@ -152,8 +152,8 @@ FusionDecision RequireTritonFusibleConvert(const HloInstruction* input,
   return FusionDecision{};
 }
 
-// Handles numbers of dimensions of a target HLO instruction
-// projected onto source one.
+// Handles numbers of dimensions of an HLO instruction
+// projected onto another one.
 // Used to calculate cumulative index transformations done by non-elementwise
 // instructions between source and target.
 class DimensionOrder {
@@ -162,44 +162,51 @@ class DimensionOrder {
   // properties describing the dimensions are stored for later analysis.
   explicit DimensionOrder(
       const HloInstruction* hlo, const int64_t splittable_dimension_index = -1,
-      const int64_t splittable_dimension_supported_major_size = 0)
+      const int64_t splittable_dimension_supported_major_size = 0,
+      const int split_k_dimension_index = -1)
       : splittable_dimension_index_(splittable_dimension_index),
         splittable_dimension_supported_major_part_size_(
             splittable_dimension_supported_major_size) {
-    dim_order_.reserve(hlo->shape().rank());
-    for (const int64_t i : hlo->shape().layout().minor_to_major()) {
-      dim_order_.push_back({i, 0, hlo->shape().dimensions(i)});
+    tensor_fragments_order_.reserve(hlo->shape().rank());
+    for (const int i : hlo->shape().layout().minor_to_major()) {
+      int target_dim_number = i;
+      if (i == split_k_dimension_index) {
+        CHECK(!tensor_fragments_order_.empty())
+            << "The split-K batch dimension has be preceded by the contracting "
+               "dimension it originates from by construction.";
+        target_dim_number = tensor_fragments_order_.back().dst_dim_number;
+      }
+      dim_fragments_orders_[target_dim_number].push_back(
+          tensor_fragments_order_.size());
+      tensor_fragments_order_.push_back(
+          {target_dim_number, hlo->shape().dimensions(i)});
     }
   }
 
  public:
-  // Description of one dimension of HLO shape.
-  struct DimDescription {
-    int64_t target_dim_number;
-    int subdim_number;
+  // Description of a continuous fragment of one dimension of a tensor.
+  struct Fragment {
+    // Label carrying the dimension number of an defining operation.
+    int dst_dim_number;
+    // Number of elements in the fragment.
     int64_t size;
-    bool operator==(const DimDescription& other) const {
-      return target_dim_number == other.target_dim_number &&
-             subdim_number == other.subdim_number && size == other.size;
-    }
     std::string ToString() const {
-      return absl::StrCat(target_dim_number, ":", subdim_number, ":", size);
+      return absl::StrCat(dst_dim_number, ":", size);
     }
   };
-  // Sequence describing all dimensions of HLO's output shape
-  // in layout minor-to-major (physical) order.
-  using RawDimOrder = std::vector<DimDescription>;
+  using Fragments = std::vector<Fragment>;
+  using FragmentOrders = absl::flat_hash_map<int, std::vector<int>>;
 
   DimensionOrder(const DimensionOrder&) = default;
 
   // Create dimension order describing a dot operand according to
   // the currently supported configurations.
   static DimensionOrder FromDotOperand(const HloInstruction& dot,
-                                       int operand_number, int64_t split_k = 1);
+                                       int operand_number, int split_k = 1);
 
   // Create dimension order describing dot's output.
   static DimensionOrder FromDotOutput(
-      const HloInstruction& dot, int64_t split_k = 1,
+      const HloInstruction& dot, int split_k = 1,
       int64_t splittable_dimension_supported_major_part_size = 0);
 
   enum class TransformDirection { kInputToOutput, kOutputToInput };
@@ -236,8 +243,13 @@ class DimensionOrder {
     return "Unimplemented instruction.";
   }
 
-  // Get the raw data of the dimension order.
-  const RawDimOrder& GetRawDimOrder() const { return dim_order_; }
+  const Fragments& TensorFragmentsOrder() const {
+    return tensor_fragments_order_;
+  }
+
+  const FragmentOrders& DimFragmentsOrders() const {
+    return dim_fragments_orders_;
+  }
 
   // Index of dot dimension that can be split.
   // Currently typically LHS non-contracting one.
@@ -256,10 +268,14 @@ class DimensionOrder {
   bool IsPhysicallyEquivalent(const DimensionOrder& other) const;
 
   std::string ToString() const {
-    return absl::StrJoin(dim_order_, "-",
-                         [](std::string* out, const DimDescription& d) {
-                           absl::StrAppend(out, d.ToString());
-                         });
+    std::string ret = absl::StrJoin(tensor_fragments_order_, "-",
+                                    [](std::string* out, const Fragment& f) {
+                                      absl::StrAppend(out, f.ToString());
+                                    });
+    for (const auto& [dim, fragments] : dim_fragments_orders_) {
+      absl::StrAppend(&ret, dim, ":", absl::StrJoin(fragments, ","), " ");
+    }
+    return ret;
   }
 
  private:
@@ -268,35 +284,40 @@ class DimensionOrder {
   FusionDecision HandleCopyOrTransposeOrBroadcast(const HloInstruction*,
                                                   TransformDirection);
 
-  RawDimOrder dim_order_;
+  // Sequence of all fragments of dimensions of tensor's shape
+  // in layout minor-to-major (physical) order.
+  Fragments tensor_fragments_order_;
+  // Iteration orders of fragments of each dimension of the defining operation
+  // (fragments can be physically unordered and disconnected within
+  // the shape due to reshapes and transposes).
+  FragmentOrders dim_fragments_orders_;
+
   const int64_t splittable_dimension_index_;
   const int64_t splittable_dimension_supported_major_part_size_;
 };
 
 using DimIterationSpec = TensorIterationSpec::DimIterationSpec;
-using RawDimOrder = DimensionOrder::RawDimOrder;
+using Fragments = DimensionOrder::Fragments;
 using DimOrderMap = absl::flat_hash_map<const HloInstruction*, DimensionOrder>;
 
 TensorIterationSpec DimensionOrderToTensorIterationSpec(
     const DimensionOrder& order) {
-  const RawDimOrder& dim_order_vector = order.GetRawDimOrder();
+  const Fragments& dim_fragments = order.TensorFragmentsOrder();
   TensorIterationSpec tensor_spec;
   int64_t accumulated_stride = 1;
-  for (int dim_order_index = 0; dim_order_index < dim_order_vector.size();
+  for (int dim_order_index = 0; dim_order_index < dim_fragments.size();
        ++dim_order_index) {
-    const DimensionOrder::DimDescription& dim =
-        dim_order_vector[dim_order_index];
-    VLOG(6) << dim.target_dim_number << "\t" << dim.subdim_number << "\t"
-            << dim.size;
+    const DimensionOrder::Fragment& dim = dim_fragments[dim_order_index];
+    VLOG(6) << dim.dst_dim_number << "\t" << dim.size;
 
     if (dim.size == 1) {
       continue;
     }
 
-    DimIterationSpec& dim_spec = tensor_spec[dim.target_dim_number];
+    DimIterationSpec& dim_spec = tensor_spec[dim.dst_dim_number];
     if (dim_order_index > 0 &&
-        dim_order_vector[dim_order_index - 1].target_dim_number ==
-            dim.target_dim_number) {
+        dim_fragments[dim_order_index - 1].dst_dim_number ==
+            dim.dst_dim_number) {
       if (dim_spec.empty()) {
         // Previous parts of this dimension were degenerate -
         // so create the dimension here.
@@ -328,24 +349,31 @@ bool DimensionOrder::IsPhysicallyEquivalent(const DimensionOrder& other) const {
 
 DimensionOrder DimensionOrder::FromDotOperand(const HloInstruction& dot,
                                               const int operand_number,
-                                              const int64_t split_k) {
+                                              const int split_k) {
   const HloInstruction* operand = dot.operand(operand_number);
   // There can be either none or one split-K batch dimension.
   const int num_split_k_batch_dims = split_k > 1;
+  int split_k_dimension_index = -1;
+  if (split_k > 1) {
+    split_k_dimension_index =
+        ContractingDimensionIndex(dot, operand_number) - 1;
+  }
+  int splittable_dimension_index = -1;
   // LHS non-contracting dimension can be split if non-splitK batch is absent.
   if (operand_number == 0 &&
       dot.dot_dimension_numbers().lhs_batch_dimensions_size() -
               num_split_k_batch_dims ==
           0) {
-    return DimensionOrder(
-        operand, /*splittable_dimension_index=*/NonContractingDimensionIndex(
-            dot, operand_number));
+    splittable_dimension_index =
+        NonContractingDimensionIndex(dot, operand_number);
   }
-  return DimensionOrder(operand);
+  return DimensionOrder(operand, splittable_dimension_index,
+                        /*splittable_dimension_supported_major_size=*/0,
+                        split_k_dimension_index);
 }
 
 DimensionOrder DimensionOrder::FromDotOutput(
-    const HloInstruction& dot, const int64_t split_k,
+    const HloInstruction& dot, const int split_k,
     const int64_t splittable_dimension_supported_major_part_size) {
   // Allow non-contracting dimension originating from LHS to split if
   // this dimension is split at the output at the same ratio as
@@ -362,87 +390,101 @@ DimensionOrder DimensionOrder::FromDotOutput(
 
 FusionDecision DimensionOrder::HandleBitcast(const HloInstruction* hlo,
                                              TransformDirection direction) {
-  const Shape& target_shape = (direction == TransformDirection::kOutputToInput)
-                                  ? hlo->operand(0)->shape()
-                                  : hlo->shape();
-  RawDimOrder target_dim_order;
-  target_dim_order.reserve(dim_order_.size());
-  // Size of not yet assigned part of current target dimension.
-  int64_t target_remaining_size = 1;
-  // Iterate in parallel over source dimension order and target dimensions
+  const Shape& dst_shape = (direction == TransformDirection::kOutputToInput)
+                               ? hlo->operand(0)->shape()
+                               : hlo->shape();
+  Fragments dst_fragments_order;
+  dst_fragments_order.reserve(tensor_fragments_order_.size());
+  // Size of not yet assigned part of current destination dimension.
+  int64_t dst_remaining_size = 1;
+  // Track destination fragments created from a source one.
+  absl::flat_hash_map<const Fragment*, std::vector<int>> src_to_dst;
+  // Iterate in parallel over source dimension order and destination dimensions
   // in minor_to_major order. Find groups of dimensions of equal size
-  // and project the source dimension order onto the target.
-  auto target_dim_iter = target_shape.layout().minor_to_major().cbegin();
-  for (auto src_dim = dim_order_.cbegin(); src_dim != dim_order_.cend();
-       ++src_dim) {
-    if (target_remaining_size >= src_dim->size) {
-      if (target_remaining_size % src_dim->size) {
+  // and project the source dimension order onto the destination.
+  auto dst_dim_iter = dst_shape.layout().minor_to_major().cbegin();
+  for (auto src_dim = tensor_fragments_order_.cbegin();
+       src_dim != tensor_fragments_order_.cend(); ++src_dim) {
+    auto add = [&](const Fragment& fragment) {
+      dst_fragments_order.push_back(fragment);
+      src_to_dst[&*src_dim].push_back(dst_fragments_order.size() - 1);
+    };
+    if (dst_remaining_size >= src_dim->size) {
+      if (dst_remaining_size % src_dim->size) {
         return "Unsupported bitcast";
       }
-      // Source dimension fragment completely fits into the target one:
+      // Source dimension fragment completely fits into the destination one:
       // just copy it as is.
-      target_dim_order.push_back(*src_dim);
-      // Update the size of the remaining part of the target that is
+      add(*src_dim);
+      // Update the size of the remaining part of the destination that is
       // carried over to next source dimensions.
-      target_remaining_size /= src_dim->size;
+      dst_remaining_size /= src_dim->size;
     } else {
-      // Source is larger than target. Assign further target dimensions.
+      // Source is larger than destination.
+      // Assign further destination dimensions.
       // Size of the not yet assigned part of the source dimension.
       int64_t src_remaining_size = src_dim->size;
-      // Subdimension index tracking dimension splits.
-      int subdim_index = src_dim->subdim_number;
-      if (target_remaining_size > 1) {
-        // If there is a remaining fragment of a previous target dimension
+      // Handle dimension splits.
+      if (dst_remaining_size > 1) {
+        // If there is a remaining fragment of a previous destination dimension
         // assign it first.
-        if (src_remaining_size % target_remaining_size) {
+        if (src_remaining_size % dst_remaining_size) {
           return "Unsupported bitcast";
         }
-        target_dim_order.push_back(
-            {src_dim->target_dim_number, subdim_index, target_remaining_size});
-        ++subdim_index;
+        add({src_dim->dst_dim_number, dst_remaining_size});
         // Update the size of the fragment remaining to assign.
-        src_remaining_size /= target_remaining_size;
-        target_remaining_size = 1;
+        src_remaining_size /= dst_remaining_size;
+        dst_remaining_size = 1;
       }
       while (src_remaining_size > 1) {
-        // Assign target dimensions until the source remainder is covered.
-        int64_t target_dim_size = target_shape.dimensions(*target_dim_iter);
-        int64_t new_fragment_size = target_dim_size;
-        if (target_dim_size > src_remaining_size) {
-          // If adding the next target dimension exceeds source fragment size
-          // assign the remainder of the source and carry over the remainder
-          // of the target.
-          if (target_dim_size % src_remaining_size) {
+        // Assign destination dimensions until the source remainder is covered.
+        int64_t dst_dim_size = dst_shape.dimensions(*dst_dim_iter);
+        int64_t new_fragment_size = dst_dim_size;
+        if (dst_dim_size > src_remaining_size) {
+          // If adding the next destination dimension exceeds source fragment
+          // size assign the remainder of the source and carry over the
+          // remainder of the destination.
+          if (dst_dim_size % src_remaining_size) {
             return "Unsupported bitcast";
           }
-          target_remaining_size = target_dim_size / src_remaining_size;
+          dst_remaining_size = dst_dim_size / src_remaining_size;
           new_fragment_size = src_remaining_size;
         }
-        target_dim_order.push_back(
-            {src_dim->target_dim_number, subdim_index, new_fragment_size});
+        add({src_dim->dst_dim_number, new_fragment_size});
         src_remaining_size /= new_fragment_size;
-        ++target_dim_iter;
-        ++subdim_index;
+        ++dst_dim_iter;
       }
     }
   }
-  CHECK_EQ(target_remaining_size, 1);
+  CHECK_EQ(dst_remaining_size, 1);
 
-  // Handle remaining major dimensions of the target. Call all degenerate
+  // Handle remaining major dimensions of the destination. Call all degenerate
   // ones subdimensions of the most-major non-degenerate one. Otherwise
   // give up.
-  int subdim_index = target_dim_order.back().subdim_number + 1;
-  while (target_dim_iter != target_shape.layout().minor_to_major().cend()) {
-    if (target_shape.dimensions(*target_dim_iter) != 1) {
+  while (dst_dim_iter != dst_shape.layout().minor_to_major().cend()) {
+    if (dst_shape.dimensions(*dst_dim_iter) != 1) {
       return "Unsupported bitcast";
     }
-    target_dim_order.push_back(
-        {target_dim_order.back().target_dim_number, subdim_index, 1});
-    ++subdim_index;
-    ++target_dim_iter;
+    dst_fragments_order.push_back(
+        {dst_fragments_order.back().dst_dim_number, 1});
+    src_to_dst[&tensor_fragments_order_.back()].push_back(
+        dst_fragments_order.size() - 1);
+    ++dst_dim_iter;
   }
 
-  dim_order_ = target_dim_order;
+  FragmentOrders dst_dim_fragment_orders;
+  for (const auto& [dim_index, dim_sequence] : dim_fragments_orders_) {
+    std::vector<int>& dst = dst_dim_fragment_orders[dim_index];
+    dst.reserve(dim_sequence.size());
+    for (const int src : dim_sequence) {
+      std::copy(src_to_dst[&tensor_fragments_order_[src]].cbegin(),
+                src_to_dst[&tensor_fragments_order_[src]].cend(),
+                std::back_inserter(dst));
+    }
+  }
+
+  tensor_fragments_order_ = dst_fragments_order;
+  dim_fragments_orders_ = dst_dim_fragment_orders;
   return FusionDecision{};
 }
 
@@ -451,35 +493,35 @@ FusionDecision DimensionOrder::HandleCopyOrTransposeOrBroadcast(
   // Every HLO dimension can correspond to a group of subdimensions in
   // dim_order_. For the easier handling of permutations: group dim_order_ by
   // dimension, apply permutations, then finally remove the grouping.
-  // Group subdimensions by iterating over them in the same order as over
-  // dimensions and matching by total size.
   const HloInstruction* src =
       (direction == TransformDirection::kOutputToInput) ? hlo : hlo->operand(0);
   const HloInstruction* dst =
       (direction == TransformDirection::kOutputToInput) ? hlo->operand(0) : hlo;
-  std::vector<RawDimOrder> src_physical;
+  // Group subdimensions by iterating over them in the same order as over
+  // full dimensions and matching by total size.
+  std::vector<std::vector<const Fragment*>> src_physical;
   src_physical.reserve(src->shape().rank());
-  auto dim_order_it = dim_order_.cbegin();
+  auto dim_order_it = tensor_fragments_order_.cbegin();
   for (int64_t dim_index : src->shape().layout().minor_to_major()) {
     const int64_t dim_size = src->shape().dimensions(dim_index);
     int64_t subdim_size_accumulator = 1;
-    RawDimOrder subdim_group;
+    std::vector<const Fragment*> subdim_group;
     do {
       subdim_size_accumulator *= dim_order_it->size;
-      subdim_group.push_back(*dim_order_it);
+      subdim_group.push_back(&*dim_order_it);
       ++dim_order_it;
     } while (subdim_size_accumulator < dim_size);
     CHECK_EQ(subdim_size_accumulator, dim_size);
     src_physical.push_back(subdim_group);
   }
   // Source physical -> source logical.
-  std::vector<RawDimOrder> src_logical;
+  std::vector<std::vector<const Fragment*>> src_logical;
   src_logical.resize(src_physical.size());
   for (int i = 0; i < src_physical.size(); ++i) {
     src_logical[src->shape().layout().minor_to_major(i)] = src_physical[i];
   }
   // Source logical -> destination logical.
-  std::vector<RawDimOrder> dst_logical;
+  std::vector<std::vector<const Fragment*>> dst_logical;
   if (hlo->opcode() == HloOpcode::kTranspose) {
     const auto transpose = Cast<HloTransposeInstruction>(hlo);
     std::vector<int64_t> permutation(transpose->dimensions().cbegin(),
@@ -503,13 +545,30 @@ FusionDecision DimensionOrder::HandleCopyOrTransposeOrBroadcast(
     dst_logical = src_logical;
   }
   // Destination logical -> destination physical and ungroup subdimensions.
-  const Layout& dst_layout = dst->shape().layout();
-  dim_order_.clear();
-  for (int64_t dim_idx : dst_layout.minor_to_major()) {
-    for (const DimDescription& subdim : dst_logical[dim_idx]) {
-      dim_order_.push_back(subdim);
+  // Map original fragments to the resulting ones to derive their new
+  // logical ordering within each dimension.
+  absl::flat_hash_map<const Fragment*, int> src_to_dst;
+  Fragments dst_dim_order;
+  dst_dim_order.reserve(tensor_fragments_order_.size());
+  for (const int64_t dim_idx : dst->shape().layout().minor_to_major()) {
+    for (const Fragment* subdim : dst_logical[dim_idx]) {
+      dst_dim_order.push_back(*subdim);
+      src_to_dst[subdim] = dst_dim_order.size() - 1;
     }
   }
+  FragmentOrders dst_dim_fragments_order;
+  for (const auto& [dim_index, dim_sequence] : dim_fragments_orders_) {
+    for (const int fragment_number : dim_sequence) {
+      const auto it =
+          src_to_dst.find(&tensor_fragments_order_[fragment_number]);
+      if (it == src_to_dst.cend()) {
+        continue;
+      }
+      dst_dim_fragments_order[dim_index].push_back(it->second);
+    }
+  }
+  tensor_fragments_order_ = dst_dim_order;
+  dim_fragments_orders_ = dst_dim_fragments_order;
   return FusionDecision{};
 }
 
@@ -518,31 +577,35 @@ FusionDecision DimensionOrder::HandleCopyOrTransposeOrBroadcast(
 // physically once by other dimensions. Other ones can be only split logically.
 // All subdimensions within a dimension have to be ordered.
 FusionDecision RequireTritonGemmSupportedDimOrder(const DimensionOrder& order) {
-  std::array<int, TensorIterationSpec::kMaxDimsPerTensor> subdim_counters = {
-      -1, -1, -1, -1};
-  std::array<int, TensorIterationSpec::kMaxDimsPerTensor> split_counters = {
-      -1, -1, -1, -1};
-  const RawDimOrder& dim_order_vector = order.GetRawDimOrder();
   VLOG(8) << order.ToString();
-  for (int i = 0; i < dim_order_vector.size(); i++) {
-    const auto [dim_number, subdim_number, size] = dim_order_vector[i];
-    if (subdim_counters[dim_number] != subdim_number - 1) {
-      return "Transpose within a dimension.";
-    }
-    ++subdim_counters[dim_number];
-    if (size == 1) {
-      continue;
-    }
-    if (i == 0 || dim_order_vector[i - 1].target_dim_number != dim_number) {
-      ++split_counters[dim_number];
-      if (dim_number == order.SplittableDimensionIndex() &&
-          order.IsSupportedSplittableDimensionMajorPartSize(size)) {
-        if (split_counters[dim_number] > 1) {
-          return "2nd split of a splittable dimension.";
-        }
-      } else if (split_counters[dim_number] > 0) {
-        return "Split of a non-splittable dimension.";
+  const Fragments& tensor_dim_fragments = order.TensorFragmentsOrder();
+  for (const auto& [dim_index, dim_fragments] : order.DimFragmentsOrders()) {
+    int last_fragment_number = -1;
+    int split_counter = -1;
+    for (const int fragment_number : dim_fragments) {
+      CHECK_EQ(tensor_dim_fragments[fragment_number].dst_dim_number, dim_index);
+      const int size = tensor_dim_fragments[fragment_number].size;
+      if (fragment_number <= last_fragment_number) {
+        return "Transpose within a dimension.";
       }
+      if (size == 1) {
+        last_fragment_number = fragment_number;
+        continue;
+      }
+      if (fragment_number == 0 ||
+          tensor_dim_fragments[fragment_number - 1].dst_dim_number !=
+              dim_index) {
+        ++split_counter;
+        if (dim_index == order.SplittableDimensionIndex() &&
+            order.IsSupportedSplittableDimensionMajorPartSize(size)) {
+          if (split_counter > 1) {
+            return "2nd split of a splittable dimension.";
+          }
+        } else if (split_counter > 0) {
+          return "Split of a non-splittable dimension.";
+        }
+      }
+      last_fragment_number = fragment_number;
     }
   }
   return FusionDecision{};
@@ -1045,8 +1108,10 @@ StatusOr<HloInstruction*> MakeSplitKOperand(
     // does not need analysis for fragmentation.
     const DimIterationSpec* spec =
         analysis.IterSpec(scope, param, contracting_dim_idx);
-    // Split contracting dimension is not implemented yet.
-    CHECK_EQ(spec->size(), 1);
+    if (spec->size() > 1) {
+      return UncompilableMatmul(
+          "Split contracting dimension is not implemented yet.");
+    }
     auto fragment = spec->at(0).subfragments.crbegin();
     int64_t size_to_split = tiling.split_k();
     while (size_to_split > *fragment) {
@@ -1401,14 +1466,14 @@ Status MakeDotSplitKBatch(HloInstruction* dot_fusion,
 }
 
 StatusOr<DotFusionAnalysis> DotFusionAnalysis::Execute(
-    const HloComputation* computation, const int64_t split_k) {
+    const HloComputation* computation, const int split_k) {
   DotFusionAnalysis analysis;
   TF_RETURN_IF_ERROR(analysis.ExecuteImpl(computation, split_k));
   return analysis;
 }
 
 Status DotFusionAnalysis::ExecuteImpl(const HloComputation* computation,
-                                      const int64_t split_k) {
+                                      const int split_k) {
   VLOG(5) << computation->ToString();
 
   const HloInstruction* dot =

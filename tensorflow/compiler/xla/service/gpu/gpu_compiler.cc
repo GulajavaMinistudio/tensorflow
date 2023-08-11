@@ -858,10 +858,6 @@ Status GpuCompiler::OptimizeHloModule(HloModule* hlo_module,
     pipeline.AddPass<CollectivePermuteDecomposer>(
         debug_options.xla_gpu_collective_permute_decomposer_threshold());
 
-    if (!hlo_module->config().use_spmd_partitioning()) {
-      pipeline.AddPass<CollectivesScheduleLinearizer>();
-    }
-
     AlgebraicSimplifierOptions options = layout_insensitive_algsimp_opts;
     options.set_is_layout_sensitive(true);
     pipeline.AddPass<AlgebraicSimplifier>(options);
@@ -1014,14 +1010,12 @@ Status GpuCompiler::OptimizeHloPostLayoutAssignment(
                      .VerifyReshapeIsBitcast(),
                  /*debug_only=*/true);
 
-  // Linearize collective schedule under SPMD partitioning if online autotuning
-  // of convolutions is enabled.
-  if (EnableCollectiveScheduleLinearizerForSpmd(hlo_module, stream_exec)) {
-    pipeline.AddPass<CollectivesScheduleLinearizer>(
-        [this](const HloModule* module) {
-          return RequiresCollectiveScheduleLinearizer(module);
-        });
-  }
+  // Linearize collective schedule if online autotuning of convolutions is
+  // enabled.
+  pipeline.AddPass<CollectivesScheduleLinearizer>(
+      [this, stream_exec](const HloModule* module) {
+        return RequiresCollectiveScheduleLinearizer(module, stream_exec);
+      });
 
   GpuFloatSupport bf16_support(BF16);
   GpuFloatSupport f8e5m2_support(F8E5M2);
@@ -1705,6 +1699,12 @@ std::optional<bool> GpuCompiler::FusionCanShareBufferHint(
     const ShapeIndex& user_index) {
   if (user->opcode() != HloOpcode::kFusion) {
     return std::nullopt;
+  }
+
+  auto backend_config = user->backend_config<FusionBackendConfig>();
+  if (backend_config.ok() &&
+      backend_config.value().kind() == kTritonSoftmaxFusionKind) {
+    return true;
   }
 
   // First, do the trivial check: if the fusion operand and the fusion output

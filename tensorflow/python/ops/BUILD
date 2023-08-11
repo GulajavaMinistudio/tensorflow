@@ -1725,10 +1725,7 @@ py_strict_library(
     name = "filesystem_ops",
     srcs = ["filesystem_ops.py"],
     srcs_version = "PY3",
-    deps = [
-        ":filesystem_ops_gen",
-        "//tensorflow/python/util:tf_export",
-    ],
+    deps = [":filesystem_ops_gen"],
 )
 
 py_strict_library(
@@ -2084,6 +2081,7 @@ py_strict_library(
         "//tensorflow/python/framework:composite_tensor_gradient",
         "//tensorflow/python/framework:constant_op",
         "//tensorflow/python/framework:cpp_shape_inference_proto_py",
+        "//tensorflow/python/framework:device",
         "//tensorflow/python/framework:dtypes",
         "//tensorflow/python/framework:errors",
         "//tensorflow/python/framework:indexed_slices",
