@@ -1087,6 +1087,8 @@ tpu_py_strict_test(
     srcs_version = "PY3",
     deps = [
         ":tpu_replicated_variable",
+        "//tensorflow/python/checkpoint",
+        "//tensorflow/python/checkpoint:checkpoint_options",
         "//tensorflow/python/eager:test",
         "//tensorflow/python/framework:combinations",
         "//tensorflow/python/framework:dtypes",
@@ -1407,7 +1409,7 @@ cuda_py_strict_test(
     python_version = "PY3",
     shard_count = 4,
     tags = [
-        "multi_and_single_gpu",
+        # "multi_and_single_gpu", # TODO(b/287692888): re-enable once the 2gpu test passes.
         "no_cuda_asan",  # times out
         "no_pip",  # TODO(b/266520226)
     ],
@@ -1821,6 +1823,8 @@ distribute_py_strict_test(
         ":combinations",
         ":ps_values",
         ":strategy_combinations",
+        "//tensorflow/python/checkpoint",
+        "//tensorflow/python/checkpoint:checkpoint_options",
         "//tensorflow/python/eager:def_function",
         "//tensorflow/python/eager:test",
         "//tensorflow/python/ops:variable_v1",

@@ -24,12 +24,11 @@ limitations under the License.
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Casting.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"  // from @llvm-project
-#include "mlir/IR/BuiltinOps.h"  // from @llvm-project
 #include "mlir/IR/BuiltinTypeInterfaces.h"  // from @llvm-project
 #include "mlir/IR/BuiltinTypes.h"  // from @llvm-project
+#include "mlir/IR/Matchers.h"  // from @llvm-project
 #include "mlir/IR/Operation.h"  // from @llvm-project
 #include "mlir/IR/OperationSupport.h"  // from @llvm-project
 #include "mlir/IR/PatternMatch.h"  // from @llvm-project
@@ -38,8 +37,9 @@ limitations under the License.
 #include "mlir/Support/LLVM.h"  // from @llvm-project
 #include "mlir/Support/LogicalResult.h"  // from @llvm-project
 #include "mlir/Transforms/DialectConversion.h"  // from @llvm-project
+#include "tensorflow/compiler/mlir/quantization/stablehlo/utils/tf_type_utils.h"
+#include "tensorflow/compiler/mlir/tensorflow/ir/tf_attributes.h"
 #include "tensorflow/compiler/mlir/tensorflow/ir/tf_ops.h"
-#include "tensorflow/compiler/mlir/tensorflow/ir/tf_types.h"
 #include "tensorflow/core/lib/monitoring/counter.h"
 
 namespace mlir {
@@ -55,45 +55,20 @@ auto *mlir_tf_quant_op_count = tensorflow::monitoring::Counter<1>::New(
     "Counts the number of ops that has qint types" /*metric description*/,
     "op_name" /*metric label*/);
 
-bool IsIllegalElementType(Type type) {
-  return type
-      .isa<mlir::TF::Qint8Type, mlir::TF::Qint16Type, mlir::TF::Qint32Type,
-           mlir::TF::Quint8Type, mlir::TF::Quint16Type>();
-}
-
-Type ToLegalElementType(Type type) {
-  return TypeSwitch<Type, Type>(type)
-      .Case<mlir::TF::Qint8Type>([&type](Type) {
-        return mlir::IntegerType::get(type.getContext(), 8);
-      })
-      .Case<mlir::TF::Qint16Type>([&type](Type) {
-        return mlir::IntegerType::get(type.getContext(), 16);
-      })
-      .Case<mlir::TF::Qint32Type>([&type](Type) {
-        return mlir::IntegerType::get(type.getContext(), 32);
-      })
-      .Case<mlir::TF::Quint8Type>([&type](Type) {
-        return mlir::IntegerType::get(
-            type.getContext(), 8,
-            mlir::IntegerType::SignednessSemantics::Unsigned);
-      })
-      .Case<mlir::TF::Quint16Type>([&type](Type) {
-        return mlir::IntegerType::get(
-            type.getContext(), 16,
-            mlir::IntegerType::SignednessSemantics::Unsigned);
-      })
-      .Default([&type](Type) { return type; });
-}
-
+// Returns wether a type is illegal. Here we consider TF qint types illegal.
+// See pass description in passes.td for more info about how illegal types are
+// treated in this pass.
 bool IsIllegalType(Type type) {
-  return IsIllegalElementType(getElementTypeOrSelf(type));
+  return IsTFQintType(getElementTypeOrSelf(type));
 }
 
+// Get the corresponding int type from TF qint types.
+// If input is not TF qint types, returns the original type.
 Type ToLegalType(Type type) {
-  if (IsIllegalElementType(type)) return ToLegalElementType(type);
+  if (IsTFQintType(type)) return GetIntTypeFromTFQint(type);
   if (auto shaped = type.dyn_cast<ShapedType>()) {
     Type elem = shaped.getElementType();
-    if (IsIllegalType(elem)) return shaped.clone(ToLegalType(elem));
+    if (IsTFQintType(elem)) return shaped.clone(ToLegalType(elem));
   }
   return type;
 }
@@ -187,6 +162,8 @@ class TFQuantTypeConversionTarget : public ConversionTarget {
         return IsUniformQuantizedOpLegal(op);
       } else if (auto cast_op = llvm::dyn_cast<TF::CastOp>(op)) {
         return IsCastOpLegal(cast_op);
+      } else if (auto const_op = llvm::dyn_cast<TF::ConstOp>(op)) {
+        return !IsIllegalType(const_op.getOutput().getType());
       }
       // The FuncOp type can contain types that the op's operand and result
       // types do not contain.
@@ -209,8 +186,8 @@ class TFQuantTypePattern : public ConversionPattern {
   LogicalResult matchAndRewrite(
       Operation *op, ArrayRef<Value> operands,
       ConversionPatternRewriter &rewriter) const override {
-    // This pattern only handle non-UQ ops.
-    if (IsUniformQuantizedOp(op)) {
+    // This pattern only handle non-UQ, non-const ops.
+    if (IsUniformQuantizedOp(op) || llvm::isa<TF::ConstOp>(op)) {
       return failure();
     }
 
@@ -287,6 +264,32 @@ class TFUniformQuantizedOpsPattern : public ConversionPattern {
   }
 };
 
+class TFConstOpQuantToIntPattern : public OpConversionPattern<TF::ConstOp> {
+ public:
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(
+      TF::ConstOp op, TF::ConstOpAdaptor adaptor,
+      ConversionPatternRewriter &rewriter) const override {
+    if (!IsIllegalType(op.getOutput().getType())) return failure();
+    TF::TensorProtoAttr tensor_proto_attr;
+    if (!matchPattern(op.getOperation(), m_Constant(&tensor_proto_attr))) {
+      return rewriter.notifyMatchFailure(op, "operand must be constant.");
+    }
+    auto dense_attr_or = GetDenseAttrFromTensorProtoAttr(
+        tensor_proto_attr.getValue(),
+        ToLegalType(op.getOutput().getType()).dyn_cast<TensorType>());
+    if (failed(dense_attr_or)) {
+      op->emitError("failed to get DenseElementAttr.");
+      return failure();
+    }
+
+    rewriter.replaceOpWithNewOp<TF::ConstOp>(
+        op, ToLegalType(op.getOutput().getType()), *dense_attr_or);
+    return success();
+  }
+};
+
 struct ConvertTFQuantTypes
     : public impl::ConvertTFQuantTypesBase<ConvertTFQuantTypes> {
   void runOnOperation() override;
@@ -297,6 +300,7 @@ void ConvertTFQuantTypes::runOnOperation() {
   RewritePatternSet patterns(&getContext());
   patterns.add<TFQuantTypePattern, TFUniformQuantizedOpsPattern>(&getContext(),
                                                                  converter);
+  patterns.add<TFConstOpQuantToIntPattern>(&getContext());
   populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(patterns,
                                                                  converter);
   TFQuantTypeConversionTarget target(getContext(), converter);

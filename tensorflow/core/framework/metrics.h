@@ -110,6 +110,10 @@ void RecordTFDataFingerprint(const string& name);
 // compression decision.
 void RecordTFDataServiceRuntimeCompressionDecision(bool compression_decision);
 
+// Records the event of a tf.data service pipeline making the compression
+// related action.
+void RecordTFDataServiceCompressionAction(const string& action);
+
 // Records the time (in microseconds) during which `IteratorResource` was busy
 // processing at least one `GetNext()` request.
 void RecordTFDataIteratorBusy(uint64 duration_us);
@@ -313,6 +317,14 @@ enum class MlirBridgeSecondPhaseMetric {
   kOldBridgeWithFallbackModeSuccess,
   // Old Bridge failed in fallback (was run because MLIR bridge failed first).
   kOldBridgeWithFallbackModeFailure,
+  // MLIR bridge phase 2 Combined Bridge MLIR was successful
+  kMlirCombinedMlirSuccess,
+  // MLIR bridge phase 2 Combined Bridge MLIR failed
+  kMlirCombinedMlirFailure,
+  // MLIR bridge phase 2 Combined Bridge Old bridge was successful
+  kMlirCombinedOldSuccess,
+  // MLIR bridge phase 2 Combined Bridge Old bridge was successful
+  kMlirCombinedOldFailure,
 };
 
 // Records the activity of the second phase of the mlir bridge.

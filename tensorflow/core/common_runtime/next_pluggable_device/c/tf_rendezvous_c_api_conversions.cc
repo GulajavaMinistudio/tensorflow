@@ -245,7 +245,7 @@ TF_RendezvousThunk* ToC(RendezvousInterface* rendezvous) {
 
 std::unique_ptr<c_api::TfCThunkRendezvous> FromC(
     const TF_RendezvousThunk* thunk) {
-  return std::make_unique<c_api::TfCThunkRendezvous>(thunk);
+  return std::make_unique<c_api::TfCThunkRendezvous>(*thunk);
 }
 
 void Destroy(TF_RendezvousThunk* thunk) {
@@ -377,6 +377,7 @@ TF_RendezvousSenderImpl BindSendFunction(RendezvousInterface* rendezvous) {
   using SendFunction = std::function<void(TF_RendezvousSend_Params*)>;
   auto sender =
       new SendFunction([rendezvous](TF_RendezvousSend_Params* params) -> void {
+        printf("Calling SendFunction");
         RendezvousInterface::ParsedKey key = FromC(*params->key);
         RendezvousInterface::Args args = FromC(*params->args);
         Tensor tensor;
@@ -475,7 +476,7 @@ Status TfCThunkRendezvous::Send(const ParsedKey& key, const Args& args,
                                 const Tensor& val, const bool is_dead) {
   CHECK_OK_AND_ASSIGN(SendParamPtr params,
                       SendParamsToC(key, args, val, is_dead));
-  const TF_RendezvousSenderImpl& sender = thunk_->send;
+  const TF_RendezvousSenderImpl& sender = thunk_.send;
   sender.send_func(sender.context, params.get());
   return tsl::StatusFromTF_Status(params->status);
 }
@@ -483,7 +484,7 @@ Status TfCThunkRendezvous::Send(const ParsedKey& key, const Args& args,
 void TfCThunkRendezvous::RecvAsync(const ParsedKey& key, const Args& args,
                                    DoneCallback done) {
   RecvParamPtr params = RecvParamsToC(key, args, done);
-  const TF_RendezvousAsyncRecverImpl& async_recv = thunk_->async_recv;
+  const TF_RendezvousAsyncRecverImpl& async_recv = thunk_.async_recv;
   async_recv.async_recv_func(async_recv.context, params.get());
 }
 
@@ -491,13 +492,13 @@ void TfCThunkRendezvous::StartAbort(const Status& status) {
   std::unique_ptr<TF_Status, std::function<void(TF_Status*)>> c_status(
       TF_NewStatus(), &TF_DeleteStatus);
   tsl::Set_TF_Status_from_Status(c_status.get(), status);
-  const TF_RendezvousStartAbortImpl& start_abort = thunk_->start_abort;
+  const TF_RendezvousStartAbortImpl& start_abort = thunk_.start_abort;
   start_abort.start_abort_func(start_abort.context, c_status.get());
 }
 
 }  // namespace c_api
 
-void DestroyOCParams(SE_OutsideCompilationParams* params) {
+void DestroyOCParams::operator()(SE_OutsideCompilationParams* params) {
   if (params == nullptr) {
     return;
   }
