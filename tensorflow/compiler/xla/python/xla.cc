@@ -201,6 +201,18 @@ PYBIND11_MODULE(xla_extension, m) {
                              [](const ClientAndPtr<PjRtDevice>& device) {
                                return device.client();
                              })
+      .def_property_readonly(
+          "local_hardware_id",
+          [](const ClientAndPtr<PjRtDevice>& device) -> std::optional<int> {
+            int local_hardware_id = device->local_hardware_id();
+            if (local_hardware_id == -1) {
+              return std::nullopt;
+            }
+            return local_hardware_id;
+          },
+          "Opaque hardware ID, e.g., the CUDA device number. In general, not "
+          "guaranteed to be dense, and not guaranteed to be defined on all "
+          "platforms.")
       .def("__str__", &PjRtDevice::DebugString)
       .def("__repr__", &PjRtDevice::ToString)
       .def("transfer_to_infeed",
@@ -353,8 +365,8 @@ PYBIND11_MODULE(xla_extension, m) {
       .def_property_readonly("kind", &PjRtMemorySpace::memory_space_kind)
       .def("__str__", &PjRtMemorySpace::DebugString)
       .def("__repr__", &PjRtMemorySpace::ToString)
-      // Returns the devices this `Memory` is attached to.
-      .def("attached_devices",
+      // Returns the devices that can address this `Memory`.
+      .def("addressable_by_devices",
            [](const ClientAndPtr<PjRtMemorySpace>& memory_space) {
              std::vector<ClientAndPtr<PjRtDevice>> devices;
              auto span = memory_space->devices();
@@ -470,6 +482,12 @@ PYBIND11_MODULE(xla_extension, m) {
         [](std::string platform_name, std::string library_path) {
           xla::ThrowIfError(pjrt::LoadPjrtPlugin(platform_name, library_path));
         });
+  m.def("pjrt_plugin_initialized", [](std::string platform_name) -> bool {
+    return xla::ValueOrThrow(pjrt::IsPjrtPluginInitialized(platform_name));
+  });
+  m.def("initialize_pjrt_plugin", [](std::string platform_name) {
+    return xla::ThrowIfError(pjrt::InitializePjrtPlugin(platform_name));
+  });
 
 #ifdef XLA_PYTHON_ENABLE_GPU
   py::class_<GpuAllocatorConfig> alloc_config(m, "GpuAllocatorConfig");
@@ -987,10 +1005,11 @@ PYBIND11_MODULE(xla_extension, m) {
       py::arg("committed") = true, py::arg("force_copy") = false,
       py::arg("host_buffer_semantics") =
           PjRtClient::HostBufferSemantics::kZeroCopy);
-  m.def("canonicalize_memory_kind",
-        [](py::object memory_kind, py::object device) -> py::object {
-          return jax::CanonicalizeMemoryKind(memory_kind, device);
-        });
+  m.def(
+      "check_and_canonicalize_memory_kind",
+      [](py::object memory_kind, jax::PyDeviceList* device_list) -> py::object {
+        return jax::CheckAndCanonicalizeMemoryKind(memory_kind, device_list);
+      });
 }  // NOLINT(readability/fn_size)
 
 }  // namespace xla

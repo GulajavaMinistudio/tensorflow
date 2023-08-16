@@ -1975,6 +1975,24 @@ py_strict_library(
     ],
 )
 
+tf_py_strict_test(
+    name = "lookup_ops_async_checkpoint_test",
+    srcs = ["lookup_ops_async_checkpoint_test.py"],
+    srcs_version = "PY3",
+    deps = [
+        ":lookup_ops",
+        ":variables",
+        "//tensorflow/python/checkpoint",
+        "//tensorflow/python/checkpoint:checkpoint_options",
+        "//tensorflow/python/eager:context",
+        "//tensorflow/python/eager:test",
+        "//tensorflow/python/framework:constant_op",
+        "//tensorflow/python/framework:dtypes",
+        "//tensorflow/python/framework:test_lib",
+        "@absl_py//absl/testing:parameterized",
+    ],
+)
+
 py_strict_library(
     name = "math_grad",
     srcs = ["math_grad.py"],
@@ -2859,12 +2877,6 @@ py_strict_library(
         "//tensorflow/python/autograph",
         "//tensorflow/python/compiler/tensorrt:trt_convert_py",
         "//tensorflow/python/eager:wrap_function",
-        "//tensorflow/python/ops/linalg:adjoint_registrations",
-        "//tensorflow/python/ops/linalg:cholesky_registrations",
-        "//tensorflow/python/ops/linalg:inverse_registrations",
-        "//tensorflow/python/ops/linalg:linear_operator_algebra",
-        "//tensorflow/python/ops/linalg:matmul_registrations",
-        "//tensorflow/python/ops/linalg:solve_registrations",
         "//tensorflow/python/ops/parallel_for:control_flow_ops",
         "//tensorflow/python/ops/ragged:ragged_batch_gather_ops",
         "//tensorflow/python/ops/ragged:ragged_batch_gather_with_default_op",

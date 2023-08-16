@@ -882,21 +882,20 @@ PJRT_Error* PJRT_Executable_NumOutputs(PJRT_Executable_NumOutputs_Args* args) {
   PJRT_RETURN_IF_ERROR(CheckMatchingStructSizes(
       "PJRT_Executable_NumOutputs_Args",
       PJRT_Executable_NumOutputs_Args_STRUCT_SIZE, args->struct_size));
-  PJRT_ASSIGN_OR_RETURN(
-      std::vector<std::shared_ptr<xla::HloModule>> hlo_modules,
-      args->executable->get()->GetHloModules());
-  if (hlo_modules.empty()) {
+  PJRT_ASSIGN_OR_RETURN(std::vector<xla::Shape> output_shapes,
+                        args->executable->get()->GetOutputShapes());
+  if (output_shapes.empty()) {
     return new PJRT_Error{
-        xla::InvalidArgument("Can't get number of executable outputs, Hlo "
-                             "modules is empty for executable %s.",
+        xla::InvalidArgument("Can't get number of executable outputs, output "
+                             "shapes is empty for executable %s.",
                              args->executable->get()->name())};
   }
-  if (hlo_modules.size() != 1) {
+  if (output_shapes.size() != 1) {
     return new PJRT_Error{
         xla::Unimplemented("MPMD execution not supported by PJRT C API (in "
                            "function PJRT_Executable_NumOutputs).")};
   }
-  xla::Shape shape = hlo_modules[0].get()->result_shape();
+  const xla::Shape& shape = output_shapes[0];
   if (shape.IsTuple()) {
     args->num_outputs = shape.tuple_shapes_size();
   } else {
@@ -1266,6 +1265,12 @@ PJRT_Error* PJRT_Executable_Serialize(PJRT_Executable_Serialize_Args* args) {
   }
   serialized_exec->serialized = std::move(serialization);
   args->serialized_executable = serialized_exec;
+  args->serialized_bytes = serialized_exec->serialized.data();
+  args->serialized_bytes_size = serialized_exec->serialized.size();
+  args->serialized_executable_deleter =
+      +[](PJRT_SerializedExecutable* serialized_executable) {
+        delete serialized_executable;
+      };
   return nullptr;
 }
 
@@ -1292,29 +1297,6 @@ PJRT_Error* PJRT_LoadedExecutable_GetExecutable(
       "PJRT_LoadedExecutable_GetExecutable_Args",
       PJRT_LoadedExecutable_GetExecutable_Args_STRUCT_SIZE, args->struct_size));
   args->executable = new PJRT_Executable{args->loaded_executable->executable};
-  return nullptr;
-}
-
-// -------------------------- Serialized Executables ---------------------------
-
-PJRT_Error* PJRT_SerializedExecutable_Destroy(
-    PJRT_SerializedExecutable_Destroy_Args* args) {
-  PJRT_RETURN_IF_ERROR(CheckMatchingStructSizes(
-      "PJRT_SerializedExecutable_Destroy_Args",
-      PJRT_SerializedExecutable_Destroy_Args_STRUCT_SIZE, args->struct_size));
-  if (args->serialized_executable != nullptr) {
-    delete args->serialized_executable;
-  }
-  return nullptr;
-}
-
-PJRT_Error* PJRT_SerializedExecutable_Data(
-    PJRT_SerializedExecutable_Data_Args* args) {
-  PJRT_RETURN_IF_ERROR(CheckMatchingStructSizes(
-      "PJRT_SerializedExecutable_Data_Args",
-      PJRT_SerializedExecutable_Data_Args_STRUCT_SIZE, args->struct_size));
-  args->data = args->serialized_executable->serialized.c_str();
-  args->data_size = args->serialized_executable->serialized.size();
   return nullptr;
 }
 
