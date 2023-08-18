@@ -634,6 +634,7 @@ Status GpuCompiler::OptimizeHloModule(HloModule* hlo_module,
           /*level_to_operate_on=*/0,
           /*max_pipelining_per_loop=*/INT64_MAX,
           /*last_run=*/true,
+          /*pipeline_use_tree=*/false,
           /*process_different_sized_ops=*/true,
           /*pipelining_direction=*/
           CollectivePipeliner::PipeliningDirection::kForward,
@@ -647,6 +648,7 @@ Status GpuCompiler::OptimizeHloModule(HloModule* hlo_module,
           /*level_to_operate_on=*/0,
           /*max_pipelining_per_loop=*/INT64_MAX,
           /*last_run=*/true,
+          /*pipeline_use_tree=*/false,
           /*process_different_sized_ops=*/true,
           /*pipelining_direction=*/
           CollectivePipeliner::PipeliningDirection::kBackward,
@@ -660,6 +662,7 @@ Status GpuCompiler::OptimizeHloModule(HloModule* hlo_module,
           /*level_to_operate_on=*/0,
           /*max_pipelining_per_loop=*/INT64_MAX,
           /*last_run=*/true,
+          /*pipeline_use_tree=*/false,
           /*process_different_sized_ops=*/true,
           /*pipelining_direction=*/
           CollectivePipeliner::PipeliningDirection::kForward,
@@ -1002,8 +1005,12 @@ Status GpuCompiler::OptimizeHloPostLayoutAssignment(
     if (debug_options.xla_gpu_enable_triton_softmax_fusion() &&
         std::holds_alternative<se::CudaComputeCapability>(
             gpu_target_config.gpu_version)) {
-      pipeline.AddPass<HloPassFix<AlgebraicSimplifier>>(options);
-      pipeline.AddPass<SoftmaxRewriterTriton>(gpu_target_config.gpu_version);
+      auto cuda_compute_capability =
+          std::get<se::CudaComputeCapability>(gpu_target_config.gpu_version);
+      if (cuda_compute_capability.IsAtLeast(se::CudaComputeCapability::VOLTA)) {
+        pipeline.AddPass<HloPassFix<AlgebraicSimplifier>>(options);
+        pipeline.AddPass<SoftmaxRewriterTriton>(gpu_target_config.gpu_version);
+      }
     }
 
     pipeline.AddPass<ReductionDimensionGrouper>();
