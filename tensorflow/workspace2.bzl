@@ -147,9 +147,9 @@ def _tf_repositories():
     # LINT.IfChange
     tf_http_archive(
         name = "XNNPACK",
-        sha256 = "f63e2ed14c18f0b6e5fc51672568ce05b73ec93cc90ee46c2a3d1d547aab20cf",
-        strip_prefix = "XNNPACK-4a390902f647b604e2c6962c96b941fc81c60213",
-        urls = tf_mirror_urls("https://github.com/google/XNNPACK/archive/4a390902f647b604e2c6962c96b941fc81c60213.zip"),
+        sha256 = "09acd3e8112421fb7883f1c2966c9abc404349359ff9a18b12884f39dc6177a7",
+        strip_prefix = "XNNPACK-1d5830644349f5c66ddc3846c32b16010ac4cf4f",
+        urls = tf_mirror_urls("https://github.com/google/XNNPACK/archive/1d5830644349f5c66ddc3846c32b16010ac4cf4f.zip"),
     )
     # LINT.ThenChange(//tensorflow/lite/tools/cmake/modules/xnnpack.cmake)
 
@@ -169,9 +169,9 @@ def _tf_repositories():
 
     tf_http_archive(
         name = "cpuinfo",
-        strip_prefix = "cpuinfo-87d8234510367db49a65535021af5e1838a65ac2",
-        sha256 = "609fc42c47482c1fc125dccac65e843f640e792540162581c4b7eb6ff81c826a",
-        urls = tf_mirror_urls("https://github.com/pytorch/cpuinfo/archive/87d8234510367db49a65535021af5e1838a65ac2.zip"),
+        strip_prefix = "cpuinfo-959002f82d7962a473d8bf301845f2af720e0aa4",
+        sha256 = "a0f53ccfb477c57753c595df02bf79ed67bf092fd9a5c61ec5b8992b81bc1e65",
+        urls = tf_mirror_urls("https://github.com/pytorch/cpuinfo/archive/959002f82d7962a473d8bf301845f2af720e0aa4.zip"),
     )
 
     tf_http_archive(
