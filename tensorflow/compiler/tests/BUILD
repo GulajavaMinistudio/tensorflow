@@ -209,6 +209,7 @@ tf_xla_py_strict_test(
     tags = [
         "no_cuda_asan",  # times out
         "no_pip",  # TODO(b/149738646): fix pip install so these tests run on kokoro pip
+        "noasan",  # times out consistently from 2023-08-24
     ],
     deps = [
         ":xla_test",
@@ -1952,6 +1953,7 @@ tf_xla_py_strict_test(
         "//tensorflow/python/ops:array_ops",
         "//tensorflow/python/ops:math_ops",
         "//tensorflow/python/ops:nn_ops",
+        "//tensorflow/python/ops:sort_ops",
         "//tensorflow/python/platform:client_testlib",
         "//third_party/py/numpy",
         "@absl_py//absl/testing:parameterized",

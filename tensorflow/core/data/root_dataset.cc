@@ -58,6 +58,7 @@ inline int64_t value_or_default(int64_t x, int64_t y, int64_t z) {
 }
 
 void SetRootDatasetParams(const Options& options, RootDataset::Params* params) {
+  LOG(INFO) << "`tf.data.Options` values set are " << options.DebugString();
   if (ShouldConfigureMaxIntraOpParallelism(options)) {
     params->max_intra_op_parallelism =
         options.threading_options().max_intra_op_parallelism();
@@ -280,9 +281,11 @@ class RootDataset::Iterator : public DatasetIterator<RootDataset> {
     // so no matter whether dataset()->params_.autotune is on or not
     // we need to pass ram_budget_manager_ to the downstream dataset operations
     params.ram_budget_manager = ram_budget_manager_;
-    if (dataset()->params_.autotune) {
-      params.model = model_;
-    }
+    // After cl/548201925, `ctx->model()` may not be `nullptr` even when
+    // autotuning is off, but `model_` should be `nullptr` and it should have
+    // been set to a valid model in `Initialize()` if autotuning is on. We
+    // should simply set `params.model` to `model_` here.
+    params.model = model_;
     if (dataset()->params_.private_threadpool_size >= 0) {
       params.runner = [pool = thread_pool_.get()](std::function<void()> c) {
         pool->Schedule(std::move(c));

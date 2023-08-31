@@ -233,6 +233,11 @@ CreateMergeDuplicateResourceOpsPass();
 std::unique_ptr<OperationPass<ModuleOp>> CreateQuantizeWeightsPass(
     const tensorflow::quantization::QuantizationOptions& quant_options);
 
+// Create a pass that inserts dump tensor to quantizable layer's output.
+std::unique_ptr<OperationPass<ModuleOp>> CreateAddDumpTensorOpPass(
+    tensorflow::quantization::DebuggerOptions::DebuggerType debugger_type,
+    std::string log_dir_path);
+
 }  // namespace quant
 }  // namespace mlir
 

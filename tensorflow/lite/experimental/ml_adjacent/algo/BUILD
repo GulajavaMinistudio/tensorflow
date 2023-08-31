@@ -7,7 +7,9 @@ package(
 cc_library(
     name = "crop",
     srcs = ["crop.cc"],
-    hdrs = ["crop.h"],
+    hdrs = [
+        "crop.h",
+    ],
     deps = [
         "//tensorflow/lite/experimental/ml_adjacent:lib",
         "//tensorflow/lite/kernels/internal:compatibility",
@@ -109,6 +111,54 @@ cc_test(
         "//tensorflow/lite/experimental/ml_adjacent:lib",
         "//tensorflow/lite/experimental/ml_adjacent/data:owning_vector_ref",
         "@com_google_absl//absl/types:span",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
+    name = "rgb_to_yuv",
+    srcs = ["rgb_to_yuv.cc"],
+    hdrs = [
+        "image_utils.h",
+        "rgb_to_yuv.h",
+    ],
+    deps = [
+        "//tensorflow/lite/experimental/ml_adjacent:lib",
+        "//tensorflow/lite/kernels/internal:compatibility",
+    ],
+)
+
+cc_test(
+    name = "rgb_to_yuv_test",
+    srcs = ["rgb_to_yuv_test.cc"],
+    deps = [
+        ":rgb_to_yuv",
+        "//tensorflow/lite/experimental/ml_adjacent:lib",
+        "//tensorflow/lite/experimental/ml_adjacent/data:owning_vector_ref",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
+    name = "yuv_to_rgb",
+    srcs = ["yuv_to_rgb.cc"],
+    hdrs = [
+        "image_utils.h",
+        "yuv_to_rgb.h",
+    ],
+    deps = [
+        "//tensorflow/lite/experimental/ml_adjacent:lib",
+        "//tensorflow/lite/kernels/internal:compatibility",
+    ],
+)
+
+cc_test(
+    name = "yuv_to_rgb_test",
+    srcs = ["yuv_to_rgb_test.cc"],
+    deps = [
+        ":yuv_to_rgb",
+        "//tensorflow/lite/experimental/ml_adjacent:lib",
+        "//tensorflow/lite/experimental/ml_adjacent/data:owning_vector_ref",
         "@com_google_googletest//:gtest_main",
     ],
 )

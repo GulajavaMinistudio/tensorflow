@@ -46,6 +46,7 @@ limitations under the License.
 #include "tensorflow/compiler/xla/hlo/ir/hlo_instructions.h"
 #include "tensorflow/compiler/xla/hlo/ir/hlo_module.h"
 #include "tensorflow/compiler/xla/hlo/ir/hlo_opcode.h"
+#include "tensorflow/compiler/xla/hlo/ir/hlo_schedule.h"
 #include "tensorflow/compiler/xla/hlo/transforms/hlo_constant_splitter.h"
 #include "tensorflow/compiler/xla/mlir/backends/gpu/transforms/passes.h"
 #include "tensorflow/compiler/xla/mlir/runtime/transforms/compilation_pipeline_gpu.h"
@@ -134,6 +135,7 @@ limitations under the License.
 #include "tensorflow/compiler/xla/service/hlo_computation_deduplicator.h"
 #include "tensorflow/compiler/xla/service/hlo_constant_folding.h"
 #include "tensorflow/compiler/xla/service/hlo_cse.h"
+#include "tensorflow/compiler/xla/service/hlo_dataflow_analysis.h"
 #include "tensorflow/compiler/xla/service/hlo_dce.h"
 #include "tensorflow/compiler/xla/service/hlo_module_config.h"
 #include "tensorflow/compiler/xla/service/hlo_pass_fix.h"
@@ -258,37 +260,12 @@ GpuXlaRuntimeAotCompilationResult::LoadExecutable(
 GpuTargetConfig::GpuTargetConfig(const se::GpuTargetConfigProto& proto)
     : gpu_device_info(proto.gpu_device_info()),
       platform_name(proto.platform_name()),
-      dnn_version_info(proto.dnn_version_info()) {
-  if (proto.gpu_device_info().has_cuda_compute_capability()) {
-    stream_executor::CudaComputeCapability cuda_compute_capability(
-        proto.gpu_device_info().cuda_compute_capability());
-    gpu_version = cuda_compute_capability;
-  } else {
-    CHECK(proto.gpu_device_info().has_rocm_compute_capability());
-    stream_executor::RocmComputeCapability rocm_compute_capability(
-        proto.gpu_device_info().rocm_compute_capability());
-    gpu_version = rocm_compute_capability;
-  }
-
-  device_description_str = proto.device_description_str();
-}
+      dnn_version_info(proto.dnn_version_info()),
+      device_description_str(proto.device_description_str()) {}
 
 se::GpuTargetConfigProto GpuTargetConfig::ToProto() const {
   se::GpuTargetConfigProto proto;
   *proto.mutable_gpu_device_info() = gpu_device_info.ToProto();
-
-  if (std::holds_alternative<se::CudaComputeCapability>(gpu_version)) {
-    auto cuda_compute_capability =
-        std::get<se::CudaComputeCapability>(gpu_version);
-    *proto.mutable_gpu_device_info()->mutable_cuda_compute_capability() =
-        cuda_compute_capability.ToProto();
-  } else {
-    auto rocm_compute_capability =
-        std::get<se::RocmComputeCapability>(gpu_version);
-    *proto.mutable_gpu_device_info()->mutable_rocm_compute_capability() =
-        rocm_compute_capability.ToProto();
-  }
-
   proto.set_platform_name(platform_name);
   *proto.mutable_dnn_version_info() = dnn_version_info.ToProto();
   proto.set_device_description_str(device_description_str);
@@ -479,14 +456,13 @@ Status GpuCompiler::OptimizeHloModule(HloModule* hlo_module,
     pipeline.AddPass<TopkDecomposer>();
 
     HloPredicate upcaster_filter = [&](const HloInstruction* instr) {
-      if (gpu_target_config.platform_name == "ROCM") {
-        return !gpu::IsMatrixMultiplication(*instr);
-      } else {
-        return !std::get<se::CudaComputeCapability>(
-                    gpu_target_config.gpu_version)
-                    .IsAtLeast(se::CudaComputeCapability::VOLTA) ||
-               !gpu::IsMatrixMultiplication(*instr);
+      const auto* cuda_cc = std::get_if<se::CudaComputeCapability>(
+          &gpu_target_config.gpu_device_info.compute_capability);
+      if (cuda_cc != nullptr &&
+          !cuda_cc->IsAtLeast(se::CudaComputeCapability::VOLTA)) {
+        return true;
       }
+      return !gpu::IsMatrixMultiplication(*instr);
     };
 
     pipeline.AddPass<OperandUpcaster>(upcaster_filter);
@@ -717,7 +693,7 @@ Status GpuCompiler::OptimizeHloModule(HloModule* hlo_module,
 
   // Run target-specific HLO optimization passes for convolution
   // canonicalization.
-  GpuVersion gpu_version = gpu_target_config.gpu_version;
+  GpuVersion gpu_version = gpu_target_config.gpu_device_info.compute_capability;
   se::dnn::VersionInfo dnn_version = gpu_target_config.dnn_version_info;
   if (stream_exec != nullptr) {
     gpu_version = GetGpuVersion(stream_exec);
@@ -757,17 +733,11 @@ Status GpuCompiler::OptimizeHloModule(HloModule* hlo_module,
       thread_pool));
 
   const GpuDeviceInfo& gpu_device_info = gpu_target_config.gpu_device_info;
-  auto get_cuda_compute_capability = [&]() {
-    return stream_exec != nullptr
-               ? stream_exec->GetDeviceDescription().cuda_compute_capability()
-               : se::CudaComputeCapability();
-  };
 
-  TF_RETURN_IF_ERROR(FusionPipeline(debug_options, ShapeSizeBytesFunction(),
-                                    gpu_device_info,
-                                    get_cuda_compute_capability())
-                         .Run(hlo_module)
-                         .status());
+  TF_RETURN_IF_ERROR(
+      FusionPipeline(debug_options, ShapeSizeBytesFunction(), gpu_device_info)
+          .Run(hlo_module)
+          .status());
 
   if (debug_options.xla_gpu_collect_cost_model_stats()) {
     GpuHloCostAnalysis::Options cost_analysis_options{
@@ -924,16 +894,14 @@ Status GpuCompiler::OptimizeHloPostLayoutAssignment(
     pipeline.AddPass<HloPassFix<MoveCopyToUsers>>();
 
     // Rewrite GEMMs into custom calls.
-    if (debug_options.xla_gpu_enable_triton_gemm() &&
-        std::holds_alternative<se::CudaComputeCapability>(
-            gpu_target_config.gpu_version)) {
-      auto cuda_compute_capability =
-          std::get<se::CudaComputeCapability>(gpu_target_config.gpu_version);
-      if (cuda_compute_capability.IsAtLeast(se::CudaComputeCapability::VOLTA)) {
-        pipeline.AddPass<GemmRewriterTriton>(gpu_target_config.gpu_version);
-      }
+    GpuVersion gpu_version =
+        gpu_target_config.gpu_device_info.compute_capability;
+    const auto* cuda_cc = std::get_if<se::CudaComputeCapability>(&gpu_version);
+    if (debug_options.xla_gpu_enable_triton_gemm() && cuda_cc != nullptr &&
+        cuda_cc->IsAtLeast(se::CudaComputeCapability::VOLTA)) {
+      pipeline.AddPass<GemmRewriterTriton>(gpu_version);
     }
-    pipeline.AddPass<GemmRewriter>(gpu_target_config.gpu_version);
+    pipeline.AddPass<GemmRewriter>(gpu_version);
 
     // Rewrite GEMMs with broadcasted inputs as strided GEMMs.
     pipeline.AddPass<GemmBroadcastFoldingRewriter>();
@@ -951,20 +919,15 @@ Status GpuCompiler::OptimizeHloPostLayoutAssignment(
     // ReductionDimensionGrouper, as that makes matching the softmax pattern
     // harder.
     if (debug_options.xla_gpu_enable_triton_softmax_fusion() &&
-        std::holds_alternative<se::CudaComputeCapability>(
-            gpu_target_config.gpu_version)) {
-      auto cuda_compute_capability =
-          std::get<se::CudaComputeCapability>(gpu_target_config.gpu_version);
-      if (cuda_compute_capability.IsAtLeast(se::CudaComputeCapability::VOLTA)) {
-        pipeline.AddPass<HloPassFix<AlgebraicSimplifier>>(options);
-        pipeline.AddPass<SoftmaxRewriterTriton>(gpu_target_config.gpu_version);
-      }
+        cuda_cc != nullptr &&
+        cuda_cc->IsAtLeast(se::CudaComputeCapability::VOLTA)) {
+      pipeline.AddPass<HloPassFix<AlgebraicSimplifier>>(options);
+      pipeline.AddPass<SoftmaxRewriterTriton>(gpu_version);
     }
 
     pipeline.AddPass<ReductionDimensionGrouper>();
     pipeline.AddPass<HloPassFix<ReductionSplitter>>();
-    pipeline.AddPass<HloPassFix<GpuTreeReductionRewriter>>(
-        gpu_target_config.gpu_version);
+    pipeline.AddPass<HloPassFix<GpuTreeReductionRewriter>>(gpu_version);
     TF_RETURN_IF_ERROR(pipeline.Run(hlo_module).status());
   }
 
@@ -1107,6 +1070,51 @@ StatusOr<std::unique_ptr<HloModule>> GpuCompiler::RunHloPassesWithoutDevice(
   return std::move(module);
 }
 
+namespace {
+Status RunPostSchedulingCopyInsertion(
+    HloModule* module,
+    const HloDataflowAnalysis::CanShareBuffer& can_share_buffer) {
+  // We run a separate pass of copy elision here because the sequential ordering
+  // from the HLO schedule potentially allows for more copies to be eliminated.
+  constexpr int64_t kRegionBasedLiveRangeAnalysisLimit = -1;
+  const int64_t kUseRegionBasedLiveRangeAnalysis =
+      module->config()
+              .debug_options()
+              .xla_gpu_copy_insertion_use_region_analysis()
+          ? kRegionBasedLiveRangeAnalysisLimit
+          : 0;
+  CopyInsertion copy_insertion(can_share_buffer,
+                               kUseRegionBasedLiveRangeAnalysis);
+  TF_RETURN_IF_ERROR(copy_insertion.RemoveUnnecessaryCopies(module));
+
+  // Stash away the schedule during copy insertion, to avoid validation failures
+  // while the module is in flux.
+  HloSchedule saved_schedule = module->schedule();
+  module->clear_schedule();
+
+  // RemoveUnnecessaryCopies only considers interference when determining
+  // whether it is legal to remove a copy. However, copies in the graph may be
+  // necessary for other reason such as preventing a constant from being live
+  // out of the graph. So run AddSpecialCaseCopies to re-insert these copies.
+  TF_RETURN_IF_ERROR(
+      copy_insertion.CopyInsertion::AddSpecialCaseCopies(module));
+
+  TF_RETURN_IF_ERROR(HloDCE().Run(module).status());
+
+  // The passes above can add and remove copies, update the schedule to
+  // account for these transformations. Newly added instructions will be
+  // placed ASAP in the schedule.
+
+  // Update and restore the schedule. The saved schedule has a reference to the
+  // updated HLO module. The saved schedule needs to be updated before restoring
+  // it to the module to avoid validation failures.
+  TF_RETURN_IF_ERROR(saved_schedule.Update());
+  TF_RETURN_IF_ERROR(module->set_schedule(std::move(saved_schedule)));
+
+  return OkStatus();
+}
+}  // namespace
+
 StatusOr<std::unique_ptr<BufferAssignment>> GpuCompiler::AssignBuffers(
     HloModule* hlo_module, se::StreamExecutor* stream_exec) {
   const GpuDeviceInfo gpu_device_info = GetGpuDeviceInfo(stream_exec);
@@ -1114,6 +1122,8 @@ StatusOr<std::unique_ptr<BufferAssignment>> GpuCompiler::AssignBuffers(
       GetSchedulerMemoryLimit(hlo_module, gpu_device_info, pointer_size_);
   TF_RETURN_IF_ERROR(
       ScheduleGpuModule(hlo_module, pointer_size_, scheduler_mem_limit));
+  TF_RETURN_IF_ERROR(
+      RunPostSchedulingCopyInsertion(hlo_module, GetCanShareBuffer()));
 
   auto buffer_size_bytes_function =
       [this](const BufferValue& buffer_value) -> int64_t {
@@ -1440,11 +1450,8 @@ StatusOr<std::unique_ptr<Executable>> GpuCompiler::RunBackend(
   TF_RETURN_IF_ERROR(CompileModuleToLlvmIrImpl(
       module.get(), &llvm_context, target_triple_, data_layout_,
       stream_exec->platform()->Name(), stream_exec->platform()->id(),
-      gpu_device_info,
-      stream_exec->GetDeviceDescription().cuda_compute_capability(),
-      stream_exec->GetDeviceDescription().rocm_compute_capability(),
-      GetCanShareBuffer(), pointer_size_, &compile_module_results,
-      stream_exec));
+      gpu_device_info, GetCanShareBuffer(), pointer_size_,
+      &compile_module_results, stream_exec));
 
   if (user_pre_optimization_hook_) {
     user_pre_optimization_hook_(*compile_module_results.llvm_module);
@@ -1555,42 +1562,21 @@ GpuCompiler::CompileAheadOfTime(std::unique_ptr<HloModuleGroup> module_group,
     // Compile the module
     CompileModuleResults compile_module_results;
 
-    const std::any& target_config = options.target_config();
-    auto* gpu_target_config = std::any_cast<GpuTargetConfig>(&target_config);
-
     if (gpu_target_config) {
-      // CUDA "CC" major value, -1 if not available.
-      se::CudaComputeCapability cuda_compute_capability{-1, -1};
-      // ROCm gfx arch,  "gfx000" if not available.
-      se::RocmComputeCapability rocm_compute_capability{"gfx000"};
-      if (auto* cuda = std::get_if<se::CudaComputeCapability>(
-              &gpu_target_config->gpu_version)) {
-        cuda_compute_capability = *cuda;
-      } else {
-        rocm_compute_capability =
-            std::get<se::RocmComputeCapability>(gpu_target_config->gpu_version);
-      }
-
       TF_RETURN_IF_ERROR(CompileModuleToLlvmIrImpl(
           module.get(), &llvm_context, target_triple_, data_layout_,
           gpu_target_config->platform_name, options.PlatformId(),
-          gpu_target_config->gpu_device_info, cuda_compute_capability,
-          rocm_compute_capability, GetCanShareBuffer(), pointer_size_,
-          &compile_module_results));
+          gpu_target_config->gpu_device_info, GetCanShareBuffer(),
+          pointer_size_, &compile_module_results));
     } else {
       CHECK(options.executor() != nullptr);
       auto stream_exec = options.executor();
-      const stream_executor::DeviceDescription& device_description =
-          stream_exec->GetDeviceDescription();
       TF_RETURN_IF_ERROR(CompileModuleToLlvmIrImpl(
           module.get(), &llvm_context, target_triple_, data_layout_,
           stream_exec->platform()->Name(), options.PlatformId(),
-          GetGpuDeviceInfo(stream_exec),
-          device_description.cuda_compute_capability(),
-          device_description.rocm_compute_capability(), GetCanShareBuffer(),
-          pointer_size_, &compile_module_results));
+          GetGpuDeviceInfo(stream_exec), GetCanShareBuffer(), pointer_size_,
+          &compile_module_results));
     }
-
     if (user_pre_optimization_hook_) {
       user_pre_optimization_hook_(*compile_module_results.llvm_module);
     }
@@ -1602,8 +1588,8 @@ GpuCompiler::CompileAheadOfTime(std::unique_ptr<HloModuleGroup> module_group,
           backend_result,
           CompileToTargetBinary(
               module->config(), std::move(compile_module_results.llvm_module),
-              gpu_target_config->gpu_version, options.executor(),
-              {options.device_allocator()}, module.get()));
+              gpu_target_config->gpu_device_info.compute_capability,
+              options.executor(), {options.device_allocator()}, module.get()));
     } else {
       TF_ASSIGN_OR_RETURN(
           backend_result,
