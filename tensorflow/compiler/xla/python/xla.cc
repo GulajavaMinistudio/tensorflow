@@ -454,13 +454,7 @@ static void Init(py::module_& m) {
                &PyClient::MakePythonCallbackUsingHostSendAndRecv),
            py::arg("callable"), py::arg("operand_shapes"),
            py::arg("result_shapes"), py::arg("send_channel_ids"),
-           py::arg("recv_channel_ids"), py::arg("serializer") = py::none())
-      // Deprecated: please use `get_emit_python_callback_descriptor` instead.
-      .def("emit_python_callback",
-           xla::ValueOrThrowWrapper(&PyClient::EmitPythonCallback),
-           py::arg("callable"), py::arg("builder"), py::arg("operands"),
-           py::arg("result_shapes"), py::arg("operand_layouts") = std::nullopt,
-           py::arg("has_side_effects") = false);
+           py::arg("recv_channel_ids"), py::arg("serializer") = py::none());
 
   m.def(
       "get_tfrt_cpu_client",
@@ -1039,9 +1033,22 @@ static void Init(py::module_& m) {
                              [](PjRtTopologyDescription& topology) {
                                return topology.platform_version();
                              })
-      .def("serialize", [](PjRtTopologyDescription& topology) {
-        return ValueOrThrow(topology.Serialize());
-      });
+      .def("serialize",
+           [](PjRtTopologyDescription& topology) -> py::bytes {
+             return py::bytes(ValueOrThrow(topology.Serialize()));
+           })
+      .def(
+          "__getattr__",
+          [](PjRtTopologyDescription& topology,
+             std::string name) -> py::object {
+            const auto& attrs = topology.Attributes();
+            auto it = attrs.find(name);
+            if (it != attrs.end()) {
+              return std::visit([](auto&& v) { return py::cast(v); },
+                                it->second);
+            }
+            throw py::attribute_error(absl::StrCat("Unknown attribute ", name));
+          });
 
   py::class_<PjRtExecutable, std::shared_ptr<PjRtExecutable>>(m, "Executable")
       .def("hlo_modules",

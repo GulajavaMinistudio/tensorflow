@@ -126,6 +126,7 @@ struct PJRT_LoadedExecutable {
 
   const xla::PjRtLoadedExecutable* get() const { return executable.get(); }
   xla::PjRtLoadedExecutable* get() { return executable.get(); }
+  xla::StatusOr<std::optional<std::string>> fingerprint;
 };
 
 struct PJRT_Buffer {
@@ -168,6 +169,7 @@ struct PJRT_TopologyDescription {
       cpp_descriptions;
   std::vector<PJRT_DeviceDescription> descriptions;
   std::vector<PJRT_DeviceDescription*> description_pointers;
+  std::vector<PJRT_NamedValue> attributes;
 };
 
 struct PJRT_TransferMetadata {
@@ -270,6 +272,8 @@ PJRT_Error* PJRT_Executable_DeserializeAndLoad(
     PJRT_Executable_DeserializeAndLoad_Args* args);
 PJRT_Error* PJRT_LoadedExecutable_GetExecutable(
     PJRT_LoadedExecutable_GetExecutable_Args* args);
+PJRT_Error* PJRT_LoadedExecutable_Fingerprint(
+    PJRT_LoadedExecutable_Fingerprint_Args* args);
 
 PJRT_Error* PJRT_Buffer_Destroy(PJRT_Buffer_Destroy_Args* args);
 PJRT_Error* PJRT_Buffer_ElementType(PJRT_Buffer_ElementType_Args* args);
@@ -318,6 +322,8 @@ PJRT_Error* PJRT_TopologyDescription_GetDeviceDescriptions(
     PJRT_TopologyDescription_GetDeviceDescriptions_Args* args);
 PJRT_Error* PJRT_TopologyDescription_Serialize(
     PJRT_TopologyDescription_Serialize_Args* args);
+PJRT_Error* PJRT_TopologyDescription_Attributes(
+    PJRT_TopologyDescription_Attributes_Args* args);
 
 PJRT_Error* PJRT_Compile(PJRT_Compile_Args* args);
 
@@ -474,6 +480,8 @@ constexpr PJRT_Api CreatePjrtApi(
       /*PJRT_LoadedExecutable_Execute=*/pjrt::PJRT_LoadedExecutable_Execute,
       /*PJRT_Executable_DeserializeAndLoad=*/
       pjrt::PJRT_Executable_DeserializeAndLoad,
+      /*PJRT_LoadedExecutable_Fingerprint=*/
+      pjrt::PJRT_LoadedExecutable_Fingerprint,
 
       /*PJRT_Buffer_Destroy=*/pjrt::PJRT_Buffer_Destroy,
       /*PJRT_Buffer_ElementType=*/pjrt::PJRT_Buffer_ElementType,
@@ -524,6 +532,8 @@ constexpr PJRT_Api CreatePjrtApi(
       pjrt::PJRT_TopologyDescription_GetDeviceDescriptions,
       /*PJRT_TopologyDescription_Serialize=*/
       pjrt::PJRT_TopologyDescription_Serialize,
+      /*PJRT_TopologyDescription_Attributes=*/
+      pjrt::PJRT_TopologyDescription_Attributes,
 
       /*PJRT_Compile=*/pjrt::PJRT_Compile,
   };

@@ -53,7 +53,7 @@ extern "C" {
 // Changes include:
 // * Adding a new field to the PJRT_Api or argument structs
 // * Renaming a method or argument (doesn't affect ABI)
-#define PJRT_API_MINOR 26
+#define PJRT_API_MINOR 28
 
 // The plugin should set the major_version and minor_version of
 // PJRT_Api.pjrt_api_version to be the `PJRT_API_MAJOR` and `PJRT_API_MINOR` in
@@ -1353,6 +1353,23 @@ PJRT_DEFINE_STRUCT_TRAITS(PJRT_Executable_DeserializeAndLoad_Args,
 typedef PJRT_Error* PJRT_Executable_DeserializeAndLoad(
     PJRT_Executable_DeserializeAndLoad_Args* args);
 
+struct PJRT_LoadedExecutable_Fingerprint_Args {
+  size_t struct_size;
+  void* priv;
+  PJRT_LoadedExecutable* executable;
+  // Has the lifetime of `executable`
+  const char* executable_fingerprint;  // out
+  size_t executable_fingerprint_size;  // out
+};
+PJRT_DEFINE_STRUCT_TRAITS(PJRT_LoadedExecutable_Fingerprint_Args,
+                          executable_fingerprint_size);
+// A unique fingerprint for `executable`. Two executables that were produced by
+// compiling with identical inputs (same program, compile options, compiler
+// version, etc.) should have the same fingerprint. May not be implemented by
+// all platforms.
+typedef PJRT_Error* PJRT_LoadedExecutable_Fingerprint(
+    PJRT_LoadedExecutable_Fingerprint_Args* args);
+
 // ---------------------------------- Buffers ----------------------------------
 
 struct PJRT_Buffer_Destroy_Args {
@@ -1811,6 +1828,22 @@ PJRT_DEFINE_STRUCT_TRAITS(PJRT_TopologyDescription_Serialize_Args,
 typedef PJRT_Error* PJRT_TopologyDescription_Serialize(
     PJRT_TopologyDescription_Serialize_Args* args);
 
+struct PJRT_TopologyDescription_Attributes_Args {
+  size_t struct_size;
+  void* priv;
+  PJRT_TopologyDescription* topology;
+
+  // Only lives as long as topology.
+  PJRT_NamedValue* attributes;  // out
+  size_t num_attributes;        // out
+};
+PJRT_DEFINE_STRUCT_TRAITS(PJRT_TopologyDescription_Attributes_Args,
+                          num_attributes);
+
+// Returns platform-specific topology attributes.
+typedef PJRT_Error* PJRT_TopologyDescription_Attributes(
+    PJRT_TopologyDescription_Attributes_Args* args);
+
 struct PJRT_Compile_Args {
   size_t struct_size;
   void* priv;
@@ -1910,6 +1943,7 @@ typedef struct {
   _PJRT_API_STRUCT_FIELD(PJRT_LoadedExecutable_IsDeleted);
   _PJRT_API_STRUCT_FIELD(PJRT_LoadedExecutable_Execute);
   _PJRT_API_STRUCT_FIELD(PJRT_Executable_DeserializeAndLoad);
+  _PJRT_API_STRUCT_FIELD(PJRT_LoadedExecutable_Fingerprint);
 
   _PJRT_API_STRUCT_FIELD(PJRT_Buffer_Destroy);
   _PJRT_API_STRUCT_FIELD(PJRT_Buffer_ElementType);
@@ -1943,6 +1977,7 @@ typedef struct {
   _PJRT_API_STRUCT_FIELD(PJRT_TopologyDescription_PlatformVersion);
   _PJRT_API_STRUCT_FIELD(PJRT_TopologyDescription_GetDeviceDescriptions);
   _PJRT_API_STRUCT_FIELD(PJRT_TopologyDescription_Serialize);
+  _PJRT_API_STRUCT_FIELD(PJRT_TopologyDescription_Attributes);
 
   _PJRT_API_STRUCT_FIELD(PJRT_Compile);
 } PJRT_Api;

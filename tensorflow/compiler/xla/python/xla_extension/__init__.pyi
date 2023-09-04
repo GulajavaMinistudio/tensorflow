@@ -255,6 +255,23 @@ class DebugOptions:
   xla_test_all_input_layouts: bool
   xla_disable_hlo_passes: str
   xla_enable_hlo_passes_only: str
+  xla_force_host_platform_device_count: int
+  xla_dump_to: str
+  xla_dump_hlo_module_re: str
+  xla_dump_hlo_pass_re: str
+  xla_dump_hlo_as_text: bool
+  xla_dump_hlo_as_proto: bool
+  xla_dump_hlo_as_dot: bool
+  xla_dump_hlo_as_url: bool
+  xla_dump_hlo_as_html: bool
+  xla_dump_fusion_visualization: bool
+  xla_dump_hlo_snapshots: bool
+  xla_dump_max_hlo_modules: bool
+  xla_dump_module_metadata: bool
+  xla_dump_compress_protos: bool
+  xla_dump_hlo_as_long_text: bool
+  xla_dump_disable_metadata: bool
+  xla_dump_hlo_pipeline_re: str
 
 class CompiledMemoryStats:
   generated_code_size_in_bytes: int
@@ -292,6 +309,10 @@ class OpSharding_Type(enum.IntEnum):
   OTHER: int
   MANUAL: int
 
+class OpSharding_ShardGroupType(enum.IntEnum):
+  AS: int
+  LIKE: int
+
 class OpSharding:
   Type: typing.Type[OpSharding_Type]
   type: OpSharding_Type
@@ -302,6 +323,10 @@ class OpSharding:
   iota_reshape_dims: Sequence[int]
   iota_transpose_perm: Sequence[int]
   tuple_shardings: Sequence[OpSharding]
+  is_shard_group: bool
+  shard_group_id: int
+  ShardGroupType: typing.Type[OpSharding_ShardGroupType]
+  shard_group_type: OpSharding_ShardGroupType
   def ParseFromString(self, s: bytes) -> None: ...
   def SerializeToString(self) -> bytes: ...
   def clone(self) -> OpSharding: ...
@@ -437,17 +462,10 @@ class Client:
   def get_emit_python_callback_descriptor(
       self, callable: Callable, operand_shapes: Sequence[Shape],
       results_shapes: Sequence[Shape]) -> Tuple[Any, Any]: ...
-  def emit_python_callback(
-      self, callable: Callable, builder: XlaBuilder, operands: Sequence[XlaOp],
-      results_shapes: Sequence[Shape],
-      operand_layouts: Optional[Sequence[Shape]] = ...,
-      has_side_effects: bool = ...) -> Tuple[XlaOp, Any]: ...
   def make_python_callback_from_host_send_and_recv(
       self, callable: Callable, operand_shapes: Sequence[Shape],
       result_shapes: Sequence[Shape], send_channel_ids: Sequence[int],
       recv_channel_ids: Sequence[int], serializer: Optional[Callable] = ...) -> Any: ...
-  def get_python_callback_from_host_send(callable: Any,
-                                         operand_shapes: Any, send_channel_ids: Any, recv_channel_ids: Any) -> Any: ...
 
 
 def get_tfrt_cpu_client(asynchronous: bool = ...) -> Client: ...
@@ -590,6 +608,7 @@ class DeviceTopology:
   platform_version: str
   def _make_compile_only_devices(self) -> List[Device]: ...
   def serialize(self) -> bytes: ...
+  def __getattr__(self, name: str) -> Any: ...
 
 
 def buffer_to_dlpack_managed_tensor(
