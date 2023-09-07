@@ -1265,10 +1265,10 @@ def _populate_calibration_options(
     if not calib_opts.calibration_parameters.max_percentile:
       calib_opts.calibration_parameters.max_percentile = 99.999
   # Check the activation_tensor_type of HISTOGRAM_MSE methods.
-  elif (
-      calib_opts.calibration_method
-      == _CalibrationMethod.CALIBRATION_METHOD_HISTOGRAM_MSE_BRUTEFORCE
-  ):
+  elif calib_opts.calibration_method in [
+      _CalibrationMethod.CALIBRATION_METHOD_HISTOGRAM_MSE_BRUTEFORCE,
+      _CalibrationMethod.CALIBRATION_METHOD_HISTOGRAM_MSE_MAX_FREQUENCY,
+  ]:
     activation_tensor_type = (
         quantization_options.quantization_method.quantization_component_specs[
             _QuantizationComponent.COMPONENT_ACTIVATION
@@ -1359,6 +1359,15 @@ def _populate_quantization_options_default_values(
       )
   ):
     raise ValueError('TF/Uniform quantized opset does not support weight-only.')
+
+  if (quantization_options.op_set == quant_opts_pb2.OpSet.STABLEHLO) and (
+      quantization_options.quantization_method.experimental_method
+      != _ExperimentalMethod.STATIC_RANGE
+  ):
+    raise ValueError(
+        'StableHLO quantized opset currently only supports static range'
+        ' quantization via TF Quantizer.'
+    )
 
   # Converter assumes options are specified. So set SRQ explicitly.
   if (

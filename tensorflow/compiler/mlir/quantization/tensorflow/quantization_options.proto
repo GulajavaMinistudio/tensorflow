@@ -22,6 +22,7 @@ option cc_enable_arenas = true;
 // NEXT ID: 4
 message QuantizationMethod {
   // Quantization methods that are supported as a stable API.
+  // NEXT ID: 1
   enum Method {
     // This should never be used. Using this will generally result in an error.
     METHOD_UNSPECIFIED = 0;  // go/do-include-enum-unspecified
@@ -30,6 +31,7 @@ message QuantizationMethod {
   // Experimental quantization methods.
   // These methods are either not implemented or provided with an unstable
   // behavior.
+  // NEXT ID: 4
   enum ExperimentalMethod {
     // This should never be used. Using this will generally result in an error.
     EXPERIMENTAL_METHOD_UNSPECIFIED = 0;  // go/do-include-enum-unspecified
@@ -116,7 +118,7 @@ message UnitWiseQuantizationSpec {
 
 // List of supported opsets to deploy the quantized model.
 // The quantized model contains different set of ops depending on the opset.
-// NEXT ID: 4
+// NEXT ID: 5
 enum OpSet {
   OP_SET_UNSPECIFIED = 0;  // go/do-include-enum-unspecified
   // Uses TF ops that mimic quantization behavior. Used when the corresponding
@@ -126,6 +128,9 @@ enum OpSet {
   XLA = 2;
   // Uses TF Uniform Quantized ops
   UNIFORM_QUANTIZED = 3;
+  // Uses the StableHLO Quantizer. StableHLO Quantizer will be available as
+  // an option in the TF Quantizer in StableHLO Quantizer v1.
+  STABLEHLO = 4;
 }
 
 // Configurations for variable freezing during quantization passes.
@@ -141,7 +146,7 @@ message FreezeAllVariables {
 // NEXT ID: 3
 message CalibrationOptions {
   // Configurations for calibration methods.
-  // NEXT ID: 5
+  // NEXT ID: 6
   enum CalibrationMethod {
     CALIBRATION_METHOD_UNSPECIFIED = 0;
     // Use the min, max values of all sample datasets.
@@ -155,6 +160,10 @@ message CalibrationOptions {
     // histogram mid value pairs. Therefore the value of num_bins is recommended
     // to be 256 or less.
     CALIBRATION_METHOD_HISTOGRAM_MSE_BRUTEFORCE = 4;
+    // Use the histogram mid values that minimize MSE error.
+    // This is an algorithm that finds the bin with the max frequency in the
+    // histogram and expands the range.
+    CALIBRATION_METHOD_HISTOGRAM_MSE_MAX_FREQUENCY = 5;
   }
 
   // Parameters required for calibration.
