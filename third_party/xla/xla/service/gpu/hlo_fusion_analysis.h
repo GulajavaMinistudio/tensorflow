@@ -25,6 +25,7 @@ limitations under the License.
 #include "xla/hlo/ir/hlo_instructions.h"
 #include "xla/service/gpu/backend_configs.pb.h"
 #include "xla/service/gpu/gpu_device_info.h"
+#include "xla/service/gpu/hlo_traversal.h"
 #include "xla/service/gpu/ir_emission_utils.h"
 #include "xla/service/gpu/kernel_mapping_scheme.h"
 #include "xla/service/gpu/launch_dimensions.h"
@@ -47,10 +48,13 @@ class HloFusionAnalysis {
     kScatter,
   };
 
+  static StatusOr<HloFusionAnalysis> Create(
+      FusionBackendConfig backend_config,
+      std::vector<HloInstruction*> hlo_roots, FusionBoundaryFn boundary_fn,
+      const GpuDeviceInfo* device_info);
   static StatusOr<HloFusionAnalysis> Create(const HloFusionInstruction* fusion,
                                             const GpuDeviceInfo* device_info);
 
-  const HloComputation* fused_computation() const { return fused_computation_; }
   const std::vector<HloInstruction*>& fusion_roots() const {
     return fusion_roots_;
   }
@@ -78,17 +82,16 @@ class HloFusionAnalysis {
   const HloInstruction* FindHeroReduction() const;
 
  private:
-  HloFusionAnalysis(const HloFusionInstruction* fusion,
-                    FusionBackendConfig fusion_backend_config,
+  HloFusionAnalysis(FusionBackendConfig fusion_backend_config,
                     std::vector<HloInstruction*> fusion_roots,
+                    FusionBoundaryFn fusion_boundary_fn,
                     std::vector<const HloInstruction*> fusion_parameters,
                     std::vector<const HloInstruction*> fusion_heroes,
                     const GpuDeviceInfo* device_info,
                     std::optional<TransposeDescription> tiled_transpose)
-      : fusion_(fusion),
-        fusion_backend_config_(std::move(fusion_backend_config)),
-        fused_computation_(fusion->fused_instructions_computation()),
+      : fusion_backend_config_(std::move(fusion_backend_config)),
         fusion_roots_(std::move(fusion_roots)),
+        fusion_boundary_fn_(std::move(fusion_boundary_fn)),
         fusion_parameter_inputs_(std::move(fusion_parameters)),
         fusion_heroes_(std::move(fusion_heroes)),
         device_info_(device_info),
@@ -111,10 +114,9 @@ class HloFusionAnalysis {
       const HloInstruction* hero_reduction) const;
   bool HasConsistentTransposeHeros() const;
 
-  const HloFusionInstruction* fusion_;
   FusionBackendConfig fusion_backend_config_;
-  const HloComputation* fused_computation_;
   std::vector<HloInstruction*> fusion_roots_;
+  FusionBoundaryFn fusion_boundary_fn_;
   // The HLO instructions that are inputs into the fusion. These instructions
   // are /outside/ the fusion.
   std::vector<const HloInstruction*> fusion_parameter_inputs_;
