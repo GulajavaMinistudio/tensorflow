@@ -840,6 +840,8 @@ ReductionCodegenInfo HloFusionAnalysis::ComputeReductionCodegenInfo(
                             reduction_is_race_free);
   int vector_size = vectorize ? 2 : 1;
 
+  // TODO(b/283542954): Autotune num_partial_results?  This can make a big
+  // difference, e.g. by affecting register spilling.
   int num_partial_results = 1;
   if (!reduction_dimensions.is_row_reduction && vectorize) {
     int smallest_input_dtype_bits = SmallestInputDtypeBits();
@@ -861,27 +863,15 @@ ReductionCodegenInfo HloFusionAnalysis::ComputeReductionCodegenInfo(
     } else {
       num_partial_results = 2;
     }
-  }
 
-  // TODO(b/283542954): Autotune num_partial_results?  This can make a big
-  // difference, e.g. by affecting register spilling.
-
-  // Row reductions use one shmem block per partial result, so we have to make
-  // sure we fit in budget.  Column reductions only ever use one shmem block.
-  // (Indeed I *think* "num_partial_results" is a misnomer for column
-  // reductions; I think it's the number of *complete*, i.e. not partial,
-  // results per warp.)
-  if (reduction_dimensions.is_row_reduction) {
-    while (shmem_usage * num_partial_results > shmem_budget) {
+    while (num_partial_results != 1 &&
+           shmem_usage * num_partial_results > shmem_budget) {
       num_partial_results /= 2;
-      if (num_partial_results == 1) {
-        break;
-      }
     }
+    reduction_tiling[kDimX] *= num_partial_results;
   }
 
   VLOG(3) << "Each thread will produce " << num_partial_results << " output(s)";
-  reduction_tiling[kDimX] *= num_partial_results;
 
   Vector3 num_threads = {1, num_threads_y, num_threads_x};
   int virtual_thread_scaling_factor =

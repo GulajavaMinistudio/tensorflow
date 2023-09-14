@@ -712,6 +712,13 @@ def _tf_repositories():
         urls = tf_mirror_urls("https://github.com/bazelbuild/rules_android/archive/v0.1.1.zip"),
     )
 
+    tf_http_archive(
+        name = "rules_android_ndk",
+        sha256 = "b29409496439cdcdb50a8e161c4953ca78a548e16d3ee729a1b5cd719ffdacbf",
+        strip_prefix = "rules_android_ndk-81ec8b79dc50ee97e336a25724fdbb28e33b8d41",
+        urls = tf_mirror_urls("https://github.com/bazelbuild/rules_android_ndk/archive/81ec8b79dc50ee97e336a25724fdbb28e33b8d41.zip"),
+    )
+
     # Apple and Swift rules.
     # https://github.com/bazelbuild/rules_apple/releases
     tf_http_archive(
@@ -877,6 +884,13 @@ def _tf_repositories():
         sha256 = "b6c537b53356a3af3ca3e621457751fa9a6ba96daf3aebb3526ae0f610863532",
         strip_prefix = "zstd-1.4.5/lib",
         urls = tf_mirror_urls("https://github.com/facebook/zstd/archive/v1.4.5.zip"),  # 2020-05-22
+    )
+
+    tf_http_archive(
+        name = "com_google_highway",
+        sha256 = "2eb48f87c099a95123dc13a9f243bd3b74d67fe1d887942903d09a211593da97",
+        strip_prefix = "highway-1.0.7",
+        urls = tf_mirror_urls("https://github.com/google/highway/archive/refs/tags/1.0.7.zip"),
     )
 
     # used for adding androidx.annotation dependencies in tflite android jni.

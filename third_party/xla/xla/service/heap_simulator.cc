@@ -24,6 +24,7 @@ limitations under the License.
 #include <limits>
 #include <memory>
 #include <numeric>
+#include <optional>
 #include <ostream>
 #include <string>
 #include <tuple>
@@ -33,6 +34,7 @@ limitations under the License.
 #include "absl/algorithm/container.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/log/check.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
@@ -1137,14 +1139,16 @@ GlobalDecreasingSizeBestFitHeap<BufferType>::SlicedAllocationFinder::
     SlicedAllocationFinder(
         absl::Span<const FreeChunks> free_chunks_per_slice_time,
         std::vector<int64_t> sorted_slice_sizes, int64_t max_colocation_size,
-        int64_t preferred_offset, int64_t alignment)
+        int64_t preferred_offset, int64_t alignment,
+        absl::AnyInvocable<bool(int64_t) const> is_offset_allowed)
     : sorted_slice_sizes_(std::move(sorted_slice_sizes)),
       slice_size_sum_(std::accumulate(sorted_slice_sizes_.begin(),
                                       sorted_slice_sizes_.end(),
                                       static_cast<int64_t>(0))),
       max_colocation_size_(max_colocation_size),
       preferred_offset_(preferred_offset),
-      alignment_(alignment) {
+      alignment_(alignment),
+      is_offset_allowed_(std::move(is_offset_allowed)) {
   CHECK_EQ(sorted_slice_sizes_.size(), free_chunks_per_slice_time.size())
       << "We expect a data structure explaining the free chunks at each slice "
          "time.";
@@ -1312,19 +1316,12 @@ GlobalDecreasingSizeBestFitHeap<BufferType>::SlicedAllocationFinder::Find()
     const {
   // Check if we can place the fully allocated buffer at the preferred offset
   if (preferred_offset_ >= 0) {
-    VLOG(3) << "SlicedAllocationFinder::Find() searching preferred offset "
-            << preferred_offset_;
-    auto it = free_chunks_.lower_bound(preferred_offset_);
-    if (it != free_chunks_.end()) {
-      const FreeChunkRoot* root = &it->second;
-      ChunksSortedBySliceTime chunks =
-          FindInRoot(*root, /*only_try_preferred_offset=*/true);
-      if (!chunks.empty()) {
-        VLOG(1) << "SlicedAllocationFinder found chunks: "
-                << "{ " << absl::StrJoin(chunks, ", ", absl::StreamFormatter())
-                << " }";
-        return chunks;
-      }
+    ChunksSortedBySliceTime chunks = FindForOffset(preferred_offset_);
+    if (!chunks.empty()) {
+      VLOG(1) << "SlicedAllocationFinder found chunks: "
+              << "{ " << absl::StrJoin(chunks, ", ", absl::StreamFormatter())
+              << " }";
+      return chunks;
     }
   }
 
@@ -1353,8 +1350,7 @@ GlobalDecreasingSizeBestFitHeap<BufferType>::SlicedAllocationFinder::Find()
   for (const FreeChunkRoot* root = heap_next(); root != nullptr;
        root = heap_next()) {
     VLOG(3) << "SlicedAllocationFinder::Find() searching " << root->ToString();
-    ChunksSortedBySliceTime chunks =
-        FindInRoot(*root, /*only_try_preferred_offset=*/false);
+    ChunksSortedBySliceTime chunks = FindInRoot(*root);
     if (!chunks.empty()) {
       VLOG(1) << "SlicedAllocationFinder found chunks: "
               << "{ " << absl::StrJoin(chunks, ", ", absl::StreamFormatter())
@@ -1366,6 +1362,28 @@ GlobalDecreasingSizeBestFitHeap<BufferType>::SlicedAllocationFinder::Find()
   LOG(ERROR) << "We did not find a place for our sliced allocation. This "
                 "should not happen because MSA operates on an infinitely "
                 "sized heap.";
+  return {};
+}
+
+template <typename BufferType>
+typename GlobalDecreasingSizeBestFitHeap<
+    BufferType>::SlicedAllocationFinder::ChunksSortedBySliceTime
+GlobalDecreasingSizeBestFitHeap<
+    BufferType>::SlicedAllocationFinder::FindForOffset(int64_t offset) const {
+  VLOG(3) << "SlicedAllocationFinder::FindForOffset() searching offset "
+          << offset;
+  auto it = free_chunks_.lower_bound(offset);
+  if (it != free_chunks_.end()) {
+    const FreeChunkRoot* root = &it->second;
+    ChunksSortedBySliceTime chunks = FindInRoot(*root, offset);
+    if (!chunks.empty()) {
+      VLOG(3) << "SlicedAllocationFinder found chunks at " << offset << ": "
+              << "{ " << absl::StrJoin(chunks, ", ", absl::StreamFormatter())
+              << " }";
+      return chunks;
+    }
+  }
+
   return {};
 }
 
@@ -1404,6 +1422,11 @@ Status GlobalDecreasingSizeBestFitHeap<BufferType>::SlicedAllocationFinder::
         "%s", absl::StrCat("Not enough space to fit enitre allocation [",
                            offset, ", ", offset + max_colocation_size_,
                            ") in free chunk root ", root.chunk.ToString()));
+  }
+  if (!is_offset_allowed_(offset)) {
+    return FailedPrecondition(
+        "%s", absl::StrCat("We are not permitted to place an allocation at ",
+                           "offset ", offset, "."));
   }
 
   auto piece_fwd_it = root.pieces.lower_bound(offset);
@@ -1514,13 +1537,14 @@ template <typename BufferType>
 typename GlobalDecreasingSizeBestFitHeap<
     BufferType>::SlicedAllocationFinder::ChunksSortedBySliceTime
 GlobalDecreasingSizeBestFitHeap<BufferType>::SlicedAllocationFinder::FindInRoot(
-    const FreeChunkRoot& root, bool only_try_preferred_offset) const {
+    const FreeChunkRoot& root,
+    std::optional<int64_t> only_try_this_offset) const {
   int64_t first_offset = root.chunk.offset;
   int64_t last_end = root.chunk.chunk_end();
-  if (only_try_preferred_offset) {
-    first_offset = preferred_offset_;
-    last_end = preferred_offset_ + max_colocation_size_;
-    if (preferred_offset_ % alignment_ != 0) {
+  if (only_try_this_offset.has_value()) {
+    first_offset = *only_try_this_offset;
+    last_end = *only_try_this_offset + max_colocation_size_;
+    if (*only_try_this_offset % alignment_ != 0) {
       return {};
     }
   } else if (first_offset % alignment_ != 0) {
@@ -1729,11 +1753,10 @@ GlobalDecreasingSizeBestFitHeap<BufferType>::FindChunkCandidates(
     return {};
   }
   CHECK_EQ(chunks.size(), sliced_buffer_interval.num_slices() + 1);
-  // The extra chunk is for colocations, so merge the last two chunks.
-  Chunk last = chunks.back();
+  // The extra chunk is to ensure that colocations of larger sizes can fit.
+  // However, we don't need that extra space for the buffer for which we found
+  // chunks.
   chunks.pop_back();
-  chunks.back() = Chunk::FromOffsetSize(chunks.back().offset,
-                                        chunks.back().size + last.size);
 
   return chunks;
 }
@@ -1743,13 +1766,8 @@ void GlobalDecreasingSizeBestFitHeap<BufferType>::CommitChunk(
     const GlobalDecreasingSizeBestFitHeap<BufferType>::BufferInterval&
         buffer_interval,
     GlobalDecreasingSizeBestFitHeap<BufferType>::Chunk chunk) {
-  // Update the maximum heap size according to the one determined by the chunk
-  // candidate. In case of colocations of different sizes, the chunk size
-  // returned is the maximum of all colocations, so use this value to update the
-  // heap size.
+  CHECK_EQ(chunk.size, buffer_interval.size);
   result_.heap_size = result_.UpdatedHeapSize(chunk);
-  // Now, update the chunk size to the actual size of the buffer interval.
-  chunk.size = buffer_interval.size;
   interval_tree_.Add(buffer_interval.start, buffer_interval.end, chunk);
   for (auto colocation : GetTransitiveColocations(buffer_interval)) {
     auto colocation_interval = buffer_intervals_[colocation];
@@ -1757,9 +1775,10 @@ void GlobalDecreasingSizeBestFitHeap<BufferType>::CommitChunk(
     // of the colocated interval in case the colocations are of different sizes.
     Chunk colocation_chunk =
         Chunk::FromOffsetSize(chunk.offset, colocation_interval.size);
-    AddToChunkMap(colocation, colocation_chunk);
+    result_.heap_size = result_.UpdatedHeapSize(colocation_chunk);
     interval_tree_.Add(colocation_interval.start, colocation_interval.end,
                        colocation_chunk);
+    AddToChunkMap(colocation, colocation_chunk);
   }
 
   AddToChunkMap(buffer_interval.buffer, chunk);
