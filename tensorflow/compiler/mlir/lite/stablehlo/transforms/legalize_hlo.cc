@@ -59,7 +59,6 @@ limitations under the License.
 #include "mlir/Transforms/DialectConversion.h"  // from @llvm-project
 #include "stablehlo/dialect/BroadcastUtils.h"  // from @stablehlo
 #include "stablehlo/dialect/ChloOps.h"  // from @stablehlo
-#include "tensorflow/compiler/mlir/lite/stablehlo/transforms/legalize_hlo_conversions/scatter.h"
 #include "tensorflow/compiler/mlir/lite/stablehlo/transforms/legalize_hlo_conversions/util.h"
 #include "tensorflow/compiler/mlir/lite/stablehlo/transforms/passes.h"
 #include "tensorflow/compiler/mlir/tensorflow/ir/tf_ops.h"
@@ -116,10 +115,24 @@ LogicalResult GetConstantSplatValue(Value value, SplatValueType& splat_value) {
 template <int SupportedSpatialDims>
 struct ConvertNdConvOp {
   bool IsSupportedConvOp(mhlo::ConvolutionOp conv_op) const {
-    if (!conv_op.getLhs().getType().cast<ShapedType>().hasStaticShape() ||
-        !conv_op.getRhs().getType().cast<ShapedType>().hasStaticShape() ||
-        !conv_op.getType().cast<ShapedType>().hasStaticShape())
+    if (!conv_op.getRhs().getType().cast<ShapedType>().hasStaticShape()) {
       return false;
+    }
+    if (!conv_op.getLhs().getType().cast<ShapedType>().hasStaticShape() &&
+        !conv_op.getType().cast<ShapedType>().hasStaticShape()) {
+      auto dnums = conv_op.getDimensionNumbers();
+      auto lhs_type = conv_op.getLhs().getType().cast<ShapedType>();
+      auto out_type = conv_op.getType().cast<ShapedType>();
+      int64_t input_batch_dim = dnums.getInputBatchDimension();
+      int64_t out_batch_dim = dnums.getOutputBatchDimension();
+      for (size_t i = 0; i < lhs_type.getRank(); ++i) {
+        // is this upcast of size_t or downcast
+        if ((i != input_batch_dim && lhs_type.isDynamicDim(i)) ||
+            (i != out_batch_dim && out_type.isDynamicDim(i))) {
+          return false;
+        }
+      }
+    }
 
     // All ones in "lhs_dilation" means this "mhlo.conv" op should be
     // converted to "tf.Conv2D" or "tf.DepthwiseConv2dNativeOp".
@@ -3756,19 +3769,18 @@ void LegalizeHloToTf::runOnOperation() {
 
 void PopulateLegalizeHloToTfPatterns(RewritePatternSet* patterns,
                                      MLIRContext* context) {
-  patterns->add<
-      ConvertAvgPoolOp, Convert2DConvOp, Convert1DConvOp,
-      ConvertNonTrivialConvOp, ConvertDynamicSliceOp,
-      ConvertDynamicUpdateSliceOp, ConvertGatherOp, ConvertIfOp,
-      ConvertMaxPoolOp, ConvertPopulationCountOp, ConvertScatterAddOp,
-      ConvertScatterMaxOp, ConvertScatterMinOp, ConvertScatterSubOp,
-      ConvertScatterUpdateOp, ConvertSliceOp, ConvertReduceOpToTfArgmax,
-      ConvertReduceOpToTfArgmin, ConvertReduceOpToTfMax, ConvertReduceOpToTfMin,
-      ConvertReduceOpToTfAll, ConvertReduceOpToTfProd, ConvertReduceOpToTfAny,
-      ConvertReduceOpToTfSum, ConvertSortToTfTopk, ConvertIotaOpToTfRange,
-      ConvertWhileOp, ConvertLoweredCumSumOp, ConvertLoweredCumProdOp,
-      ConvertGetDimensionSizeOp, ConvertDynamicIotaOp,
-      ConvertRealDynamicSliceOp>(context);
+  patterns
+      ->add<ConvertAvgPoolOp, Convert2DConvOp, Convert1DConvOp,
+            ConvertNonTrivialConvOp, ConvertDynamicSliceOp,
+            ConvertDynamicUpdateSliceOp, ConvertGatherOp, ConvertIfOp,
+            ConvertMaxPoolOp, ConvertPopulationCountOp, ConvertSliceOp,
+            ConvertReduceOpToTfArgmax, ConvertReduceOpToTfArgmin,
+            ConvertReduceOpToTfMax, ConvertReduceOpToTfMin,
+            ConvertReduceOpToTfAll, ConvertReduceOpToTfProd,
+            ConvertReduceOpToTfAny, ConvertReduceOpToTfSum, ConvertSortToTfTopk,
+            ConvertIotaOpToTfRange, ConvertWhileOp, ConvertLoweredCumSumOp,
+            ConvertLoweredCumProdOp, ConvertGetDimensionSizeOp,
+            ConvertDynamicIotaOp, ConvertRealDynamicSliceOp>(context);
   populateWithGenerated(*patterns);
 }
 

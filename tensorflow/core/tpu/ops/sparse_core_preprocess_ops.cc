@@ -17,8 +17,28 @@ limitations under the License.
 #include "tensorflow/core/framework/shape_inference.h"
 #include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/platform/logging.h"
+#include "tsl/platform/errors.h"
 
 namespace tensorflow {
+
+REGISTER_OP("ConvertToCooTensor")
+    .Input("indices_or_row_splits: int32")
+    .Input("values: int32")
+    .Input("weights: float32")
+    .Output("row_ids: int32")
+    .Output("col_ids: int32")
+    .Output("gains: float32")
+    .Attr("sample_count: int >= 1")
+    .Attr("combiner: string")
+    .SetIsStateful()
+    .SetShapeFn([](shape_inference::InferenceContext* c) {
+      shape_inference::ShapeHandle rank;
+      for (int i = 0; i < c->num_outputs(); ++i) {
+        TF_RETURN_IF_ERROR(c->WithRank(c->output(i), 1, &rank));
+        c->set_output(i, c->UnknownShapeOfRank(1));
+      }
+      return OkStatus();
+    });
 
 REGISTER_OP("GetMinibatchesInCsrWithPhysicalReplica")
     .Input("program_key: string")
