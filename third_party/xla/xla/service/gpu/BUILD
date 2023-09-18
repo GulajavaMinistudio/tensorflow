@@ -570,6 +570,7 @@ xla_test(
         "//xla/tests:verified_hlo_module",
         "//xla/tests:xla_internal_test_main",  # fixdeps: keep
         "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest",
         "@llvm-project//llvm:ir_headers",
         "@llvm-project//mlir:IR",
@@ -1477,6 +1478,7 @@ cc_library(
         ":autotuner_util",
         ":gpu_executable_run_options",
         ":ir_emission_utils",
+        "@com_google_absl//absl/functional:any_invocable",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
@@ -4437,6 +4439,7 @@ xla_cc_test(
     name = "hlo_traversal_test",
     srcs = ["hlo_traversal_test.cc"],
     deps = [
+        ":gpu_fusible",
         ":hlo_traversal",
         "//xla/hlo/ir:hlo",
         "//xla/tests:hlo_test_base",
