@@ -46,7 +46,6 @@ limitations under the License.
 #include "xla/stream_executor/gpu/gpu_timer.h"
 #include "xla/stream_executor/numeric_options.h"
 #include "xla/stream_executor/platform/initialize.h"
-#include "xla/stream_executor/platform/logging.h"
 #include "xla/stream_executor/plugin_registry.h"
 #include "xla/stream_executor/scratch_allocator.h"
 #include "xla/stream_executor/stream.h"
@@ -54,6 +53,7 @@ limitations under the License.
 #include "xla/stream_executor/stream_executor_pimpl.h"
 #include "tsl/cuda/cudnn_version.h"
 #include "tsl/platform/errors.h"
+#include "tsl/platform/logging.h"
 #include "tsl/platform/tensor_float_32_utils.h"
 #include "tsl/util/env_var.h"
 
@@ -76,8 +76,6 @@ limitations under the License.
 
 namespace stream_executor {
 namespace gpu {
-
-PLUGIN_REGISTRY_DEFINE_PLUGIN_ID(kCuDnnPlugin);
 
 namespace {
 
@@ -9210,7 +9208,7 @@ bool CudnnSupport::DeriveOutputBatchDescriptor(
 void initialize_cudnn() {
   tsl::Status status =
       PluginRegistry::Instance()->RegisterFactory<PluginRegistry::DnnFactory>(
-          cuda::kCudaPlatformId, gpu::kCuDnnPlugin, "cuDNN",
+          cuda::kCudaPlatformId, "cuDNN",
           [](internal::StreamExecutorInterface* parent) -> dnn::DnnSupport* {
             gpu::GpuExecutor* cuda_executor =
                 dynamic_cast<gpu::GpuExecutor*>(parent);
@@ -9232,9 +9230,6 @@ void initialize_cudnn() {
   if (!status.ok()) {
     LOG(ERROR) << "Unable to register cuDNN factory: " << status.message();
   }
-
-  PluginRegistry::Instance()->SetDefaultFactory(
-      cuda::kCudaPlatformId, PluginKind::kDnn, gpu::kCuDnnPlugin);
 }
 
 }  // namespace stream_executor
