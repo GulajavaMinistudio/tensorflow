@@ -1448,7 +1448,6 @@ cc_library(
         "//xla/stream_executor",
         "//xla/stream_executor:device_description",
         "//xla/stream_executor:device_memory_allocator",
-        "//xla/stream_executor:timer",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/strings:str_format",
@@ -3210,6 +3209,7 @@ cc_library(
         "//xla/hlo/ir:hlo",
         "//xla/hlo/ir:hlo_reachability",
         "@com_google_absl//absl/base",
+        "@com_google_absl//absl/container:flat_hash_map",
     ],
 )
 
@@ -3847,7 +3847,7 @@ cc_library(
         "//xla:status",
         "//xla:statusor",
         "//xla:xla_data_proto_cc",
-        "//xla/stream_executor:stream_executor_headers",
+        "//xla/stream_executor",
         "@com_google_absl//absl/container:flat_hash_map",
         "@local_tsl//tsl/platform:status",
     ],
@@ -5273,7 +5273,7 @@ cc_library(
         "//xla/hlo/ir:hlo",
         "//xla/service/gpu:backend_configs_cc",
         "//xla/service/gpu:cublas_cudnn",
-        "//xla/stream_executor:stream_executor_headers",
+        "//xla/stream_executor",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/strings",
