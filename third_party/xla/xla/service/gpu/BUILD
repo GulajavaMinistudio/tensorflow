@@ -626,7 +626,10 @@ xla_test(
         "//xla:comparison_util",
         "//xla:error_spec",
         "//xla:xla_data_proto_cc",
+        "//xla:xla_proto_cc",
         "//xla/hlo/ir:hlo",
+        "//xla/service:pattern_matcher",
+        "//xla/service:pattern_matcher_gmock",
         "//xla/service/gpu/tests:gpu_codegen_test",
         "//xla/stream_executor:device_description",
         "//xla/stream_executor/cuda:cublas_plugin",
@@ -634,6 +637,7 @@ xla_test(
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest",
+        "@local_tsl//tsl/platform:statusor",
         "@local_tsl//tsl/platform:tensor_float_32_hdr_lib",
     ],
 )
@@ -2432,7 +2436,10 @@ cc_library(
     hdrs = ["gpu_float_support.h"],
     visibility = ["//visibility:public"],
     deps = [
+        "//xla:xla_data_proto_cc",
+        "//xla/hlo/ir:hlo",
         "//xla/service:float_support",
+        "@com_google_absl//absl/log:check",
     ],
 )
 
@@ -2553,6 +2560,19 @@ cc_library(
 )
 
 cc_library(
+    name = "gpu_target_config",
+    srcs = ["gpu_target_config.cc"],
+    hdrs = ["gpu_target_config.h"],
+    compatible_with = get_compatible_with_portable(),
+    visibility = ["//visibility:public"],
+    deps = [
+        ":gpu_device_info",
+        "//xla/stream_executor:device_description_proto_cc_impl",
+        "//xla/stream_executor:dnn",
+    ],
+)
+
+cc_library(
     name = "gpu_compiler",
     srcs = if_gpu_is_configured([
         "gpu_compiler.cc",
@@ -2592,6 +2612,7 @@ cc_library(
         ":gpu_sanitize_constant_names",
         ":gpu_scatter_expander",
         ":gpu_shape_verifier",
+        ":gpu_target_config",
         ":hlo_fusion_stats",
         ":horizontal_input_fusion",
         ":horizontal_loop_fusion",
@@ -2674,6 +2695,7 @@ cc_library(
         "//xla/service:executable",
         "//xla/service:flatten_call_graph",
         "//xla/service:float_normalization",
+        "//xla/service:float_support",
         "//xla/service:gather_expander",
         "//xla/service:gather_simplifier",
         "//xla/service:hlo_computation_deduplicator",
@@ -3666,8 +3688,13 @@ xla_test(
         "gpu",
     ],
     deps = [
+        "//xla:error_spec",
+        "//xla:xla_proto_cc",
+        "//xla/stream_executor:device_description",
         "//xla/tests:hlo_test_base",
         "//xla/tests:xla_internal_test_main",
+        "@com_google_absl//absl/strings",
+        "@com_google_googletest//:gtest",
     ],
 )
 
