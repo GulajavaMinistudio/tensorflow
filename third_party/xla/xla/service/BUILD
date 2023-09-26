@@ -1065,7 +1065,6 @@ cc_library(
         "//xla:types",
         "//xla:util",
         "//xla/stream_executor",
-        "//xla/stream_executor:stream_executor_pimpl",
         "//xla/stream_executor/cuda:cuda_platform_id",
         "//xla/stream_executor/host:host_platform_id",
         "//xla/stream_executor/rocm:rocm_platform_id",
@@ -1090,7 +1089,6 @@ cc_library(
         "//xla:util",
         "//xla/stream_executor",
         "//xla/stream_executor:device_memory_allocator",
-        "//xla/stream_executor:stream_executor_pimpl",
         "//xla/stream_executor/host:host_platform_id",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/strings",
@@ -1145,7 +1143,6 @@ cc_library(
         "//xla/hlo/ir:hlo_module_group",
         "//xla/stream_executor",
         "//xla/stream_executor:device_memory_allocator",
-        "//xla/stream_executor:stream_executor_pimpl",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/types:span",
@@ -1335,11 +1332,12 @@ cc_library(
     name = "gpu_plugin_impl",
     compatible_with = get_compatible_with_portable(),
     visibility = ["//visibility:public"],
-    deps = if_gpu_is_configured([
+    deps = [
+        "//xla/stream_executor:stream_executor_impl",
+    ] + if_gpu_is_configured([
         ":service",
         "//xla/service/gpu:gpu_compiler",
         "//xla/service/gpu:gpu_transfer_manager",
-        "//xla/stream_executor",
     ]) + if_cuda_is_configured([
         "//xla/service/gpu:nvptx_compiler",
         "//xla/stream_executor/cuda:stream_executor_cuda",
@@ -1562,7 +1560,6 @@ cc_library(
         "//xla:util",
         "//xla:xla_data_proto_cc",
         "//xla/stream_executor",
-        "//xla/stream_executor:stream_executor_pimpl",
         "@local_tsl//tsl/platform:logging",
     ],
 )
@@ -3901,7 +3898,6 @@ cc_library(
         "//xla:util",
         "//xla:xla_data_proto_cc",
         "//xla/stream_executor",
-        "//xla/stream_executor:stream_executor_pimpl",
         "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:logging",
     ],
@@ -5396,7 +5392,6 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         "//xla/stream_executor",
-        "//xla/stream_executor:stream_executor_pimpl",
     ],
 )
 
@@ -6968,11 +6963,13 @@ xla_cc_binary(
         "//xla/service:cpu_plugin",
         "//xla/service/cpu:cpu_compiler",
         "//xla/service/cpu:cpu_executable",
+        "//xla/tools:hlo_module_loader",
         "@llvm-project//mlir:ArithDialect",
         "@llvm-project//mlir:FuncDialect",
         "@llvm-project//mlir:IR",
         "@llvm-project//mlir:Parser",
         "@local_tsl//tsl/platform:env",
+        "@local_tsl//tsl/platform:path",
         "@local_tsl//tsl/platform:platform_port",
         "@local_tsl//tsl/platform:protobuf",
         "@local_tsl//tsl/util:command_line_flags",
@@ -7008,6 +7005,13 @@ xla_aot_compile_gpu(
     autotune_results = "xla_aot_compile_test_autotune_results.prototxt",
     gpu_target_config = "xla_aot_compile_test_gpu_target_config.prototxt",
     module = "xla_aot_compile_test.mlir",
+)
+
+xla_aot_compile_gpu(
+    name = "xla_aot_compile_test_gpu_executable_hlo",
+    autotune_results = "xla_aot_compile_test_autotune_results.prototxt",
+    gpu_target_config = "xla_aot_compile_test_gpu_target_config.prototxt",
+    module = "xla_aot_compile_test.hlo",
 )
 
 xla_aot_compile_gpu(
@@ -7092,6 +7096,7 @@ xla_cc_test(
     srcs = if_cuda_is_configured(["xla_aot_compile_gpu_test.cc"]),
     data = if_cuda_is_configured([
         ":xla_aot_compile_test_gpu_executable",
+        ":xla_aot_compile_test_gpu_executable_hlo",
         ":xla_aot_compile_test_gpu_executable_constant",
         ":xla_aot_compile_test_gpu_executable_gemm",
         ":xla_aot_compile_test_gpu_executable_gemm_runtime_autotuning",
