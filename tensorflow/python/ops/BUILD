@@ -1,7 +1,7 @@
 load("//tensorflow:strict.default.bzl", "py_strict_library", "py_strict_test")
 load("//tensorflow:tensorflow.default.bzl", "cuda_py_strict_test", "tf_py_strict_test")
-load("//tensorflow/python:build_defs.bzl", "tf_gen_op_strict_wrapper_private_py")
 load("//tensorflow/core/platform:build_config_root.bzl", "tf_additional_xla_deps_py")
+load("//tensorflow/python:build_defs.bzl", "tf_gen_op_strict_wrapper_private_py")
 
 visibility = [
     "//engedu/ml/tf_from_scratch:__pkg__",
@@ -1472,10 +1472,12 @@ py_strict_library(
     srcs_version = "PY3",
     deps = [
         ":array_ops",
+        ":array_ops_gen",
         ":array_ops_stack",
         ":ctc_ops_gen",
         ":custom_gradient",
         ":functional_ops",
+        # TODO(b/280454072) Remove inplace_ops and compat when foward compatibility window expires.
         ":inplace_ops",
         ":linalg_ops",
         ":map_fn",
@@ -1483,6 +1485,7 @@ py_strict_library(
         ":nn_grad",
         ":nn_ops",
         ":sparse_ops",
+        "//tensorflow/python/compat",
         "//tensorflow/python/eager:context",
         "//tensorflow/python/eager:def_function",
         "//tensorflow/python/framework:constant_op",
@@ -1634,8 +1637,6 @@ py_strict_library(
         ":tensor_array_ops",
         ":unconnected_gradients",
         ":while_loop",
-        "//tensorflow/python/debug/lib:debug_gradients",
-        "//tensorflow/python/debug/lib:dumping_callback",
         "//tensorflow/python/framework:dtypes",
         "//tensorflow/python/framework:ops",
         "//tensorflow/python/ops/linalg/sparse:sparse_csr_matrix_grad",
@@ -3561,15 +3562,18 @@ cuda_py_strict_test(
         ":gradient_checker",
         ":gradient_checker_v2",
         ":gradients",
+        ":math_grad",
         ":math_ops",
         "//tensorflow/python/eager:backprop",
         "//tensorflow/python/eager:context",
         "//tensorflow/python/framework:constant_op",
         "//tensorflow/python/framework:dtypes",
         "//tensorflow/python/framework:ops",
+        "//tensorflow/python/framework:tensor_shape",
         "//tensorflow/python/framework:test_lib",
         "//tensorflow/python/platform:client_testlib",
         "//third_party/py/numpy",
+        "@absl_py//absl/testing:parameterized",
     ],
 )
 
@@ -4338,10 +4342,12 @@ py_strict_library(
         ":array_ops_stack",
         ":candidate_sampling_ops",
         ":cond",
+        ":ctc_ops",
         ":custom_gradient",
         ":embedding_ops",
         ":linalg_ops",
         ":math_ops",
+        ":nn_fused_batch_norm_grad",
         ":nn_ops",
         ":nn_ops_gen",
         ":sparse_ops_gen",
