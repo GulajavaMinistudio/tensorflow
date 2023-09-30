@@ -109,6 +109,22 @@ xla_cc_test(
 )
 
 xla_cc_test(
+    name = "gpu_all_gather_optimizer_test",
+    srcs = ["gpu_all_gather_optimizer_test.cc"],
+    deps = [
+        "//xla:statusor",
+        "//xla:util",
+        "//xla/hlo/ir:hlo",
+        "//xla/service:hlo_module_config",
+        "//xla/service/gpu:gpu_all_gather_optimizer",
+        "//xla/tests:hlo_test_base",
+        "//xla/tests:xla_internal_test_main",
+        "@com_google_absl//absl/strings",
+        "@local_tsl//tsl/platform:test",
+    ],
+)
+
+xla_cc_test(
     name = "gpu_spmd_e2e_compile_test",
     size = "small",
     srcs = ["gpu_spmd_e2e_compile_test.cc"],
@@ -730,7 +746,6 @@ xla_cc_binary(
         "//xla/service/gpu/llvm_gpu_backend",
         "//xla/stream_executor",
         "//xla/stream_executor:device_description",
-        "//xla/stream_executor:device_description_proto_cc_impl",
         "//xla/stream_executor:dnn",
         "//xla/stream_executor/host:host_platform",
         "//xla/tests:test_utils",
