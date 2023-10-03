@@ -59,8 +59,8 @@ tf_proto_library(
     make_default_target_header_only = True,
     protodeps = [
         "//xla:xla_data_proto",
-        "//xla/stream_executor:dnn_proto",
         "//xla:autotuning_proto",
+        "@local_tsl//tsl/protobuf:dnn_proto",
     ],
     visibility = ["//visibility:public"],
 )
@@ -2373,8 +2373,8 @@ cc_library(
     deps = [
         "//xla/hlo/ir:hlo",
         "//xla/hlo/utils:hlo_query",
+        "//xla/service:collective_opt_utils",
         "//xla/service:hlo_pass",
-        "//xla/service:reduce_scatter_utils",
     ],
 )
 
@@ -3597,7 +3597,6 @@ cc_library(
         "//xla/service:hlo_pass",
         "//xla/service:pattern_matcher",
         "//xla/stream_executor",
-        "//xla/stream_executor:dnn_proto_cc",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
@@ -3605,6 +3604,7 @@ cc_library(
         "@com_google_absl//absl/types:span",
         "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:statusor",
+        "@local_tsl//tsl/protobuf:dnn_proto_cc",
     ],
 )
 
@@ -3627,7 +3627,6 @@ cc_library(
         "//xla/service:hlo_creation_utils",
         "//xla/service:hlo_pass",
         "//xla/service:pattern_matcher",
-        "//xla/stream_executor:dnn_proto_cc",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
@@ -3635,6 +3634,7 @@ cc_library(
         "@com_google_absl//absl/types:span",
         "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:statusor",
+        "@local_tsl//tsl/protobuf:dnn_proto_cc",
     ],
 )
 
@@ -4195,6 +4195,7 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         "@local_tsl//tsl/lib/monitoring:counter",
+        "@local_tsl//tsl/lib/monitoring:gauge",
         "@local_tsl//tsl/lib/monitoring:sampler",
     ],
 )
