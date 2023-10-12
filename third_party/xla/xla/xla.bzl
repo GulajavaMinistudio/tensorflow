@@ -35,11 +35,6 @@ def xla_py_proto_library(**kwargs):
     _ignore = kwargs
     pass
 
-def xla_py_grpc_library(**kwargs):
-    # Note: we don't currently define any special targets for Python GRPC in OSS.
-    _ignore = kwargs
-    pass
-
 ORC_JIT_MEMORY_MAPPER_TARGETS = []
 
 def xla_py_test_deps():
@@ -134,3 +129,6 @@ def auto_sharding_solver_deps():
 
 def xla_export_hlo_deps():
     return []
+
+def xla_nvml_deps():
+    return ["@local_config_cuda//cuda:nvml_headers"]

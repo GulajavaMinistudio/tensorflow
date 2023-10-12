@@ -774,13 +774,15 @@ Status GpuCompiler::OptimizeHloModule(HloModule* hlo_module,
     HloPassPipeline pipeline("post-fusion optimization");
     pipeline.AddPass<AllGatherCombiner>(
         debug_options.xla_gpu_all_gather_combine_threshold_bytes(),
-        /*combine_threshold_count=*/256);
+        /*combine_threshold_count=*/256,
+        debug_options.xla_gpu_enable_all_gather_combine_by_dim());
     pipeline.AddPass<AllReduceCombiner>(
         debug_options.xla_gpu_all_reduce_combine_threshold_bytes(),
         /*combine_threshold_count=*/256);
     pipeline.AddPass<ReduceScatterCombiner>(
         debug_options.xla_gpu_reduce_scatter_combine_threshold_bytes(),
-        /*combine_threshold_count=*/256);
+        /*combine_threshold_count=*/256,
+        debug_options.xla_gpu_enable_reduce_scatter_combine_by_dim());
 
     if (debug_options.xla_gpu_all_reduce_contiguous()) {
       pipeline.AddPass<AllReduceContiguous>();
@@ -1167,8 +1169,8 @@ StatusOr<std::unique_ptr<BufferAssignment>> GpuCompiler::AssignBuffers(
       stream_exec->GetDeviceDescription();
   const int64_t scheduler_mem_limit =
       GetSchedulerMemoryLimit(hlo_module, gpu_device_info, pointer_size_);
-  TF_RETURN_IF_ERROR(
-      ScheduleGpuModule(hlo_module, pointer_size_, scheduler_mem_limit));
+  TF_RETURN_IF_ERROR(ScheduleGpuModule(hlo_module, pointer_size_,
+                                       scheduler_mem_limit, gpu_device_info));
   TF_RETURN_IF_ERROR(
       RunPostSchedulingCopyInsertion(hlo_module, GetCanShareBuffer()));
 
@@ -1508,8 +1510,8 @@ StatusOr<std::unique_ptr<Executable>> GpuCompiler::RunBackend(
 
   const int64_t scheduler_mem_limit =
       GetSchedulerMemoryLimit(module.get(), gpu_device_info, pointer_size_);
-  TF_RETURN_IF_ERROR(
-      ScheduleGpuModule(module.get(), pointer_size_, scheduler_mem_limit));
+  TF_RETURN_IF_ERROR(ScheduleGpuModule(module.get(), pointer_size_,
+                                       scheduler_mem_limit, gpu_device_info));
   TF_RETURN_IF_ERROR(
       RunPostSchedulingPipelines(module.get(), scheduler_mem_limit));
 
@@ -1629,18 +1631,16 @@ GpuCompiler::CompileAheadOfTime(std::unique_ptr<HloModuleGroup> module_group,
   std::any target_config = options.target_config();
   auto* gpu_target_config = std::any_cast<GpuTargetConfig>(&target_config);
   CHECK(gpu_target_config != nullptr || options.executor() != nullptr);
-
+  const se::DeviceDescription& gpu_device_info =
+      gpu_target_config != nullptr ? gpu_target_config->gpu_device_info
+                                   : options.executor()->GetDeviceDescription();
   for (const auto& module : modules) {
     llvm::LLVMContext llvm_context;
 
-    const int64_t scheduler_mem_limit = GetSchedulerMemoryLimit(
-        module.get(),
-        gpu_target_config != nullptr
-            ? gpu_target_config->gpu_device_info
-            : options.executor()->GetDeviceDescription(),
-        pointer_size_);
-    TF_RETURN_IF_ERROR(
-        ScheduleGpuModule(module.get(), pointer_size_, scheduler_mem_limit));
+    const int64_t scheduler_mem_limit =
+        GetSchedulerMemoryLimit(module.get(), gpu_device_info, pointer_size_);
+    TF_RETURN_IF_ERROR(ScheduleGpuModule(module.get(), pointer_size_,
+                                         scheduler_mem_limit, gpu_device_info));
     TF_RETURN_IF_ERROR(
         RunPostSchedulingPipelines(module.get(), scheduler_mem_limit));
 

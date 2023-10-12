@@ -17,12 +17,12 @@ limitations under the License.
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 #include "xla/backends/profiler/plugin/profiler_c_api.h"
-#include "xla/pjrt/c/pjrt_c_api_helpers.h"
 #include "xla/status.h"
 #include "tsl/platform/logging.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
@@ -96,22 +96,26 @@ absl::Status PluginProfilerErrorToStatus(const PLUGIN_Profiler_Error* error,
 
 }  // namespace
 
-PluginTracer::PluginTracer(const PLUGIN_Profiler_Api* profiler_api) {
+PluginTracer::PluginTracer(const PLUGIN_Profiler_Api* profiler_api,
+                           const tensorflow::ProfileOptions& options) {
   if (profiler_api == nullptr) {
     LOG(ERROR) << "The plugin does not implement a profiler interface. This "
                   "could restrict the profiling capabilities.";
     return;
   }
-  xla::Status check_struct_size_status = pjrt::CheckMatchingStructSizes(
-      "PLUGIN_Profiler_Api", PLUGIN_Profiler_Api_STRUCT_SIZE,
-      profiler_api->struct_size);
-  if (!check_struct_size_status.ok()) {
-    LOG(ERROR) << check_struct_size_status.message();
+  if (profiler_api->struct_size != PLUGIN_Profiler_Api_STRUCT_SIZE) {
+    LOG(ERROR) << "Unexpected PLUGIN_Profiler_Api size: expected "
+               << PLUGIN_Profiler_Api_STRUCT_SIZE << ", got "
+               << profiler_api->struct_size
+               << ". Check installed software versions.";
     return;
   }
   profiler_api_ = profiler_api;
 
   PLUGIN_Profiler_Create_Args args;
+  std::string options_str = options.SerializeAsString();
+  args.options = options_str.c_str();
+  args.options_size = options_str.size();
   PLUGIN_Profiler_Error* error = profiler_api_->create(&args);
   if (error != nullptr) {
     std::unique_ptr<PLUGIN_Profiler_Error,
