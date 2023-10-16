@@ -1,4 +1,4 @@
-/* Copyright 2023 The StableHLO Authors. All Rights Reserved.
+/* Copyright 2023 The TensorFlow Authors. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,10 +18,20 @@ include "mlir/Pass/PassBase.td"
 def QuantizeWeightPass : Pass<"stablehlo-quantize-weight", "mlir::func::FuncOp"> {
   let summary = "Quantizes the weight component of StableHLO graph.";
   let dependentDialects = ["mlir::stablehlo::StablehloDialect"];
+  let constructor = "mlir::quant::stablehlo::CreateQuantizeWeightPass()";
 }
 
-def PrepareSrqQuantizePass : Pass<"stablehlo-prepare-srq-quantize", "mlir::func::FuncOp"> {
+def PrepareQuantizePass : Pass<"stablehlo-prepare-quantize", "mlir::func::FuncOp"> {
   let summary = "Prepare StableHLO dialect for static range quantization.";
+  let options = [
+    Option<"enable_per_channel_quantization_",
+        "enable-per-channel-quantization",
+        "bool", /*default=*/"true",
+        "Whether enable per-channel quantized weights.">,
+    Option<"bit_width_", "bit-width", "int", /*default=*/"8",
+        "Bitwidth of quantized integer">
+    ];
+  let constructor = "mlir::quant::stablehlo::CreatePrepareQuantizePass()";
   let dependentDialects = [
       "mlir::stablehlo::StablehloDialect",
       "mlir::quant::QuantizationDialect",
@@ -30,3 +40,6 @@ def PrepareSrqQuantizePass : Pass<"stablehlo-prepare-srq-quantize", "mlir::func:
   ];
 }
 
+def UnfuseMhloBatchNormPass : Pass<"stablehlo-unfuse-mhlo-batch-norm", "mlir::func::FuncOp"> {
+  let summary = "Unfuses batch normalization into arithmetic ops.";
+}

@@ -18,13 +18,19 @@ limitations under the License.
 
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <vector>
 
+#include "absl/container/flat_hash_map.h"
+#include "absl/types/span.h"
 #include "xla/service/buffer_assignment.h"
 #include "xla/service/gpu/buffer_allocations.h"
+#include "xla/service/gpu/launch_dimensions.h"
+#include "xla/service/gpu/thunk.h"
 #include "xla/status.h"
-#include "xla/statusor.h"
 #include "xla/stream_executor/command_buffer.h"
+#include "xla/stream_executor/kernel.h"
+#include "xla/stream_executor/stream_executor.h"
 #include "xla/stream_executor/stream_executor_pimpl.h"
 
 namespace xla::gpu {
@@ -37,6 +43,8 @@ namespace xla::gpu {
 // buffer by recording commands into it.
 class CommandBufferCmd {
  public:
+  using ExecutableSource = Thunk::ExecutableSource;
+
   // Run time parameters required for recording commands into the command
   // buffer. For example when we emit command buffer cmd sequence from an HLO
   // module, we only know the buffer slices required for HLO operations, but the
@@ -45,9 +53,17 @@ class CommandBufferCmd {
     const BufferAllocations* buffer_allocations;
   };
 
+  // Prepares a command for recording on a given executor. We split it into a
+  // separate function to allow expensive initialization (e.g. device kernel
+  // loading) to happen before a command buffer thunk execution.
+  virtual Status Initialize(se::StreamExecutor* executor,
+                            ExecutableSource source) {
+    return OkStatus();
+  }
+
   // Records command into the command buffer.
   virtual Status Record(const RecordParams& params,
-                        se::CommandBuffer& command_buffer) = 0;
+                        se::CommandBuffer* command_buffer) = 0;
 
   virtual ~CommandBufferCmd() = default;
 };
@@ -61,8 +77,7 @@ class CommandBufferCmd {
 // purpose is to manipulate command buffers at run time.
 class CommandBufferCmdSequence {
  public:
-  static StatusOr<CommandBufferCmdSequence> Create(
-      se::StreamExecutor* executor);
+  CommandBufferCmdSequence() = default;
 
   void Append(std::unique_ptr<CommandBufferCmd> cmd);
 
@@ -71,16 +86,43 @@ class CommandBufferCmdSequence {
     Append(std::make_unique<T>(std::forward<Args>(args)...));
   }
 
-  // Records all commands added to a sequence into the command buffer.
-  Status Record(const CommandBufferCmd::RecordParams& params);
+  // Initialized all commands added to a sequence.
+  Status Initialize(se::StreamExecutor* executor,
+                    CommandBufferCmd::ExecutableSource source);
 
-  se::CommandBuffer& command_buffer() { return command_buffer_; }
+  // Records all commands added to a sequence into the given command buffer.
+  Status Record(const CommandBufferCmd::RecordParams& params,
+                se::CommandBuffer* command_buffer);
 
  private:
-  explicit CommandBufferCmdSequence(se::CommandBuffer command_buffer);
-
   std::vector<std::unique_ptr<CommandBufferCmd>> commands_;
-  se::CommandBuffer command_buffer_;
+};
+
+//===----------------------------------------------------------------------===//
+// LaunchCmd
+//===----------------------------------------------------------------------===//
+
+class LaunchCmd : public CommandBufferCmd {
+ public:
+  LaunchCmd(std::string kernel_name,
+            absl::Span<const BufferAllocation::Slice> args,
+            LaunchDimensions dims, int64_t shmem_bytes);
+
+  Status Initialize(se::StreamExecutor* executor,
+                    ExecutableSource source) override;
+
+  Status Record(const RecordParams& params,
+                se::CommandBuffer* command_buffer) override;
+
+ private:
+  using OwnedKernel = std::unique_ptr<se::KernelBase>;
+
+  std::string kernel_name_;
+  std::vector<BufferAllocation::Slice> args_;
+  LaunchDimensions dims_;
+  int64_t shmem_bytes_;
+
+  absl::flat_hash_map<se::StreamExecutor*, OwnedKernel> kernels_;
 };
 
 //===----------------------------------------------------------------------===//
@@ -93,7 +135,7 @@ class MemcpyDeviceToDeviceCmd : public CommandBufferCmd {
                           BufferAllocation::Slice src, int64_t num_bytes);
 
   Status Record(const RecordParams& params,
-                se::CommandBuffer& command_buffer) override;
+                se::CommandBuffer* command_buffer) override;
 
  private:
   BufferAllocation::Slice dst_;

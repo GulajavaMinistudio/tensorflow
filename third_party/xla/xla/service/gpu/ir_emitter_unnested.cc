@@ -88,7 +88,6 @@ limitations under the License.
 #include "xla/service/gpu/conditional_thunk.h"
 #include "xla/service/gpu/convolution_thunk.h"
 #include "xla/service/gpu/copy_thunk.h"
-#include "xla/service/gpu/custom_call_thunk.h"
 #include "xla/service/gpu/fft_thunk.h"
 #include "xla/service/gpu/for_thunk.h"
 #include "xla/service/gpu/fused_mha_thunk.h"
@@ -116,6 +115,7 @@ limitations under the License.
 #include "xla/service/gpu/outfeed_thunk.h"
 #include "xla/service/gpu/parallel_loop_emitter.h"
 #include "xla/service/gpu/replica_id_thunk.h"
+#include "xla/service/gpu/runtime3/custom_call_thunk.h"
 #include "xla/service/gpu/sequential_thunk.h"
 #include "xla/service/gpu/thunk.h"
 #include "xla/service/gpu/while_thunk.h"
@@ -151,7 +151,7 @@ limitations under the License.
 
 #if GOOGLE_CUDA || TENSORFLOW_USE_ROCM
 #include "xla/service/gpu/runtime3/cholesky_thunk.h"
-#include "xla/service/gpu/triangular_solve_thunk.h"
+#include "xla/service/gpu/runtime3/triangular_solve_thunk.h"
 #endif  // GOOGLE_CUDA || TENSORFLOW_USE_ROCM
 
 namespace xla {
@@ -176,8 +176,7 @@ class UnreachableThunk : public Thunk {
   UnreachableThunk(const UnreachableThunk&) = delete;
   UnreachableThunk& operator=(const UnreachableThunk&) = delete;
 
-  Status Initialize(const GpuExecutable& executable,
-                    se::StreamExecutor* executor) final {
+  Status Initialize(se::StreamExecutor*, ExecutableSource) final {
     return tsl::errors::Internal(error_message_);
   }
 
@@ -912,8 +911,8 @@ Status IrEmitterUnnested::EmitCublasLtMatmulThunk(mlir::Operation* op) {
   }
 
   TF_ASSIGN_OR_RETURN(GemmConfig gemm_config, GemmConfig::For(matmul));
-  TF_ASSIGN_OR_RETURN(se::gpu::BlasLt::Epilogue epilogue,
-                      cublas_lt::AsBlasLtEpilogue(matmul.getEpilogue()));
+  TF_ASSIGN_OR_RETURN(auto epilogue,
+                      gpublas_lt::AsBlasLtEpilogue(matmul.getEpilogue()));
   auto thunk = std::make_unique<CublasLtMatmulThunk>(
       Thunk::ThunkInfo::WithProfileAnnotation(op), std::move(gemm_config),
       epilogue, matmul.getAlgorithm(), a, b, c, d, bias, aux, a_scale, b_scale,
@@ -956,8 +955,8 @@ Status IrEmitterUnnested::EmitCublasLtMatmulThunkF8(mlir::Operation* op) {
   BufferAllocation::Slice aux;  // Not used.
 
   TF_ASSIGN_OR_RETURN(GemmConfig gemm_config, GemmConfig::For(matmul));
-  TF_ASSIGN_OR_RETURN(se::cuda::BlasLt::Epilogue epilogue,
-                      cublas_lt::AsBlasLtEpilogue(matmul.getEpilogue()));
+  TF_ASSIGN_OR_RETURN(auto epilogue,
+                      gpublas_lt::AsBlasLtEpilogue(matmul.getEpilogue()));
   auto thunk = std::make_unique<CublasLtMatmulThunk>(
       Thunk::ThunkInfo::WithProfileAnnotation(op), std::move(gemm_config),
       epilogue, matmul.getAlgorithm(), a, b, c, d, bias, aux, a_scale, b_scale,
@@ -2875,104 +2874,59 @@ Status IrEmitterUnnested::EmitScatter(mlir::lmhlo::FusionOp fusion_op,
                                       HloFusionAnalysis& fusion_analysis) {
   auto* root = fused_computation->root_instruction();
 
-  // The initialization from 'operand' is using different loop bounds, so
-  // emit it in a separate kernel. Treat it like a loop fusion, writing to
-  // the output buffer.
+  // Nothing should have been fused into the first operand of scatter.
+  CHECK_EQ(root->operand(0)->opcode(), HloOpcode::kParameter);
 
-  TF_RETURN_IF_ERROR([&, this] {
-    TF_ASSIGN_OR_RETURN(LaunchDimensions launch_dimensions,
-                        fusion_analysis.GetLaunchDimensions());
+  const Shape& updates_shape = root->operand(2)->shape();
 
-    auto builder_fn = [&, this](
-                          std::vector<llvm_ir::IrArray> inputs,
-                          std::vector<llvm_ir::IrArray> outputs) -> Status {
-      FusedIrEmitter operand_fused_emitter(elemental_emitter_);
-      for (int i = 0; i < fused_computation->num_parameters(); i++) {
-        auto fused_operand = fused_computation->parameter_instruction(i);
-        operand_fused_emitter.BindGenerator(
-            *fused_operand, [this, input = inputs[i],
-                             fused_operand](llvm_ir::IrArray::Index index) {
-              return input.EmitReadArrayElement(index, &b_,
-                                                fused_operand->name());
-            });
-      }
-      TF_ASSIGN_OR_RETURN(auto generator, operand_fused_emitter.GetGenerator(
-                                              *root->operand(0)));
+  TF_ASSIGN_OR_RETURN(
+      LaunchDimensions launch_dimensions,
+      CalculateLaunchDimensions(updates_shape,
+                                ir_emitter_context_->gpu_device_info()));
 
-      return ParallelLoopEmitter(generator, {outputs.back()}, launch_dimensions,
-                                 &b_, *fusion_analysis.GetLoopFusionConfig())
-          .EmitLoop(llvm_ir::IrName(GetIrNameFromLoc(fusion_op.getLoc())),
-                    GetIndexTypeForKernel(
-                        fusion_op, launch_dimensions.launch_bound(), &b_));
+  auto builder_fn = [&, this](std::vector<llvm_ir::IrArray> inputs,
+                              std::vector<llvm_ir::IrArray> outputs) -> Status {
+    // Spin up a new fused emitter for the scatter kernel and emit it.
+    FusedIrEmitter scatter_fused_emitter = FusedIrEmitter(elemental_emitter_);
+    for (int i = 0; i < fused_computation->num_parameters(); i++) {
+      auto fused_operand = fused_computation->parameter_instruction(i);
+      scatter_fused_emitter.BindGenerator(
+          *fused_operand, [this, &input = inputs[i],
+                           fused_operand](llvm_ir::IrArray::Index index) {
+            return input.EmitReadArrayElement(index, &b_,
+                                              fused_operand->name());
+          });
+    }
+
+    TF_ASSIGN_OR_RETURN(const auto dim_numbers,
+                        mlir::LhloDialectEmitter::GetScatterDimensionNumbers(
+                            root, fusion_op.getContext()));
+
+    ScatterDescriptor desc;
+    desc.name = llvm_ir::IrName(root);
+    desc.operand_shape = root->operand(0)->shape();
+    desc.scatter_indices_shape = root->operand(1)->shape();
+    desc.updates_shape = updates_shape;
+    desc.dim_numbers = dim_numbers;
+    desc.unique_indices = root->unique_indices();
+    desc.update_computation = root->called_computations()[0];
+    desc.output = outputs.back();
+    TF_ASSIGN_OR_RETURN(desc.scatter_indices_gen,
+                        scatter_fused_emitter.GetGenerator(*root->operand(1)));
+    TF_ASSIGN_OR_RETURN(desc.updates_gen,
+                        scatter_fused_emitter.GetGenerator(*root->operand(2)));
+    desc.get_index_type = [&](int64_t launch_size) {
+      return GetIndexTypeForKernel(root, launch_size, &b_);
     };
+    return EmitScatter(desc, launch_dimensions);
+  };
 
-    TF_ASSIGN_OR_RETURN(
-        auto thunk, BuildKernelThunkForFusion(
-                        *ir_emitter_context_, kernel_reuse_cache_, fusion_op,
-                        fused_computation, launch_dimensions,
-                        /*discriminator=*/"init", builder_fn, &b_));
-    AddThunkToThunkSequence(std::move(thunk));
-    return OkStatus();
-  }());
-
-  // Now build the actual scatter, reading and writing to the freshly
-  // filled output buffer.
-  {
-    const Shape& updates_shape = root->operand(2)->shape();
-
-    TF_ASSIGN_OR_RETURN(
-        LaunchDimensions launch_dimensions,
-        CalculateLaunchDimensions(updates_shape,
-                                  ir_emitter_context_->gpu_device_info()));
-
-    auto builder_fn = [&, this](
-                          std::vector<llvm_ir::IrArray> inputs,
-                          std::vector<llvm_ir::IrArray> outputs) -> Status {
-      // Spin up a new fused emitter for the scatter kernel and emit it.
-      FusedIrEmitter scatter_fused_emitter = FusedIrEmitter(elemental_emitter_);
-      for (int i = 0; i < fused_computation->num_parameters(); i++) {
-        auto fused_operand = fused_computation->parameter_instruction(i);
-        scatter_fused_emitter.BindGenerator(
-            *fused_operand, [this, &input = inputs[i],
-                             fused_operand](llvm_ir::IrArray::Index index) {
-              return input.EmitReadArrayElement(index, &b_,
-                                                fused_operand->name());
-            });
-      }
-
-      TF_ASSIGN_OR_RETURN(const auto dim_numbers,
-                          mlir::LhloDialectEmitter::GetScatterDimensionNumbers(
-                              root, fusion_op.getContext()));
-
-      ScatterDescriptor desc;
-      desc.name = llvm_ir::IrName(root);
-      desc.operand_shape = root->operand(0)->shape();
-      desc.scatter_indices_shape = root->operand(1)->shape();
-      desc.updates_shape = updates_shape;
-      desc.dim_numbers = dim_numbers;
-      desc.unique_indices = root->unique_indices();
-      desc.update_computation = root->called_computations()[0];
-      desc.output = outputs.back();
-      TF_ASSIGN_OR_RETURN(
-          desc.scatter_indices_gen,
-          scatter_fused_emitter.GetGenerator(*root->operand(1)));
-      TF_ASSIGN_OR_RETURN(desc.updates_gen, scatter_fused_emitter.GetGenerator(
-                                                *root->operand(2)));
-      desc.get_index_type = [&](int64_t launch_size) {
-        return GetIndexTypeForKernel(root, launch_size, &b_);
-      };
-      return EmitScatter(desc, launch_dimensions);
-    };
-
-    TF_ASSIGN_OR_RETURN(
-        auto thunk, BuildKernelThunkForFusion(
-                        *ir_emitter_context_, kernel_reuse_cache_, fusion_op,
-                        fused_computation, launch_dimensions,
-                        /*discriminator=*/"scatter", builder_fn, &b_));
-    AddThunkToThunkSequence(std::move(thunk));
-    return OkStatus();
-  }
-
+  TF_ASSIGN_OR_RETURN(
+      auto thunk,
+      BuildKernelThunkForFusion(*ir_emitter_context_, kernel_reuse_cache_,
+                                fusion_op, fused_computation, launch_dimensions,
+                                /*discriminator=*/"scatter", builder_fn, &b_));
+  AddThunkToThunkSequence(std::move(thunk));
   return OkStatus();
 }
 
@@ -3160,6 +3114,11 @@ Status IrEmitterUnnested::EmitOp(
   // because constants have no side effects.
   if (mlir::isa<mlir::arith::ConstantOp>(op)) {
     return OkStatus();
+  }
+
+  if (mlir::isa<mlir::lmhlo::CommandBufferOp>(op)) {
+    // TODO(b/304824183): Emit a command buffer thunk when it's implemented.
+    return InternalError("Command buffer is unimplemented");
   }
 
   // Point to point communication operations are only implemented as XLA

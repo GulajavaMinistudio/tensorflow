@@ -27,7 +27,7 @@ limitations under the License.
 #if GOOGLE_CUDA
 #include <dlfcn.h>
 
-#include "third_party/gpus/cuda/nvml/include/nvml.h"
+#include "third_party/nvml/nvml.h"
 // Below is a list of function pointers to be used
 // for querying device properties through nvml library.
 #define NVML_FUNCTOR(name, rettype, args) rettype(*xla_##name) args = nullptr;
@@ -72,12 +72,12 @@ class GpuPerformanceModel {
   static void RecordEstimatedRunTime(HloInstruction* instruction,
                                      const GpuHloCostAnalysis* cost_analysis);
   static absl::Duration ComputeTime(
-      const se::DeviceDescription& gpu_device_info, int64_t n_flops,
-      int64_t n_threads);
+      const se::DeviceDescription& gpu_device_info, int64_t flops,
+      int64_t num_threads);
 
   static absl::Duration ProducerInputAccessTime(
       const GpuHloCostAnalysis* cost_analysis,
-      const se::DeviceDescription& gpu_device_info,
+      const se::DeviceDescription& gpu_device_info, int64_t num_blocks,
       const HloInstruction* producer,
       const HloInstruction* fused_consumer = nullptr);
 };

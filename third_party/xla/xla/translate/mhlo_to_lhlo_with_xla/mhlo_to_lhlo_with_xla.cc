@@ -30,6 +30,7 @@ limitations under the License.
 #include "absl/cleanup/cleanup.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/status/status.h"
+#include "absl/strings/match.h"
 #include "absl/types/optional.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
@@ -277,6 +278,10 @@ tsl::StatusOr<mlir::Operation*> LhloDialectEmitter::EmitOp(
       return EmitRecvOp(instr);
     case HloOpcode::kRecvDone:
       return EmitRecvDoneOp(instr);
+    // TODO(b/302038092): Currently the command buffer call is represented by
+    // a kCall. We need to be able to differentiate it from a regular kCall.
+    case HloOpcode::kCall:
+      return EmitCommandBufferOp(instr);
     default:
       llvm::errs() << instr->ToString();
       llvm::errs() << "\n\nModule:\n"
@@ -800,11 +805,11 @@ tsl::StatusOr<Operation*> LhloDialectEmitter::EmitCublasLtMatmul(
 
   TF_ASSIGN_OR_RETURN(
       bool has_vector_bias,
-      xla::gpu::cublas_lt::EpilogueAddsVectorBias(config.epilogue()));
+      xla::gpu::gpublas_lt::EpilogueAddsVectorBias(config.epilogue()));
 
   TF_ASSIGN_OR_RETURN(
       bool has_aux_output,
-      xla::gpu::cublas_lt::EpilogueHasAuxiliaryOutput(config.epilogue()));
+      xla::gpu::gpublas_lt::EpilogueHasAuxiliaryOutput(config.epilogue()));
 
   TF_RET_CHECK(custom_call->operand_count() ==
                2 + int{has_matrix_bias} + int{has_vector_bias});
@@ -864,7 +869,7 @@ tsl::StatusOr<Operation*> LhloDialectEmitter::EmitCublasLtMatmulF8(
   TF_RET_CHECK(ops_num == 6 || ops_num == 7 || ops_num == 8);
   TF_ASSIGN_OR_RETURN(
       bool has_vector_bias,
-      xla::gpu::cublas_lt::EpilogueAddsVectorBias(config.epilogue()));
+      xla::gpu::gpublas_lt::EpilogueAddsVectorBias(config.epilogue()));
 
   bool has_damax = custom_call->shape().IsTuple();
   bool has_matrix_bias = config.beta() != 0.;
@@ -1942,6 +1947,21 @@ tsl::StatusOr<lmhlo::RecvDoneOp> LhloDialectEmitter::EmitRecvDoneOp(
                    /*host_transfer_type=*/3);
 
   return recv_done_op;
+}
+
+tsl::StatusOr<lmhlo::CommandBufferOp> LhloDialectEmitter::EmitCommandBufferOp(
+    const xla::HloInstruction* instr) {
+  const std::vector<HloComputation*> called_computations =
+      instr->called_computations();
+  if (called_computations.size() != 1) {
+    return absl::InternalError(
+        "Command buffer calls must have one called computation");
+  }
+
+  if (!absl::StartsWith(called_computations[0]->name(), "command_buffer")) {
+    return absl::InternalError("Called computation must be a command buffer");
+  }
+  return builder_.create<lmhlo::CommandBufferOp>(getLocation(instr));
 }
 
 // Sets builder insertion point for a new `memref.view` operation in the parent
