@@ -75,6 +75,15 @@ class TritonGemmTest : public GpuCodegenTest {
   }
 };
 
+class TritonGemmTestWithoutTritonGemmAny : public TritonGemmTest {
+ public:
+  DebugOptions GetDebugOptionsForTest() override {
+    DebugOptions debug_options = TritonGemmTest::GetDebugOptionsForTest();
+    debug_options.set_xla_gpu_triton_gemm_any(false);
+    return debug_options;
+  }
+};
+
 class TritonFilecheckTest : public TritonGemmTest {
  public:
   StatusOr<bool> CreateTritonIrAndFileCheck(
@@ -716,7 +725,7 @@ ENTRY e {
   EXPECT_TRUE(RunAndCompare(kHloText, ErrorSpec{/*aabs=*/1e-4, /*arel=*/1e-4}));
 }
 
-TEST_F(TritonGemmTest, SkipU8) {
+TEST_F(TritonGemmTestWithoutTritonGemmAny, SkipU8) {
   const std::string hlo_text = R"(
 HloModule t
 
@@ -734,7 +743,7 @@ ENTRY e {
 )");
 }
 
-TEST_F(TritonGemmTest, SkipF32F32) {
+TEST_F(TritonGemmTestWithoutTritonGemmAny, SkipF32F32) {
   const std::string hlo_text = R"(
 HloModule t
 
@@ -917,6 +926,29 @@ ENTRY e {
   p0 = f32[3,5] parameter(0)
   p1 = f32[5,7] parameter(1)
   ROOT _ = f32[3,7] dot(p0, p1),
+    lhs_contracting_dims={1}, rhs_contracting_dims={0}
+})";
+
+  MatchOptimizedHlo(hlo_text, R"(
+; CHECK: fusion
+; CHECK-SAME: kind=kCustom
+; CHECK-SAME: block_m
+)");
+
+  EXPECT_TRUE(RunAndCompare(hlo_text, ErrorSpec{/*aabs=*/1e-3, /*arel=*/1e-3}));
+}
+
+TEST_F(TritonGemmTestAny, DoAddConstantToScalarAndBroadcastThat) {
+  const std::string hlo_text = R"(
+HloModule t
+
+ENTRY e {
+  p0 = f32[] parameter(0)
+  p1 = f32[5,5] parameter(1)
+  %constant = f32[] constant(8)
+  add = add(p0, constant)
+  broadcast = f32[5,5] broadcast(add), dimensions={}
+  ROOT _ = f32[5,5] dot(broadcast, p1),
     lhs_contracting_dims={1}, rhs_contracting_dims={0}
 })";
 

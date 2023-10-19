@@ -707,7 +707,7 @@ struct TransposeMicroKernel {
       }
 #endif
 #ifdef XLA_HAS_VEC128
-      if constexpr (sizeof(T) * bs <= sizeof(__m128i)) {
+      if constexpr (sizeof(T) * bs <= sizeof(Vec128)) {
         return Vec128RectangularTransposeMicroKernelImpl<T, bs>::Apply(a, lda,
                                                                        b, ldb);
       }
