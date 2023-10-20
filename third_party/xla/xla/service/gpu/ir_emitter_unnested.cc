@@ -371,12 +371,22 @@ Status IrEmitterUnnested::EmitConstant(mlir::Operation* op) {
       module.lookupSymbol(get_global.getName()));
   auto literal = global.getInitialValue()->dyn_cast<mlir::DenseElementsAttr>();
   TF_RET_CHECK(literal);
-  TF_ASSIGN_OR_RETURN(int element_bytes,
-                      GetElementTypeBytes(literal.getType().getElementType()));
   std::vector<uint8_t> content;
   TF_RETURN_IF_ERROR(CopyDenseElementsDataToXlaFormat(literal, &content));
+  int num_elements, element_bytes;
+  if (literal.getType().getElementType().isInteger(4)) {
+    // Treat int4 constant as int8 constant with half the number of elements
+    TF_RET_CHECK(content.size() ==
+                 (literal.getType().getNumElements() + 1) / 2);
+    num_elements = content.size();
+    element_bytes = 1;
+  } else {
+    num_elements = literal.getType().getNumElements();
+    TF_ASSIGN_OR_RETURN(
+        element_bytes, GetElementTypeBytes(literal.getType().getElementType()));
+  }
   ir_emitter_context_->emit_constant(
-      literal.getType().getNumElements(), element_bytes, global.getSymName(),
+      num_elements, element_bytes, global.getSymName(),
       global->getAttrOfType<mlir::IntegerAttr>("lmhlo.alloc").getInt(), content,
       &b_);
   return OkStatus();
@@ -1418,11 +1428,9 @@ Status IrEmitterUnnested::EmitCholeskyThunk(const HloInstruction* instr) {
 
   ThunkSequence thunks;
 
-  // TODO(b/304613751): We need to construct real ThunkInfo from instr for Xprof
-  // integration.
   if (operand_buffer != a_buffer) {
     thunks.push_back(std::make_unique<DeviceToDeviceCopyThunk>(
-        Thunk::ThunkInfo(nullptr),
+        Thunk::ThunkInfo::WithProfileAnnotation(instr),
         /*source_buffer=*/operand_buffer,
         /*destination_buffer=*/a_buffer,
         /*mem_size=*/ShapeUtil::ByteSizeOf(shape),
@@ -1431,7 +1439,7 @@ Status IrEmitterUnnested::EmitCholeskyThunk(const HloInstruction* instr) {
   }
 
   thunks.push_back(std::make_unique<CholeskyThunk>(
-      Thunk::ThunkInfo(nullptr), options,
+      Thunk::ThunkInfo::WithProfileAnnotation(instr), options,
       PtxOptsFromDebugOptions(ir_emitter_context_->debug_options()), a_buffer,
       workspace_buffer, info_buffer, shape.element_type(), batch_size, n));
 
@@ -1440,7 +1448,7 @@ Status IrEmitterUnnested::EmitCholeskyThunk(const HloInstruction* instr) {
     AddThunkToThunkSequence(std::move(thunks[0]));
   } else {
     AddThunkToThunkSequence(std::make_unique<SequentialThunk>(
-        Thunk::ThunkInfo(nullptr), std::move(thunks)));
+        Thunk::ThunkInfo::WithProfileAnnotation(instr), std::move(thunks)));
   }
 
   return OkStatus();
