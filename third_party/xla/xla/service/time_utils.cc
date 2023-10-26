@@ -13,23 +13,26 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef THIRD_PARTY_DUCC_GOOGLE_DUCC0_CUSTOM_LOWLEVEL_THREADING_H_
-#define THIRD_PARTY_DUCC_GOOGLE_DUCC0_CUSTOM_LOWLEVEL_THREADING_H_
+#include "xla/service/time_utils.h"
 
-#include "tsl/platform/mutex.h"
+#include <cstdint>
 
-namespace ducc0 {
-namespace detail_threading {
+namespace xla {
 
-using Mutex = tsl::mutex;
-using UniqueLock = tsl::mutex_lock;
-using LockGuard = tsl::mutex_lock;
-using CondVar = tsl::condition_variable;
+int64_t ExclusiveToInclusiveStartTime(int64_t exclusive_time) {
+  return exclusive_time + 1;
+}
 
-// Missing variable used by DUCC threading.cc.
-extern thread_local bool in_parallel_region;
+int64_t InclusiveToExclusiveStartTime(int64_t inclusive_time) {
+  return inclusive_time - 1;
+}
 
-}  // namespace detail_threading
-}  // namespace ducc0
+int64_t ExclusiveToInclusiveEndTime(int64_t exclusive_time) {
+  return exclusive_time - 1;
+}
 
-#endif  // THIRD_PARTY_DUCC_GOOGLE_DUCC0_CUSTOM_LOWLEVEL_THREADING_H_
+int64_t InclusiveToExclusiveEndTime(int64_t inclusive_time) {
+  return inclusive_time + 1;
+}
+
+}  // namespace xla
