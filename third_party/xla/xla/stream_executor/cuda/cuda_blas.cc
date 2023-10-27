@@ -20,6 +20,7 @@ limitations under the License.
 
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
+#include "absl/synchronization/mutex.h"
 #include "Eigen/Core"  // from @eigen_archive
 #include "third_party/gpus/cuda/include/cublas_v2.h"
 #include "third_party/gpus/cuda/include/cuda.h"
@@ -179,6 +180,8 @@ static const char *const kCublasNotInitializedExplanation =
     "not built with support for the GPU in your machine.";
 
 bool CUDABlas::Init() {
+  absl::MutexLock lock(&mu_);
+
   gpu::ScopedActivateExecutorContext sac{parent_};
   cublasStatus_t ret = cublasCreate(&blas_);
   if (ret != CUBLAS_STATUS_SUCCESS) {
@@ -222,6 +225,7 @@ bool CUDABlas::SetStream(Stream *stream) {
   CHECK(AsGpuStreamValue(stream) != nullptr);
   CHECK(blas_ != nullptr);
   gpu::ScopedActivateExecutorContext sac{parent_};
+
   cublasStatus_t ret = cublasSetStream(blas_, AsGpuStreamValue(stream));
   if (ret != CUBLAS_STATUS_SUCCESS) {
     LOG(ERROR) << "failed to set stream for cuBLAS calls: " << ToString(ret);
