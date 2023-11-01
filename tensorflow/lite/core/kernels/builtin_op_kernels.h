@@ -200,15 +200,15 @@ TfLiteRegistration* Register_STABLEHLO_RNG_BIT_GENERATOR();
 TfLiteRegistration*
 Register_STABLEHLO_LOGISTIC();  // WARNING: not implemented, using this op will
                                 // crash the runtime
-TfLiteRegistration*
-Register_STABLEHLO_ADD();  // WARNING: not implemented, using this op will crash
-                           // the runtime
+
+TfLiteRegistration* Register_STABLEHLO_ADD();
+
 TfLiteRegistration*
 Register_STABLEHLO_DIVIDE();  // WARNING: not implemented, using this op will
                               // crash the runtime
-TfLiteRegistration*
-Register_STABLEHLO_MULTIPLY();  // WARNING: not implemented, using this op will
-                                // crash the runtime
+
+TfLiteRegistration* Register_STABLEHLO_MULTIPLY();
+
 TfLiteRegistration*
 Register_STABLEHLO_MAXIMUM();  // WARNING: not implemented, using this op will
                                // crash the runtime
@@ -301,9 +301,9 @@ Register_STABLEHLO_IOTA();  // WARNING: not implemented, using this
 TfLiteRegistration*
 Register_STABLEHLO_DOT_GENERAL();  // WARNING: not implemented, using this
                                    // op will crash the runtime
-TfLiteRegistration*
-Register_STABLEHLO_REDUCE_WINDOW();  // WARNING: not implemented, using this
-                                     // op will crash the runtime
+
+TfLiteRegistration* Register_STABLEHLO_REDUCE_WINDOW();
+
 TfLiteRegistration*
 Register_STABLEHLO_SORT();  // WARNING: not implemented, using this
                             // op will crash the runtime

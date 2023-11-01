@@ -70,29 +70,54 @@ class Handler;
 
 class Ffi {
  public:
-  static Binding<> Binding();
+  static Binding<> Bind();
 
   virtual ~Ffi() = default;
   virtual XLA_FFI_Error* Call(const XLA_FFI_CallFrame* call_frame) const = 0;
+
+  // Registers handler with an XLA runtime under the given name.
+  static inline XLA_FFI_Error* RegisterStaticHandler(const XLA_FFI_Api* api,
+                                                     std::string_view name,
+                                                     XLA_FFI_Handler* handler);
 
  protected:
   template <typename... Args>
   static std::string StrCat(Args... args);
 
-  inline static XLA_FFI_Error* MakeError(const XLA_FFI_Api* api,
+  static inline XLA_FFI_Error* MakeError(const XLA_FFI_Api* api,
                                          XLA_FFI_Error_Code errc,
                                          std::string message);
 
-  static XLA_FFI_Error* InvalidArgument(const XLA_FFI_Api* api,
-                                        std::string message) {
-    return MakeError(api, XLA_FFI_Error_Code_INVALID_ARGUMENT,
-                     std::move(message));
-  }
+  static inline XLA_FFI_Error* InvalidArgument(const XLA_FFI_Api* api,
+                                               std::string message);
+
+  static inline XLA_FFI_Error* CheckStructSize(const XLA_FFI_Api* api,
+                                               std::string_view struct_name,
+                                               size_t expected, size_t actual);
 };
 
-/*static*/ XLA_FFI_Error* Ffi::MakeError(const XLA_FFI_Api* api,
-                                         XLA_FFI_Error_Code errc,
-                                         std::string message) {
+XLA_FFI_Error* Ffi::RegisterStaticHandler(const XLA_FFI_Api* api,
+                                          std::string_view name,
+                                          XLA_FFI_Handler* handler) {
+  std::string name_str(name);  // make a copy to guarantee it's null terminated
+
+  XLA_FFI_Handler_Register_Args args;
+  args.struct_size = XLA_FFI_Handler_Register_Args_STRUCT_SIZE;
+  args.priv = nullptr;
+  args.name = name_str.c_str();
+  args.handler = handler;
+  return api->XLA_FFI_Handler_Register(&args);
+}
+
+template <typename... Args>
+std::string Ffi::StrCat(Args... args) {
+  std::stringstream ss;
+  (ss << ... << args);
+  return ss.str();
+}
+
+XLA_FFI_Error* Ffi::MakeError(const XLA_FFI_Api* api, XLA_FFI_Error_Code errc,
+                              std::string message) {
   XLA_FFI_Error_Create_Args args;
   args.struct_size = XLA_FFI_Error_Create_Args_STRUCT_SIZE;
   args.priv = nullptr;
@@ -101,11 +126,21 @@ class Ffi {
   return api->XLA_FFI_Error_Create(&args);
 }
 
-template <typename... Args>
-/*static*/ std::string Ffi::StrCat(Args... args) {
-  std::stringstream ss;
-  (ss << ... << args);
-  return ss.str();
+XLA_FFI_Error* Ffi::InvalidArgument(const XLA_FFI_Api* api,
+                                    std::string message) {
+  return MakeError(api, XLA_FFI_Error_Code_INVALID_ARGUMENT,
+                   std::move(message));
+}
+
+XLA_FFI_Error* Ffi::CheckStructSize(const XLA_FFI_Api* api,
+                                    std::string_view struct_name,
+                                    size_t expected, size_t actual) {
+  if (expected != actual) {
+    return InvalidArgument(
+        api, StrCat("Unexpected ", struct_name, " size: expected ", expected,
+                    " got ", actual, ". Check installed software versions."));
+  }
+  return nullptr;
 }
 
 //===----------------------------------------------------------------------===//
@@ -119,6 +154,10 @@ namespace internal {
 template <typename T>
 struct AttrTag {};
 
+// A type tag to distinguish arguments extracted from an execution context.
+template <typename T>
+struct CtxTag {};
+
 }  // namespace internal
 
 //===----------------------------------------------------------------------===//
@@ -130,6 +169,11 @@ class Binding {
  public:
   template <typename T>
   Binding<Ts..., T> Arg() && {
+    return {std::move(*this)};
+  }
+
+  template <typename T>
+  Binding<Ts..., internal::CtxTag<T>> Ctx() && {
     return {std::move(*this)};
   }
 
@@ -163,7 +207,7 @@ class Binding {
   std::vector<std::string> attrs_;  // names of bound attributes
 };
 
-inline Binding<> Ffi::Binding() { return xla::ffi::Binding<>(); }
+inline Binding<> Ffi::Bind() { return xla::ffi::Binding<>(); }
 
 //===----------------------------------------------------------------------===//
 // Arguments decoding implementation
@@ -198,6 +242,28 @@ struct ArgDecoding;
 //
 template <typename T>
 struct AttrDecoding;
+
+//===----------------------------------------------------------------------===//
+// Context decoding implementation
+//===----------------------------------------------------------------------===//
+
+// XLA FFI execution context decoding must be defined by specializing this
+// template.
+//
+// Example: decoding for the `MyType` context
+//
+//   template <>
+//   struct CtxDecoding<MyType> {
+//    using Type = <handler argument type for context type MyType>;
+//    static std::optional<Type> Decode(const XLA_FFI_Api* api,
+//                                      XLA_FFI_ExecutionContext* ctx);
+//   }
+//
+// TODO(ezhulenev): Add an example for decoding opaque data passed together with
+// a handler registration (not yet implemented). Today this is only used as
+// internal implementation detail of builtin FFI handlers.
+template <typename T>
+struct CtxDecoding;
 
 //===----------------------------------------------------------------------===//
 // Result encoding implementation
@@ -271,6 +337,15 @@ struct Decode<internal::AttrTag<T>> {
   }
 };
 
+template <typename T>
+struct Decode<internal::CtxTag<T>> {
+  using R = typename CtxDecoding<T>::Type;
+
+  static std::optional<R> call(DecodingOffsets& offsets, DecodingContext& ctx) {
+    return CtxDecoding<T>::Decode(ctx.call_frame->api, ctx.call_frame->ctx);
+  }
+};
+
 }  // namespace internal
 
 //===----------------------------------------------------------------------===//
@@ -291,11 +366,19 @@ struct FnArgType<internal::AttrTag<T>> {
   using Type = T;
 };
 
+// Extracts the underlying type from the context type tag.
+template <typename T>
+struct FnArgType<internal::CtxTag<T>> {
+  using Type = typename CtxDecoding<T>::Type;
+};
+
 // A template for checking if type is a wrapped attribute or user data.
 template <typename>
 struct IsWrapped : std::false_type {};
 template <typename T>
 struct IsWrapped<AttrTag<T>> : std::true_type {};
+template <typename T>
+struct IsWrapped<CtxTag<T>> : std::true_type {};
 
 // A template for counting regular arguments in the Ts pack.
 template <typename... Ts>
@@ -354,6 +437,12 @@ class Handler : public Ffi {
 
  public:
   XLA_FFI_Error* Call(const XLA_FFI_CallFrame* call_frame) const override {
+    // Sanity checking call frame struct size.
+    if (auto* err = CheckStructSize(call_frame->api, "XLA_FFI_CallFrame",
+                                    XLA_FFI_CallFrame_STRUCT_SIZE,
+                                    call_frame->struct_size))
+      return err;
+
     // Check that the number of passed arguments matches the signature. Each
     // individual argument decoding will check the actual type.
     if (call_frame->args.num_args != kNumArgs) {
@@ -484,6 +573,29 @@ struct AttrDecoding<std::string_view> {
     return std::string_view(span->ptr, span->len);
   }
 };
+
+//===----------------------------------------------------------------------===//
+// Helper macro for registering FFI implementations
+//===----------------------------------------------------------------------===//
+
+// Use captureless lambda to function pointer conversion to create a static
+// XLA_FFI_Handler function pointer variable.
+#define XLA_FFI_DEFINE_HANDLER(fn, impl, binding)                             \
+  static constexpr XLA_FFI_Handler* fn = +[](XLA_FFI_CallFrame* call_frame) { \
+    static auto* handler = binding.To(impl).release();                        \
+    return handler->Call(call_frame);                                         \
+  }
+
+// TODO(ezhulenev): Add a callback so that end users can log registration error
+// to appropriate logging destination, e.g. LOG(FATAL) for duplicate internal
+// FFI handlers.
+#define XLA_FFI_REGISTER_HANDLER(API, NAME, FUNC) \
+  XLA_FFI_REGISTER_HANDLER_(API, NAME, FUNC, __COUNTER__)
+#define XLA_FFI_REGISTER_HANDLER_(API, NAME, FUNC, N)                         \
+  static const XLA_FFI_Error* xla_ffi_static_handler_##N##_registered_ = [] { \
+    return ::xla::ffi::Ffi::RegisterStaticHandler(API, NAME, FUNC);           \
+  }();                                                                        \
+  (void)xla_ffi_static_handler_##N##_registered_
 
 }  // namespace xla::ffi
 
