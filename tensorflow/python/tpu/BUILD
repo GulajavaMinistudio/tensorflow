@@ -43,7 +43,7 @@ py_strict_library(
     srcs_version = "PY3",
     deps = [
         "//tensorflow/python/platform:flags",
-        "//tensorflow/python/util:tf_decorator",
+        "//tensorflow/python/util:tf_inspect",
     ],
 )
 
@@ -364,7 +364,7 @@ pytype_strict_library(
         "//tensorflow/python/training:training_util",
         "//tensorflow/python/types:core",
         "//tensorflow/python/util:compat",
-        "//tensorflow/python/util:tf_decorator",
+        "//tensorflow/python/util:tf_contextlib",
         "//tensorflow/python/util:tf_export",
     ],
 )
@@ -804,8 +804,8 @@ pytype_strict_library(
         "//tensorflow/python/types:internal",
         "//tensorflow/python/util:compat",
         "//tensorflow/python/util:nest",
-        "//tensorflow/python/util:tf_decorator",
         "//tensorflow/python/util:tf_export",
+        "//tensorflow/python/util:tf_inspect",
         "@absl_py//absl/logging",
     ],
 )
@@ -827,6 +827,7 @@ pytype_strict_library(
     name = "tpu_embedding_v3_utils",
     srcs = ["tpu_embedding_v3_utils.py"],
     deps = [
+        "//tensorflow/core/tpu/kernels:sparse_core_layout_proto_py",
         "//tensorflow/python/framework:constant_op",
         "//tensorflow/python/framework:dtypes",
         "//tensorflow/python/framework:tensor",

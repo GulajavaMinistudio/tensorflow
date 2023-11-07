@@ -106,6 +106,7 @@ limitations under the License.
 #include "xla/service/gpu/gpu_conv_runner.h"
 #include "xla/service/gpu/gpu_executable.h"
 #include "xla/service/gpu/gpu_fused_mha_runner.h"
+#include "xla/service/gpu/gpu_norm_runner.h"
 #include "xla/service/gpu/hlo_fusion_analysis.h"
 #include "xla/service/gpu/infeed_thunk.h"
 #include "xla/service/gpu/ir_emission_utils.h"
@@ -120,6 +121,7 @@ limitations under the License.
 #include "xla/service/gpu/nccl_all_to_all_thunk.h"
 #include "xla/service/gpu/nccl_collective_permute_thunk.h"
 #include "xla/service/gpu/nccl_collective_thunk.h"
+#include "xla/service/gpu/norm_thunk.h"
 #include "xla/service/gpu/outfeed_thunk.h"
 #include "xla/service/gpu/parallel_loop_emitter.h"
 #include "xla/service/gpu/replica_id_thunk.h"
@@ -1046,6 +1048,60 @@ Status IrEmitterUnnested::EmitConvolutionReorderThunk(mlir::Operation* op) {
       std::move(operand_slices), std::move(result_slices));
 
   AddThunkToThunkSequence(std::move(thunk));
+  return OkStatus();
+}
+
+Status IrEmitterUnnested::EmitNormThunk(mlir::Operation* op) {
+  auto norm = mlir::dyn_cast<mlir::lmhlo_gpu::CudnnNormOp>(op);
+  TF_RET_CHECK(norm != nullptr);
+
+  TF_ASSIGN_OR_RETURN(BufferAllocation::Slice input_slice,
+                      GetAllocationSlice(norm.getInput()));
+  TF_ASSIGN_OR_RETURN(BufferAllocation::Slice scale_slice,
+                      GetAllocationSlice(norm.getScale()));
+  TF_ASSIGN_OR_RETURN(BufferAllocation::Slice bias_slice,
+                      GetAllocationSlice(norm.getBias()));
+  TF_ASSIGN_OR_RETURN(BufferAllocation::Slice output_slice,
+                      GetAllocationSlice(norm.getOutput()));
+
+  int64_t num_operands = op->getNumOperands();
+  std::optional<BufferAllocation::Slice> expectation_slice, norm_factor_slice;
+  if (num_operands == 7) {
+    TF_ASSIGN_OR_RETURN(expectation_slice,
+                        GetAllocationSlice(norm.getExpectation()));
+    TF_ASSIGN_OR_RETURN(norm_factor_slice,
+                        GetAllocationSlice(norm.getNormFactor()));
+  }
+
+  TF_ASSIGN_OR_RETURN(BufferAllocation::Slice scratch_slice,
+                      GetAllocationSlice(norm.getScratch()));
+
+  GpuNormDescriptor descriptor;
+  auto* algorithm = descriptor.backend_config.mutable_algorithm();
+  algorithm->set_algo_id(norm.getAlgorithmConfig().getAlgorithm());
+  algorithm->set_is_cudnn_frontend(true);
+  auto workspace_size = norm.getAlgorithmConfig().getWorkspaceSize();
+  algorithm->mutable_workspace_size()->set_value(workspace_size);
+
+  descriptor.input_shape = GetShape(norm->getOperand(0));
+  descriptor.scale_shape = GetShape(norm->getOperand(1));
+  descriptor.bias_shape = GetShape(norm->getOperand(2));
+  descriptor.output_shape = GetShape(norm->getOperand(3));
+  if (num_operands == 7) {
+    descriptor.expectation_shape = GetShape(norm->getOperand(4));
+    descriptor.norm_factor_shape = GetShape(norm->getOperand(5));
+  }
+  descriptor.backend_config.set_epsilon(norm.getEpsilon().convertToDouble());
+
+  TF_ASSIGN_OR_RETURN(GpuNormConfig config, GpuNormConfig::For(descriptor));
+
+  auto thunk = std::make_unique<NormThunk>(
+      Thunk::ThunkInfo::WithProfileAnnotation(op), std::move(config),
+      input_slice, scale_slice, bias_slice, output_slice, expectation_slice,
+      norm_factor_slice, scratch_slice);
+
+  AddThunkToThunkSequence(std::move(thunk));
+
   return OkStatus();
 }
 
@@ -2145,11 +2201,12 @@ Status IrEmitterUnnested::EmitSelectAndScatter(
 
   std::string name = GetIrNameFromLoc(select_and_scatter_op.getLoc());
 
+  const HloInstruction* init_value = select_and_scatter->operand(2);
   // IrEmitterUnnested implements kSelectAndScatter as a SequentialThunk
   // consisting of two thunks, an initializer KernelThunk that initializes
   // the output and another KernelThunk that accumulates the scattered
   // elements.
-  TF_RETURN_IF_ERROR(BuildInitializerThunk(op,
+  TF_RETURN_IF_ERROR(BuildInitializerThunk(op, select_and_scatter, init_value,
                                            select_and_scatter_op.getInitValue(),
                                            select_and_scatter_op.getOut()));
 
@@ -2428,97 +2485,6 @@ Status IrEmitterUnnested::EmitRngGetAndUpdateState(mlir::Operation* op) {
   Store(old_state, output_address);
 
   return OkStatus();
-}
-
-Status IrEmitterUnnested::EmitScatter(
-    mlir::Operation* op,
-    const absl::flat_hash_map<const mlir::Operation*, const HloInstruction*>&
-        hlo_for_lmhlo) {
-  auto scatter_op = mlir::cast<mlir::lmhlo::ScatterOp>(op);
-
-  TF_ASSIGN_OR_RETURN(auto operand_buffer,
-                      GetAllocationSlice(scatter_op.getOperand()));
-  TF_ASSIGN_OR_RETURN(auto output_buffer,
-                      GetAllocationSlice(scatter_op.getOutput()));
-
-  // Copy the operand into the output if it's not the same buffer already.
-  if (operand_buffer != output_buffer) {
-    AddThunkToThunkSequence(std::make_unique<DeviceToDeviceCopyThunk>(
-        Thunk::ThunkInfo(op),
-        /*source_buffer=*/operand_buffer,
-        /*destination_buffer=*/output_buffer,
-        /*mem_size=*/ShapeUtil::ByteSizeOf(GetShape(scatter_op.getOutput())),
-        /*source_value=*/scatter_op.getOperand(),
-        /*destination_value=*/scatter_op.getOutput()));
-  }
-
-  const Shape& data_shape = GetShape(scatter_op.getUpdates());
-  TF_ASSIGN_OR_RETURN(LaunchDimensions launch_dimensions,
-                      CalculateLaunchDimensions(
-                          data_shape, ir_emitter_context_->gpu_device_info()));
-
-  // Create kernel thunk for all operands except the first one (`operand`). The
-  // code generated for scatter below assumes that the input operand is already
-  // copied into the output, so does not use it in codegen.
-  TF_ASSIGN_OR_RETURN(auto ir_arrays,
-                      BuildKernelThunkForNonFusionOp(
-                          scatter_op, scatter_op.getOperands().drop_front(),
-                          launch_dimensions));
-  auto& [inputs, outputs] = ir_arrays;
-
-  CHECK_EQ(inputs.size(), 3);
-  CHECK_EQ(outputs.size(), 0);
-  const llvm_ir::IrArray& scatter_indices = inputs[0];
-  const llvm_ir::IrArray& updates = inputs[1];
-  const llvm_ir::IrArray& output = inputs[2];
-
-  auto get_index_type = [&](int64_t launch_size) {
-    return GetIndexTypeForKernel(scatter_op, launch_size, &b_);
-  };
-
-  TF_RETURN_IF_ERROR(EmitScatter(
-      scatter_op, launch_dimensions, output,
-      /*scatter_indices_gen=*/
-      [&](const llvm_ir::IrArray::Index& index) {
-        return scatter_indices.EmitReadArrayElement(index, &b_,
-                                                    "scatter_index");
-      },
-      /*updates_gen=*/
-      [&](const llvm_ir::IrArray::Index& index) {
-        return updates.EmitReadArrayElement(index, &b_, "update");
-      },
-      get_index_type, hlo_for_lmhlo));
-
-  return OkStatus();
-}
-
-Status IrEmitterUnnested::EmitScatter(
-    mlir::lmhlo::ScatterOp scatter, const LaunchDimensions& launch_dimensions,
-    const llvm_ir::IrArray& output,
-    const llvm_ir::ElementGenerator& scatter_indices_gen,
-    const llvm_ir::ElementGenerator& updates_gen,
-    std::function<llvm::Type*(int64_t)> get_index_type,
-    const absl::flat_hash_map<const mlir::Operation*, const HloInstruction*>&
-        hlo_for_lmhlo) {
-  const Shape operand_shape = GetShape(scatter.getOperand());
-  CHECK(ShapeUtil::Equal(GetShape(scatter.getOutput()), operand_shape));
-
-  auto* hlo_scatter =
-      Cast<HloScatterInstruction>(hlo_for_lmhlo.at(scatter.getOperation()));
-
-  ScatterDescriptor desc;
-  desc.name = GetIrNameFromLoc(scatter.getLoc());
-  desc.operand_shape = operand_shape;
-  desc.scatter_indices_shape = GetShape(scatter.getScatterIndices());
-  desc.updates_shape = GetShape(scatter.getUpdates());
-  desc.dim_numbers = scatter.getScatterDimensionNumbers();
-  desc.unique_indices = scatter.getUniqueIndices();
-  desc.update_computation = hlo_scatter->called_computations().front();
-  desc.output = output;
-  desc.scatter_indices_gen = scatter_indices_gen;
-  desc.updates_gen = updates_gen;
-  desc.get_index_type = get_index_type;
-  return EmitScatter(desc, launch_dimensions);
 }
 
 Status IrEmitterUnnested::EmitScatter(
@@ -3056,16 +3022,16 @@ IrEmitterUnnested::BuildKernelThunkForNonFusionOp(
                                         launch_dimensions);
 }
 
-Status IrEmitterUnnested::BuildInitializerThunk(mlir::Operation* op,
-                                                mlir::Value init_value,
-                                                mlir::Value dest) {
+Status IrEmitterUnnested::BuildInitializerThunk(
+    mlir::Operation* op, const HloInstruction* instr,
+    const HloInstruction* init_value, mlir::Value init_value_mlir,
+    mlir::Value dest) {
   // initial value must be a scalar memref.
-  auto init_type = init_value.getType().dyn_cast<mlir::MemRefType>();
-  TF_RET_CHECK(init_type.getRank() == 0);
+  TF_RET_CHECK(init_value->shape().rank() == 0);
 
   TF_ASSIGN_OR_RETURN(std::optional<std::unique_ptr<Thunk>> constant_init_thunk,
                       BuildConstantInitializerThunk(*ir_emitter_context_, op,
-                                                    init_value, dest));
+                                                    instr, init_value, dest));
   if (constant_init_thunk) {
     AddThunkToThunkSequence(*std::move(constant_init_thunk));
     return OkStatus();
@@ -3079,8 +3045,8 @@ Status IrEmitterUnnested::BuildInitializerThunk(mlir::Operation* op,
                       CalculateLaunchDimensions(
                           dest_shape, ir_emitter_context_->gpu_device_info()));
   TF_ASSIGN_OR_RETURN(auto ir_arrays,
-                      BuildKernelThunkForNonFusionOp(op, {init_value, dest},
-                                                     launch_dimensions));
+                      BuildKernelThunkForNonFusionOp(
+                          op, {init_value_mlir, dest}, launch_dimensions));
   auto& [inputs, outputs] = ir_arrays;
   auto init_array = inputs[0];
 
@@ -3254,6 +3220,9 @@ Status IrEmitterUnnested::EmitOp(
                 mlir::lmhlo_gpu::CudnnConvReorderFilterAndBiasOp>(op)) {
     return EmitConvolutionReorderThunk(op);
   }
+  if (mlir::isa<mlir::lmhlo_gpu::CudnnNormOp>(op)) {
+    return EmitNormThunk(op);
+  }
   if (mlir::isa<mlir::lmhlo_gpu::fusedMHAOp>(op)) {
     return EmitFusedMHAThunk(op);
   }
@@ -3326,10 +3295,6 @@ Status IrEmitterUnnested::EmitOp(
 
   if (mlir::isa<mlir::lmhlo::RngGetAndUpdateStateOp>(op)) {
     return EmitRngGetAndUpdateState(op);
-  }
-
-  if (mlir::isa<mlir::lmhlo::ScatterOp>(op)) {
-    return EmitScatter(op, hlo_for_lmhlo);
   }
 
   if (mlir::isa<mlir::lmhlo::SortOp>(op)) {

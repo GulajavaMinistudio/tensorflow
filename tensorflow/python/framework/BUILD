@@ -390,7 +390,7 @@ py_strict_library(
         "//tensorflow/core:protos_all_py",
         "//tensorflow/python/client:pywrap_tf_session",
         "//tensorflow/python/util:compat",
-        "//tensorflow/python/util:tf_decorator",
+        "//tensorflow/python/util:tf_contextlib",
     ],
 )
 
@@ -515,8 +515,8 @@ py_strict_library(
         "//tensorflow/python/client:pywrap_tf_session",
         "//tensorflow/python/util:compat",
         "//tensorflow/python/util:deprecation",
-        "//tensorflow/python/util:tf_decorator",
         "//tensorflow/python/util:tf_export",
+        "//tensorflow/python/util:tf_inspect",
     ],
 )
 
@@ -564,7 +564,8 @@ py_strict_library(
         "//tensorflow/python/ops:variable_scope",
         "//tensorflow/python/util:compat",
         "//tensorflow/python/util:function_utils",
-        "//tensorflow/python/util:tf_decorator",
+        "//tensorflow/python/util:tf_contextlib",
+        "//tensorflow/python/util:tf_inspect",
         # copybara:uncomment "@pybind11_protobuf//pybind11_protobuf:native_proto_caster",
     ],
 )
@@ -709,7 +710,7 @@ py_strict_library(
         "//tensorflow/python/platform:tf_logging",
         "//tensorflow/python/util:_pywrap_utils",
         "//tensorflow/python/util:compat",
-        "//tensorflow/python/util:tf_decorator",
+        "//tensorflow/python/util:tf_contextlib",
     ],
 )
 
@@ -1264,7 +1265,7 @@ pytype_strict_library(
         "//tensorflow/python/util:function_utils",
         "//tensorflow/python/util:lock_util",
         "//tensorflow/python/util:object_identity",
-        "//tensorflow/python/util:tf_decorator",
+        "//tensorflow/python/util:tf_contextlib",
         "//tensorflow/python/util:tf_export",
         "//tensorflow/python/util:tf_stack",
         "//tensorflow/python/util:traceback_utils",
@@ -1407,8 +1408,10 @@ py_strict_library(
         "//tensorflow/python/util:compat",
         "//tensorflow/python/util:nest",
         "//tensorflow/python/util:object_identity",
-        "//tensorflow/python/util:tf_decorator",
+        "//tensorflow/python/util:tf_contextlib",
+        "//tensorflow/python/util:tf_decorator_py",
         "//tensorflow/python/util:tf_export",
+        "//tensorflow/python/util:tf_inspect",
         "//tensorflow/python/util:variable_utils",
     ],
 )
@@ -1433,7 +1436,7 @@ py_strict_library(
         "//tensorflow/python/ops:tensor_array_ops",
         "//tensorflow/python/util:nest",
         "//tensorflow/python/util:object_identity",
-        "//tensorflow/python/util:tf_decorator",
+        "//tensorflow/python/util:tf_decorator_py",
     ],
 )
 
@@ -1526,8 +1529,9 @@ cuda_py_strict_test(
     size = "small",
     srcs = ["config_vgpu_test.py"],
     python_version = "PY3",
-    shard_count = 10,  # use a large number to ensure no 2 tests run in the same process.
+    shard_count = 5,
     tags = [
+        "gpu",
         "multi_gpu",
         "no_pip",
     ],  # test_ops are not available in pip.
@@ -1794,8 +1798,9 @@ py_strict_library(
         "//tensorflow/python/ops:math_ops_gen",
         "//tensorflow/python/saved_model:nested_structure_coder",
         "//tensorflow/python/util:nest",
-        "//tensorflow/python/util:tf_decorator",
+        "//tensorflow/python/util:tf_decorator_py",
         "//tensorflow/python/util:tf_export",
+        "//tensorflow/python/util:tf_inspect",
         "@pypi_typing_extensions//:pkg",
     ],
 )
@@ -1868,7 +1873,7 @@ pytype_strict_library(
         "//tensorflow/python/util:compat",
         "//tensorflow/python/util:deprecation",
         "//tensorflow/python/util:nest",
-        "//tensorflow/python/util:tf_decorator",
+        "//tensorflow/python/util:tf_decorator_py",
         "//tensorflow/python/util:tf_export",
         "//tensorflow/tools/docs:doc_controls",
         "//third_party/py/numpy",
@@ -2016,7 +2021,7 @@ py_strict_library(
     srcs = ["stack.py"],
     visibility = visibility + ["//tensorflow:internal"],
     deps = [
-        "//tensorflow/python/util:tf_decorator",
+        "//tensorflow/python/util:tf_contextlib",
         "//tensorflow/python/util:tf_export",
     ],
 )
@@ -2187,8 +2192,9 @@ py_strict_library(
         "//tensorflow/python/util:compat",
         "//tensorflow/python/util:deprecation",
         "//tensorflow/python/util:nest",
-        "//tensorflow/python/util:tf_decorator",
+        "//tensorflow/python/util:tf_decorator_py",
         "//tensorflow/python/util:tf_export",
+        "//tensorflow/python/util:tf_inspect",
         "//tensorflow/python/util:traceback_utils",
         "//tensorflow/python/util/protobuf",
         "//third_party/py/numpy",
@@ -2254,8 +2260,8 @@ py_strict_library(
     srcs = ["test_combinations.py"],
     srcs_version = "PY3",
     deps = [
-        "//tensorflow/python/util:tf_decorator",
         "//tensorflow/python/util:tf_export",
+        "//tensorflow/python/util:tf_inspect",
         "@absl_py//absl/testing:parameterized",
     ],
 )
@@ -2285,7 +2291,7 @@ py_strict_library(
         # copybara:uncomment "//tensorflow/python/platform:cpp_memory_checker",
         "//tensorflow/python/platform:tf_logging",
         "//tensorflow/python/profiler:trace",
-        "//tensorflow/python/util:tf_decorator",
+        "//tensorflow/python/util:tf_inspect",
     ],
 )
 
@@ -2591,7 +2597,7 @@ tf_py_strict_test(
         ":test_lib",
         ":traceable_stack",
         "//tensorflow/python/platform:test",
-        "//tensorflow/python/util:tf_decorator",
+        "//tensorflow/python/util:tf_inspect",
     ],
 )
 
@@ -2787,7 +2793,7 @@ tf_py_strict_test(
         "//tensorflow/python/saved_model:save",
         "//tensorflow/python/util:dispatch",
         "//tensorflow/python/util:nest",
-        "//tensorflow/python/util:tf_decorator",
+        "//tensorflow/python/util:tf_inspect",
         "@absl_py//absl/testing:parameterized",
         "@pypi_typing_extensions//:pkg",
     ],

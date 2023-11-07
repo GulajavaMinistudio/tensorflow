@@ -99,8 +99,9 @@ py_strict_library(
         "//tensorflow/python/util:compat",
         "//tensorflow/python/util:deprecation",
         "//tensorflow/python/util:object_identity",
-        "//tensorflow/python/util:tf_decorator",
+        "//tensorflow/python/util:tf_contextlib",
         "//tensorflow/python/util:tf_export",
+        "//tensorflow/python/util:tf_inspect",
     ],
 )
 
@@ -433,8 +434,10 @@ cuda_py_strict_test(
         "functional_saver_test.py",
     ],
     deps = [
+        ":checkpoint",
         ":checkpoint_options",
         ":functional_saver",
+        ":graph_view",
         "//tensorflow/python/eager:context",
         "//tensorflow/python/eager:remote",
         "//tensorflow/python/eager:test",
@@ -443,9 +446,11 @@ cuda_py_strict_test(
         "//tensorflow/python/framework:constant_op",
         "//tensorflow/python/framework:ops",
         "//tensorflow/python/framework:test_lib",
+        "//tensorflow/python/module",
         "//tensorflow/python/ops:resource_variable_ops",
         "//tensorflow/python/platform:gfile",
         "//tensorflow/python/training:server_lib",
+        "//tensorflow/python/training/saving:saveable_object",
         "//tensorflow/python/training/saving:saveable_object_util",
     ],
 )

@@ -455,9 +455,11 @@ py_strict_library(
         "//tensorflow/python/util:all_util",
         "//tensorflow/python/util:compat",
         "//tensorflow/python/util:dispatch",
-        "//tensorflow/python/util:tf_decorator",
+        "//tensorflow/python/util:tf_contextlib",
         "//tensorflow/python/util:tf_decorator_export",
+        "//tensorflow/python/util:tf_decorator_py",
         "//tensorflow/python/util:tf_export",
+        "//tensorflow/python/util:tf_inspect",
     ],
 )
 
@@ -1087,6 +1089,10 @@ tf_python_pybind_extension(
         "//tensorflow/compiler/mlir/python:pywrap_mlir_hdrs",
         "//tensorflow/python/lib/core:safe_pyobject_ptr_required_hdrs",
     ],
+    enable_stub_generation = True,
+    pytype_srcs = [
+        "_pywrap_mlir.pyi",
+    ],
     deps = [
         "//tensorflow/core:protos_all_cc",
         "//tensorflow/core/platform:status",
@@ -1211,6 +1217,14 @@ tf_python_pybind_extension(
     ],
     static_deps = tf_python_pybind_static_deps(),
     deps = [
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/hash",
+        "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/types:optional",
+        "//third_party/py/numpy:headers",
+        "//third_party/python_runtime:headers",
         "//tensorflow/c:pywrap_required_hdrs",
         "//tensorflow/c/eager:tfe_tensorhandle_internal_hdrs_only",
         "//tensorflow/compiler/jit:flags_headers_only",
@@ -1226,15 +1240,8 @@ tf_python_pybind_extension(
         "//tensorflow/python/lib/core:pybind11_lib",
         "//tensorflow/python/lib/core:pybind11_status",
         "//tensorflow/python/lib/core:safe_pyobject_ptr",
-        "//third_party/py/numpy:headers",
-        "//third_party/python_runtime:headers",
-        "@com_google_absl//absl/container:flat_hash_map",
-        "@com_google_absl//absl/hash",
-        "@com_google_absl//absl/memory",
-        "@com_google_absl//absl/strings",
-        "@com_google_absl//absl/strings:str_format",
-        "@com_google_absl//absl/types:optional",
         "@pybind11",
+        # copybara:uncomment "@pybind11_protobuf//pybind11_protobuf:native_proto_caster",
     ] + if_static(
         extra_deps = [
             "//tensorflow/core/protobuf:eager_service_proto_cc",
@@ -1340,6 +1347,10 @@ tf_python_pybind_extension(
 tf_python_pybind_extension(
     name = "_pywrap_dtensor_device",
     srcs = ["pywrap_dtensor_device.cc"],
+    data = [
+        "_pywrap_dtensor_device.pyi",
+    ],
+    enable_stub_generation = True,
     features = ["-layering_check"],
     deps = [
         ":pywrap_densor_device_headers",
