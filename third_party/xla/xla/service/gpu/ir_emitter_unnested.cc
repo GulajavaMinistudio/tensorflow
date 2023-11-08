@@ -99,6 +99,7 @@ limitations under the License.
 #include "xla/service/gpu/fusions/fusions.h"
 #include "xla/service/gpu/fusions/input_slices.h"
 #include "xla/service/gpu/fusions/loop.h"
+#include "xla/service/gpu/fusions/reduction.h"
 #include "xla/service/gpu/fusions/thunk_util.h"
 #include "xla/service/gpu/fusions/transpose.h"
 #include "xla/service/gpu/gemm_thunk.h"
@@ -243,6 +244,13 @@ StatusOr<xla::gpu::CudnnfMHAKind> AsCudnnBackwardfMHAKind(
     case mlir::lmhlo_gpu::FusedMhaBackwardDagSignature::
         BackwardScaleBiasMaskSoftmaxDropout:
       return xla::gpu::CudnnfMHAKind::kBackwardScaleBiasMaskSoftmaxDropout;
+      break;
+    case mlir::lmhlo_gpu::FusedMhaBackwardDagSignature::BackwardSoftmax:
+      return xla::gpu::CudnnfMHAKind::kBackwardSoftmax;
+      break;
+    case mlir::lmhlo_gpu::FusedMhaBackwardDagSignature::BackwardSoftmaxDropout:
+      return xla::gpu::CudnnfMHAKind::kBackwardSoftmaxDropout;
+      break;
     default:
       return xla::InternalError("Unsupported fused_mha_backward_dag_signature");
   }
@@ -458,8 +466,7 @@ llvm::Value* IrEmitterUnnested::CreateLoad(llvm::Value* address,
   int data_bytes = data_type->getPrimitiveSizeInBits() /
                    primitive_util::BitWidth(PrimitiveType::U8);
   if (alignment_bytes == 0) {
-    return b_.CreateLoad(data_type,
-                         b_.CreateBitCast(address, data_type->getPointerTo()));
+    return b_.CreateLoad(data_type, address);
   }
 
   int alignment_bitwidth =
@@ -488,8 +495,7 @@ void IrEmitterUnnested::CreateStore(llvm::Value* data, llvm::Value* address,
                    primitive_util::BitWidth(PrimitiveType::U8);
   CHECK_GE(data_bytes, alignment_bytes);
   if (alignment_bytes == 0) {
-    b_.CreateStore(data,
-                   b_.CreateBitCast(address, data->getType()->getPointerTo()));
+    b_.CreateStore(data, address);
     return;
   }
 
@@ -504,10 +510,7 @@ void IrEmitterUnnested::CreateStore(llvm::Value* data, llvm::Value* address,
         b_.CreateLShr(data,
                       llvm::ConstantInt::get(b_.getInt32Ty(), offset_bytes)),
         b_.getIntNTy(alignment_bitwidth), "truncated_value");
-    b_.CreateStore(
-        shifted_partial,
-        b_.CreateBitCast(offset_address,
-                         b_.getIntNTy(alignment_bitwidth)->getPointerTo()));
+    b_.CreateStore(shifted_partial, offset_address);
   }
 }
 
@@ -544,8 +547,6 @@ Status IrEmitterUnnested::EmitPadToStatic(mlir::Operation* op) {
   //   int* source_array = input[0];
   //   int* dest_array = output[0];
   llvm::Value* source_buffer = source_array.GetBasePointer();
-  llvm::Value* raw_buffer =
-      b_.CreateBitCast(source_buffer, b_.getInt8Ty()->getPointerTo());
 
   // TODO(jurahul): input_shape here is the static shape of the input (which has
   // a dynamic shape in XLA). Currently, we are mapping that to a static shaped
@@ -566,7 +567,7 @@ Status IrEmitterUnnested::EmitPadToStatic(mlir::Operation* op) {
 
     const int64_t dim_index = i - 1;
     llvm::Value* metadata = b_.CreateConstInBoundsGEP1_32(
-        b_.getInt8Ty(), raw_buffer,
+        b_.getInt8Ty(), source_buffer,
         raw_data_size + dim_index * sizeof(int32_t));
     llvm::Value* dyn_dim_size =
         CreateLoad(metadata, b_.getInt32Ty(), alignment);
@@ -679,8 +680,6 @@ Status IrEmitterUnnested::EmitSliceToDynamic(mlir::Operation* op) {
   //   int* dest_array = output[0];
   const llvm_ir::IrArray data_array = input_arrays.back();
   llvm::Value* dest_buffer = data_array.GetBasePointer();
-  llvm::Value* raw_buffer =
-      b_.CreateBitCast(dest_buffer, b_.getInt8Ty()->getPointerTo());
 
   // Load dynamic dimensions from memory.
   std::vector<llvm::Value*> dynamic_dims;
@@ -705,7 +704,7 @@ Status IrEmitterUnnested::EmitSliceToDynamic(mlir::Operation* op) {
     for (int64_t i = 1; i < slice_to_dynamic.getArgs().size(); ++i) {
       const int64_t dim_index = i - 1;
       llvm::Value* metadata = b_.CreateConstInBoundsGEP1_32(
-          b_.getInt8Ty(), raw_buffer,
+          b_.getInt8Ty(), dest_buffer,
           raw_data_size + dim_index * sizeof(int32_t));
       // output[i] stores dynamic_dim_(i-1)
       CreateStore(dynamic_dims[dim_index], metadata, alignment);
@@ -1208,6 +1207,11 @@ Status IrEmitterUnnested::EmitFusedMHAThunk(mlir::Operation* op) {
         ShapeUtil::MakeShapeWithDenseLayout(
             GetShape(fmha.getOutput()).element_type(),
             intermediate_tensor_dims_array, intermediate_tensor_layout_array);
+
+    // set if flash attention here
+    descriptor.is_flash_attention = fmha.getIsFlashAttention();
+    // set if causal mask here
+    descriptor.is_causal_mask = fmha.getIsCausalMask();
     return OkStatus();
   };
 
@@ -1235,9 +1239,9 @@ Status IrEmitterUnnested::EmitFusedMHABackwardThunk(mlir::Operation* op) {
   GpufMHABackwardDescriptor descriptor;
   BufferAllocation::Slice bmm1_grad_gemm1_rhs_slice, bmm1_grad_gemm2_rhs_slice,
       bmm2_grad_gemm1_lhs_slice, bmm2_grad_gemm2_rhs_slice, d_output_slice,
-      scratch_slice, mask_slice;
+      scratch_slice, mask_slice, fwd_output_slice, bias_slice;
   BufferAllocation::Slice d_bmm1_lhs_slice, d_bmm1_rhs_slice, d_bmm2_rhs_slice,
-      d_S_slice, d_bias_slice;
+      d_s_slice, softmax_sum_slice, d_Q_accum_slice, d_bias_slice;
 
   auto populate_common = [&](auto fmha) -> Status {
     descriptor.backend_config.set_fmha_scale(
@@ -1267,6 +1271,10 @@ Status IrEmitterUnnested::EmitFusedMHABackwardThunk(mlir::Operation* op) {
       algorithm->mutable_workspace_size()->set_value(workspace_size);
     }
 
+    // set if flash attention here
+    descriptor.is_flash_attention = fmha.getIsFlashAttention();
+    // set if causal mask here
+    descriptor.is_causal_mask = fmha.getIsCausalMask();
     descriptor.bmm1_grad_gemm1_dnums =
         ConvertDotDimensionNumbers(fmha.getBmm1GradGemm1DotDimensionNumbers());
     descriptor.bmm1_grad_gemm2_dnums =
@@ -1290,10 +1298,31 @@ Status IrEmitterUnnested::EmitFusedMHABackwardThunk(mlir::Operation* op) {
     TF_ASSIGN_OR_RETURN(bmm1_grad_gemm2_rhs_slice,
                         GetAllocationSlice(fmha.getBmm1GradGemm2Rhs()));
 
-    descriptor.bmm2_grad_gemm1_lhs_shape = ShapeUtil::MakeShapeWithDenseLayout(
-        GetShape(fmha.getBmm2GradGemm1Lhs()).element_type(),
-        GetShape(fmha.getBmm2GradGemm1Lhs()).dimensions(),
-        GetShape(fmha.getBmm2GradGemm1Lhs()).layout().minor_to_major());
+    // fwd activation
+    // fmha.getBmm2GradGemm1Lhs() could be bmm2_grad_gemm1_lhs for regular
+    // attention or softmax stats for flash attention here we set the shape to
+    // be bmm2_grad_gemm1_lhs even it is flash attention
+    if (descriptor.is_flash_attention) {
+      // flash attention TODO: make sure the layout is correct for
+      // bmm2_grad_gemm1_lhs
+      TF_ASSIGN_OR_RETURN(auto intermediate_tensor_dims_array,
+                          ConvertMlirArrayAttrToInt64Array(
+                              fmha.getIntermediateTensorDimensions()));
+      TF_ASSIGN_OR_RETURN(
+          auto intermediate_tensor_layout_array,
+          ConvertMlirArrayAttrToInt64Array(fmha.getIntermediateTensorLayout()));
+
+      descriptor.bmm2_grad_gemm1_lhs_shape =
+          ShapeUtil::MakeShapeWithDenseLayout(
+              GetShape(fmha.getDOutput()).element_type(),
+              intermediate_tensor_dims_array, intermediate_tensor_layout_array);
+    } else {
+      descriptor.bmm2_grad_gemm1_lhs_shape =
+          ShapeUtil::MakeShapeWithDenseLayout(
+              GetShape(fmha.getBmm2GradGemm1Lhs()).element_type(),
+              GetShape(fmha.getBmm2GradGemm1Lhs()).dimensions(),
+              GetShape(fmha.getBmm2GradGemm1Lhs()).layout().minor_to_major());
+    }
     TF_ASSIGN_OR_RETURN(bmm2_grad_gemm1_lhs_slice,
                         GetAllocationSlice(fmha.getBmm2GradGemm1Lhs()));
 
@@ -1332,7 +1361,13 @@ Status IrEmitterUnnested::EmitFusedMHABackwardThunk(mlir::Operation* op) {
 
     TF_ASSIGN_OR_RETURN(scratch_slice, GetAllocationSlice(fmha.getScratch()));
 
-    TF_ASSIGN_OR_RETURN(d_S_slice, GetAllocationSlice(fmha.getD_S()));
+    if (fmha.getD_S() != nullptr) {
+      descriptor.d_s_shape = ShapeUtil::MakeShapeWithDenseLayout(
+          GetShape(fmha.getD_S()).element_type(),
+          GetShape(fmha.getD_S()).dimensions(),
+          GetShape(fmha.getD_S()).layout().minor_to_major());
+      TF_ASSIGN_OR_RETURN(d_s_slice, GetAllocationSlice(fmha.getD_S()));
+    }
 
     if (fmha.getDBias() != nullptr) {
       descriptor.d_bias_shape = ShapeUtil::MakeShapeWithDenseLayout(
@@ -1356,6 +1391,33 @@ Status IrEmitterUnnested::EmitFusedMHABackwardThunk(mlir::Operation* op) {
 
       TF_ASSIGN_OR_RETURN(mask_slice, GetAllocationSlice(fmha.getMask()));
     }
+    // add flash attention backward related slice here
+    if (fmha.getBias() != nullptr) {
+      descriptor.bias_shape = ShapeUtil::MakeShapeWithDenseLayout(
+          GetShape(fmha.getBias()).element_type(),
+          GetShape(fmha.getBias()).dimensions(),
+          GetShape(fmha.getBias()).layout().minor_to_major());
+      TF_ASSIGN_OR_RETURN(bias_slice, GetAllocationSlice(fmha.getBias()));
+    }
+
+    if (fmha.getSoftmaxSum() != nullptr) {
+      TF_ASSIGN_OR_RETURN(softmax_sum_slice,
+                          GetAllocationSlice(fmha.getSoftmaxSum()));
+    }
+
+    if (fmha.getD_QAccum() != nullptr) {
+      TF_ASSIGN_OR_RETURN(d_Q_accum_slice,
+                          GetAllocationSlice(fmha.getD_QAccum()));
+    }
+
+    if (fmha.getFwdOutput() != nullptr) {
+      descriptor.fwd_output_shape = ShapeUtil::MakeShapeWithDenseLayout(
+          GetShape(fmha.getFwdOutput()).element_type(),
+          GetShape(fmha.getFwdOutput()).dimensions(),
+          GetShape(fmha.getFwdOutput()).layout().minor_to_major());
+      TF_ASSIGN_OR_RETURN(fwd_output_slice,
+                          GetAllocationSlice(fmha.getFwdOutput()));
+    }
     return OkStatus();
   };
 
@@ -1377,7 +1439,8 @@ Status IrEmitterUnnested::EmitFusedMHABackwardThunk(mlir::Operation* op) {
       bmm1_grad_gemm1_rhs_slice, bmm1_grad_gemm2_rhs_slice,
       bmm2_grad_gemm1_lhs_slice, bmm2_grad_gemm2_rhs_slice, d_output_slice,
       scratch_slice, d_bmm1_lhs_slice, d_bmm1_rhs_slice, d_bmm2_rhs_slice,
-      d_S_slice, mask_slice, d_bias_slice));
+      d_s_slice, softmax_sum_slice, d_Q_accum_slice, mask_slice, d_bias_slice,
+      fwd_output_slice, bias_slice));
 
   return OkStatus();
 }
@@ -1865,7 +1928,7 @@ Status IrEmitterUnnested::EmitTriangularSolveCustomCall(mlir::Operation* op) {
 //     %0 = tensor_load %external_memref0
 //     %1 = tensor_load %external_memref1
 //     ...
-//     tensor_store %ret, %external_memref2
+//     materialize_in_destination %ret, %external_memref2
 //   }
 // to
 //   fusion(%external_memref0, %external_memref1) (^bb(%0, %1) {
@@ -1880,7 +1943,7 @@ static Status ProcessFusionForConversion(mlir::Region* region,
                                          std::vector<Shape>* operand_shapes,
                                          std::vector<Shape>* output_shapes) {
   std::vector<mlir::bufferization::ToTensorOp> loads;
-  std::vector<mlir::memref::TensorStoreOp> stores;
+  std::vector<mlir::bufferization::MaterializeInDestinationOp> stores;
 
   region->walk([&](mlir::bufferization::ToTensorOp load) {
     if (load.getMemref().getParentRegion() != region) {
@@ -1888,8 +1951,9 @@ static Status ProcessFusionForConversion(mlir::Region* region,
     }
   });
 
-  region->walk([&](mlir::memref::TensorStoreOp store) {
-    if (store.getMemref().getParentRegion() != region) {
+  region->walk([&](mlir::bufferization::MaterializeInDestinationOp store) {
+    if (!isa<mlir::TensorType>(store.getDest().getType())) return;
+    if (store.getDest().getParentRegion() != region) {
       stores.push_back(store);
     }
   });
@@ -1904,10 +1968,10 @@ static Status ProcessFusionForConversion(mlir::Region* region,
 
   std::vector<mlir::Value> returned_values;
   for (auto store : stores) {
-    Shape shape = GetShape(store.getMemref());
+    Shape shape = GetShape(store.getDest());
     output_shapes->push_back(shape);
 
-    returned_values.push_back(store.getTensor());
+    returned_values.push_back(store.getSource());
     store.erase();
   }
 
@@ -2051,7 +2115,7 @@ bool IsSpecializedLoopFusion(
 
 Status IrEmitterUnnested::EmitFusion(const HloFusionInstruction* instr,
                                      HloFusionAnalysis& fusion_analysis) {
-  // TODO(anlunx): Support kReduction, kTriton, and kScatter.
+  // TODO(anlunx): Support kTriton, and kScatter.
   std::unique_ptr<FusionInterface> emitter;
   switch (fusion_analysis.GetEmitterFusionKind()) {
     case HloFusionAnalysis::EmitterFusionKind::kInputSlices:
@@ -2064,13 +2128,16 @@ Status IrEmitterUnnested::EmitFusion(const HloFusionInstruction* instr,
     case HloFusionAnalysis::EmitterFusionKind::kTranspose:
       emitter = std::make_unique<TransposeFusion>(fusion_analysis);
       break;
+    case HloFusionAnalysis::EmitterFusionKind::kReduction:
+      emitter = std::make_unique<ReductionFusion>(fusion_analysis);
+      break;
     default:
       return FailedPrecondition(
           "Fusion type not supported by the HLO emitter.");
       break;
   }
 
-  TF_ASSIGN_OR_RETURN(auto emission_result,
+  TF_ASSIGN_OR_RETURN(FusionEmissionResult emission_result,
                       emitter->Emit(*ir_emitter_context_, elemental_emitter_,
                                     nullptr, *instr, kernel_reuse_cache_, &b_));
   for (auto& thunk : emission_result.thunks) {
@@ -2478,10 +2545,6 @@ Status IrEmitterUnnested::EmitRngGetAndUpdateState(mlir::Operation* op) {
       llvm_ir::IrArray::Index(
           /*linear=*/b_.getInt64(0), shape, &b_),
       &b_, "rng_state_address");
-  output_address = BitCast(
-      output_address, llvm::PointerType::get(
-                          old_state->getType(),
-                          output_address->getType()->getPointerAddressSpace()));
   Store(old_state, output_address);
 
   return OkStatus();
@@ -3275,11 +3338,10 @@ Status IrEmitterUnnested::EmitOp(
                           HloFusionAnalysis::Create(instr, &device_info));
       HloFusionAnalysis::EmitterFusionKind kind =
           fusion_analysis.GetEmitterFusionKind();
-      // TODO(anlunx): Add support for emitting kTriton, kScatter, kReduction,
-      // and specialized kLoops.
+      // TODO(anlunx): Add support for emitting kTriton, kScatter, and
+      // specialized kLoops.
       if (kind != HloFusionAnalysis::EmitterFusionKind::kTriton &&
           kind != HloFusionAnalysis::EmitterFusionKind::kScatter &&
-          kind != HloFusionAnalysis::EmitterFusionKind::kReduction &&
           !IsSpecializedLoopFusion(op, ir_emitter_context_->allocations(),
                                    fusion_analysis)) {
         return EmitFusion(instr, fusion_analysis);

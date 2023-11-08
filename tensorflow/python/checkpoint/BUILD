@@ -5,6 +5,7 @@ load("//tensorflow:strict.default.bzl", "py_strict_binary", "py_strict_library")
 load("//tensorflow:tensorflow.default.bzl", "cuda_py_strict_test", "tf_py_strict_test")
 load(
     "//tensorflow/tools/test:performance.bzl",
+    "tf_py_benchmark_test",
     "tf_py_logged_benchmark",
 )
 
@@ -364,7 +365,7 @@ tf_py_strict_test(
     ],
 )
 
-tf_py_strict_test(
+tf_py_benchmark_test(
     name = "benchmarks_test",
     srcs = ["benchmarks_test.py"],
     deps = [
@@ -422,6 +423,7 @@ py_strict_library(
         "//tensorflow/python/trackable:trackable_utils",
         "//tensorflow/python/training/saving:saveable_object",
         "//tensorflow/python/training/saving:saveable_object_util",
+        "//tensorflow/python/types:core",
         "//tensorflow/python/util:nest",
         "//tensorflow/python/util:object_identity",
     ],

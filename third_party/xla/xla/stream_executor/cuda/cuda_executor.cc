@@ -13,12 +13,16 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include <unistd.h>
-
 #include <cstdint>
 #include <memory>
 #include <utility>
 
+#if defined(PLATFORM_WINDOWS)
+#include <windows.h>
+#define PATH_MAX MAX_PATH
+#else
+#include <unistd.h>
+#endif
 #include "absl/functional/any_invocable.h"
 #include "absl/status/status.h"
 #include "absl/strings/ascii.h"
@@ -433,7 +437,12 @@ tsl::Status GpuExecutor::Launch(Stream* stream, const ThreadDim& thread_dims,
         cufunc, cuda_kernel->GetGpuCacheConfig()));
   }
 
-  void** kernel_params = const_cast<void**>(args.argument_addresses().data());
+  auto* packed_args = DynCast<KernelArgsPackedArrayBase>(&args);
+  if (!packed_args)
+    return absl::InternalError("Unsupported kernel arguments type");
+
+  void** kernel_params =
+      const_cast<void**>(packed_args->argument_addresses().data());
 
   return GpuDriver::LaunchKernel(context_, kernel.name(), cufunc, block_dims.x,
                                  block_dims.y, block_dims.z, thread_dims.x,
@@ -886,6 +895,10 @@ GpuContext* GpuExecutor::gpu_context() { return context_; }
 // turn to gsys' topology modeling.
 static int TryToReadNumaNode(const std::string& pci_bus_id,
                              int device_ordinal) {
+#if defined(PLATFORM_WINDOWS)
+  // Windows support for NUMA is not currently implemented. Return node 0.
+  return 0;
+#else
   VLOG(2) << "trying to read NUMA node for device ordinal: " << device_ordinal;
   static const int kUnknownNumaNode = -1;
 
@@ -936,6 +949,7 @@ static int TryToReadNumaNode(const std::string& pci_bus_id,
 
   fclose(file);
   return kUnknownNumaNode;
+#endif
 }
 
 tsl::StatusOr<std::unique_ptr<DeviceDescription>>

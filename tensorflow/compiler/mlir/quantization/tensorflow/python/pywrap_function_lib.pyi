@@ -13,6 +13,20 @@
 # limitations under the License.
 # ==============================================================================
 class PyFunctionLibrary:
+
+  # LINT.IfChange(assign_ids_to_custom_aggregator_ops)
   def assign_ids_to_custom_aggregator_ops(
       self, exported_model_serialized: bytes
   ) -> bytes: ...
+  # LINT.ThenChange()
+
+  # LINT.IfChange(save_exported_model)
+  def save_exported_model(
+      self,
+      dst_saved_model_path: str,
+      exported_model_serialized: bytes,
+      src_saved_model_path: str,
+      tags: set[str],
+      serialized_signature_def_map: dict[str, bytes],
+  ) -> None: ...
+  # LINT.ThenChange()
