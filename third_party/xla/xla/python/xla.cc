@@ -480,14 +480,24 @@ static void Init(py::module_& m) {
                &PyClient::MakePythonCallbackUsingHostSendAndRecv),
            py::arg("callable"), py::arg("operand_shapes"),
            py::arg("result_shapes"), py::arg("send_channel_ids"),
-           py::arg("recv_channel_ids"), py::arg("serializer") = py::none());
+           py::arg("recv_channel_ids"), py::arg("serializer") = py::none())
+      .def("__getattr__", [](PyClient& client, std::string name) -> py::object {
+        const auto& attrs = client.attributes();
+        auto it = attrs.find(name);
+        if (it != attrs.end()) {
+          return std::visit([](auto&& v) { return py::cast(v); }, it->second);
+        }
+        throw py::attribute_error(absl::StrCat("Unknown attribute ", name));
+      });
 
   m.def(
       "get_tfrt_cpu_client",
       [](bool asynchronous) -> std::shared_ptr<PyClient> {
         py::gil_scoped_release gil_release;
+        CpuClientOptions options;
+        options.asynchronous = asynchronous;
         std::unique_ptr<PjRtClient> client =
-            xla::ValueOrThrow(GetTfrtCpuClient(asynchronous));
+            xla::ValueOrThrow(GetTfrtCpuClient(options));
         return std::make_shared<PyClient>(
             ifrt::PjRtClient::Create(std::move(client)));
       },

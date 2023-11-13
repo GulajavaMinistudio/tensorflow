@@ -162,7 +162,7 @@ tsl::Status GpuCommandBuffer::CheckPrimary() {
 
 tsl::Status GpuCommandBuffer::Launch(const ThreadDim& threads,
                                      const BlockDim& blocks,
-                                     const KernelBase& kernel,
+                                     const Kernel& kernel,
                                      const KernelArgsArrayBase& args) {
   TF_RETURN_IF_ERROR(CheckNotFinalized());
 
@@ -203,12 +203,18 @@ tsl::Status GpuCommandBuffer::AddNestedCommandBuffer(
   TF_RETURN_IF_ERROR(CheckNotFinalized());
   TF_RETURN_IF_ERROR(CheckPrimary());
 
+  GpuGraphHandle child_graph = GpuCommandBuffer::Cast(&nested)->graph();
   // Adds a child graph node to the graph under construction.
   if (state_ == State::kCreate) {
     absl::Span<GpuGraphNodeHandle> deps = GetDependencies();
     GpuGraphNodeHandle* node = &nodes_.emplace_back();
-    return GpuDriver::GraphAddChildNode(
-        node, graph_, deps, GpuCommandBuffer::Cast(&nested)->graph());
+    return GpuDriver::GraphAddChildNode(node, graph_, deps, child_graph);
+  }
+
+  // Updates child graph node in the executable graph.
+  if (state_ == State::kUpdate) {
+    GpuGraphNodeHandle node = nodes_[node_update_idx_++];
+    return GpuDriver::GraphExecChildNodeSetParams(exec_, node, child_graph);
   }
 
   return UnsupportedStateError(state_);
@@ -271,12 +277,14 @@ tsl::Status GpuCommandBuffer::Update() {
         "Command buffer has to be finalized first before it can be updated");
   }
 
-  // TODO(ezhulenev): Add support for updating nested command buffers. Today
-  // we only support updating primary command buffers as we need a non null
-  // executable graph.
   if (exec_ == nullptr) {
+    if (mode_ == Mode::kPrimary)
+      return absl::InternalError(
+          "Primary command buffers are expected to have executable graphs");
     return absl::UnimplementedError(
-        "Nested command buffer update is not implemented");
+        "Nested command buffer update is deliberately not implemented. One "
+        "should create a new nested command buffer and update the primary one "
+        "instead");
   }
 
   VLOG(5) << "Begin primary command buffer update for executable graph "
