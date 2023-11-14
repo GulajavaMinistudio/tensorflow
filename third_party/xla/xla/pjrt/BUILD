@@ -302,6 +302,7 @@ cc_library(
         ":pjrt_device_description",
         ":pjrt_executable",
         "//xla/client:xla_computation",
+        "//xla/service:hlo_parser",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/status",
@@ -344,6 +345,7 @@ cc_library(
     hdrs = ["utils.h"],
     visibility = ["//visibility:public"],
     deps = [
+        ":layout_mode",
         "//xla:shape_util",
         "//xla:status",
         "//xla:status_macros",
@@ -359,10 +361,26 @@ cc_library(
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:span",
+        "@llvm-project//mlir:FuncDialect",
+        "@llvm-project//mlir:IR",
         "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:logging",
         "@local_tsl//tsl/platform:platform_port",
         "@local_tsl//tsl/platform:statusor",
+    ],
+)
+
+cc_library(
+    name = "layout_mode",
+    srcs = ["layout_mode.cc"],
+    hdrs = ["layout_mode.h"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//xla:shape_util",
+        "//xla:status",
+        "//xla:statusor",
+        "//xla/service:hlo_parser",
+        "@com_google_absl//absl/strings",
     ],
 )
 
@@ -565,6 +583,7 @@ cc_library(
         "//xla/runtime:cpu_event",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/container:inlined_vector",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/types:span",
         "@local_tsl//tsl/concurrency:async_value",
@@ -659,6 +678,7 @@ cc_library(
         "//xla/client:executable_build_options",
         "//xla/client:xla_computation",
         "//xla/hlo/ir:hlo",
+        "//xla/pjrt/distributed:topology_util",
         "//xla/runtime:cpu_event",
         "//xla/service:buffer_assignment",
         "//xla/service:compiler",
@@ -687,6 +707,7 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:span",
         "@eigen_archive//:eigen3",  # TODO(zhangqiaorjc): Remove if use TFRT threadpool.
         "@llvm-project//mlir:IR",
