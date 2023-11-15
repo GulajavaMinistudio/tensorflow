@@ -22,6 +22,7 @@ limitations under the License.
 #include <optional>
 #include <set>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -41,7 +42,6 @@ limitations under the License.
 #include "absl/strings/ascii.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
-#include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "pybind11/attr.h"  // from @pybind11
 #include "pybind11/cast.h"  // from @pybind11
@@ -493,38 +493,16 @@ static void Init(py::module_& m) {
 
   m.def(
       "get_tfrt_cpu_client",
-      [](bool asynchronous,
-         std::shared_ptr<DistributedRuntimeClient> distributed_client,
-         int node_id, int num_nodes) -> std::shared_ptr<PyClient> {
+      [](bool asynchronous) -> std::shared_ptr<PyClient> {
         py::gil_scoped_release gil_release;
         CpuClientOptions options;
-        if (distributed_client != nullptr) {
-          std::string key_prefix = "cpu:";
-          options.kv_get =
-              [distributed_client, key_prefix](
-                  const std::string& k,
-                  absl::Duration timeout) -> xla::StatusOr<std::string> {
-            return distributed_client->BlockingKeyValueGet(
-                absl::StrCat(key_prefix, k), timeout);
-          };
-          options.kv_put = [distributed_client, key_prefix](
-                               const std::string& k,
-                               const std::string& v) -> xla::Status {
-            return distributed_client->KeyValueSet(absl::StrCat(key_prefix, k),
-                                                   v);
-          };
-          options.node_id = node_id;
-          options.num_nodes = num_nodes;
-        }
-
         options.asynchronous = asynchronous;
         std::unique_ptr<PjRtClient> client =
             xla::ValueOrThrow(GetTfrtCpuClient(options));
         return std::make_shared<PyClient>(
             ifrt::PjRtClient::Create(std::move(client)));
       },
-      py::arg("asynchronous") = true, py::arg("distributed_client") = nullptr,
-      py::arg("node_id") = 0, py::arg("num_nodes") = 1);
+      py::arg("asynchronous") = true);
   m.def("pjrt_plugin_loaded", [](std::string platform_name) -> bool {
     xla::StatusOr<const PJRT_Api*> pjrt_api = pjrt::PjrtApi(platform_name);
     return pjrt_api.ok();
@@ -569,14 +547,13 @@ static void Init(py::module_& m) {
           // Use the plugin name as key prefix.
           std::string key_prefix = "gpu:";
           kv_get = [distributed_client, key_prefix](
-                       const std::string& k,
+                       std::string_view k,
                        absl::Duration timeout) -> xla::StatusOr<std::string> {
             return distributed_client->BlockingKeyValueGet(
                 absl::StrCat(key_prefix, k), timeout);
           };
           kv_put = [distributed_client, key_prefix](
-                       const std::string& k,
-                       const std::string& v) -> xla::Status {
+                       std::string_view k, std::string_view v) -> xla::Status {
             return distributed_client->KeyValueSet(absl::StrCat(key_prefix, k),
                                                    v);
           };
@@ -607,13 +584,13 @@ static void Init(py::module_& m) {
         PjRtClient::KeyValueGetCallback kv_get = nullptr;
         PjRtClient::KeyValuePutCallback kv_put = nullptr;
         if (distributed_client != nullptr) {
-          kv_get = [distributed_client, platform_name](const std::string& k,
+          kv_get = [distributed_client, platform_name](std::string_view k,
                                                        absl::Duration timeout) {
             return distributed_client->BlockingKeyValueGet(
                 absl::StrCat(platform_name, ":", k), timeout);
           };
-          kv_put = [distributed_client, platform_name](const std::string& k,
-                                                       const std::string& v) {
+          kv_put = [distributed_client, platform_name](std::string_view k,
+                                                       std::string_view v) {
             return distributed_client->KeyValueSet(
                 absl::StrCat(platform_name, ":", k), v);
           };
