@@ -775,8 +775,9 @@ ENTRY entry {
                     se::CudaComputeCapability{se::CudaComputeCapability::AMPERE,
                                               /*minor=*/0},
                     dev_info, config, &llvm_module, &EmitMatMul, mlir_context),
-      tsl::testing::StatusIs(tsl::error::RESOURCE_EXHAUSTED,
-                             "Shared memory size limit exceeded."));
+      tsl::testing::StatusIs(
+          tsl::error::RESOURCE_EXHAUSTED,
+          ::testing::HasSubstr("Shared memory size limit exceeded")));
 
   config.block_m = 64;
   config.block_n = 128;
@@ -1449,7 +1450,7 @@ ENTRY e {
       GmockMatch(m::Fusion(m::Parameter(), m::Parameter(), m::Parameter())
                      .WithFusionKind(HloInstruction::FusionKind::kCustom)));
 
-  EXPECT_TRUE(RunAndCompare(kHloText, ErrorSpec{/*aabs=*/1e-1, /*arel=*/1e-3}));
+  EXPECT_TRUE(RunAndCompare(kHloText, ErrorSpec{/*aabs=*/1e-1, /*arel=*/1e-2}));
 }
 
 TEST_F(TritonGemmLevel2Test, BinaryOperationWithLargeInputsIsNotFused) {

@@ -521,7 +521,8 @@ Status GpuCompiler::OptimizeHloModule(HloModule* hlo_module,
         /*is_spmd=*/true, /*propagate_metadata=*/false,
         hlo_module->config().allow_spmd_sharding_propagation_to_output());
     spmd_pipeline.AddPass<spmd::StatefulRngSpmdPartitioner>(
-        num_partitions, hlo_module->config().replica_count());
+        num_partitions, hlo_module->config().replica_count(),
+        debug_options.xla_gpu_threshold_for_windowed_einsum_mib());
     spmd_pipeline.AddPass<CollectivePermuteMotion>();
     TF_RETURN_IF_ERROR(spmd_pipeline.Run(hlo_module).status());
   } else {
@@ -1669,15 +1670,12 @@ StatusOr<std::unique_ptr<Executable>> GpuCompiler::RunBackend(
   }
 
   std::shared_ptr<BufferAssignment> buffer_assignment;
-  std::unique_ptr<BufferAssignmentProto> buffer_assignment_proto;
   std::function<std::string()> buffer_assignment_dumper = [] {
     return std::string();
   };
   if (!options.is_autotuning_compilation) {
     // Make it shared to be captured in the later lambda.
     buffer_assignment = std::move(res.compile_module_results.buffer_assignment);
-    buffer_assignment_proto =
-        std::make_unique<BufferAssignmentProto>(buffer_assignment->ToProto());
     size_t max_buffers_to_show =
         module->config().debug_options().xla_debug_buffer_assignment_show_max();
     buffer_assignment_dumper = [buffer_assignment, max_buffers_to_show] {
@@ -1723,7 +1721,7 @@ StatusOr<std::unique_ptr<Executable>> GpuCompiler::RunBackend(
           module->config()
               .debug_options()
               .xla_gpu_enable_persistent_temp_buffers(),
-          /*debug_buffer_assignment=*/std::move(buffer_assignment_proto),
+          /*debug_buffer_assignment=*/std::move(buffer_assignment),
           /*verbose_buffer_assignment_string_dumper=*/
           std::move(buffer_assignment_dumper),
           /*debug_module=*/options.is_autotuning_compilation
@@ -1743,10 +1741,11 @@ StatusOr<std::unique_ptr<Executable>> GpuCompiler::RunBackend(
     // Dump computation proto state and buffer assignment for
     // CompiledMemoryAnalysis.
     auto hlo_proto = std::make_unique<HloProto>();
-    *hlo_proto->mutable_hlo_module() = gpu_executable->module().ToProto();
-    *hlo_proto->mutable_buffer_assignment() = buffer_assignment->ToProto();
+    *hlo_proto->mutable_buffer_assignment() =
+        gpu_executable->buffer_assignment()->ToProto();
     gpu_executable->set_hlo_proto(std::move(hlo_proto));
-    gpu_executable->set_debug_info(buffer_assignment->GetStats().ToString());
+    gpu_executable->set_debug_info(
+        gpu_executable->buffer_assignment()->GetStats().ToString());
   }
 
   return static_cast<std::unique_ptr<Executable>>(std::move(gpu_executable));

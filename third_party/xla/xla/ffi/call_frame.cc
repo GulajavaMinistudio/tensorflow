@@ -25,6 +25,7 @@ limitations under the License.
 #include <vector>
 
 #include "absl/algorithm/container.h"
+#include "absl/log/check.h"
 #include "absl/types/span.h"
 #include "xla/ffi/api/c_api.h"
 #include "xla/ffi/api/c_api_internal.h"  // IWYU pragma: keep
@@ -44,6 +45,10 @@ void CallFrameBuilder::AddBufferArg(se::DeviceMemoryBase memory,
 }
 
 void CallFrameBuilder::AddI32Attr(std::string name, int32_t value) {
+  attrs_.try_emplace(std::move(name), value);
+}
+
+void CallFrameBuilder::AddI64Attr(std::string name, int64_t value) {
   attrs_.try_emplace(std::move(name), value);
 }
 
@@ -166,12 +171,37 @@ CallFrame::~CallFrame() = default;
     absl::Span<const CallFrameBuilder::Buffer> bargs) {
   auto res = std::make_unique<Arguments>(bargs.size());
 
+  // We rely on casting to and from underlying integral type to convert from
+  // PrimitiveType to XLA FFI DataType, and for safety convert all unknown types
+  // to invalid type, otherwise we can accidentally cause UB.
+  auto to_data_type = [](PrimitiveType primitive_type) {
+    switch (primitive_type) {
+      case PrimitiveType::PRIMITIVE_TYPE_INVALID:
+      case PrimitiveType::S8:
+      case PrimitiveType::S16:
+      case PrimitiveType::S32:
+      case PrimitiveType::S64:
+      case PrimitiveType::U8:
+      case PrimitiveType::U16:
+      case PrimitiveType::U32:
+      case PrimitiveType::U64:
+      case PrimitiveType::F16:
+      case PrimitiveType::F32:
+      case PrimitiveType::F64:
+      case PrimitiveType::BF16:
+        return static_cast<XLA_FFI_DataType>(primitive_type);
+      default:
+        DCHECK(false) << "Unsupported primitive type" << primitive_type;
+        return XLA_FFI_DataType_INVALID;
+    }
+  };
+
   // Convert call frame builder arguments to call frame arguments.
   for (const CallFrameBuilder::Buffer& barg : bargs) {
     Buffer buffer;
     buffer.dims = barg.dims;
     buffer.buffer.data = const_cast<void*>(barg.memory.opaque());
-    buffer.buffer.primitive_type = static_cast<uint8_t>(barg.type);
+    buffer.buffer.dtype = to_data_type(barg.type);
     buffer.buffer.rank = buffer.dims.size();
     res->arguments.push_back(std::move(buffer));
   }
@@ -228,6 +258,8 @@ struct CallFrame::FixupAttribute {
 // An std::visit overload set to get CallFrame::Attribute XLA FFI type.
 struct CallFrame::AttributeType {
   XLA_FFI_AttrType operator()(int32_t&) { return XLA_FFI_AttrType_I32; }
+
+  XLA_FFI_AttrType operator()(int64_t&) { return XLA_FFI_AttrType_I64; }
 
   XLA_FFI_AttrType operator()(float&) { return XLA_FFI_AttrType_F32; }
 
