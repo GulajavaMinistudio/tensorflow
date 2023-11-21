@@ -31,6 +31,7 @@ limitations under the License.
 
 #include "absl/functional/any_invocable.h"
 #include "absl/status/status.h"
+#include "absl/types/span.h"
 #include "xla/stream_executor/allocator_stats.h"
 #include "xla/stream_executor/blas.h"
 #include "xla/stream_executor/command_buffer.h"
@@ -140,6 +141,15 @@ class CommandBufferInterface {
                                            const DeviceMemoryBase& src,
                                            uint64_t size) = 0;
 
+  // For all conditional command APIs defined below, nested command buffers
+  // constructed for conditional branches owned by *this and should never be
+  // finalized or updated inside builders.
+
+  // Adds a conditional operation that will run a command buffer constructed by
+  // `then_builder` if `predicate` value is `true`.
+  virtual tsl::Status If(StreamExecutor* executor, DeviceMemory<bool> predicate,
+                         CommandBuffer::Builder then_builder) = 0;
+
   // Finalizes command buffer and makes it executable. Once command buffer is
   // finalized no commands can be added to it.
   virtual tsl::Status Finalize() = 0;
@@ -241,7 +251,7 @@ class StreamExecutorInterface {
     return absl::UnimplementedError("Not Implemented");
   }
   virtual tsl::StatusOr<std::shared_ptr<DeviceMemoryBase>>
-  CreateOrShareConstant(Stream* stream, const std::vector<uint8_t>& content) {
+  CreateOrShareConstant(Stream* stream, absl::Span<const uint8_t> content) {
     return absl::UnimplementedError("Not Implemented");
   }
   virtual tsl::Status Launch(Stream* stream, const ThreadDim& thread_dims,

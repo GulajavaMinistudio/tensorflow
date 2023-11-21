@@ -114,6 +114,7 @@ limitations under the License.
 #include "xla/service/gpu/alias_passthrough_params.h"
 #include "xla/service/gpu/all_reduce_blueconnect.h"
 #include "xla/service/gpu/autotuner_util.h"
+#include "xla/service/gpu/command_buffer_scheduling.h"
 #include "xla/service/gpu/compile_module_to_llvm_ir.h"
 #include "xla/service/gpu/conv_layout_normalization.h"
 #include "xla/service/gpu/copy_fusion.h"
@@ -286,7 +287,8 @@ class GpuAotCompilationResult : public AotCompilationResult {
       auto* cst_proto = xla_runtime_gpu_executable_.add_constants();
       cst_proto->set_symbol_name(cst.symbol_name);
       cst_proto->set_allocation_index(cst.allocation_index);
-      cst_proto->set_content(cst.content.data(), cst.content.size());
+      cst_proto->set_content(cst.content.span().data(),
+                             cst.content.span().size());
     }
   }
 
@@ -332,7 +334,8 @@ StatusOr<std::unique_ptr<Executable>> GpuAotCompilationResult::LoadExecutable(
   for (auto& cst : xla_runtime_gpu_executable_.constants()) {
     GpuExecutable::ConstantInfo constant = {
         cst.symbol_name(),
-        {cst.content().begin(), cst.content().end()},
+        DenseDataIntermediate::Own(
+            std::vector<uint8_t>{cst.content().begin(), cst.content().end()}),
         cst.allocation_index()};
     constants.push_back(std::move(constant));
   }
@@ -1564,6 +1567,13 @@ GpuCompiler::CompileToBackendResult(
       GetSchedulerMemoryLimit(module, gpu_device_info, pointer_size_);
   TF_RETURN_IF_ERROR(ScheduleGpuModule(module, pointer_size_,
                                        scheduler_mem_limit, gpu_device_info));
+
+  if (!IsXlaRuntimeExecutableEnabled(module->config())) {
+    HloPassPipeline pipeline("command-buffer-scheduling");
+    pipeline.AddPass<CommandBufferScheduling>();
+    TF_RETURN_IF_ERROR(pipeline.Run(module).status());
+  }
+
   TF_RETURN_IF_ERROR(RunPostSchedulingPipelines(module, scheduler_mem_limit));
 
   TF_ASSIGN_OR_RETURN(se::Platform * platform,
@@ -1686,13 +1696,10 @@ StatusOr<std::unique_ptr<Executable>> GpuCompiler::RunBackend(
   std::vector<BufferAllocation> allocations;
   if (res.compile_module_results.use_original_allocations) {
     if (!options.is_autotuning_compilation) {
-      std::vector<BufferAllocation> original_allocations =
-          buffer_assignment->ReleaseAllocations();
-      allocations = std::move(original_allocations);
+      allocations = buffer_assignment->ReleaseAllocations();
     } else {
-      std::vector<BufferAllocation> original_allocations =
+      allocations =
           res.compile_module_results.buffer_assignment->ReleaseAllocations();
-      allocations = std::move(original_allocations);
     }
   } else {
     allocations = std::move(res.compile_module_results.allocations);
