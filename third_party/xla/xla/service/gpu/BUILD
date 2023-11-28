@@ -332,6 +332,7 @@ cc_library(
         "//xla/service/gpu/kernels:custom_fusion",
         "//xla/service/gpu/kernels:custom_kernel",
         "//xla/service/gpu/runtime3:command_buffer_cmd",
+        "//xla/service/gpu/runtime3:command_buffer_cmd_emitter",
         "//xla/service/gpu/runtime3:command_buffer_thunk",
         "//xla/service/gpu/runtime3:custom_call_thunk",
         "//xla/service/gpu/runtime3:fft_thunk",
@@ -474,7 +475,10 @@ cc_library(
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:cord",
+        "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/types:span",
         "@llvm-project//llvm:Linker",
         "@llvm-project//llvm:Support",
@@ -577,7 +581,7 @@ xla_test(
     ],
     tags = [
         "large",
-        "no_oss",
+        "no_oss",  # requires-mem:16g tag doesn't work in open source
         "nomac",
         "requires-mem:16g",
     ],
@@ -1298,6 +1302,7 @@ cc_library(
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/container:inlined_vector",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
@@ -1564,21 +1569,25 @@ cc_library(
     ]),
 )
 
-xla_cc_test(
+xla_test(
     name = "gemm_algorithm_picker_test",
-    srcs = ["gemm_algorithm_picker_test.cc"],
-    tags = [
+    srcs = if_gpu_is_configured(["gemm_algorithm_picker_test.cc"]),
+    backend_tags = {
+        "gpu": [
+            "requires-gpu-nvidia",
+            "noasan",
+            "nomsan",
+            "requires-gpu-sm70-only",
+        ],
+    },
+    backends = [
         "gpu",
-        "no_oss",
-        "noasan",
-        "nomsan",
-        "requires-gpu-sm70",
+        "gpu_v100",
     ],
     deps = [
         ":backend_configs_cc",
         ":gemm_algorithm_picker",
         ":gemm_rewriter",
-        "//xla/service:gpu_plugin",
         "//xla/service:pattern_matcher",
         "//xla/service:pattern_matcher_gmock",
         "//xla/stream_executor:device_description",
@@ -1774,20 +1783,24 @@ cc_library(
     ]),
 )
 
-xla_cc_test(
+xla_test(
     name = "conv_algorithm_picker_test",
     srcs = if_gpu_is_configured(["conv_algorithm_picker_test.cc"]),
-    tags = [
+    backend_tags = {
+        "gpu": [
+            "requires-gpu-nvidia",
+            "noasan",
+            "nomsan",
+            "requires-gpu-sm70-only",
+        ],
+    },
+    backends = [
         "gpu",
-        "no_oss",
-        "noasan",
-        "nomsan",
-        "requires-gpu-sm70",
+        "gpu_v100",
     ],
     deps = [
         ":conv_algorithm_picker",
         ":gpu_conv_rewriter",
-        "//xla/service:gpu_plugin",
         "//xla/service:pattern_matcher",
         "//xla/service:pattern_matcher_gmock",
         "//xla/service:tuple_simplifier",
@@ -4881,7 +4894,10 @@ xla_cc_test(
 xla_cc_test(
     name = "determinism_test",
     srcs = ["determinism_test.cc"],
-    tags = tf_cuda_tests_tags(),
+    local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]) + if_rocm_is_configured([
+        "TENSORFLOW_USE_ROCM=1",
+    ]),
+    tags = tf_gpu_tests_tags(),
     deps = [
         ":autotuner_util",
         "//xla:literal",
