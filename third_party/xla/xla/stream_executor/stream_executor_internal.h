@@ -99,6 +99,13 @@ class KernelInterface {
   // Gets the preferred cache configuration.
   virtual KernelCacheConfig GetPreferredCacheConfig() const = 0;
 
+  // Returns the maximum number of blocks (per multiprocessor) occupied by the
+  // kernel given the number of threads per block and shared memory size.
+  virtual tsl::StatusOr<int32_t> GetMaxOccupiedBlocksPerCore(
+      ThreadDim threads, size_t dynamic_shared_memory_bytes) const {
+    return absl::UnimplementedError("Not Implemented");
+  }
+
  private:
   KernelInterface(const KernelInterface&) = delete;
   void operator=(const KernelInterface&) = delete;
@@ -140,6 +147,14 @@ class CommandBufferInterface {
   virtual tsl::Status MemcpyDeviceToDevice(DeviceMemoryBase* dst,
                                            const DeviceMemoryBase& src,
                                            uint64_t size) = 0;
+
+  // Adds a memset node to the command buffer.
+  virtual tsl::Status Memset(DeviceMemoryBase* dst,
+                             CommandBuffer::BitPattern bit_pattern,
+                             size_t num_elements) = 0;
+
+  // Adds a device memory allocation node to the command buffer.
+  virtual tsl::StatusOr<DeviceMemoryBase> Allocate(size_t bytes) = 0;
 
   // For all conditional command APIs defined below, nested command buffers
   // constructed for conditional branches owned by *this and should never be
@@ -188,6 +203,10 @@ class CommandBufferInterface {
   virtual tsl::Status While(StreamExecutor* executor, DeviceMemory<bool> pred,
                             CommandBuffer::Builder cond_builder,
                             CommandBuffer::Builder body_builder) = 0;
+
+  // Adds a device memory free command to the command buffer, buffer is
+  // allocated in other command buffer, free through real address.
+  virtual tsl::Status Free(DeviceMemoryBase dst) = 0;
 
   // Finalizes command buffer and makes it executable. Once command buffer is
   // finalized no commands can be added to it.
@@ -279,6 +298,8 @@ class StreamExecutorInterface {
   virtual std::optional<std::string> MakeDeviceDescriptionStr() const {
     return std::nullopt;
   }
+
+  virtual int device_ordinal() const { return -1; }
 
   virtual tsl::Status GetKernel(const MultiKernelLoaderSpec& spec,
                                 Kernel* kernel) {

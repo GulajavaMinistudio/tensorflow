@@ -52,3 +52,40 @@ tf_cc_test(
         "@local_tsl//tsl/platform:types",
     ],
 )
+
+cc_library(
+    name = "graph_def",
+    srcs = [],
+    hdrs = ["graph_def.h"],
+    compatible_with = get_compatible_with_portable(),
+    deps = [
+        "//tensorflow/core:protos_all_cc",
+    ],
+)
+
+tf_cc_test(
+    name = "graph_def_test",
+    srcs = ["graph_def_test.cc"],
+    deps = [
+        ":graph_def",
+        "//tensorflow/core:protos_all_cc",
+        "@com_google_googletest//:gtest_main",
+        "@local_tsl//tsl/platform:protobuf",
+    ],
+)
+
+cc_library(
+    name = "debugger",
+    srcs = ["debugger.cc"],
+    hdrs = ["debugger.h"],
+    compatible_with = get_compatible_with_portable(),
+    deps = [
+        "//tensorflow/compiler/mlir/quantization/stablehlo/cc:graph_def",
+        "//tensorflow/compiler/mlir/quantization/tensorflow:exported_model_proto_cc",
+        "//tensorflow/compiler/mlir/quantization/tensorflow:quantization_options_proto_cc",
+        "//tensorflow/compiler/mlir/quantization/tensorflow/python:py_function_lib",
+        "//tensorflow/core:protos_all_cc",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/strings:string_view",
+    ],
+)

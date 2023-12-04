@@ -16,9 +16,11 @@ limitations under the License.
 #ifndef XLA_STREAM_EXECUTOR_COMMAND_BUFFER_H_
 #define XLA_STREAM_EXECUTOR_COMMAND_BUFFER_H_
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <variant>
 #include <vector>
 
 #include "absl/functional/any_invocable.h"
@@ -123,6 +125,11 @@ class CommandBuffer {
   tsl::Status MemcpyDeviceToDevice(DeviceMemoryBase* dst,
                                    const DeviceMemoryBase& src, uint64_t size);
 
+  // Adds a memset node to the command buffer.
+  using BitPattern = std::variant<uint8_t, uint16_t, uint32_t>;
+  tsl::Status Memset(DeviceMemoryBase* dst, BitPattern bit_pattern,
+                     size_t num_elements);
+
   //--------------------------------------------------------------------------//
   // Command buffer condtitional commands API
   //--------------------------------------------------------------------------//
@@ -147,14 +154,17 @@ class CommandBuffer {
                    std::vector<Builder> branches);
 
   // Adds a conditional operation that will execute a command buffer constructed
-  // by the `body_builder` exactly `num_iteration` times.
+  // by the `body_builder` exactly `num_iteration` times. This means the
+  // condition is known at compile time (`num_iteration` < `loop_counter`), and
+  // does not require a `cond_builder`.
   tsl::Status For(StreamExecutor* executor, int32_t num_iteration,
-                  DeviceMemory<int32_t> loop_index, Builder body_builder);
+                  DeviceMemory<int32_t> loop_counter, Builder body_builder);
 
   // Adds a conditional operation that will execute a command buffer constructed
   // by the `cond_builder` that must update `pred` value, and then depending on
   // the value might execute command buffer constructed by `body_builder` and
-  // `cond_builder`. Will continue while `pred` value is `true`.
+  // `cond_builder`. Will continue while `pred` value (which is continuously
+  // updated by `cond_builder`) is `true`.
   //
   // In pseudocode:
   //
@@ -167,6 +177,12 @@ class CommandBuffer {
                     Builder cond_builder, Builder body_builder);
 
   //--------------------------------------------------------------------------//
+
+  // Adds a device memory allocation command to the command buffer.
+  tsl::StatusOr<DeviceMemoryBase> Allocate(size_t bytes);
+
+  // This API free buffer that is allocated by Allocate command
+  tsl::Status Free(DeviceMemoryBase dst);
 
   // Finalizes command buffer and makes it executable. Once command buffer is
   // finalized no commands can be added to it.
@@ -198,16 +214,30 @@ class CommandBuffer {
   const internal::CommandBufferInterface* implementation() const;
   internal::CommandBufferInterface* implementation();
 
-  // Wraps platform-specific command buffer implementation into a top-level
-  // StreamExecutor command buffer.
-  static CommandBuffer Wrap(
+  // Creates a command buffer from a platform-specific command buffer
+  // implementation.
+  static CommandBuffer Create(
       std::unique_ptr<internal::CommandBufferInterface> implementation);
+
+  // An adaptor for a command buffer builder that records commands into the
+  // platform-specific implementation
+  static tsl::Status Build(internal::CommandBufferInterface* implementation,
+                           const CommandBuffer::Builder& builder);
 
  private:
   explicit CommandBuffer(
       std::unique_ptr<internal::CommandBufferInterface> implementation);
 
-  std::unique_ptr<internal::CommandBufferInterface> implementation_;
+  explicit CommandBuffer(internal::CommandBufferInterface* implementation);
+
+  // A custom deleter to be able to construct command buffer that doesn't own
+  // underlying implementation (behaves like std::weak_ptr for implementation).
+  struct Deleter {
+    void operator()(internal::CommandBufferInterface*);
+    bool owned = true;
+  };
+
+  std::unique_ptr<internal::CommandBufferInterface, Deleter> implementation_;
 
   CommandBuffer(const CommandBuffer&) = delete;
   void operator=(const CommandBuffer&) = delete;

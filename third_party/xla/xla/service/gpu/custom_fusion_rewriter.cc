@@ -19,6 +19,7 @@ limitations under the License.
 #include <utility>
 #include <vector>
 
+#include "absl/algorithm/container.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/container/inlined_vector.h"
@@ -31,14 +32,16 @@ limitations under the License.
 #include "xla/hlo/ir/hlo_module.h"
 #include "xla/service/gpu/kernels/custom_fusion_pattern.h"
 #include "xla/statusor.h"
+#include "xla/stream_executor/device_description.h"
 #include "tsl/platform/errors.h"
 #include "tsl/platform/logging.h"
 
 namespace xla::gpu {
 
 CustomFusionRewriter::CustomFusionRewriter(
+    const se::DeviceDescription* device,
     const CustomFusionPatternRegistry* patterns)
-    : patterns_(patterns) {}
+    : device_(device), patterns_(patterns) {}
 
 // Returns instructions that have to become custom fusion parameters. Returns an
 // error if matched pattern can't be outlined as a fusion.
@@ -66,7 +69,10 @@ static StatusOr<absl::InlinedVector<HloInstruction*, 4>> GetPatternCaptures(
   // Collect instructions captured by a matched pattern.
   for (HloInstruction* instr : match.instructions) {
     for (HloInstruction* operand : instr->operands()) {
-      if (!instructions_set.contains(operand)) captures.push_back(operand);
+      if (!instructions_set.contains(operand) &&
+          absl::c_find(captures, operand) == captures.end()) {
+        captures.push_back(operand);
+      }
     }
   }
 
@@ -140,7 +146,7 @@ StatusOr<bool> CustomFusionRewriter::Run(
   // Collect all potential custom fusion matches in the module.
   for (HloComputation* computation : module->computations()) {
     for (HloInstruction* instr : computation->instructions()) {
-      auto matched = patterns_->Match(instr);
+      auto matched = patterns_->Match(*device_, instr);
       matches.insert(matches.end(), matched.begin(), matched.end());
     }
   }

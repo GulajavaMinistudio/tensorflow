@@ -25,7 +25,6 @@ package(
     licenses = ["notice"],
 )
 
-# TODO(b/264218457): Add quantize and post_quantize passes.
 cc_library(
     name = "passes",
     srcs = [
@@ -104,9 +103,6 @@ cc_library(
         "@stablehlo//:chlo_ops",
         "@stablehlo//:stablehlo_ops",
     ],
-    # Alwayslink is required for registering the MLIR passes.
-    # TODO(b/255530126): Split the pass registration from the definitions to avoid binary size bloat.
-    alwayslink = True,
 )
 
 cc_library(
@@ -132,9 +128,6 @@ cc_library(
         "@llvm-project//mlir:QuantOps",
         "@llvm-project//mlir:Support",
     ],
-    # Alwayslink is required for registering the MLIR passes.
-    # TODO(b/255530126): Split the pass registration from the definitions to avoid binary size bloat.
-    alwayslink = True,
 )
 
 td_library(
@@ -255,8 +248,6 @@ cc_library(
         "@local_xla//xla/translate/hlo_to_mhlo:attribute_importer",
         "@stablehlo//:chlo_ops",
     ],
-    # Force link to ensure ConvertTFQuantOpsToMHLOPass is registered.
-    alwayslink = True,
 )
 
 tf_cc_test(

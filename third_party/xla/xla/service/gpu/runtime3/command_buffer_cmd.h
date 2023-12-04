@@ -29,6 +29,7 @@ limitations under the License.
 #include "xla/service/gpu/buffer_allocations.h"
 #include "xla/service/gpu/launch_dimensions.h"
 #include "xla/service/gpu/matmul_utils.h"
+#include "xla/service/gpu/runtime3/command_buffer_allocations.h"
 #include "xla/service/gpu/thunk.h"
 #include "xla/status.h"
 #include "xla/stream_executor/command_buffer.h"
@@ -53,6 +54,11 @@ class CommandBufferCmd {
   // buffer. For example when we emit command buffer cmd sequence from an HLO
   // module, we only know the buffer slices required for HLO operations, but the
   // concrete device pointers become available only at run time.
+  //
+  // For allocations that performed through command buffer Allocate command, the
+  // target addresses are tracked by command buffer runtime. To record command
+  // that consumes buffers allocated inside command buffer, user should specify
+  // the target address as se::DeviceMemoryBase{nullptr, size}.
   struct RecordParams {
     se::StreamExecutor* executor;
     const BufferAllocations* buffer_allocations;
@@ -190,7 +196,7 @@ class MemcpyDeviceToDeviceCmd : public CommandBufferCmd {
 
 class IfCmd : public CommandBufferCmd {
  public:
-  IfCmd(BufferAllocation::Slice pred, CommandBufferCmdSequence then_cmds);
+  IfCmd(BufferAllocation::Slice pred, CommandBufferCmdSequence then_commands);
 
   Status Initialize(se::StreamExecutor* executor,
                     ExecutableSource source) override;
@@ -202,7 +208,137 @@ class IfCmd : public CommandBufferCmd {
 
  private:
   BufferAllocation::Slice pred_;
-  CommandBufferCmdSequence then_cmds_;
+  CommandBufferCmdSequence then_commands_;
+};
+
+//===----------------------------------------------------------------------===//
+// IfElseCmd
+//===----------------------------------------------------------------------===//
+
+class IfElseCmd : public CommandBufferCmd {
+ public:
+  IfElseCmd(BufferAllocation::Slice pred,
+            CommandBufferCmdSequence then_commands,
+            CommandBufferCmdSequence else_commands);
+
+  Status Initialize(se::StreamExecutor* executor,
+                    ExecutableSource source) override;
+
+  Status Record(const RecordParams& params,
+                se::CommandBuffer* command_buffer) override;
+
+  Slices slices() override;
+
+ private:
+  BufferAllocation::Slice pred_;
+  CommandBufferCmdSequence then_commands_;
+  CommandBufferCmdSequence else_commands_;
+};
+
+//===----------------------------------------------------------------------===//
+// CaseCmd
+//===----------------------------------------------------------------------===//
+
+class CaseCmd : public CommandBufferCmd {
+ public:
+  CaseCmd(BufferAllocation::Slice index,
+          std::vector<CommandBufferCmdSequence> branches_commands);
+
+  Status Initialize(se::StreamExecutor* executor,
+                    ExecutableSource source) override;
+
+  Status Record(const RecordParams& params,
+                se::CommandBuffer* command_buffer) override;
+
+  Slices slices() override;
+
+ private:
+  BufferAllocation::Slice index_;
+  std::vector<CommandBufferCmdSequence> branches_commands_;
+};
+
+//===----------------------------------------------------------------------===//
+// ForCmd
+//===----------------------------------------------------------------------===//
+
+class ForCmd : public CommandBufferCmd {
+ public:
+  ForCmd(int32_t num_iterations, BufferAllocation::Slice loop_counter,
+         CommandBufferCmdSequence body_commands);
+
+  Status Initialize(se::StreamExecutor* executor,
+                    ExecutableSource source) override;
+
+  Status Record(const RecordParams& params,
+                se::CommandBuffer* command_buffer) override;
+
+  Slices slices() override;
+
+ private:
+  int32_t num_iterations_;
+  BufferAllocation::Slice loop_counter_;
+  CommandBufferCmdSequence body_commands_;
+};
+
+//===----------------------------------------------------------------------===//
+// WhileCmd
+//===----------------------------------------------------------------------===//
+
+class WhileCmd : public CommandBufferCmd {
+ public:
+  WhileCmd(BufferAllocation::Slice pred, CommandBufferCmdSequence cond_commands,
+           CommandBufferCmdSequence body_commands);
+
+  Status Initialize(se::StreamExecutor* executor,
+                    ExecutableSource source) override;
+
+  Status Record(const RecordParams& params,
+                se::CommandBuffer* command_buffer) override;
+
+  Slices slices() override;
+
+ private:
+  BufferAllocation::Slice pred_;
+  CommandBufferCmdSequence cond_commands_;
+  CommandBufferCmdSequence body_commands_;
+};
+
+//===----------------------------------------------------------------------===//
+// AllocateCmd
+//===----------------------------------------------------------------------===//
+
+class AllocateCmd : public CommandBufferCmd {
+ public:
+  AllocateCmd(BufferAllocation allocation);
+
+  // After calling this function, the allocated memory is tracked in
+  // CommandBuffer object.
+  Status Record(const RecordParams& params,
+                se::CommandBuffer* command_buffer) override;
+
+  Slices slices() override;
+
+ private:
+  BufferAllocation allocation_;
+};
+
+//===----------------------------------------------------------------------===//
+// FreeCmd
+//===----------------------------------------------------------------------===//
+
+class FreeCmd : public CommandBufferCmd {
+ public:
+  FreeCmd(BufferAllocation allocation);
+
+  // After calling this function, the allocated memory address for dst
+  // BufferAllocation is freed, no update is required.
+  Status Record(const RecordParams& params,
+                se::CommandBuffer* command_buffer) override;
+
+  Slices slices() override;
+
+ private:
+  BufferAllocation allocation_;
 };
 
 //===----------------------------------------------------------------------===//

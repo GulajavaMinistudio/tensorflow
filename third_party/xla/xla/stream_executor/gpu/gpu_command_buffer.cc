@@ -261,13 +261,103 @@ tsl::Status GpuCommandBuffer::MemcpyDeviceToDevice(DeviceMemoryBase* dst,
                                                    uint64_t size) {
   TF_RETURN_IF_ERROR(CheckNotFinalized());
 
-  // Adds a new memcpy node to the graph under construction.
   if (state_ == State::kCreate) {
     Dependencies deps = GetDependencies();
     GpuGraphNodeHandle* node = &nodes_.emplace_back();
     return GpuDriver::GraphAddMemcpyD2DNode(
         parent_->gpu_context(), node, graph_, absl::MakeSpan(deps),
         AsDevicePtr(*dst), AsDevicePtr(src), size);
+  }
+
+  if (state_ == State::kUpdate) {
+    GpuGraphNodeHandle node = nodes_[update_state_.node_idx++];
+    return GpuDriver::GraphExecMemcpyD2DNodeSetParams(
+        parent_->gpu_context(), exec_, node, AsDevicePtr(*dst),
+        AsDevicePtr(src), size);
+  }
+
+  return UnsupportedStateError(state_);
+}
+
+tsl::Status GpuCommandBuffer::Memset(DeviceMemoryBase* dst,
+                                     CommandBuffer::BitPattern bit_pattern,
+                                     size_t num_elements) {
+  TF_RETURN_IF_ERROR(CheckNotFinalized());
+
+  if (state_ == State::kCreate) {
+    Dependencies deps = GetDependencies();
+    GpuGraphNodeHandle* node = &nodes_.emplace_back();
+    return GpuDriver::GraphAddMemsetNode(
+        parent_->gpu_context(), node, graph_, absl::MakeSpan(deps),
+        AsDevicePtr(*dst), bit_pattern, num_elements);
+  }
+
+  if (state_ == State::kUpdate) {
+    GpuGraphNodeHandle node = nodes_[update_state_.node_idx++];
+    return GpuDriver::GraphExecMemsetNodeSetParams(
+        parent_->gpu_context(), exec_, node, AsDevicePtr(*dst), bit_pattern,
+        num_elements);
+  }
+
+  return UnsupportedStateError(state_);
+}
+
+tsl::StatusOr<DeviceMemoryBase> GpuCommandBuffer::Allocate(size_t bytes) {
+  TF_RETURN_IF_ERROR(CheckNotFinalized());
+
+  // Adds a new memory allocation node to the graph under construction.
+  if (state_ == State::kCreate) {
+    Dependencies deps = GetDependencies();
+    GpuGraphNodeHandle* node = &nodes_.emplace_back();
+
+    GpuDevicePtr ptr;
+    TF_RETURN_IF_ERROR(GpuDriver::GraphAddMemAllocNode(
+        node, graph_, absl::MakeSpan(deps),
+        GpuDriver::MemAccessFlags::kReadWrite,
+        GpuDriver::MemLocationType::kDevice, parent_->device_ordinal(),
+        GpuDriver::MemAllocationType::kPinned, bytes, &ptr));
+    // For CUDA impl, VA range is reserved when adding memory allocation node.
+    CHECK(ptr) << "CUDA graph memory allocation node returned nullptr";
+
+    VLOG(2) << "Setting device memory base with opaque pointer "
+            << reinterpret_cast<void*>(ptr)
+            << " device ordinal: " << parent_->device_ordinal();
+    return DeviceMemoryBase(reinterpret_cast<void*>(ptr), bytes);
+  }
+
+  if (state_ == State::kUpdate) {
+    // Memory allocation node implemented through CUDA graph does not allocate
+    // new memory region on update, just return the memory region allocated
+    // during the create step.
+    TF_ASSIGN_OR_RETURN(AllocationResult params,
+                        GpuDriver::GraphGetMemAllocNodeParams(
+                            nodes_[update_state_.node_idx++]));
+    return DeviceMemoryBase(reinterpret_cast<void*>(params.first),
+                            params.second);
+  }
+
+  return UnsupportedStateError(state_);
+}
+
+tsl::Status GpuCommandBuffer::Free(DeviceMemoryBase dst) {
+  TF_RETURN_IF_ERROR(CheckNotFinalized());
+
+  // Adds a new memfree node to the graph under construction.
+  if (state_ == State::kCreate) {
+    Dependencies deps = GetDependencies();
+    GpuGraphNodeHandle* node = &nodes_.emplace_back();
+    GpuDevicePtr gpu_dptr = AsDevicePtr(dst);
+    TF_RETURN_IF_ERROR(GpuDriver::GraphAddMemFreeNode(
+        node, graph_, absl::MakeSpan(deps), gpu_dptr));
+    return tsl::OkStatus();
+  }
+
+  if (state_ == State::kUpdate) {
+    // memfree node implemented through CUDA graph only free buffers that is
+    // allocated through memory alloc node, so buffer address will not change,
+    // no update is required.
+    update_state_.node_idx++;
+    return tsl::OkStatus();
   }
 
   return UnsupportedStateError(state_);
@@ -338,7 +428,7 @@ GpuCommandBuffer::CreateConditionalCommandBuffers(
     auto command_buffer_impl = parent_->GetCommandBufferImplementation(
         nested, graphs[i], is_owned_graph);
 
-    auto command_buffer = CommandBuffer::Wrap(std::move(command_buffer_impl));
+    auto command_buffer = CommandBuffer::Create(std::move(command_buffer_impl));
 
     TF_RETURN_IF_ERROR(builders[i](&command_buffer, handles[i]));
     TF_RETURN_IF_ERROR(command_buffer.Finalize());
@@ -368,6 +458,8 @@ tsl::Status GpuCommandBuffer::UpdateConditionalCommandBuffers(
 tsl::Status GpuCommandBuffer::CreateConditionalCommand(
     ConditionType type, SetConditionFn set_condition,
     absl::Span<const ConditionBuilder> builders) {
+  TF_RETURN_IF_ERROR(CheckNotFinalized());
+
   // Every conditional command buffer is controlled by its own handle.
   size_t num_handles = builders.size();
 
@@ -514,7 +606,7 @@ tsl::Status GpuCommandBuffer::Case(
 
 tsl::Status GpuCommandBuffer::For(StreamExecutor* executor,
                                   int32_t num_iteration,
-                                  DeviceMemory<int32_t> loop_index,
+                                  DeviceMemory<int32_t> loop_counter,
                                   CommandBuffer::Builder body_builder) {
   DCHECK(executor->implementation() == parent_);
 
@@ -529,12 +621,12 @@ tsl::Status GpuCommandBuffer::For(StreamExecutor* executor,
     TF_RETURN_IF_ERROR(executor->GetKernel(spec, &set_for_condition));
   }
 
-  // TODO(ezhulenev): We currently assume that `loop_index` initialized to
-  // zero, instead we should explicitly add a memset to clear it.
+  // Reset loop counter to zero.
+  TF_RETURN_IF_ERROR(Memset(&loop_counter, uint32_t{0}, 1));
 
   auto set_cond_fn = [&](absl::Span<const GpuGraphConditionalHandle> handles) {
     return Launch(set_for_condition, ThreadDim(), BlockDim(), handles[0],
-                  loop_index, num_iteration);
+                  loop_counter, num_iteration);
   };
 
   auto body = [&](CommandBuffer* body, GpuGraphConditionalHandle handle) {
@@ -542,7 +634,7 @@ tsl::Status GpuCommandBuffer::For(StreamExecutor* executor,
 
     // Decide if we want to continue loop iteration.
     return body->Launch(set_for_condition, ThreadDim(), BlockDim(), handle,
-                        loop_index, num_iteration);
+                        loop_counter, num_iteration);
   };
 
   std::array<ConditionBuilder, 1> builders = {std::move(body)};
@@ -567,9 +659,8 @@ tsl::Status GpuCommandBuffer::While(StreamExecutor* executor,
     TF_RETURN_IF_ERROR(executor->GetKernel(spec, &set_while_condition));
   }
 
-  // TODO(ezhulenev): We assume that `pred` already has a value that decides if
-  // we should go into the first loop iteration. Instead we should run
-  // `cond_builder` to update primary command buffer.
+  // Record condition commands into the parent command buffer.
+  TF_RETURN_IF_ERROR(CommandBuffer::Build(this, cond_builder));
 
   auto set_cond_fn = [&](absl::Span<const GpuGraphConditionalHandle> handles) {
     return Launch(set_while_condition, ThreadDim(), BlockDim(), handles[0],

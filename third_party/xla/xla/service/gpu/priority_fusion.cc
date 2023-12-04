@@ -187,6 +187,8 @@ class GpuPriorityFusionQueue : public FusionQueue {
     HloInstructionAdaptor fusion_adaptor(*fusion);
     can_fuse_cache_.erase(fusion_adaptor);
 
+    gpu_performance_model_cache_.Invalidate(*fusion);
+
     fusion_analysis_cache_.Invalidate(*fusion);
     fusion_analysis_cache_.Invalidate(*original_producer);
 
@@ -300,7 +302,8 @@ class GpuPriorityFusionQueue : public FusionQueue {
     GpuPerformanceModel::RunTimes run_times =
         GpuPerformanceModel::EstimateRunTimes(
             producer, &cost_analysis_,
-            GpuPerformanceModelOptions::PriorityFusion(&fusion_analysis_cache_),
+            GpuPerformanceModelOptions::PriorityFusion(
+                &fusion_analysis_cache_, &gpu_performance_model_cache_),
             producer->users());
     if (fusion_process_dump_) {
       absl::MutexLock lock(&fusion_process_dump_mutex_);
@@ -413,6 +416,8 @@ class GpuPriorityFusionQueue : public FusionQueue {
       absl::flat_hash_map<HloInstructionAdaptor, FusionDecision>>
       can_fuse_cache_;
   absl::Mutex can_fuse_cache_mutex_;
+
+  GpuPerformanceModelCache gpu_performance_model_cache_;
 };
 
 }  // namespace
@@ -444,6 +449,22 @@ StatusOr<bool> GpuPriorityFusion::Run(
   bool dump_enabled = DumpingEnabledForHloModule(*module);
   if (dump_enabled) {
     fusion_process_dump_ = std::make_unique<FusionProcessDumpProto>();
+  }
+
+  // Appends ".0" suffix to all instructions.
+  //
+  // Every time an instruction is duplicated, the last integer suffix is
+  // incremented.
+  // Before: broadcast.123 -> broadcast.124
+  // After: broadcast.123.0 -> broadcast.123.1
+  //
+  // With this modification it will be easier to match intructions before and
+  // after fusion passes, because they will have the same unique prefix. Names
+  // are not used in the pipeline, but it makes debugging much easier.
+  for (auto* computation : GetFusionComputations(module, execution_threads)) {
+    for (auto* instruction : computation->instructions()) {
+      instruction->SetAndSanitizeName(absl::StrCat(instruction->name(), ".0"));
+    }
   }
 
   auto result = InstructionFusion::Run(module, execution_threads);
@@ -517,13 +538,21 @@ FusionDecision GpuPriorityFusion::ShouldFuse(HloInstruction* consumer,
   // Avoid fusing reduce into reduce. Our cost model doesn't currently
   // understand this case due to a lack of tiling analysis.
   // TODO(b/312200883): Remove this.
-  auto contains_reduce = [&](const HloInstruction* instr) {
-    return HloAnyOf({HloInstructionAdaptor{*instr}},
-                    *HloFusionAdaptor::ForInstruction(instr), [](auto node) {
-                      return node.opcode() == HloOpcode::kReduce;
-                    });
+  auto contains_signficant_reduce = [&](const HloInstruction* instr) {
+    auto fusion = HloFusionAdaptor::ForInstruction(instr);
+    return HloAnyOf(fusion->GetRoots(), *fusion, [](auto node) {
+      if (node.opcode() != HloOpcode::kReduce) return false;
+
+      int64_t reduction_size =
+          ShapeUtil::ElementsIn(node.instruction().operand(0)->shape()) /
+          ShapeUtil::ElementsIn(node.shape());
+
+      // Small reductions are emitted using the elemental emitter anyway.
+      return reduction_size >= 16;
+    });
   };
-  if (contains_reduce(producer) && contains_reduce(consumer)) {
+  if (contains_signficant_reduce(producer) &&
+      contains_signficant_reduce(consumer)) {
     return "both the producer and the consumer contain a reduce";
   }
 
@@ -531,12 +560,16 @@ FusionDecision GpuPriorityFusion::ShouldFuse(HloInstruction* consumer,
   // switch it to the loop emitter. This often occurs during epilog fusion for
   // reductions, which suffer from limited emitter support.
   // TODO(b/312686229): Cost model should handle this.
-  auto analysis_fused =
-      AnalyzeProducerConsumerFusion(*producer, *consumer, device_info_);
+  const auto& analysis_fused = fusion_analysis_cache_.Get(*producer, *consumer);
   if (producer->IsInputFusion() && analysis_fused &&
       analysis_fused->GetEmitterFusionKind() ==
           HloFusionAnalysis::EmitterFusionKind::kLoop) {
-    return "fusion into output of an input fusion would create a loop fusion";
+    const auto& analysis = fusion_analysis_cache_.Get(*producer);
+    if (!analysis || analysis->GetEmitterFusionKind() ==
+                         HloFusionAnalysis::EmitterFusionKind::kReduction) {
+      return "fusion into output of a reduce fusion would create a loop "
+             "fusion";
+    }
   }
 
   // Avoid cases where we'd create a fusion that hit limitations in ptxas.

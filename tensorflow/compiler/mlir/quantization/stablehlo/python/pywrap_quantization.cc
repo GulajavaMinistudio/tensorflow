@@ -17,7 +17,11 @@ limitations under the License.
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
+#include "pybind11/cast.h"  // from @pybind11
 #include "pybind11/detail/common.h"  // from @pybind11
 #include "pybind11/pybind11.h"  // from @pybind11
 #include "pybind11/pytypes.h"  // from @pybind11
@@ -25,62 +29,27 @@ limitations under the License.
 #include "pybind11_abseil/absl_casters.h"  // from @pybind11_abseil   // IWYU pragma: keep
 #include "pybind11_abseil/import_status_module.h"  // from @pybind11_abseil
 #include "pybind11_abseil/status_casters.h"  // from @pybind11_abseil  // IWYU pragma: keep
+#include "tensorflow/compiler/mlir/quantization/stablehlo/cc/debugger.h"
 #include "tensorflow/compiler/mlir/quantization/stablehlo/cc/io.h"
 #include "tensorflow/compiler/mlir/quantization/tensorflow/exported_model.pb.h"
 #include "tensorflow/compiler/mlir/quantization/tensorflow/python/py_function_lib.h"
 #include "tensorflow/compiler/mlir/quantization/tensorflow/python/quantize_model.h"
 #include "tensorflow/compiler/mlir/quantization/tensorflow/python/type_casters.h"  // IWYU pragma: keep
 #include "tensorflow/compiler/mlir/quantization/tensorflow/quantization_options.pb.h"
-#include "tsl/platform/env.h"
+#include "tensorflow/core/framework/attr_value.pb.h"
+#include "tensorflow/core/framework/function.pb.h"
+#include "tensorflow/core/framework/node_def.pb.h"
 
 namespace py = pybind11;
 
 namespace {
 
+using ::stablehlo::quantization::EnableDebugging;
 using ::stablehlo::quantization::io::CreateTmpDir;
 using ::tensorflow::SignatureDef;
-using ::tensorflow::quantization::DebuggerOptions;
 using ::tensorflow::quantization::ExportedModel;
 using ::tensorflow::quantization::PyFunctionLibrary;
 using ::tensorflow::quantization::QuantizationOptions;
-
-// TODO: b/312371048 - Factor out this function to a separate file.
-// Enables debugging on `exported_model` by updating the `DumpTensor` ops.
-//
-// Saves the current model to `debugger_options.unquantized_dump_model_path()`
-// if the debugger type is `DEBUGGER_TYPE_WHOLE_MODEL`. This is required because
-// in whole-model debugging mode the `DumpTensor` ops for the unquantized
-// tensors are only inserted in the unquantized model whereas `DumpTensor` ops
-// for the quantized tensors are only inserted in the quantized model. Both
-// models are required to be able to dump both quantized and unquantized tensors
-// and compare them offline.
-ExportedModel EnableDebugging(
-    const ExportedModel& exported_model,
-    const DebuggerOptions& debugger_options,
-    const PyFunctionLibrary& py_function_library,
-    const absl::string_view src_saved_model_path,
-    const std::unordered_set<std::string>& tags,
-    const absl::flat_hash_map<std::string, SignatureDef>& signature_def_map) {
-  ExportedModel debugger_enabled_exported_model = exported_model;
-  *debugger_enabled_exported_model.mutable_graph_def() =
-      py_function_library.EnableDumpTensor(exported_model.graph_def());
-  if (debugger_options.debugger_type() ==
-      DebuggerOptions::DEBUGGER_TYPE_WHOLE_MODEL) {
-    // TODO: b/295139417 - Remove CustomAggregator op in unquantized dump model.
-    // TODO: b/296916287 - Create a separate function for saving unquantized
-    // dump model.
-    py_function_library.SaveExportedModel(
-        debugger_options.unquantized_dump_model_path(),
-        debugger_enabled_exported_model, src_saved_model_path, tags,
-        signature_def_map);
-
-    *debugger_enabled_exported_model.mutable_graph_def() =
-        py_function_library.ChangeDumpTensorFileName(
-            debugger_enabled_exported_model.graph_def());
-  }
-
-  return debugger_enabled_exported_model;
-}
 
 }  // namespace
 
@@ -139,10 +108,10 @@ PYBIND11_MODULE(pywrap_quantization, m) {
                 representative_dataset);
 
         if (quantization_options.has_debugger_options()) {
-          calibrated_exported_model = EnableDebugging(
-              calibrated_exported_model,
-              quantization_options.debugger_options(), py_function_library,
-              src_saved_model_path, tags, signature_def_map);
+          EnableDebugging(calibrated_exported_model,
+                          quantization_options.debugger_options(),
+                          py_function_library, src_saved_model_path, tags,
+                          signature_def_map);
         }
 
         const absl::StatusOr<std::string> calibrated_saved_model_path =
@@ -170,6 +139,10 @@ PYBIND11_MODULE(pywrap_quantization, m) {
           return post_calibrated_exported_model.status();
         }
 
+        // Remove the `tpu` tag from the quantized saved model as it is for CPU.
+        // Note the 'tpu' value should be the same as `TPU` defined in
+        // tensorflow/python/saved_model/tag_constants.py.
+        tags.erase("tpu");
         py_function_library.SaveExportedModel(
             dst_saved_model_path, *post_calibrated_exported_model,
             *calibrated_saved_model_path, tags, signature_def_map);

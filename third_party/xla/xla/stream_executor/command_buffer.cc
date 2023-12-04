@@ -15,6 +15,7 @@ limitations under the License.
 
 #include "xla/stream_executor/command_buffer.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <utility>
@@ -22,6 +23,7 @@ limitations under the License.
 
 #include "absl/functional/any_invocable.h"
 #include "absl/status/status.h"
+#include "xla/stream_executor/device_memory.h"
 #include "xla/stream_executor/kernel.h"
 #include "xla/stream_executor/kernel_spec.h"
 #include "xla/stream_executor/launch_dim.h"
@@ -36,6 +38,11 @@ namespace stream_executor {
 CommandBuffer::~CommandBuffer() = default;
 CommandBuffer::CommandBuffer(CommandBuffer&&) = default;
 CommandBuffer& CommandBuffer::operator=(CommandBuffer&&) = default;
+
+void CommandBuffer::Deleter::operator()(
+    internal::CommandBufferInterface* impl) {
+  if (owned) delete impl;
+}
 
 /*static*/ tsl::StatusOr<CommandBuffer> CommandBuffer::Create(
     StreamExecutor* executor, Mode mode) {
@@ -91,14 +98,24 @@ internal::CommandBufferInterface* CommandBuffer::implementation() {
   return implementation_.get();
 }
 
-/*static*/ CommandBuffer CommandBuffer::Wrap(
+/*static*/ CommandBuffer CommandBuffer::Create(
     std::unique_ptr<internal::CommandBufferInterface> implementation) {
   return CommandBuffer(std::move(implementation));
 }
 
+/*static*/ tsl::Status CommandBuffer::Build(
+    internal::CommandBufferInterface* implementation,
+    const CommandBuffer::Builder& builder) {
+  CommandBuffer command_buffer(implementation);
+  return builder(&command_buffer);
+}
+
 CommandBuffer::CommandBuffer(
     std::unique_ptr<internal::CommandBufferInterface> implementation)
-    : implementation_(std::move(implementation)) {}
+    : implementation_(implementation.release(), {/*owned=*/true}) {}
+
+CommandBuffer::CommandBuffer(internal::CommandBufferInterface* implementation)
+    : implementation_(implementation, {/*owned=*/false}) {}
 
 tsl::Status CommandBuffer::Launch(const ThreadDim& threads,
                                   const BlockDim& blocks, const Kernel& kernel,
@@ -114,6 +131,15 @@ tsl::Status CommandBuffer::MemcpyDeviceToDevice(DeviceMemoryBase* dst,
                                                 const DeviceMemoryBase& src,
                                                 uint64_t size) {
   return implementation_->MemcpyDeviceToDevice(dst, src, size);
+}
+
+tsl::Status CommandBuffer::Memset(DeviceMemoryBase* dst, BitPattern bit_pattern,
+                                  size_t num_elements) {
+  return implementation_->Memset(dst, bit_pattern, num_elements);
+}
+
+tsl::StatusOr<DeviceMemoryBase> CommandBuffer::Allocate(size_t bytes) {
+  return implementation_->Allocate(bytes);
 }
 
 tsl::Status CommandBuffer::If(StreamExecutor* executor, DeviceMemory<bool> pred,
@@ -135,9 +161,9 @@ tsl::Status CommandBuffer::Case(StreamExecutor* executor,
 }
 
 tsl::Status CommandBuffer::For(StreamExecutor* executor, int32_t num_iteration,
-                               DeviceMemory<int32_t> loop_index,
+                               DeviceMemory<int32_t> loop_counter,
                                Builder body_builder) {
-  return implementation_->For(executor, num_iteration, loop_index,
+  return implementation_->For(executor, num_iteration, loop_counter,
                               std::move(body_builder));
 }
 
@@ -146,6 +172,10 @@ tsl::Status CommandBuffer::While(StreamExecutor* executor,
                                  Builder body_builder) {
   return implementation_->While(executor, pred, std::move(cond_builder),
                                 std::move(body_builder));
+}
+
+tsl::Status CommandBuffer::Free(DeviceMemoryBase dst) {
+  return implementation_->Free(dst);
 }
 
 CommandBuffer::Mode CommandBuffer::mode() const {
