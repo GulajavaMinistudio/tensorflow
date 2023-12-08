@@ -13,8 +13,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef XLA_SERVICE_GPU_KERNELS_CUTLASS_GEMM_KERNEL_CU_H_
-#define XLA_SERVICE_GPU_KERNELS_CUTLASS_GEMM_KERNEL_CU_H_
+#ifndef XLA_SERVICE_GPU_KERNELS_CUTLASS_GEMM_ADAPTOR_CU_H_
+#define XLA_SERVICE_GPU_KERNELS_CUTLASS_GEMM_ADAPTOR_CU_H_
 
 #include <cstddef>
 #include <cstdint>
@@ -22,10 +22,10 @@ limitations under the License.
 
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
-#include "third_party/gpus/cutlass/include/cutlass/cutlass.h"
-#include "third_party/gpus/cutlass/include/cutlass/gemm/gemm_enumerated_types.h"
-#include "third_party/gpus/cutlass/include/cutlass/gemm_coord.h"
-#include "third_party/gpus/cutlass/include/cutlass/layout/matrix.h"
+#include "cutlass/cutlass.h"
+#include "cutlass/gemm/gemm_enumerated_types.h"
+#include "cutlass/gemm_coord.h"
+#include "cutlass/layout/matrix.h"
 #include "xla/service/gpu/kernels/cutlass_gemm.h"
 #include "xla/statusor.h"
 #include "xla/stream_executor/kernel.h"
@@ -38,8 +38,10 @@ namespace xla::gpu::kernel::gemm_universal {
 // GemmUniversal kernel to StreamExecutor primitives for kernel arguments
 // packing and kernel launching.
 //
-// In all templates defined below `typename Gemm` should be a
-// an instance of `cutlass::gemm::device::GemmUniversal` template.
+// This library is based on `GemmUniversalAdaptor` from CUTLASS itself, but
+// instead of targeting CUDA runtime for launching kernels, it targets XLA
+// StreamExecutor abstractions, but conceptually it has the same role: wrapping
+// device kernels into C++ API to make them launchable on streams.
 
 namespace se = ::stream_executor;
 
@@ -130,28 +132,44 @@ auto *ArgPtr(const se::KernelArgsDeviceMemoryArray *args,
   }
 }
 
-int32_t *SlicePtr(const se::KernelArgsDeviceMemoryArray *args, int64_t index) {
+inline int32_t *SlicePtr(const se::KernelArgsDeviceMemoryArray *args,
+                         int64_t index) {
   const void *opaque = args->device_memory_ptr(index);
   return static_cast<int32_t *>(const_cast<void *>(opaque));
 }
 
+//===----------------------------------------------------------------------===//
+// CUTLASS 2x arguments packing
+//===----------------------------------------------------------------------===//
+
 template <typename Gemm>
-KernelArgsPacking ArgsPacking(cutlass::gemm::GemmCoord problem_size,
-                              const ArgsIndices &indices,
-                              const DynamicSliceIndices &slices,
-                              int32_t device_sms) {
+struct ArgsPacking {
+  // CUTLASS operator type parameters.
   using Accumulator = typename Gemm::ElementAccumulator;
   using Arguments = typename Gemm::Arguments;
   using Kernel = typename Gemm::GemmKernel;
+
+  // CUTLASS kernel type parameters.
   using Params = typename Kernel::Params;
 
+  static KernelArgsPacking For(cutlass::gemm::GemmCoord problem_size,
+                               const ArgsIndices &indices,
+                               const DynamicSliceIndices &slices,
+                               int32_t device_sms);
+};
+
+template <typename Gemm>
+KernelArgsPacking ArgsPacking<Gemm>::For(cutlass::gemm::GemmCoord problem_size,
+                                         const ArgsIndices &indices,
+                                         const DynamicSliceIndices &slices,
+                                         int32_t device_sms) {
   // Sanity check that we do not accidentally get a giant parameters struct.
   static_assert(sizeof(Params) < 512,
                 "Params struct size is unexpectedly large");
 
   return [=](const se::Kernel &kernel, const se::KernelArgs &args)
              -> StatusOr<std::unique_ptr<se::KernelArgsPackedArrayBase>> {
-    auto *mem_args = Cast<se::KernelArgsDeviceMemoryArray>(&args);
+    auto *mem_args = se::Cast<se::KernelArgsDeviceMemoryArray>(&args);
 
     cutlass::Status can_implement = Kernel::can_implement(problem_size);
     if (can_implement != cutlass::Status::kSuccess) {
@@ -171,10 +189,10 @@ KernelArgsPacking ArgsPacking(cutlass::gemm::GemmCoord problem_size,
 
     auto mode = cutlass::gemm::GemmUniversalMode::kGemm;
 
-    // TODO(ezhulenev): We hardcode parameters for `LinearCombination` epilogue,
-    // however `Gemm` template can be compiled with arbitrary epilogues. We have
-    // to support custom epilogues in a way that does not leak cutlass types
-    // via the public API function signature.
+    // TODO(ezhulenev): We hardcode parameters for `LinearCombination`
+    // epilogue, however `Gemm` template can be compiled with arbitrary
+    // epilogues. We have to support custom epilogues in a way that does not
+    // leak cutlass types via the public API function signature.
     Accumulator alpha{1.0};
     Accumulator beta{0.0};
 
@@ -187,18 +205,22 @@ KernelArgsPacking ArgsPacking(cutlass::gemm::GemmCoord problem_size,
                         lda, ldb, ldc, ldc           // strides
     );
 
-    // We keep max_occupancy in a static variable as currently for all practical
-    // purposes all stream executors in the process have identical underlying
-    // devices, and there is no need to repeatedly query this property.
+    // We keep max_occupancy in a static variable as currently for all
+    // practical purposes all stream executors in the process have identical
+    // underlying devices, and there is no need to repeatedly query this
+    // property.
     static int32_t shared_mem_bytes = sizeof(typename Kernel::SharedStorage);
     static int32_t sm_occupancy =
         kernel.GetMaxOccupiedBlocksPerCore(ThreadDim<Gemm>(), shared_mem_bytes)
             .value_or(1);
 
     // TODO(ezhulenev): In theory when sm_occupancy is 0 we should not be able
-    // to run kernels, and we could return error here, however in practice it's
-    // not true, and kernels with 0 occupancy run just fine! Figure out where is
-    // the problem, and how we can reliably use sm occupancy numbers.
+    // to run kernels, and we could return error here, however in practice
+    // it's not true, and kernels with 0 occupancy run just fine! Figure out
+    // where is the problem, and how we can reliably use sm occupancy numbers.
+    //
+    // TODO(ezhulenv): We need to set kernel dynamic shmem limit before asking
+    // for sm occupancy, it's likely why we get 0 today.
     if (sm_occupancy == 0) {
       se::ThreadDim threads = ThreadDim<Gemm>();
       LOG_FIRST_N(WARNING, 1)
@@ -210,8 +232,8 @@ KernelArgsPacking ArgsPacking(cutlass::gemm::GemmCoord problem_size,
     // Convert CUTLASS operation arguments to a device kernel parameters.
     Params params(arguments, device_sms, sm_occupancy);
 
-    // Optionally set up dynamic slice parameters to allow kernel adjust buffer
-    // pointers passed via `params`.
+    // Optionally set up dynamic slice parameters to allow kernel adjust
+    // buffer pointers passed via `params`.
     DynamicSliceParams slice_params;
     if (slices.out.has_value()) {
       slice_params.out = SlicePtr(mem_args, *slices.out);
@@ -224,4 +246,4 @@ KernelArgsPacking ArgsPacking(cutlass::gemm::GemmCoord problem_size,
 
 }  // namespace xla::gpu::kernel::gemm_universal
 
-#endif  // XLA_SERVICE_GPU_KERNELS_CUTLASS_GEMM_KERNEL_CU_H_
+#endif  // XLA_SERVICE_GPU_KERNELS_CUTLASS_GEMM_ADAPTOR_CU_H_

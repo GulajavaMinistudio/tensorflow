@@ -22,7 +22,7 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "xla/service/gpu/kernels/custom_kernel.h"
 #include "xla/service/gpu/kernels/cutlass_gemm.h"
-#include "xla/service/gpu/kernels/cutlass_gemm_kernel.cu.h"
+#include "xla/service/gpu/kernels/cutlass_gemm_adaptor.cu.h"
 #include "xla/service/gpu/kernels/cutlass_gemm_kernels.cu.h"
 #include "xla/statusor.h"
 #include "xla/stream_executor/device_description.h"
@@ -30,6 +30,13 @@ limitations under the License.
 #include "xla/xla_data.pb.h"
 
 namespace xla::gpu::kernel::gemm_universal {
+
+// We split compilation of arguments packing into different targets to avoid
+// instantiating all templates in a single translation unit, as it can lead
+// to extremely long compilation times (we need a lot of templates).
+extern template struct ArgsPacking<Default::F32xF32toF32>;
+extern template struct ArgsPacking<Default::BF16xBF16toBF16>;
+extern template struct ArgsPacking<Sm80::BF16xBF16toBF16>;
 
 template <typename Gemm>
 static StatusOr<CustomKernel> LoadCutlassGemmUniversal(
@@ -40,8 +47,8 @@ static StatusOr<CustomKernel> LoadCutlassGemmUniversal(
 
   cutlass::gemm::GemmCoord problem_size = {m, n, k};
 
-  auto packing =
-      ArgsPacking<Gemm>(problem_size, indices, slices, device.core_count());
+  auto packing = ArgsPacking<Gemm>::For(problem_size, indices, slices,
+                                        device.core_count());
 
   se::MultiKernelLoaderSpec spec(/*arity=*/2, std::move(packing));
   spec.AddInProcessSymbol(GetKernelSymbol<Gemm>(), name);

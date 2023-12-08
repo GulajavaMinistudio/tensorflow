@@ -20,11 +20,15 @@ limitations under the License.
 #include <cstdint>
 #include <cstdlib>
 #include <optional>
-#include <utility>
 #include <vector>
 
+#include "absl/container/flat_hash_set.h"
+#include "absl/log/check.h"
 #include "absl/log/log.h"
+#include "absl/strings/numbers.h"
+#include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
+#include "llvm/ADT/STLExtras.h"
 #include "xla/hlo/ir/hlo_casting_utils.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_instructions.h"
@@ -33,8 +37,13 @@ limitations under the License.
 #include "xla/service/gpu/gpu_fusible.h"
 #include "xla/service/gpu/hlo_fusion_analysis.h"
 #include "xla/service/gpu/hlo_traversal.h"
+#include "xla/service/gpu/launch_dimensions.h"
 #include "xla/service/gpu/model/gpu_hlo_cost_analysis.h"
+#include "xla/service/hlo_dataflow_analysis.h"
+#include "xla/shape_util.h"
 #include "xla/stream_executor/device_description.h"
+#include "xla/util.h"
+#include "tsl/platform/status.h"
 
 #if GOOGLE_CUDA
 #include "third_party/gpus/cuda/nvml/include/nvml.h"
@@ -45,7 +54,9 @@ namespace gpu {
 namespace {
 
 // Estimated values in the absence of easy ways to query them.
-static constexpr absl::Duration kKernelLaunchOverhead = absl::Microseconds(5);
+static constexpr absl::Duration kKernelLaunchOverhead = absl::Microseconds(1);
+static constexpr absl::Duration kNcclKernelLaunchOverhead =
+    absl::Microseconds(5);
 static constexpr float kL2CacheSpeedup = 2.5;
 static constexpr float kL1CacheSpeedup = 8;
 // A very conservative estimate. L1 size varies because it can be dynamically
@@ -933,7 +944,7 @@ GpuPerformanceWithCollectiveModel::ComputeAllreduceTime(
     const se::DeviceDescription& gpu_device_info) {
   // We use nccl group call to launch multiple allreduces so launch overhead
   // only occurs once.
-  absl::Duration total_time = kKernelLaunchOverhead;
+  absl::Duration total_time = kNcclKernelLaunchOverhead;
   stream_executor::CudaComputeCapability compute_cap =
       gpu_device_info.cuda_compute_capability();
 
@@ -1010,7 +1021,7 @@ GpuPerformanceWithCollectiveModel::ComputeCollectiveTime(
     const se::DeviceDescription& gpu_device_info) {
   if (cost_analysis->NumOfDevices(instr) == 1) {
     VLOG(8) << "Returning only kernel launch overhead for a single partition.";
-    return kKernelLaunchOverhead;
+    return kNcclKernelLaunchOverhead;
   }
 
   if (HloDataflowAnalysis::IsAsynchronousOperationDone(instr.opcode())) {
@@ -1025,7 +1036,7 @@ GpuPerformanceWithCollectiveModel::ComputeCollectiveTime(
       LOG(WARNING)
           << "Runtime estimate for " << instr.name()
           << " not implemented. Returning only the kernel launch time.";
-      return kKernelLaunchOverhead;
+      return kNcclKernelLaunchOverhead;
     }
   }
 }
