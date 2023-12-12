@@ -546,12 +546,12 @@ class ConvertUniformQuantizedAddOp : public OpConversionPattern<mhlo::AddOp> {
 // dimensions are defined in
 // https://github.com/openxla/stablehlo/blob/main/docs/spec.md#dot_general.
 struct DotLikeDimensionNumbers {
-  ArrayRef<int64_t> lhs_batching_dims;
-  ArrayRef<int64_t> lhs_spatial_dims;
-  ArrayRef<int64_t> lhs_contracting_dims;
-  ArrayRef<int64_t> rhs_batching_dims;
-  ArrayRef<int64_t> rhs_spatial_dims;
-  ArrayRef<int64_t> rhs_contracting_dims;
+  SmallVector<int64_t> lhs_batching_dims;
+  SmallVector<int64_t> lhs_spatial_dims;
+  SmallVector<int64_t> lhs_contracting_dims;
+  SmallVector<int64_t> rhs_batching_dims;
+  SmallVector<int64_t> rhs_spatial_dims;
+  SmallVector<int64_t> rhs_contracting_dims;
 };
 
 // A shared matchAndRewrite implementation for dot-like hybrid quantized
@@ -604,7 +604,7 @@ LogicalResult matchAndRewriteDotLikeHybridOp(
 
 Value CreateZeroPointPartialOffset(OpBuilder &builder, Location loc,
                                    Value tensor, const int64_t other_tensor_zp,
-                                   ArrayRef<int64_t> reduction_dims) {
+                                   SmallVector<int64_t> reduction_dims) {
   // This function calculates part of the zero-point-offset by using
   // mhlo::Reduce to sum over the contracting dims of the tensor, and then
   // multiply by zp of the other tensor.
@@ -861,11 +861,13 @@ Value CreateDotLikeKernel<mhlo::ConvolutionOp>(OpBuilder &builder, Location loc,
                                                Value &rhs,
                                                ArrayRef<NamedAttribute> attrs) {
   // We only handle the case where RHS zp is zero.
-  auto original_padding = op.getPaddingAttr().getValues<int64_t>();
-
   // Explicitly pad LHS with zp and update LHS value.
   SmallVector<NamedAttribute> new_attrs(attrs);
-  if (llvm::any_of(original_padding, [](int64_t x) { return x != 0; })) {
+  if (op.getPadding().has_value() &&
+      llvm::any_of(op.getPaddingAttr().getValues<int64_t>(),
+                   [](int64_t x) { return x != 0; })) {
+    auto original_padding = op.getPaddingAttr().getValues<int64_t>();
+
     Value zp = builder.create<mhlo::ConstantOp>(
         loc,
         DenseIntElementsAttr::get(
@@ -1096,12 +1098,14 @@ class ConvertUniformQuantizedDotGeneralOp
       return matchAndRewriteDotLikeOp(
           op, adaptor, op->getAttrs(),
           DotLikeDimensionNumbers{
-              op.getDotDimensionNumbers().getLhsBatchingDimensions(),
+              to_vector(op.getDotDimensionNumbers().getLhsBatchingDimensions()),
               /*lhs_spatial_dims=*/{},
-              op.getDotDimensionNumbers().getLhsContractingDimensions(),
-              op.getDotDimensionNumbers().getRhsBatchingDimensions(),
+              to_vector(
+                  op.getDotDimensionNumbers().getLhsContractingDimensions()),
+              to_vector(op.getDotDimensionNumbers().getRhsBatchingDimensions()),
               /*rhs_spatial_dims=*/{},
-              op.getDotDimensionNumbers().getRhsContractingDimensions()},
+              to_vector(
+                  op.getDotDimensionNumbers().getRhsContractingDimensions())},
           rewriter);
     }
   }
@@ -1205,7 +1209,8 @@ FailureOr<DotLikeDimensionNumbers> VerifyAndConstructDims(
     }
   }
   // lhs_dilation must not exist.
-  if (llvm::any_of(op.getLhsDilationAttr().getValues<int64_t>(),
+  if (op.getLhsDilation().has_value() &&
+      llvm::any_of(op.getLhsDilationAttr().getValues<int64_t>(),
                    [](int64_t dilate) { return dilate != 1; })) {
     op->emitError("lhs_dilation must be 1.");
     return failure();

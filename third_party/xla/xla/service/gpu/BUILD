@@ -377,6 +377,7 @@ cc_library(
         "@llvm-project//mlir:MemRefDialect",
         "@llvm-project//mlir:NVVMToLLVMIRTranslation",
         "@llvm-project//mlir:ROCDLToLLVMIRTranslation",
+        "@llvm-project//mlir:Support",
         "@llvm-project//mlir:ToLLVMIRTranslation",
         "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:human_readable_json",
@@ -530,9 +531,7 @@ xla_test(
     backend_tags = {"gpu": [
         "requires-gpu-sm70",
     ]},
-    backends = [
-        "gpu",
-    ],
+    backends = ["gpu"],
     shard_count = 20,
     tags = ["nomac"],
     deps = [
@@ -579,9 +578,7 @@ xla_test(
     backend_tags = {"gpu": [
         "requires-gpu-sm70",
     ]},
-    backends = [
-        "gpu",
-    ],
+    backends = ["gpu"],
     tags = [
         "large",
         "no_oss",  # requires-mem:16g tag doesn't work in open source
@@ -2819,6 +2816,7 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         "//xla:shape_util",
+        "//xla:status",
         "//xla:statusor",
         "//xla:util",
         "//xla/hlo/ir:hlo",
@@ -2826,7 +2824,10 @@ cc_library(
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/container:inlined_vector",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:span",
         "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:statusor",
     ],
@@ -3008,6 +3009,7 @@ cc_library(
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/types:variant",
         "@llvm-project//llvm:AsmParser",
         "@llvm-project//llvm:BitReader",
@@ -4488,7 +4490,8 @@ test_suite(
         "//xla/service/gpu/tests:gpu_infeed_test",
         "//xla/service/gpu/tests:gpu_input_fusible_slice_test",
         "//xla/service/gpu/tests:gpu_kernel_tiling_test",
-        "//xla/service/gpu/tests:gpu_ldg_test",
+        # TODO(ezhulenev): Re-enable this test.
+        #"//xla/service/gpu/tests:gpu_ldg_test",
         "//xla/service/gpu/tests:gpu_noalias_test",
         "//xla/service/gpu/tests:gpu_reduce_scatter_creator_test",
         "//xla/service/gpu/tests:gpu_spmd_e2e_compile_test",

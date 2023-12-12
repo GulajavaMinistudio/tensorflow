@@ -34,6 +34,7 @@ cc_library(
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:str_format",
         "@local_tsl//tsl/platform:env",
+        "@local_tsl//tsl/platform:statusor",
     ],
 )
 
@@ -86,6 +87,16 @@ cc_library(
         "//tensorflow/compiler/mlir/quantization/tensorflow/python:py_function_lib",
         "//tensorflow/core:protos_all_cc",
         "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/strings:string_view",
+    ],
+)
+
+cc_library(
+    name = "export",
+    srcs = [],
+    hdrs = ["export.h"],
+    compatible_with = get_compatible_with_portable(),
+    deps = [
         "@com_google_absl//absl/strings:string_view",
     ],
 )
