@@ -15,6 +15,7 @@ limitations under the License.
 #ifndef TENSORFLOW_CORE_DATA_SERVICE_SNAPSHOT_SNAPSHOT_CHUNK_PROVIDER_H_
 #define TENSORFLOW_CORE_DATA_SERVICE_SNAPSHOT_SNAPSHOT_CHUNK_PROVIDER_H_
 
+#include <functional>
 #include <optional>
 #include <string>
 
@@ -24,6 +25,8 @@ limitations under the License.
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
+#include "tensorflow/core/framework/dataset.h"
+#include "tensorflow/core/framework/tensor.h"
 #include "tsl/platform/env.h"
 
 namespace tensorflow {
@@ -31,7 +34,7 @@ namespace data {
 
 // Provides the next chunk to read. Blocks until the next chunk is unavailable,
 // or all the chunks have been read. This class is thread-safe.
-class SnapshotChunkProvider {
+class SnapshotChunkProvider : public SplitProvider {
  public:
   SnapshotChunkProvider(absl::string_view snapshot_path, tsl::Env* env);
   virtual ~SnapshotChunkProvider() = default;
@@ -40,15 +43,38 @@ class SnapshotChunkProvider {
 
   // Returns the absolute file path of next snapshot chunk to read. If there is
   // no available chunk, blocks until the next chunk is unavailable, or all the
-  // chunks are read. Returns std::nullopt if all chunks have been read.
-  absl::StatusOr<std::optional<std::string>> GetNext();
+  // chunks are read. Sets `end_of_splits` to true if all chunks have been read.
+  absl::Status GetNext(Tensor* split, bool* end_of_splits) override;
 
-  // TODO(b/297930782): Support save/load.
-  // TODO(b/297930782): Support cancellation.
+  absl::Status Reset() override;
+
+  // Supports checkpointing.
+  absl::Status Save(std::function<std::string(std::string)> full_name,
+                    IteratorStateWriter* writer) override;
+  absl::Status Restore(std::function<std::string(std::string)> full_name,
+                       IteratorStateReader* reader) override;
 
  private:
-  // Updates the set of available chunks by reading from the chunks directory.
-  absl::Status UpdateChunks();
+  // State of the snapshot.
+  struct SnapshotState {
+    SnapshotState() = default;
+    explicit SnapshotState(bool snapshot_is_done)
+        : snapshot_is_done(snapshot_is_done) {}
+    explicit SnapshotState(absl::Status status) : status(std::move(status)) {}
+
+    // True if the snapshot is done without errors.
+    bool snapshot_is_done = false;
+
+    // Non-OK status if writing the snapshot fails.
+    absl::Status status = absl::OkStatus();
+  };
+
+  // Updates the snapshot state and available chunks.
+  absl::Status UpdateSnapshot();
+
+  // Reads the DONE or ERROR file and returns a SnapshotState indicating whether
+  // the snapshot is complete.
+  absl::StatusOr<SnapshotState> GetSnapshotState();
 
   // Reads the available chunks from disk and returns a vector of chunk file
   // names.
@@ -65,9 +91,8 @@ class SnapshotChunkProvider {
   // The set of unread chunks.
   absl::flat_hash_set<std::string> chunks_unread_ ABSL_GUARDED_BY(mu_);
 
-  // Whether the writer has finished writing the snapshot. If true, no more
-  // chunks will become available.
-  bool snapshot_is_done_ ABSL_GUARDED_BY(mu_) = false;
+  // State of the snapshot.
+  SnapshotState snapshot_state_ ABSL_GUARDED_BY(mu_);
 };
 
 }  // namespace data

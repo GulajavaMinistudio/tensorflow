@@ -53,6 +53,7 @@ cc_library(
         "//xla/service/gpu:stream_executor_util",
         "//xla/service/gpu:thunk",
         "//xla/stream_executor",
+        "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/container:inlined_vector",
@@ -77,8 +78,10 @@ cc_library(
         ":while_thunk",
         "//xla:statusor",
         "//xla:util",
+        "//xla/service:buffer_assignment",
         "//xla/service/gpu:gpu_executable",
         "//xla/service/gpu:thunk",
+        "@com_google_absl//absl/container:inlined_vector",
         "@local_tsl//tsl/platform:statusor",
     ],
 )
@@ -158,6 +161,9 @@ cc_library(
 xla_test(
     name = "command_buffer_thunk_test",
     srcs = if_gpu_is_configured(["command_buffer_thunk_test.cc"]),
+    backend_tags = {
+        "gpu": ["config-cuda-only"],
+    },
     backends = ["gpu"],
     deps = [
         ":command_buffer_allocations",
@@ -175,6 +181,7 @@ xla_test(
         "//xla/stream_executor:multi_platform_manager",
         "//xla/stream_executor:platform",
         "//xla/stream_executor/cuda:cuda_test_kernels",
+        "//xla/stream_executor/gpu:gpu_types_header",
         "@local_tsl//tsl/lib/core:status_test_util",
         "@local_tsl//tsl/platform:test",
         "@local_tsl//tsl/platform:test_main",
@@ -195,6 +202,21 @@ cc_library(
         "//xla/stream_executor",
         "@com_google_absl//absl/types:span",
         "@local_tsl//tsl/platform:errors",
+    ],
+)
+
+cc_library(
+    name = "convolution_thunk",
+    srcs = ["convolution_thunk.cc"],
+    hdrs = ["convolution_thunk.h"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//xla:util",
+        "//xla/service:buffer_assignment",
+        "//xla/service/gpu:gpu_conv_runner",
+        "//xla/service/gpu:thunk",
+        "//xla/stream_executor",
+        "@com_google_absl//absl/container:flat_hash_map",
     ],
 )
 

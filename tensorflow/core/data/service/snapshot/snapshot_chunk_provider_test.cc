@@ -27,13 +27,17 @@ limitations under the License.
 #include "absl/synchronization/mutex.h"
 #include "tensorflow/core/data/service/snapshot/file_utils.h"
 #include "tensorflow/core/data/service/snapshot/path_utils.h"
+#include "tensorflow/core/framework/tensor.h"
 #include "tsl/lib/core/status_test_util.h"
 #include "tsl/platform/env.h"
 #include "tsl/platform/errors.h"
 #include "tsl/platform/path.h"
 #include "tsl/platform/status_matchers.h"
+#include "tsl/platform/status_to_from_proto.h"
 #include "tsl/platform/statusor.h"
 #include "tsl/platform/test.h"
+#include "tsl/platform/tstring.h"
+#include "tsl/protobuf/status.pb.h"
 
 namespace tensorflow {
 namespace data {
@@ -43,6 +47,7 @@ using ::testing::ElementsAre;
 using ::testing::IsEmpty;
 using ::testing::UnorderedElementsAreArray;
 using ::tsl::testing::IsOkAndHolds;
+using ::tsl::testing::StatusIs;
 
 absl::StatusOr<std::string> CreateSnapshotDirectory() {
   std::string snapshot_path;
@@ -67,16 +72,24 @@ absl::Status SetDone(absl::string_view snapshot_path) {
                                      tsl::Env::Default());
 }
 
+absl::Status SetStatus(absl::string_view snapshot_path,
+                       const absl::Status& status) {
+  return AtomicallyWriteTextProto(SnapshotErrorFilePath(snapshot_path),
+                                  tsl::StatusToProto(status),
+                                  tsl::Env::Default());
+}
+
 absl::StatusOr<std::vector<std::string>> GetAllChunks(
     SnapshotChunkProvider& snapshot_chunk_provider) {
   std::vector<std::string> chunks;
   while (true) {
-    TF_ASSIGN_OR_RETURN(std::optional<std::string> chunk,
-                        snapshot_chunk_provider.GetNext());
-    if (!chunk.has_value()) {
-      break;
+    Tensor split;
+    bool end_of_splits = false;
+    TF_RETURN_IF_ERROR(snapshot_chunk_provider.GetNext(&split, &end_of_splits));
+    if (end_of_splits) {
+      return chunks;
     }
-    chunks.push_back(*chunk);
+    chunks.push_back(split.unaligned_flat<tsl::tstring>().data()[0]);
   }
   return chunks;
 }
@@ -168,13 +181,15 @@ TEST(SnapshotChunkProviderTest, ConcurrentReadWrite) {
         [&snapshot_chunk_provider, &mu, &result]() {
           while (true) {
             tsl::Env::Default()->SleepForMicroseconds(25);
-            TF_ASSERT_OK_AND_ASSIGN(std::optional<std::string> chunk,
-                                    snapshot_chunk_provider.GetNext());
-            if (!chunk.has_value()) {
+            Tensor split;
+            bool end_of_splits = false;
+            TF_ASSERT_OK(
+                snapshot_chunk_provider.GetNext(&split, &end_of_splits));
+            if (end_of_splits) {
               break;
             }
             absl::MutexLock l(&mu);
-            result.push_back(std::move(*chunk));
+            result.push_back(split.unaligned_flat<tsl::tstring>().data()[0]);
           }
         })));
   }
@@ -205,6 +220,26 @@ TEST(SnapshotChunkProviderTest, ConcurrentReadWrite) {
   }
   EXPECT_THAT(result,
               UnorderedElementsAreArray(JoinPaths(snapshot_path, expected)));
+}
+
+TEST(SnapshotChunkProviderTest, SnapshotError) {
+  TF_ASSERT_OK_AND_ASSIGN(std::string snapshot_path, CreateSnapshotDirectory());
+  std::unique_ptr<tsl::Thread> reader_thread =
+      absl::WrapUnique(tsl::Env::Default()->StartThread(
+          /*thread_options=*/{}, /*name=*/"Reader", [&snapshot_path]() {
+            SnapshotChunkProvider snapshot_chunk_provider(snapshot_path,
+                                                          tsl::Env::Default());
+            EXPECT_THAT(
+                GetAllChunks(snapshot_chunk_provider),
+                StatusIs(absl::StatusCode::kFailedPrecondition, "Test error."));
+          }));
+
+  TF_ASSERT_OK(WriteChunk(snapshot_path, "chunk_0_0_0"));
+  TF_ASSERT_OK(WriteChunk(snapshot_path, "chunk_1_0_0"));
+  TF_ASSERT_OK(WriteChunk(snapshot_path, "chunk_2_0_0"));
+  TF_ASSERT_OK(
+      SetStatus(snapshot_path, absl::FailedPreconditionError("Test error.")));
+  reader_thread.reset();
 }
 
 }  // namespace

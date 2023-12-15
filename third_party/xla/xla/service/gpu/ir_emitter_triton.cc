@@ -722,8 +722,8 @@ void CreateTritonPipeline(mlir::OpPassManager& pm,
   const int ccAsInt = cc.major * 10 + cc.minor;
   const int threadsPerWarp = 32;
   const int numCTAs = 1;
-  // Based on optimize_ttir() in
-  // @triton//:python/triton/compiler/compiler.py
+  // Based on make_ttir() in
+  // @triton//:python/triton/compiler/backends/cuda.py
   pm.addPass(mt::createRewriteTensorPointerPass(ccAsInt));
   pm.addPass(mlir::createInlinerPass());
   pm.addPass(mt::createCombineOpsPass());
@@ -732,12 +732,12 @@ void CreateTritonPipeline(mlir::OpPassManager& pm,
   pm.addPass(mlir::createCSEPass());
   pm.addPass(mlir::createLoopInvariantCodeMotionPass());
   pm.addPass(mlir::createSymbolDCEPass());
-  // Based on ttir_to_ttgir() in
-  // @triton//:python/triton/compiler/compiler.py
+  // Based on make_ttgir() under "# TTIR -> TTGIR" in
+  // @triton//:python/triton/compiler/backends/cuda.py
   pm.addPass(mt::createConvertTritonToTritonGPUPass(num_warps, threadsPerWarp,
                                                     numCTAs, ccAsInt));
-  // Based on optimize_ttgir() in
-  // @triton//:python/triton/compiler/compiler.py
+  // Based on make_ttgir() under "# optimize TTGIR" in
+  // @triton//:python/triton/compiler/backends/cuda.py
   pm.addPass(mlir::createTritonGPUCoalescePass());
   pm.addPass(mlir::createTritonNvidiaGPUPlanCTAPass(/*clusterInfo=*/));
   pm.addPass(mlir::createTritonGPURewriteTensorPointerPass(ccAsInt));
@@ -1732,22 +1732,6 @@ Status EmitMatMul(mlir::OpBuilder builder, absl::string_view libdevice_path,
                           mt::CacheModifier::NONE, mt::EvictionPolicy::NORMAL);
   }
   return OkStatus();
-}
-
-LaunchDimensions GetSoftMaxLaunchDimensions(const HloFusionAdaptor& fusion,
-                                            const TritonGemmConfig& config) {
-  auto reduce = HloFindIf(fusion.GetRoots(), fusion, [](auto node) {
-    return node.opcode() == HloOpcode::kReduce;
-  });
-  CHECK(reduce != std::nullopt);
-  const Shape& reduce_input_shape = reduce->instruction().operand(0)->shape();
-  int num_rows = 1;
-  for (int minor_axis = 1; minor_axis < reduce_input_shape.rank();
-       ++minor_axis) {
-    num_rows *= reduce_input_shape.dimensions_minor(minor_axis);
-  }
-
-  return {{num_rows, 1, 1}, {config.num_warps * WarpSize(), 1, 1}};
 }
 
 Status EmitSoftMax(mlir::OpBuilder builder, absl::string_view libdevice_path,

@@ -147,6 +147,7 @@ class IrEmitterUnnested : public IrEmitter {
           hlo_for_lmhlo);
   Status EmitConvolutionThunk(mlir::Operation* op);
   Status EmitGemmThunk(mlir::Operation* op);
+  Status EmitGemmThunk(const HloCustomCallInstruction* instr);
 #if GOOGLE_CUDA || TF_HIPBLASLT
   Status EmitCublasLtMatmulThunk(mlir::Operation* op);
 #endif  // GOOGLE_CUDA || TF_HIPBLASLT
@@ -194,6 +195,7 @@ class IrEmitterUnnested : public IrEmitter {
 #if GOOGLE_CUDA || TENSORFLOW_USE_ROCM
   Status EmitTriangularSolveCustomCall(mlir::Operation* op);
 #endif  // GOOGLE_CUDA || TENSORFLOW_USE_ROCM
+  Status EmitTopKCustomCall(const HloCustomCallInstruction* instr);
 
   Status EmitSendThunk(const HloSendInstruction* instr);
   Status EmitSendDoneThunk(const HloSendDoneInstruction* instr);

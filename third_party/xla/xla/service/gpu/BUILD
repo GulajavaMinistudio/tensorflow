@@ -280,6 +280,7 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         ":backend_configs_cc",
+        ":cublas_cudnn",
         ":gemm_thunk",
         ":gpu_asm_opts_util",
         ":gpu_constants",
@@ -329,10 +330,12 @@ cc_library(
         "//xla/service/gpu/fusions:tiling_util",
         "//xla/service/gpu/kernels:custom_fusion",
         "//xla/service/gpu/kernels:custom_kernel",
+        "//xla/service/gpu/kernels:topk_custom_kernel",
         "//xla/service/gpu/runtime3:command_buffer_cmd",
         "//xla/service/gpu/runtime3:command_buffer_cmd_emitter",
         "//xla/service/gpu/runtime3:command_buffer_thunk",
         "//xla/service/gpu/runtime3:conditional_thunk",
+        "//xla/service/gpu/runtime3:convolution_thunk",
         "//xla/service/gpu/runtime3:custom_call_thunk",
         "//xla/service/gpu/runtime3:fft_thunk",
         "//xla/service/gpu/runtime3:for_thunk",
@@ -933,7 +936,6 @@ xla_cc_test(
 cc_library(
     name = "gpu_executable",
     srcs = [
-        "convolution_thunk.cc",
         "copy_thunk.cc",
         "fused_mha_thunk.cc",
         "gpu_executable.cc",
@@ -945,7 +947,6 @@ cc_library(
         "replica_id_thunk.cc",
     ],
     hdrs = [
-        "convolution_thunk.h",
         "copy_thunk.h",
         "fused_mha_thunk.h",
         "gemm_thunk.h",
@@ -1480,6 +1481,7 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         ":backend_configs_cc",
+        ":gpu_fusible",
         ":ir_emission_utils",
         ":triton_fusion_analysis",
         "//xla:status",
@@ -1492,9 +1494,7 @@ cc_library(
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
-        "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:logging",
-        "@local_tsl//tsl/platform:statusor",
     ],
 )
 
@@ -2815,6 +2815,7 @@ cc_library(
     hdrs = ["command_buffer_scheduling.h"],
     visibility = ["//visibility:public"],
     deps = [
+        ":cublas_cudnn",
         "//xla:shape_util",
         "//xla:status",
         "//xla:statusor",
@@ -3773,6 +3774,7 @@ xla_cc_test(
         ":gpu_device_info_for_tests",
         ":hlo_fusion_analysis",
         ":hlo_traversal",
+        "//xla/stream_executor:device_description",
         "//xla/tests:hlo_test_base",
         "//xla/tests:xla_internal_test_main",
         "@local_tsl//tsl/platform:statusor",
@@ -3865,6 +3867,7 @@ cc_library(
     hdrs = ["gpu_fusible.h"],
     visibility = ["//visibility:public"],
     deps = [
+        ":backend_configs_cc",
         ":ir_emission_utils",
         ":reduction_utils",
         "//xla:shape_util",
@@ -4490,8 +4493,7 @@ test_suite(
         "//xla/service/gpu/tests:gpu_infeed_test",
         "//xla/service/gpu/tests:gpu_input_fusible_slice_test",
         "//xla/service/gpu/tests:gpu_kernel_tiling_test",
-        # TODO(ezhulenev): Re-enable this test.
-        #"//xla/service/gpu/tests:gpu_ldg_test",
+        "//xla/service/gpu/tests:gpu_ldg_test",
         "//xla/service/gpu/tests:gpu_noalias_test",
         "//xla/service/gpu/tests:gpu_reduce_scatter_creator_test",
         "//xla/service/gpu/tests:gpu_spmd_e2e_compile_test",
@@ -5021,22 +5023,18 @@ cc_library(
 
 xla_cc_test(
     name = "loop_double_buffer_transformer_test",
-    srcs = if_gpu_is_configured(["loop_double_buffer_transformer_test.cc"]),
-    tags = tf_cuda_tests_tags(),
-    deps = if_gpu_is_configured([
-        ":gpu_compiler",
+    srcs = ["loop_double_buffer_transformer_test.cc"],
+    deps = [
         ":loop_double_buffer_transformer",
         "//xla:test",
+        "//xla:xla_data_proto_cc",
+        "//xla:xla_proto_cc",
         "//xla/hlo/ir:hlo",
         "//xla/service:tuple_simplifier",
         "//xla/tests:hlo_test_base",
         "//xla/tests:xla_internal_test_main",
-    ]) + [
-        "//xla:test_helpers",
-        "//xla:xla_data_proto_cc",
-        "//xla:xla_proto_cc",
-        "//xla/service:hlo_dce",
         "@com_google_absl//absl/container:flat_hash_set",
+        "@local_tsl//tsl/platform:status_matchers",
         "@local_tsl//tsl/platform:statusor",
     ],
 )
