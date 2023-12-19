@@ -16,6 +16,7 @@ limitations under the License.
 #include "xla/hlo/experimental/auto_sharding/auto_sharding_solver.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -152,6 +153,49 @@ double MinimumMemoryBudgetRequired(const AutoShardingSolverRequest& request) {
   return min_memory_budget_required_estimate;
 }
 
+double MaxCoeff(
+    const tsl::protobuf::RepeatedPtrField<AutoShardingSolverRequest_Costs>&
+        cost_mat) {
+  double max_coeff = 0.0;
+  for (auto& costs : cost_mat) {
+    for (auto& cost : costs.costs()) {
+      if (cost < kInfinityCost) {
+        max_coeff = std::max(max_coeff, cost);
+      }
+    }
+  }
+  return max_coeff;
+}
+
+void ScaleCoeffs(
+    double scaling_factor,
+    tsl::protobuf::RepeatedPtrField<AutoShardingSolverRequest_Costs>*
+        cost_mat) {
+  for (auto& costs : *cost_mat) {
+    for (auto& cost : *costs.mutable_costs()) {
+      if (cost < kInfinityCost) {
+        cost = floor(cost * scaling_factor);
+      }
+    }
+  }
+}
+
+AutoShardingSolverRequest ScaleRequest(
+    const AutoShardingSolverRequest& request) {
+  if (!request.has_coeff_limit()) return request;
+  double max_coeff = 0.0;
+  max_coeff = std::max(max_coeff, MaxCoeff(request.communication_costs()));
+  max_coeff = std::max(max_coeff, MaxCoeff(request.computation_costs()));
+  max_coeff = std::max(max_coeff, MaxCoeff(request.resharding_costs()));
+  if (max_coeff <= request.coeff_limit().coeff()) return request;
+  const double scaling_factor = request.coeff_limit().coeff() / max_coeff;
+  AutoShardingSolverRequest scaled_request = request;
+  ScaleCoeffs(scaling_factor, scaled_request.mutable_communication_costs());
+  ScaleCoeffs(scaling_factor, scaled_request.mutable_computation_costs());
+  ScaleCoeffs(scaling_factor, scaled_request.mutable_resharding_costs());
+  return scaled_request;
+}
+
 // Taking an auto-sharding problem (`request`) as an input, calls the OR tools
 // CP-SAT solver and outputs a solution to the input problem.
 //
@@ -216,7 +260,8 @@ double MinimumMemoryBudgetRequired(const AutoShardingSolverRequest& request) {
 //    a makespan term. This is experimental and turned off by default.
 // 4. request.max_departures is used only for debugging and can be ignored.
 AutoShardingSolverResult CallORToolsSolver(
-    const AutoShardingSolverRequest& request) {
+    const AutoShardingSolverRequest& unscaled_request) {
+  const AutoShardingSolverRequest& request = ScaleRequest(unscaled_request);
   const size_t num_edges = request.edges_size();
   const int num_workers = 32;
   // SAT or SCIP
@@ -233,7 +278,6 @@ AutoShardingSolverResult CallORToolsSolver(
         "share_binary_clauses:false,random_seed:1,interleave_"
         "search:true,num_workers:",
         num_workers);
-    // solver->SetSolverSpecificParametersAsString(solver_parameter_str);
   }
 #endif
   // Create variables
@@ -241,6 +285,15 @@ AutoShardingSolverResult CallORToolsSolver(
   std::vector<std::vector<MPVariable*>> e(num_edges);
   MPVariable* overbudget_var = nullptr;
   MPVariable* makespan_var = nullptr;
+  MPVariable* cost_var =
+      solver->MakeNumVar(0.0,
+                         request.has_max_cost() ? request.max_cost().coeff()
+                                                : MPSolver::infinity(),
+                         "cost");
+  MPConstraint* cost_constraint =
+      solver->MakeRowConstraint(-MPSolver::infinity(), 0.0, "cost_constraint");
+  cost_constraint->SetCoefficient(cost_var, -1.0);
+  solver->MutableObjective()->SetCoefficient(cost_var, 1.0);
 
   size_t unique_nodes = 0;
   for (NodeIdx node_idx = 0; node_idx < request.num_nodes(); ++node_idx) {
@@ -287,7 +340,7 @@ AutoShardingSolverResult CallORToolsSolver(
   }
 
   if (request.has_makespan_coeff()) {
-    makespan_var = CreateMakespanVar(request, e, *solver);
+    makespan_var = CreateMakespanVar(request, e, *solver, *cost_constraint);
   }
 
   // Construct objective function.
@@ -295,25 +348,25 @@ AutoShardingSolverResult CallORToolsSolver(
   for (NodeIdx node_idx = 0; node_idx < request.num_nodes(); ++node_idx) {
     for (NodeStrategyIdx j = 0; j < s[node_idx].size(); ++j) {
       double accumulated_coefficient =
-          solver->Objective().GetCoefficient(s[node_idx][j]);
+          cost_constraint->GetCoefficient(s[node_idx][j]);
       double coefficient = request.computation_costs(node_idx).costs(j) +
                            request.communication_costs(node_idx).costs(j);
       AddSalt(absl::StrCat(node_idx, "S", j), request.saltiplier(),
               &coefficient);
-      solver->MutableObjective()->SetCoefficient(
-          s[node_idx][j], accumulated_coefficient + coefficient);
+      cost_constraint->SetCoefficient(s[node_idx][j],
+                                      accumulated_coefficient + coefficient);
     }
   }
   // Edge costs
   for (EdgeIdx edge_idx = 0; edge_idx < num_edges; ++edge_idx) {
     for (EdgeStrategyIdx j = 0; j < e[edge_idx].size(); ++j) {
       double accumulated_coefficient =
-          solver->Objective().GetCoefficient(e[edge_idx][j]);
+          cost_constraint->GetCoefficient(e[edge_idx][j]);
       double coefficient = request.resharding_costs(edge_idx).costs(j);
       AddSalt(absl::StrCat(edge_idx, "E", j), request.saltiplier(),
               &coefficient);
-      solver->MutableObjective()->SetCoefficient(
-          e[edge_idx][j], accumulated_coefficient + coefficient);
+      cost_constraint->SetCoefficient(e[edge_idx][j],
+                                      accumulated_coefficient + coefficient);
     }
   }
 
@@ -325,7 +378,7 @@ AutoShardingSolverResult CallORToolsSolver(
     if (s[node_idx].empty() || request.s_follow(node_idx) >= 0) continue;
     bool all_infinity = true;
     for (NodeStrategyIdx j = 0; j < s[node_idx].size(); ++j) {
-      if (solver->Objective().GetCoefficient(s[node_idx][j]) >= kInfinityCost) {
+      if (cost_constraint->GetCoefficient(s[node_idx][j]) >= kInfinityCost) {
         MPConstraint* constraint = solver->MakeRowConstraint(
             0.0, 0.0,
             absl::StrCat("infinitycost: s[", node_idx, "][", j, "] = 0"));
@@ -342,7 +395,7 @@ AutoShardingSolverResult CallORToolsSolver(
     if (e[edge_idx].empty() || e_follow[edge_idx] >= 0) continue;
     bool all_infinity = true;
     for (EdgeStrategyIdx j = 0; j < e[edge_idx].size(); ++j) {
-      if (solver->Objective().GetCoefficient(e[edge_idx][j]) >= kInfinityCost) {
+      if (cost_constraint->GetCoefficient(e[edge_idx][j]) >= kInfinityCost) {
         MPConstraint* constraint = solver->MakeRowConstraint(
             0.0, 0.0,
             absl::StrCat("infinitycost: e[", edge_idx, "][", j, "] = 0"));
@@ -400,8 +453,8 @@ AutoShardingSolverResult CallORToolsSolver(
       }
     }
     if (overbudget_var) {
-      solver->MutableObjective()->SetCoefficient(
-          overbudget_var, request.overbudget_coeff().coeff());
+      cost_constraint->SetCoefficient(overbudget_var,
+                                      request.overbudget_coeff().coeff());
       solver->MutableObjective()->SetOffset(request.overbudget_coeff().coeff() *
                                             min_memory_overbudget);
     }
@@ -511,15 +564,15 @@ AutoShardingSolverResult CallORToolsSolver(
       LOG(ERROR) << write_status.message();
     }
   }
-  // Exports the solver request proto for debugging.
+  // Exports the *unscaled* solver request proto for debugging.
   bool dump_solver_request = false;
   if (dump_solver_request) {
     uint64_t solver_request_fprint =
-        tsl::Fingerprint64(request.SerializeAsString());
+        tsl::Fingerprint64(unscaled_request.SerializeAsString());
     auto write_status = file::SetBinaryProto(
         // Modify this file path if needed.
         absl::StrCat("/tmp/solver_request_", solver_request_fprint, ".proto"),
-        request, file::Defaults());
+        unscaled_request, file::Defaults());
     if (!write_status.ok()) {
       LOG(ERROR) << write_status.message();
     }
@@ -542,10 +595,15 @@ AutoShardingSolverResult CallORToolsSolver(
           << "GB\n"
           << "Number of ILP constraints: " << solver->NumConstraints() << "\n"
           << "Module name: " << request.module_name();
+  if (request.has_max_cost()) {
+    VLOG(0) << "Max cost: " << request.max_cost().coeff();
+  }
   auto result = SolveAndExtractSolution(request, s, e, overbudget_var,
                                         makespan_var, *solver);
   if (result.status.ok()) {
-    const AutoShardingEvaluation evaluation = Evaluate(request, result);
+    const AutoShardingEvaluation evaluation =
+        Evaluate(unscaled_request, result);
+    LOG(INFO) << "*** Total costs for the (unscaled) solver request ***";
     LOG(INFO) << "Total Communication Cost: "
               << evaluation.total.communication_cost
               << " (lower bound: " << evaluation.lower_bound.communication_cost

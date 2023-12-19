@@ -19,6 +19,7 @@ limitations under the License.
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -216,11 +217,20 @@ class GpuCommandBuffer : public internal::CommandBufferInterface {
 
   Dependencies GetBarrier();
 
+  // Returns loaded no-op kernel used as a barrier, or loads it on a given
+  // stream executor. Loaded kernel owned by a current command buffer.
+  tsl::StatusOr<NoOpKernel*> GetNoOpKernel(StreamExecutor* executor);
+
   // Recursively disable all nodes corresponding to barriers (including nested
   // conditional command buffers). This is work around the fact that we can't
   // use empty nodes inside conditional CUDA graphs and instead we add no-op
   // kernel nodes, however large number of no-op kernels impacts performance.
   tsl::Status DisableBarriersExecution(GpuGraphExecHandle exec);
+
+  // Launches CUDA kernels with packed arguments.
+  tsl::Status LaunchWithPackedArgs(
+      const ThreadDim& threads, const BlockDim& blocks, const Kernel& kernel,
+      const KernelArgsPackedArrayBase& packed_args);
 
   // Returns OK status if command buffer is not finalized and it is still
   // possible to add new commands to it, otherwise returns internal error.
@@ -288,6 +298,9 @@ class GpuCommandBuffer : public internal::CommandBufferInterface {
   };
 
   UpdateState update_state_;
+
+  // Loaded instance of a no-op kernel used as command buffer barrier.
+  std::unique_ptr<NoOpKernel> noop_kernel_;
 };
 
 template <typename... Params, typename... Args>

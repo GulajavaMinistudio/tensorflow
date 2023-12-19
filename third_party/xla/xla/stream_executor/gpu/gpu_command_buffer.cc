@@ -19,6 +19,7 @@ limitations under the License.
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -35,11 +36,13 @@ limitations under the License.
 #include "xla/stream_executor/gpu/gpu_driver.h"
 #include "xla/stream_executor/gpu/gpu_executor.h"
 #include "xla/stream_executor/gpu/gpu_kernel.h"
+#include "xla/stream_executor/gpu/gpu_kernels.h"
 #include "xla/stream_executor/gpu/gpu_stream.h"
 #include "xla/stream_executor/gpu/gpu_types.h"
 #include "xla/stream_executor/kernel.h"
 #include "xla/stream_executor/kernel_spec.h"
 #include "xla/stream_executor/launch_dim.h"
+#include "xla/stream_executor/stream_executor_pimpl.h"
 #include "tsl/platform/env.h"
 #include "tsl/platform/errors.h"
 #include "tsl/platform/status.h"
@@ -172,6 +175,21 @@ GpuCommandBuffer::Dependencies GpuCommandBuffer::GetBarrier() {
   return barrier_ ? Dependencies{barrier_} : Dependencies{};
 }
 
+tsl::StatusOr<GpuCommandBuffer::NoOpKernel*> GpuCommandBuffer::GetNoOpKernel(
+    StreamExecutor* executor) {
+  if (!noop_kernel_) {
+    auto noop_kernel = std::make_unique<NoOpKernel>(executor);
+
+    MultiKernelLoaderSpec spec(/*arity=*/0);
+    spec.AddCudaPtxInMemory(gpu::kNoOpKernel, "noop");
+    TF_RETURN_IF_ERROR(executor->GetKernel(spec, noop_kernel.get()));
+
+    noop_kernel_ = std::move(noop_kernel);
+  }
+
+  return noop_kernel_.get();
+}
+
 tsl::Status GpuCommandBuffer::DisableBarriersExecution(
     GpuGraphExecHandle exec) {
   for (GpuGraphNodeHandle barrier : barriers_) {
@@ -221,18 +239,13 @@ tsl::Status GpuCommandBuffer::Barrier(StreamExecutor* executor) {
 
     // Add a noop kernel node acting as a barrier.
     if (dependencies.size() > 1) {
-      MultiKernelLoaderSpec spec(/*arity=*/0);
-      spec.AddInProcessSymbol(gpu::GetNoOpKernel(), "noop");
-
-      NoOpKernel noop(executor);
-      TF_RETURN_IF_ERROR(executor->GetKernel(spec, &noop));
-
       // TODO(b/316343054): This should be an empty node, however CUDA 12.3 does
       // not support empty nodes inside conditional command buffers.
       GpuGraphNodeHandle* node = &nodes_.emplace_back();
+      TF_ASSIGN_OR_RETURN(auto noop, GetNoOpKernel(executor));
       TF_RETURN_IF_ERROR(GpuDriver::GraphAddKernelNode(
-          node, graph_, absl::MakeSpan(dependencies), noop.name(),
-          AsGpuKernel(&noop)->AsGpuFunctionHandle(), 1, 1, 1, 1, 1, 1, 0,
+          node, graph_, absl::MakeSpan(dependencies), noop->name(),
+          AsGpuKernel(noop)->AsGpuFunctionHandle(), 1, 1, 1, 1, 1, 1, 0,
           /*kernel_params=*/nullptr, /*extra=*/nullptr));
       barriers_.push_back(*node);
     } else {
@@ -255,21 +268,17 @@ tsl::Status GpuCommandBuffer::Barrier(StreamExecutor* executor) {
   return UnsupportedStateError(state_);
 }
 
-tsl::Status GpuCommandBuffer::Launch(const ThreadDim& threads,
-                                     const BlockDim& blocks,
-                                     const Kernel& kernel,
-                                     const KernelArgs& args) {
-  TF_RETURN_IF_ERROR(CheckNotFinalized());
+tsl::Status GpuCommandBuffer::LaunchWithPackedArgs(
+    const ThreadDim& threads, const BlockDim& blocks, const Kernel& kernel,
+    const KernelArgsPackedArrayBase& packed_args) {
+  CHECK_EQ(kernel.Arity() + (packed_args.number_of_shared_bytes() > 0),
+           packed_args.number_of_arguments());
 
   const GpuKernel* gpu_kernel = AsGpuKernel(&kernel);
   GpuFunctionHandle gpu_func = gpu_kernel->AsGpuFunctionHandle();
 
-  auto* packed_args = DynCast<KernelArgsPackedArrayBase>(&args);
-  if (!packed_args)
-    return absl::InternalError("Unsupported kernel arguments type");
-
   void** kernel_params =
-      const_cast<void**>(packed_args->argument_addresses().data());
+      const_cast<void**>(packed_args.argument_addresses().data());
 
   // Adds a new kernel node to the graph under construction.
   if (state_ == State::kCreate) {
@@ -278,7 +287,7 @@ tsl::Status GpuCommandBuffer::Launch(const ThreadDim& threads,
     return GpuDriver::GraphAddKernelNode(
         node, graph_, absl::MakeSpan(barrier), kernel.name(), gpu_func,
         blocks.x, blocks.y, blocks.z, threads.x, threads.y, threads.z,
-        args.number_of_shared_bytes(), kernel_params, /*extra=*/nullptr);
+        packed_args.number_of_shared_bytes(), kernel_params, /*extra=*/nullptr);
   }
 
   // Updates kernel node in the executable graph.
@@ -286,11 +295,38 @@ tsl::Status GpuCommandBuffer::Launch(const ThreadDim& threads,
     GpuGraphNodeHandle node = nodes_[update_state_.node_idx++];
     return GpuDriver::GraphExecKernelNodeSetParams(
         exec_, node, kernel.name(), gpu_func, blocks.x, blocks.y, blocks.z,
-        threads.x, threads.y, threads.z, args.number_of_shared_bytes(),
+        threads.x, threads.y, threads.z, packed_args.number_of_shared_bytes(),
         kernel_params, /*extra=*/nullptr);
   }
 
   return UnsupportedStateError(state_);
+}
+
+tsl::Status GpuCommandBuffer::Launch(const ThreadDim& threads,
+                                     const BlockDim& blocks,
+                                     const Kernel& kernel,
+                                     const KernelArgs& args) {
+  TF_RETURN_IF_ERROR(CheckNotFinalized());
+
+  // If arguments are already packed we can just launch the kernel.
+  if (auto* packed = DynCast<KernelArgsPackedArrayBase>(&args)) {
+    return LaunchWithPackedArgs(threads, blocks, kernel, *packed);
+  }
+
+  // For device memory array we rely on a custom kernel arguments packing.
+  if (auto* device_mem = DynCast<KernelArgsDeviceMemoryArray>(&args)) {
+    auto& pack = kernel.kernel_args_packing();
+    if (!pack) {
+      return absl::InternalError(
+          "Kernel is missing a custom arguments packing function for device "
+          "memory arguments array");
+    }
+
+    TF_ASSIGN_OR_RETURN(auto packed, pack(kernel, *device_mem));
+    return LaunchWithPackedArgs(threads, blocks, kernel, *packed);
+  }
+
+  return absl::InternalError("Unsupported kernel arguments type");
 }
 
 tsl::Status GpuCommandBuffer::AddNestedCommandBuffer(

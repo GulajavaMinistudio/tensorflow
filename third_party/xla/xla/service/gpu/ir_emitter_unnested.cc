@@ -2253,14 +2253,6 @@ Status IrEmitterUnnested::EmitFusion(
           GetFusionEmitter(
               fusion_analysis,
               HloFusionInfo(instr, &ir_emitter_context_->buffer_assignment())));
-      // TODO(anlunx): Support InPlaceDynamicUpdateSlice and remove this
-      // fallback.
-      if (!emitter) {
-        TF_RET_CHECK(op)
-            << "Fusion should have been handled by GetFusionEmitter, fallback "
-               "disabled because no lmhlo op is available.";
-        return EmitFusion(op, hlo_for_lmhlo);
-      }
       TF_ASSIGN_OR_RETURN(
           emission_result,
           (*emitter)->Emit(*ir_emitter_context_, elemental_emitter_, nullptr,
@@ -2713,6 +2705,22 @@ Status IrEmitterUnnested::EmitRngGetAndUpdateState(mlir::Operation* op) {
       &b_, "rng_state_address");
   Store(old_state, output_address);
 
+  return OkStatus();
+}
+
+Status IrEmitterUnnested::EmitRngGetAndUpdateState(
+    const HloRngGetAndUpdateStateInstruction* instr) {
+  // Emit a kernel to increment the global state for Philox RNG algorithm.
+  TF_ASSIGN_OR_RETURN(auto ir_arrays, BuildKernelThunkForNonFusionOp(
+                                          instr, {}, LaunchDimensions()));
+  auto& [inputs, outputs] = ir_arrays;
+  llvm::Value* old_state =
+      llvm_ir::RngGetAndUpdateState(instr->delta(), module_, &b_);
+  llvm::Value* output_address = inputs[0].EmitArrayElementAddress(
+      llvm_ir::IrArray::Index(
+          /*linear=*/b_.getInt64(0), instr->shape(), &b_),
+      &b_, "rng_state_address");
+  Store(old_state, output_address);
   return OkStatus();
 }
 
@@ -3722,6 +3730,10 @@ Status IrEmitterUnnested::EmitOp(
   }
 
   if (mlir::isa<mlir::lmhlo::RngGetAndUpdateStateOp>(op)) {
+    if (ir_emitter_context_->emit_ir_from_hlo()) {
+      return EmitRngGetAndUpdateState(
+          Cast<HloRngGetAndUpdateStateInstruction>(hlo_for_lmhlo.at(op)));
+    }
     return EmitRngGetAndUpdateState(op);
   }
 
@@ -3885,6 +3897,9 @@ Status IrEmitterUnnested::EmitHloInstruction(const HloInstruction* instr) {
       return InternalError("Unsupported custom call instruction: %s",
                            custom_call->name());
     }
+    case HloOpcode::kRngGetAndUpdateState:
+      return EmitRngGetAndUpdateState(
+          Cast<HloRngGetAndUpdateStateInstruction>(instr));
     // We don't need to emit thunks for these operations because their semantics
     // are encoded by buffers.
     case HloOpcode::kBitcast:

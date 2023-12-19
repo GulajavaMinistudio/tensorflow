@@ -13,22 +13,35 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include <array>
-#include <cstdint>
+#ifndef XLA_STREAM_EXECUTOR_GPU_GPU_KERNELS_H_
+#define XLA_STREAM_EXECUTOR_GPU_GPU_KERNELS_H_
 
-#include "third_party/gpus/cuda/include/cuda.h"
+#include <string_view>
 
-namespace stream_executor {
-namespace cuda {
-namespace {
+namespace stream_executor::gpu {
 
-__global__ void NoOp() {}
+// Collection of helper kernels required by StreamExecutor Gpu backend.
 
-}  // namespace
-}  // namespace cuda
+// PTX kernel compiled from:
+//
+//  __global__ void noop() {}
+//
+// Easiest way to get PTX from C++ is to use https://godbolt.org.
+inline constexpr std::string_view kNoOpKernel = R"(
+.version 8.0
+.target sm_50
+.address_size 64
 
-namespace gpu {
-void* GetNoOpKernel() { return reinterpret_cast<void*>(&cuda::NoOp); }
-}  // namespace gpu
+.visible .entry noop()
+{
 
-}  // namespace stream_executor
+        .loc    1 1 0
+
+        .loc    1 4 1
+        ret;
+
+})";
+
+}  // namespace stream_executor::gpu
+
+#endif  // XLA_STREAM_EXECUTOR_GPU_GPU_KERNELS_H_
