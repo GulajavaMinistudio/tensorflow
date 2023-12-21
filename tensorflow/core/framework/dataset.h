@@ -406,6 +406,9 @@ class SplitProvider {
   // - If the number of splits is unknown or can't be efficiently computed,
   // returns kUnknownCardinality.
   virtual int64_t Cardinality() const { return kUnknownCardinality; }
+  // Cancels the split provider. After cancelling, all other existing and future
+  // calls should return quickly without blocking.
+  virtual void Cancel() {}
 };
 
 // Returns the runner threadpool size from an OpKernelContext.

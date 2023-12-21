@@ -14,27 +14,37 @@ limitations under the License.
 ==============================================================================*/
 #include "xla/service/gpu/command_buffer_scheduling.h"
 
+#include <cstdint>
 #include <memory>
 #include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
-#include "absl/container/flat_hash_map.h"
 #include "xla/hlo/ir/hlo_instruction.h"
-#include "xla/hlo/ir/hlo_instructions.h"
 #include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/hlo/ir/hlo_schedule.h"
 #include "xla/service/hlo_parser.h"
 #include "xla/tests/filecheck.h"
 #include "xla/tests/hlo_test_base.h"
 #include "xla/tests/verified_hlo_module.h"
+#include "tsl/lib/core/status_test_util.h"
 #include "tsl/platform/status.h"
 #include "tsl/platform/statusor.h"
 
 namespace xla::gpu {
 namespace {
 
-class CommandBufferSchedulingTest : public HloTestBase {};
+class CommandBufferSchedulingTest : public HloTestBase {
+ public:
+  // Use CUDA 12.3 version for testing as it has all the features we rely on.
+  static constexpr int32_t kGpuRuntimeVersion = 12030;
+
+  DebugOptions GetDebugOptionsForTest() override {
+    auto debug_options = HloTestBase::GetDebugOptionsForTest();
+    debug_options.add_xla_gpu_enable_command_buffer(DebugOptions::FUSION);
+    return debug_options;
+  }
+};
 
 using CommandBuffer = CommandBufferScheduling::CommandBuffer;
 
@@ -80,8 +90,8 @@ TEST_F(CommandBufferSchedulingTest, SingleCommandBuffer) {
 // CHECK:   ROOT %custom-call = s32[] custom-call(%get-tuple-element, %get-tuple-element.1), custom_call_target="some target"
 // CHECK: })";
 
-  RunAndFilecheckHloRewrite(hlo, CommandBufferScheduling(), expected,
-                            [](HloModule* module) {
+  RunAndFilecheckHloRewrite(hlo, CommandBufferScheduling(kGpuRuntimeVersion),
+                            expected, [](HloModule* module) {
                               EXPECT_TRUE(module->has_schedule());
                               TF_CHECK_OK(module->schedule().Verify());
                             });
@@ -157,8 +167,8 @@ TEST_F(CommandBufferSchedulingTest, MultipleCommandBuffers) {
 // CHECK:    ROOT {{.*}} = s32[] custom-call(%[[CMD1]]), custom_call_target="some target"
 // CHECK:  })";
 
-  RunAndFilecheckHloRewrite(hlo, CommandBufferScheduling(), expected,
-                            [](HloModule* module) {
+  RunAndFilecheckHloRewrite(hlo, CommandBufferScheduling(kGpuRuntimeVersion),
+                            expected, [](HloModule* module) {
                               EXPECT_TRUE(module->has_schedule());
                               TF_CHECK_OK(module->schedule().Verify());
                             });
@@ -270,8 +280,8 @@ TEST_F(CommandBufferSchedulingTest, MoveParametersToFront) {
 
   TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<VerifiedHloModule> module,
                           ParseAndReturnVerifiedModule(hlo));
-  CommandBufferScheduling::MoveParametersAndConstantsToFront(
-      module->entry_computation());
+  TF_ASSERT_OK(CommandBufferScheduling::MoveParametersAndConstantsToFront(
+      module->entry_computation()));
   TF_ASSERT_OK_AND_ASSIGN(
       bool filecheck_matches,
       RunFileCheck(
@@ -403,8 +413,8 @@ TEST_F(CommandBufferSchedulingTest, RelayControlDependencies) {
 // CHECK:   ROOT %custom-call.2 = s32[] custom-call(%call, %[[F3]]), custom_call_target="some target"
 // CHECK: })";
 
-  RunAndFilecheckHloRewrite(hlo, CommandBufferScheduling(), expected,
-                            [](HloModule* module) {
+  RunAndFilecheckHloRewrite(hlo, CommandBufferScheduling(kGpuRuntimeVersion),
+                            expected, [](HloModule* module) {
                               EXPECT_TRUE(module->has_schedule());
                               TF_CHECK_OK(module->schedule().Verify());
                             });

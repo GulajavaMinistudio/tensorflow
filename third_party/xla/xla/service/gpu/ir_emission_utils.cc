@@ -561,8 +561,7 @@ StatusOr<bool> CanEmitFusedDynamicUpdateSliceInPlaceForGpu(
   // Get output buffers for fusion.
   std::vector<BufferAllocation::Slice> output_buffers;
   TF_RETURN_IF_ERROR(ShapeUtil::ForEachSubshapeWithStatus(
-      fusion->shape(),
-      [=, &output_buffers](const Shape& shape, const ShapeIndex index) {
+      fusion->shape(), [&](const Shape& shape, const ShapeIndex index) {
         if (shape.IsArray()) {
           TF_ASSIGN_OR_RETURN(BufferAllocation::Slice buffer,
                               buffer_assignment->GetUniqueSlice(fusion, index));
@@ -588,45 +587,55 @@ StatusOr<bool> CanEmitFusedDynamicUpdateSliceInPlaceForGpu(
   // TODO(anlunx): Reuse this code in both HLO and LMHLO path.
   for (int i = 0; i < dus_instrs.size(); ++i) {
     auto* dus = Cast<HloDynamicUpdateSliceInstruction>(dus_instrs[i]);
-    if (dus->user_count() == 0) {
-      if (!dus->IsRoot()) {
-        return InternalError("Dynamic slice update does not have a user.");
-      }
-    } else if (dus->user_count() == 1) {
-      // Since the direct consumer of an output dynamic slice update may be a
-      // bitcast, we also check that this bitcast is used a single time.
-      // This property is also important because reads and writes on the
-      // parameter to be updated are done using the shape and layout of the
-      // dynamic slice update. This is a valid approach only if a subsequent
-      // bitcast is not read by any other op within the fusion---as this may
-      // result in codegen accessing elements using the wrong physical layout.
-      HloInstruction* dus_user = dus->users()[0];
-      if (dus_user->opcode() == HloOpcode::kBitcast) {
-        if (dus_user->user_count() != 1) {
-          return false;
-        }
-        dus_user = dus_user->users()[0];
-      }
-      if (!dus_user->IsRoot()) {
-        return false;
-      }
-    } else {
-      // Dynamic slice updates should have a single path to the root---this to
-      // avoid allowing a dynamic slice update to depend on another, as this
-      // would not be guaranteed to work with the current codegen.
-      return false;
+
+    // Dynamic slice updates should have a single path to the root to avoid
+    // allowing a dynamic slice update to depend on another, as this would not
+    // be guaranteed to work with the current codegen.
+    if (!dus->IsRoot() && dus->user_count() != 1) return false;
+
+    // We follow DUS users until we find a root instruction. We support only
+    // few patterns:
+    //
+    //   (1) ROOT dynamic-update-slice
+    //   (2) ROOT tuple(dynamic-update-slice)
+    //   (3) ROOT bitcast(dynamic-update-slice)
+    //   (4) ROOT tuple(bitcast(dynamic-update-slice))
+    HloInstruction* dus_user = dus->IsRoot() ? nullptr : dus->users().front();
+
+    // Since the direct consumer of an output dynamic slice update may be a
+    // bitcast, we also check that this bitcast is used a single time.
+    // This property is also important because reads and writes on the parameter
+    // to be updated are done using the shape and layout of the dynamic slice
+    // update. This is a valid approach only if a subsequent bitcast is not read
+    // by any other op within the fusion as this may result in codegen
+    // accessing elements using the wrong physical layout.
+    if (dus_user && dus_user->opcode() == HloOpcode::kBitcast) {
+      if (!dus_user->IsRoot() && dus_user->user_count() != 1) return false;
+
+      // Stop following DUS users if we found a root.
+      dus_user = dus_user->IsRoot() ? nullptr : dus_user->users().front();
     }
 
+    // Check that last DUS user is a tuple operation at ROOT position.
+    if (dus_user && dus_user->opcode() == HloOpcode::kTuple) {
+      if (!dus_user->IsRoot()) return false;
+
+      // Stop following DUS users if we found a root.
+      dus_user = nullptr;
+    }
+
+    // We can't emit DUS fusion if we have unsupported DUS users.
+    if (dus_user != nullptr) return false;
+
+    // Find "real" DUS operand by skipping bitcasted operands.
     const HloInstruction* operand = dus->operand(0);
-    // A bitcast separating a fusion input from a dynamic slice update can be
-    // treated as a no-op.
     if (operand->opcode() == HloOpcode::kBitcast) {
       operand = operand->operand(0);
     }
+
+    // Operand to a DUS (or Bitcast) must be a fusion parameter.
     auto* parameter = DynCast<HloParameterInstruction>(operand);
-    if (!parameter) {
-      return false;
-    }
+    if (!parameter) return false;
 
     // We require that the parameter being updated is only read at the same
     // index positions by all users, since we otherwise risk a race condition
@@ -971,6 +980,47 @@ static bool IsParameter(const HloInstruction& instr) {
   return instr.opcode() == HloOpcode::kParameter;
 }
 
+std::optional<HloInstructionAdaptor> FindTransposeHero(
+    HloInstructionAdaptor root, const HloFusionAdaptor& fusion) {
+  std::optional<HloInstructionAdaptor> transpose = std::nullopt;
+  std::vector<HloInstructionAdaptor> non_trivial;
+  auto visit = [&transpose, &non_trivial](HloInstructionAdaptor node) {
+    if (FindTiledLogicalTranspose(node.instruction())) {
+      // If we do not find a unique transpose op, use the original non-trivial
+      // hero.
+      if (transpose) {
+        transpose = std::nullopt;
+        return TraversalResult::kAbortTraversal;
+      }
+      transpose = node;
+      return TraversalResult::kDoNotVisitOperands;
+    }
+
+    if (!IsIntermediate(&node.instruction(), /*allowed_operand_count=*/3)) {
+      non_trivial.push_back(node);
+      return TraversalResult::kDoNotVisitOperands;
+    }
+    return TraversalResult::kVisitOperands;
+  };
+  HloBfsConsumersFirstTraversal({root}, fusion, visit);
+
+  if (transpose) {
+    // There is a single transpose instruction that is a hero candidate.
+    // However, the transpose must be unreachable from any of the non-trivial
+    // instructions that were encountered, because that would mean that its
+    // output is accessed with different access patterns.
+    auto visit_nt = [&transpose](HloInstructionAdaptor node) {
+      if (node == transpose) {
+        transpose = std::nullopt;
+        return TraversalResult::kAbortTraversal;
+      }
+      return TraversalResult::kVisitOperands;
+    };
+    HloBfsConsumersFirstTraversal(non_trivial, fusion, visit_nt);
+  }
+  return transpose;
+}
+
 const HloInstruction& FindNonTrivialHero(const HloInstruction& instr,
                                          const HloFusionAdaptor& fusion) {
   HloInstructionAdaptor idx{instr};
@@ -999,30 +1049,12 @@ const HloInstruction& FindNonTrivialHero(const HloInstruction& instr,
     return instr;
   }
 
-  std::optional<HloInstructionAdaptor> transpose = std::nullopt;
   // Try a bit harder to find a transpose hero. The shared memory transpose
   // emitter also works if there are ops with more than 1 operand on the path
   // between root and the transpose op, we still want the restriction though
   // that each op on the path is elementwise and has only 1 user.
-  auto visit = [&transpose](HloInstructionAdaptor node) {
-    if (FindTiledLogicalTranspose(node.instruction())) {
-      // If we do not find a unique transpose op, use the original non-trivial
-      // hero.
-      if (transpose) {
-        transpose = std::nullopt;
-        return TraversalResult::kAbortTraversal;
-      }
-      transpose = node;
-      return TraversalResult::kDoNotVisitOperands;
-    }
-
-    if (!IsIntermediate(&node.instruction(), /*allowed_operand_count=*/3)) {
-      return TraversalResult::kDoNotVisitOperands;
-    }
-    return TraversalResult::kVisitOperands;
-  };
-  HloBfsConsumersFirstTraversal({idx}, fusion, visit);
-
+  std::optional<HloInstructionAdaptor> transpose =
+      FindTransposeHero(idx, fusion);
   return transpose ? transpose->instruction() : idx.instruction();
 }
 
