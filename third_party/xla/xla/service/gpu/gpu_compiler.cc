@@ -233,7 +233,7 @@ limitations under the License.
 #include "xla/stream_executor/device_description.h"
 #include "xla/stream_executor/device_description.pb.h"
 #include "xla/stream_executor/dnn.h"
-#include "xla/stream_executor/gpu/gpu_runtime.h"
+#include "xla/stream_executor/gpu/gpu_driver.h"
 #include "xla/stream_executor/stream_executor.h"
 #include "xla/translate/mhlo_to_lhlo_with_xla/mhlo_to_lhlo_with_xla.h"
 #include "xla/util.h"
@@ -994,8 +994,8 @@ Status GpuCompiler::OptimizeHloModule(HloModule* hlo_module,
     pipeline.AddPass<FlattenCallGraph>();
     ChannelLayoutConstraints layout_constraints;
     pipeline.AddPass<GpuLayoutAssignment>(
-        hlo_module->mutable_entry_computation_layout(), stream_exec,
-        &layout_constraints);
+        hlo_module->mutable_entry_computation_layout(), gpu_version,
+        dnn_version, &layout_constraints);
     // Run SubByteNormalization because GpuLayoutAssignment may modify a
     // Layout's element_size_in_bits field.
     pipeline.AddPass<SubByteNormalization>(
@@ -2078,9 +2078,9 @@ Status GpuCompiler::RunPostSchedulingPipelines(
   // can decide how to wrap them into command buffers.
   if (!IsXlaRuntimeExecutableEnabled(module->config())) {
     HloPassPipeline pipeline("command-buffer-scheduling");
-    auto gpu_runtime_version = se::gpu::GpuRuntime::GetRuntimeVersion();
+    auto driver_version = se::gpu::GpuDriver::GetDriverVersion();
     pipeline.AddPass<CommandBufferScheduling>(
-        gpu_runtime_version.value_or(CUDA_VERSION));
+        CUDA_VERSION, driver_version.value_or(CUDA_VERSION));
     TF_RETURN_IF_ERROR(pipeline.Run(module).status());
   }
 
