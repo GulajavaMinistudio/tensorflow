@@ -91,6 +91,8 @@ class HloFusionAnalysis {
   // Returns the hero reduction of the computation.
   const HloInstruction* FindHeroReduction() const;
 
+  const se::DeviceDescription& device_info() const { return *device_info_; }
+
  private:
   // Precomputed information about inputs (arguments) and outputs (roots) of the
   // fusion.
@@ -144,6 +146,7 @@ class HloFusionAnalysis {
 std::optional<HloFusionAnalysis> AnalyzeProducerConsumerFusion(
     const HloInstruction& producer, const HloInstruction& consumer,
     const se::DeviceDescription& device_info);
+
 // Creates a HloFusionAnalysis that analyzes just consumer as a standalone
 // fusion.
 std::optional<HloFusionAnalysis> AnalyzeFusion(
