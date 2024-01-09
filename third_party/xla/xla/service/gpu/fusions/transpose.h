@@ -23,9 +23,9 @@ limitations under the License.
 #include "xla/service/gpu/fusions/fusion_emitter.h"
 #include "xla/service/gpu/hlo_fusion_analysis.h"
 #include "xla/service/gpu/ir_emitter_context.h"
+#include "xla/service/gpu/kernel_mapping_scheme.h"
 #include "xla/service/gpu/launch_dimensions.h"
 #include "xla/status.h"
-#include "xla/statusor.h"
 
 namespace xla {
 namespace gpu {
@@ -55,10 +55,13 @@ namespace gpu {
 // efficient to launch fewer blocks so each transposes many tiles.
 class TransposeFusion : public KernelFusionEmitterBase {
  public:
-  explicit TransposeFusion(const HloFusionAnalysis& analysis)
-      : analysis_(analysis) {}
-  std::optional<StatusOr<LaunchDimensions>> launch_dimensions() const override {
-    return analysis_.GetLaunchDimensions();
+  explicit TransposeFusion(const HloFusionAnalysis& analysis);
+  LaunchDimensions launch_dimensions() const override;
+
+  std::optional<IndexingMap> ComputeThreadIdToOutputIndexing(
+      int64_t output_id, mlir::MLIRContext* ctx) const override {
+    // TODO(b/319081342): Implement this.
+    return std::nullopt;
   }
 
  protected:
@@ -71,6 +74,7 @@ class TransposeFusion : public KernelFusionEmitterBase {
 
  private:
   const HloFusionAnalysis& analysis_;
+  TilingScheme tiling_scheme_;
 };
 
 }  // namespace gpu

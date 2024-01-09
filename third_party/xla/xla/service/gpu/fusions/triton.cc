@@ -14,6 +14,7 @@ limitations under the License.
 ==============================================================================*/
 #include "xla/service/gpu/fusions/triton.h"
 
+#include <optional>
 #include <string>
 #include <variant>
 
@@ -27,7 +28,6 @@ limitations under the License.
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_instructions.h"
 #include "xla/mlir_hlo/lhlo/IR/lhlo_ops.h"
-#include "xla/service/elemental_ir_emitter.h"
 #include "xla/service/gpu/fusions/fusion_emitter.h"
 #include "xla/service/gpu/ir_emission_utils.h"
 #include "xla/service/gpu/ir_emitter_context.h"
@@ -50,10 +50,53 @@ limitations under the License.
 
 namespace xla {
 namespace gpu {
+namespace {
+
+// Derives the number of blocks and threads to use for processing a Triton
+// Softmax fusion.
+LaunchDimensions CalculateSoftMaxLaunchDimensions(
+    const HloFusionAdaptor& fusion) {
+  auto reduce = HloFindIf(fusion.GetRoots(), fusion, [](auto node) {
+    return node.opcode() == HloOpcode::kReduce;
+  });
+
+  CHECK(reduce.has_value());
+  const Shape& reduce_input_shape = reduce->GetOperand(0).instruction().shape();
+
+  CHECK_EQ(reduce->instruction().dimensions().size(), 1);
+  CHECK_EQ(reduce->instruction().dimensions()[0],
+           reduce_input_shape.rank() - 1);
+
+  int reduction_dim = reduce_input_shape.dimensions_minor(0);
+
+  unsigned num_rows = 1;
+  for (unsigned minor_axis = 1; minor_axis < reduce_input_shape.rank();
+       ++minor_axis) {
+    num_rows *= reduce_input_shape.dimensions_minor(minor_axis);
+  }
+
+  unsigned num_warps = 32;
+
+  if (reduction_dim <= 512) {
+    num_warps = 1;
+  } else if (reduction_dim <= 1024) {
+    num_warps = 2;
+  } else if (reduction_dim <= 16384) {
+    num_warps = 4;
+  } else if (reduction_dim <= 32768) {
+    num_warps = 8;
+  } else if (reduction_dim <= 65536) {
+    num_warps = 16;
+  }
+
+  return {num_rows, static_cast<uint64_t>(num_warps * WarpSize())};
+}
+
+}  // namespace
 
 StatusOr<FusionEmissionResult> TritonFusion::Emit(
     IrEmitterContext& ir_emitter_context, mlir::lmhlo::FusionOp fusion_op,
-    const HloFusionInstruction& fusion, KernelReuseCache& kernel_cache) const {
+    const HloFusionInstruction& fusion) const {
   llvm::IRBuilder builder(ir_emitter_context.llvm_module()->getContext());
 #if GOOGLE_CUDA
   if (!ir_emitter_context.emit_ir_from_hlo()) {
@@ -84,14 +127,13 @@ StatusOr<FusionEmissionResult> TritonFusion::Emit(
             llvm_ir::SanitizeFunctionName(
                 absl::StrCat(suggested_kernel_name, "_impl")));
 
-    TF_ASSIGN_OR_RETURN(auto backend_config,
-                        fusion.backend_config<FusionBackendConfig>());
+    auto backend_config = analysis_.fusion_backend_config();
     absl::string_view fusion_kind = backend_config.kind();
 
     TritonWrapperResult triton_wrapper_result;
     LaunchDimensions launch_dimensions;
     if (fusion_kind == kTritonSoftmaxFusionKind) {
-      TF_ASSIGN_OR_RETURN(launch_dimensions, analysis_.GetLaunchDimensions());
+      launch_dimensions = *this->launch_dimensions();
 
       auto& triton_config = *backend_config.mutable_triton_gemm_config();
       triton_config.set_num_stages(1);
@@ -149,9 +191,14 @@ StatusOr<FusionEmissionResult> TritonFusion::Emit(
         ir_emitter_context.llvm_module()->getFunction(impl_fn_name);
     TF_RET_CHECK(impl_fn);
 
-    auto [kernel, inputs, outputs] = BuildKernelPrototype(
-        ir_emitter_context, suggested_kernel_name, kernel_arguments.args(),
-        impl_fn->arg_size(), launch_dimensions, &builder);
+    llvm::Function* kernel;
+    std::vector<llvm_ir::IrArray> inputs;
+    std::vector<llvm_ir::IrArray> outputs;
+    TF_ASSIGN_OR_RETURN(
+        std::tie(kernel, inputs, outputs),
+        BuildKernelPrototype(ir_emitter_context, suggested_kernel_name,
+                             kernel_arguments.args(), impl_fn->arg_size(),
+                             launch_dimensions, &builder));
 
     // Move function body into kernel prototype.
     llvm::Function* prototype_func = builder.GetInsertBlock()->getParent();
@@ -165,9 +212,9 @@ StatusOr<FusionEmissionResult> TritonFusion::Emit(
              triton_wrapper_result.shmem_bytes}};
   };
 
-  auto [kernel, was_cached] =
-      kernel_cache.GetWithStatus(hlo_computation, kernel_arguments.args(),
-                                 /*discriminator=*/"", generate);
+  auto [kernel, was_cached] = ir_emitter_context.kernel_cache().GetWithStatus(
+      hlo_computation, kernel_arguments.args(),
+      /*discriminator=*/"", generate);
   TF_RETURN_IF_ERROR(kernel.status());
 
   std::variant<mlir::Operation*, const HloInstruction*> fusion_op_or_hlo;
@@ -186,6 +233,15 @@ StatusOr<FusionEmissionResult> TritonFusion::Emit(
 #else
   return absl::UnimplementedError("Triton support requires CUDA");
 #endif
+}
+
+std::optional<LaunchDimensions> TritonFusion::launch_dimensions() const {
+  if (analysis_.fusion_backend_config().kind() == kTritonSoftmaxFusionKind) {
+    return CalculateSoftMaxLaunchDimensions(analysis_.fusion());
+  }
+
+  // MatMul is not yet supported.
+  return std::nullopt;
 }
 
 }  // namespace gpu

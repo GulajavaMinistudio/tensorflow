@@ -29,7 +29,7 @@ load(
 )
 load("//tsl/platform:build_config_root.bzl", "if_static")
 load(
-    "//tsl/platform:rules_cc.bzl",
+    "@local_tsl//tsl/platform:rules_cc.bzl",
     "cc_library",
 )
 load(
@@ -467,7 +467,6 @@ filegroup(
         "file_system_helper.h",
         "fingerprint.h",
         "init_main.h",
-        "logger.h",
         "mem.h",
         "net.h",
         "notification.h",
@@ -1098,21 +1097,6 @@ cc_library(
     deps = [
         ":platform",
     ] + tf_stream_executor_deps("dso_loader"),
-)
-
-cc_library(
-    name = "logger",
-    srcs = ["logger.cc"],
-    hdrs = ["logger.h"],
-    visibility = ["//visibility:public"],
-    deps = [
-        "env",
-        ":logging",
-        ":protobuf",
-        "@com_google_absl//absl/base",
-        "@com_google_absl//absl/synchronization",
-    ],
-    alwayslink = 1,
 )
 
 cc_library(
@@ -1850,8 +1834,10 @@ cc_library(
     deps = [
         ":env",
         ":errors",
+        ":logging",
         ":random",
         ":status",
+        "@com_google_absl//absl/time",
     ],
 )
 
@@ -1900,5 +1886,6 @@ tsl_cc_test(
         ":test",
         ":test_main",
         "//tsl/lib/core:status_test_util",
+        "@com_google_absl//absl/time",
     ],
 )

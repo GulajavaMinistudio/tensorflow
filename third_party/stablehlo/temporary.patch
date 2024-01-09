@@ -1,22 +1,48 @@
-diff --ruN a/stablehlo/.bazelversion b/stablehlo/.bazelversion
---- stablehlo/.bazelversion
-+++ stablehlo/.bazelversion
-@@ -1 +1,15 @@
-+# Copyright 2023 The StableHLO Authors. All Rights Reserved.
-+#
-+# Licensed under the Apache License, Version 2.0 (the "License");
-+# you may not use this file except in compliance with the License.
-+# You may obtain a copy of the License at
-+#
-+#      https://www.apache.org/licenses/LICENSE-2.0
-+#
-+# Unless required by applicable law or agreed to in writing, software
-+# distributed under the License is distributed on an "AS IS" BASIS,
-+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-+# See the License for the specific language governing permissions and
-+# limitations under the License.
-+
- 6.1.0
+diff --ruN a/stablehlo/BUILD.bazel b/stablehlo/BUILD.bazel
+--- stablehlo/BUILD.bazel
++++ stablehlo/BUILD.bazel
+@@ -331,7 +331,6 @@
+     ],
+ )
+ 
+-
+ gentbl_cc_library(
+     name = "linalg_pass_inc_gen",
+     strip_include_prefix = ".",
+@@ -372,9 +371,9 @@
+     ],
+     strip_include_prefix = ".",
+     deps = [
++        ":chlo_ops",
+         ":linalg_pass_inc_gen",
+         ":stablehlo_ops",
+-        ":chlo_ops",
+         "@llvm-project//llvm:Support",
+         "@llvm-project//mlir:ArithDialect",
+         "@llvm-project//mlir:BufferizationDialect",
+@@ -396,7 +395,6 @@
+         "@llvm-project//mlir:VectorDialect",
+     ],
+ )
+-
+ 
+ cc_library(
+     name = "reference_api",
+@@ -1462,10 +1460,9 @@
+ test_suite(
+     name = "stablehlo_ci_tests",
+     tests = [
++        "//stablehlo/conversions/linalg/tests:stablehlo_linalg_tests",
++        "//stablehlo/conversions/tosa/tests:stablehlo_tosa_tests",
+         "//stablehlo/testdata:stablehlo_testdata_tests",
+         "//stablehlo/tests:stablehlo_tests",
+-        "//stablehlo/conversions/tosa/tests:stablehlo_tosa_tests",
+-        "//stablehlo/conversions/linalg/tests:stablehlo_linalg_tests",
+-    ],
+-)
+-
++    ],
++)
 diff --ruN a/stablehlo/CMakeLists.txt b/stablehlo/CMakeLists.txt
 --- stablehlo/CMakeLists.txt
 +++ stablehlo/CMakeLists.txt
@@ -175,18 +201,37 @@ diff --ruN a/stablehlo/stablehlo/CMakeLists.txt b/stablehlo/stablehlo/CMakeLists
  add_subdirectory(integrations)
  add_subdirectory(reference)
  add_subdirectory(tests)
-diff --ruN a/stablehlo/stablehlo/api/PortableApi.h b/stablehlo/stablehlo/api/PortableApi.h
---- stablehlo/stablehlo/api/PortableApi.h
-+++ stablehlo/stablehlo/api/PortableApi.h
-@@ -27,7 +27,7 @@
+diff --ruN a/stablehlo/stablehlo/conversions/linalg/tests/BUILD.bazel b/stablehlo/stablehlo/conversions/linalg/tests/BUILD.bazel
+--- stablehlo/stablehlo/conversions/linalg/tests/BUILD.bazel
++++ stablehlo/stablehlo/conversions/linalg/tests/BUILD.bazel
+@@ -37,6 +37,7 @@
+ [
+     lit_test(
+         name = "%s.test" % src,
++        size = "small",
+         srcs = [src],
+         data = [
+             "lit.cfg.py",
+@@ -44,7 +45,6 @@
+             "//:stablehlo-opt",
+             "@llvm-project//llvm:FileCheck",
+         ],
+-        size = "small",
+         tags = ["stablehlo_linalg_tests"],
+     )
+     for src in glob(["**/*.mlir"])
+diff --ruN a/stablehlo/stablehlo/dialect/StablehloAttrs.td b/stablehlo/stablehlo/dialect/StablehloAttrs.td
+--- stablehlo/stablehlo/dialect/StablehloAttrs.td
++++ stablehlo/stablehlo/dialect/StablehloAttrs.td
+@@ -105,7 +105,7 @@
+ }
  
- /// Return the current version for portable API.
- /// Increments on all meaningful changes to this file.
--inline int64_t getApiVersion() { return 4; }
-+inline int64_t getApiVersion() { return 5; }
- 
- // Get the current StableHLO version.
- //
+ // Represents a unique identifier for each Send/Recv instruction pair or
+-// optionally for collective instructions (AllToAll, AllReduce, 
++// optionally for collective instructions (AllToAll, AllReduce,
+ // CollectiveBroadcast, and CollectivePermute). Non-positive channel_id
+ // handle is equivalent to no channel id.
+ def StableHLO_ChannelHandle : AttrDef<StableHLO_Dialect, "ChannelHandle"> {
 diff --ruN a/stablehlo/stablehlo/experimental/BUILD.bazel b/stablehlo/stablehlo/experimental/BUILD.bazel
 --- stablehlo/stablehlo/experimental/BUILD.bazel
 +++ stablehlo/stablehlo/experimental/BUILD.bazel
@@ -2746,4 +2791,103 @@ diff --ruN a/stablehlo/stablehlo/experimental/transforms/StablehloRefineShapes.c
 +}  // namespace experimental
 +}  // namespace stablehlo
 +}  // namespace mlir
+diff --ruN a/stablehlo/stablehlo/tests/infer_stablehlo.mlir b/stablehlo/stablehlo/tests/infer_stablehlo.mlir
+--- stablehlo/stablehlo/tests/infer_stablehlo.mlir
++++ stablehlo/stablehlo/tests/infer_stablehlo.mlir
+@@ -1442,9 +1442,9 @@
+ // CHECK-LABEL: @gather
+ // CHECK-SAME: (%[[ARG0:.*]]: tensor<3x4x2xi32>, %[[ARG1:.*]]: tensor<?x3x2xi64>
+ func.func @gather(%operand : tensor<3x4x2xi32>, %start_indices : tensor<?x3x2xi64>) -> tensor<4xindex> {
+-  // CHECK: %[[C2:.*]] = arith.constant 2 : index
+-  // CHECK: %[[C0:.*]] = arith.constant 0 : index
+-  // CHECK: %[[C3:.*]] = arith.constant 3 : index
++  // CHECK-DAG: %[[C2:.*]] = arith.constant 2 : index
++  // CHECK-DAG: %[[C0:.*]] = arith.constant 0 : index
++  // CHECK-DAG: %[[C3:.*]] = arith.constant 3 : index
+   // CHECK: %[[DIM:.*]] = tensor.dim %[[ARG1]], %[[C0]] : tensor<?x3x2xi64>
+   // CHECK: %[[RES:.*]] = tensor.from_elements %[[DIM]], %[[C3]], %[[C2]], %[[C2]] : tensor<4xindex>
+   // CHECK: return %[[RES]] : tensor<4xindex>
+@@ -1466,8 +1466,8 @@
+ // CHECK-LABEL: func @pad
+ // CHECK-SAME: (%[[ARG0:.*]]: tensor<?x48x48x32xf32>
+ func.func @pad(%arg0: tensor<?x48x48x32xf32>) -> tensor<4xindex> {
+-  // CHECK: %[[CST0:.*]] = arith.constant 0 : index
+-  // CHECK: %[[CST1:.*]] = arith.constant 48 : index
++  // CHECK-DAG: %[[CST0:.*]] = arith.constant 0 : index
++  // CHECK-DAG: %[[CST1:.*]] = arith.constant 48 : index
+   // CHECK: %[[DIM:.*]] = tensor.dim %[[ARG0]], %[[CST0]] : tensor<?x48x48x32xf32>
+   // CHECK: %[[RES:.*]] = tensor.from_elements %[[DIM]], %[[CST1]], %[[CST1]], %[[CST1]] : tensor<4xindex>
+   // CHECK: return %[[RES]] : tensor<4xindex>
+@@ -1496,8 +1496,8 @@
+ // CHECK-LABEL: func @concatenate
+ // CHECK-SAME: (%[[ARG0:.*]]: tensor<?x?xi32>, %[[ARG1:.*]]: tensor<?x?xi32>, %[[ARG2:.*]]: tensor<?x?xi32>
+ func.func @concatenate(%arg0: tensor<?x?xi32>, %arg1: tensor<?x?xi32>, %arg2: tensor<?x?xi32>) -> tensor<2xindex> {
+-  // CHECK: %[[C0:.*]] = arith.constant 0 : index
+-  // CHECK: %[[C1:.*]] = arith.constant 1 : index
++  // CHECK-DAG: %[[C0:.*]] = arith.constant 0 : index
++  // CHECK-DAG: %[[C1:.*]] = arith.constant 1 : index
+   // CHECK: %[[DIM:.*]] = tensor.dim %[[ARG0]], %[[C0]] : tensor<?x?xi32>
+   // CHECK: %[[DIM0:.*]] = tensor.dim %[[ARG0]], %[[C1]] : tensor<?x?xi32>
+   // CHECK: %[[DIM1:.*]] = tensor.dim %[[ARG1]], %[[C0]] : tensor<?x?xi32>
+@@ -1560,8 +1560,8 @@
+ // CHECK-LABEL: func @real_dynamic_slice
+ // CHECK-SAME: (%[[ARG0:.*]]: tensor<?xf32>, %[[ARG1:.*]]: tensor<1xindex>, %[[ARG2:.*]]: tensor<1xindex>, %[[ARG3:.*]]: tensor<1xindex>
+ func.func @real_dynamic_slice(%arg0: tensor<?xf32>, %arg1: tensor<1xindex>, %arg2: tensor<1xindex>, %arg3: tensor<1xindex>) -> tensor<1xindex> {
+-  // CHECK: %[[C1:.*]] = arith.constant 1 : index
+-  // CHECK: %[[C0:.*]] = arith.constant 0 : index
++  // CHECK-DAG: %[[C1:.*]] = arith.constant 1 : index
++  // CHECK-DAG: %[[C0:.*]] = arith.constant 0 : index
+   // CHECK: %[[EXTD:.*]] = tensor.extract %[[ARG1]][%[[C0]]] : tensor<1xindex>
+   // CHECK: %[[EXTD0:.*]] = tensor.extract %[[ARG2]][%[[C0]]] : tensor<1xindex>
+   // CHECK: %[[EXTD1:.*]] = tensor.extract %[[ARG3]][%[[C0]]] : tensor<1xindex>
+@@ -1581,8 +1581,8 @@
+ // CHECK-LABEL: func @dot_general_c12
+ // CHECK-SAME: (%[[ARG0:.*]]: tensor<?x?x?xf32>, %[[ARG1:.*]]: tensor<?x?x?xf32>
+ func.func @dot_general_c12(%arg0: tensor<?x?x?xf32>, %arg1: tensor<?x?x?xf32>) -> tensor<3xindex> {
+-  // CHECK: %[[C0:.*]] = arith.constant 0 : index
+-  // CHECK: %[[C2:.*]] = arith.constant 2 : index
++  // CHECK-DAG: %[[C0:.*]] = arith.constant 0 : index
++  // CHECK-DAG: %[[C2:.*]] = arith.constant 2 : index
+   // CHECK: %[[DIM:.*]] = tensor.dim %[[ARG0]], %[[C0]] : tensor<?x?x?xf32>
+   // CHECK: %[[DIM0:.*]] = tensor.dim %[[ARG0]], %[[C2]] : tensor<?x?x?xf32>
+   // CHECK: %[[DIM1:.*]] = tensor.dim %[[ARG1]], %[[C2]] : tensor<?x?x?xf32>
+@@ -1605,8 +1605,8 @@
+ // CHECK-LABEL: func @dynamic_pad
+ // CHECK-SAME: (%[[ARG0:.*]]: tensor<?xf32>, %[[ARG1:.*]]: tensor<f32>, %[[ARG2:.*]]: tensor<1xindex>, %[[ARG3:.*]]: tensor<1xindex>, %[[ARG4:.*]]: tensor<1xindex>
+ func.func @dynamic_pad(%arg0: tensor<?xf32>, %arg1: tensor<f32>, %arg2: tensor<1xindex>, %arg3: tensor<1xindex>, %arg4: tensor<1xindex>) -> tensor<1xindex> {
+-  // CHECK: %[[C0:.*]] = arith.constant 0 : index
+-  // CHECK: %[[C1:.*]] = arith.constant 1 : index
++  // CHECK-DAG: %[[C0:.*]] = arith.constant 0 : index
++  // CHECK-DAG: %[[C1:.*]] = arith.constant 1 : index
+   // CHECK: %[[DIM:.*]] = tensor.dim %[[ARG0]], %[[C0]] : tensor<?xf32>
+   // CHECK: %[[EXTD:.*]] = tensor.extract %[[ARG2]][%[[C0]]] : tensor<1xindex>
+   // CHECK: %[[EXTD0:.*]] = tensor.extract %[[ARG3]][%[[C0]]] : tensor<1xindex>
+@@ -1630,9 +1630,9 @@
+ // CHECK-LABEL: func @broadcast
+ // CHECK-SAME: (%[[ARG0:.*]]: tensor<?xi32>
+ func.func @broadcast(%arg0: tensor<?xi32>) -> tensor<3xindex> {
+-  // CHECK: %[[C1:.*]] = arith.constant 1 : index
+-  // CHECK: %[[C2:.*]] = arith.constant 2 : index
+-  // CHECK: %[[C0:.*]] = arith.constant 0 : index
++  // CHECK-DAG: %[[C1:.*]] = arith.constant 1 : index
++  // CHECK-DAG: %[[C2:.*]] = arith.constant 2 : index
++  // CHECK-DAG: %[[C0:.*]] = arith.constant 0 : index
+   // CHECK: %[[DIM:.*]] = tensor.dim %[[ARG0]], %[[C0]] : tensor<?xi32>
+   // CHECK: %[[RES:.*]] = tensor.from_elements %[[C1]], %[[C2]], %[[DIM]] : tensor<3xindex>
+   // CHECK: return %[[RES]] : tensor<3xindex>
+@@ -1646,10 +1646,10 @@
+ // CHECK-LABEL: func @transpose
+ // CHECK-SAME: (%[[ARG0:.*]]: tensor<?x?x?x?xi32>
+ func.func @transpose(%arg0: tensor<?x?x?x?xi32>) -> tensor<4xindex> {
+-  // CHECK: %[[C0:.*]] = arith.constant 0 : index
+-  // CHECK: %[[C1:.*]] = arith.constant 1 : index
+-  // CHECK: %[[C2:.*]] = arith.constant 2 : index
+-  // CHECK: %[[C3:.*]] = arith.constant 3 : index
++  // CHECK-DAG: %[[C0:.*]] = arith.constant 0 : index
++  // CHECK-DAG: %[[C1:.*]] = arith.constant 1 : index
++  // CHECK-DAG: %[[C2:.*]] = arith.constant 2 : index
++  // CHECK-DAG: %[[C3:.*]] = arith.constant 3 : index
+   // CHECK: %[[DIM:.*]] = tensor.dim %[[ARG0]], %[[C0]] : tensor<?x?x?x?xi32>
+   // CHECK: %[[DIM0:.*]] = tensor.dim %[[ARG0]], %[[C1]] : tensor<?x?x?x?xi32>
+   // CHECK: %[[DIM1:.*]] = tensor.dim %[[ARG0]], %[[C2]] : tensor<?x?x?x?xi32>
 

@@ -92,7 +92,7 @@ using absl::StrCat;
 using absl::StrJoin;
 
 // Empty static object
-const HloInstruction::Rare* HloInstruction::kEmptyRare =
+const HloInstruction::Rare* const HloInstruction::kEmptyRare =
     new HloInstruction::Rare;
 
 namespace {
@@ -206,17 +206,9 @@ void HloInstruction::Users::RebuildMap() {
 
 bool HloInstruction::Users::CheckInvariants() {
   if (user_map_ != nullptr) {
-    int64_t index = 0;
-    for (const HloInstruction* u : users_) {
-      CHECK(user_map_->contains(u));
-      CHECK_EQ((*user_map_)[u], index);
-      index++;
-    }
-    for (auto [u, index] : *user_map_) {
-      CHECK_GE(index, 0);
-      CHECK_LT(index, users_.size());
-      CHECK_EQ(users_[index], u);
-    }
+    // Avoid quadratic behavior by doing a quick and dirty check on
+    // size instead of actually comparing mapped indices.
+    CHECK_EQ(users_.size(), user_map_->size());
   }
   return true;
 }
@@ -1183,7 +1175,7 @@ StatusOr<std::unique_ptr<HloInstruction>> HloInstruction::CreateFromProto(
 
   TF_RET_CHECK(!proto.name().empty());
   instruction->SetAndSanitizeName(proto.name());
-  instruction->metadata_ = proto.metadata();
+  *instruction->metadata_ = proto.metadata();
   instruction->backend_config_ = proto.backend_config();
 
   TF_RET_CHECK(proto.id() >= 0)
@@ -1678,7 +1670,7 @@ HloInstruction::CreateAddDependency(HloInstruction* data_operand,
   // Body comes before condition computation in the vector.
   instruction->AppendComputation(body);
   instruction->AppendComputation(condition);
-  // Set back pointer from body computation to the while call instruction
+  // Set back pointer from body computation to the while call instruction.
   body->SetWhileCallInstruction(instruction.get());
   return instruction;
 }
@@ -1697,6 +1689,9 @@ HloInstruction::CreateAddDependency(HloInstruction* data_operand,
   // kFalseComputationIndex.
   instruction->AppendComputation(true_computation);
   instruction->AppendComputation(false_computation);
+  // Set back pointer from computations to the conditional instruction.
+  true_computation->SetConditionalCallInstruction(instruction.get());
+  false_computation->SetConditionalCallInstruction(instruction.get());
   return instruction;
 }
 
@@ -1711,6 +1706,8 @@ HloInstruction::CreateAddDependency(HloInstruction* data_operand,
   for (int i = 0; i < branch_computations.size(); ++i) {
     instruction->AppendComputation(branch_computations[i]);
     instruction->AppendOperand(branch_computation_args[i]);
+    // Set back pointer from the computation to the conditional instruction.
+    branch_computations[i]->SetConditionalCallInstruction(instruction.get());
   }
   return instruction;
 }
@@ -2039,7 +2036,7 @@ void HloInstruction::SetupDerivedInstruction(
   } else {
     derived_instruction->clear_sharding();
   }
-  derived_instruction->set_metadata(metadata_);
+  derived_instruction->set_metadata(*metadata_);
   if (has_rare()) {
     derived_instruction->set_frontend_attributes(frontend_attributes());
     derived_instruction->set_statistics_viz(statistics_viz());
@@ -3476,10 +3473,10 @@ void HloInstruction::PrintWithCanonicalNameMap(
   PrintExtraAttributes(attr_printer, options);
 
   if (options.print_metadata() &&
-      (!metadata_.op_type().empty() || !metadata_.op_name().empty() ||
-       !metadata_.source_file().empty())) {
+      (!metadata_->op_type().empty() || !metadata_->op_name().empty() ||
+       !metadata_->source_file().empty())) {
     printer->Append(", metadata={");
-    printer->Append(xla::OpMetadataToString(metadata_));
+    printer->Append(xla::OpMetadataToString(*metadata_));
     printer->Append("}");
   }
   if (options.print_backend_config() && !backend_config_.empty()) {
@@ -3773,20 +3770,9 @@ void HloInstruction::PrintExtraAttributes(
     });
   }
 
-  if (operation_queue_id_) {
+  if (operation_queue_id_ != -1) {
     printer.Next([this](Printer* printer) {
-      AppendCat(printer, "operation_queue_id=", *operation_queue_id_);
-    });
-  }
-
-  if (wait_on_operation_queues_.size() > 0) {
-    printer.Next([this, &options](Printer* printer) {
-      printer->Append("wait_on_operation_queues={");
-      AppendJoin(printer, wait_on_operation_queues_, ", ",
-                 [&](Printer* printer, int64_t queue_id) {
-                   printer->Append(queue_id);
-                 });
-      printer->Append("}");
+      AppendCat(printer, "operation_queue_id=", operation_queue_id_);
     });
   }
 }
@@ -3842,7 +3828,7 @@ HloInstructionProto HloInstruction::ToProto() const {
     proto.add_control_predecessor_ids(control->unique_id());
   }
 
-  *proto.mutable_metadata() = metadata_;
+  *proto.mutable_metadata() = *metadata_;
   proto.set_backend_config(backend_config_.GetRawString());
   if (opcode() != HloOpcode::kFusion) {
     for (const HloComputation* computation : called_computations()) {
@@ -3932,9 +3918,11 @@ bool HloInstruction::IsFusible() const {
 HloInstruction::HloInstruction(HloOpcode opcode, const Shape& shape)
     : unique_id_(-1),
       opcode_(opcode),
+      is_default_config_(false),
+      cleaned_up_(false),
+      marked_as_dead_(false),
       shape_(shape),
-      name_(HloOpcodeString(opcode)),
-      marked_as_dead_(false) {
+      name_(HloOpcodeString(opcode)) {
   TF_DCHECK_OK(ShapeUtil::ValidateShapeWithOptionalLayout(shape_));
 }
 

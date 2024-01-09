@@ -265,6 +265,7 @@ cc_library(
         ":gpu_constants",
         ":gpu_executable",
         ":ir_emission_utils",
+        ":kernel_reuse_cache",
         "//xla/service:buffer_assignment",
         "//xla/service:name_uniquer",
         "//xla/stream_executor:device_description",
@@ -351,6 +352,7 @@ cc_library(
         "//xla/service/gpu/runtime3:fused_mha_thunk",
         "//xla/service/gpu/runtime3:infeed_thunk",
         "//xla/service/gpu/runtime3:kernel_thunk",
+        "//xla/service/gpu/runtime3:norm_thunk",
         "//xla/service/gpu/runtime3:send_recv_thunk",
         "//xla/service/gpu/runtime3:sequential_thunk",
         "//xla/service/gpu/runtime3:while_thunk",
@@ -381,6 +383,7 @@ cc_library(
         "@llvm-project//llvm:Support",
         "@llvm-project//llvm:ir_headers",
         "@llvm-project//mlir:ArithDialect",
+        "@llvm-project//mlir:AsmParser",
         "@llvm-project//mlir:BufferizationDialect",
         "@llvm-project//mlir:BuiltinToLLVMIRTranslation",
         "@llvm-project//mlir:FuncDialect",
@@ -546,10 +549,10 @@ cc_library(
 xla_test(
     name = "ir_emitter_triton_test",
     srcs = if_cuda_is_configured(["ir_emitter_triton_test.cc"]),
-    backend_tags = {"gpu": [
-        "requires-gpu-sm70",
-    ]},
-    backends = ["gpu"],
+    backends = [
+        "gpu_a100",
+        "gpu_v100",
+    ],
     shard_count = 20,
     tags = ["nomac"],
     deps = [
@@ -832,7 +835,7 @@ tsl_gpu_library(
         "nccl_recv_thunk.h",
         "nccl_send_thunk.h",
     ],
-    # Override tsl_gpu_library()'s internal default value of ["//buildenv/target:gce"].
+    # Override tsl_gpu_library()'s internal default value of ["//buildenv/target:<something>"].
     compatible_with = [],
     visibility = ["//visibility:public"],
     deps = [
@@ -866,6 +869,7 @@ tsl_gpu_library(
         "@com_google_absl//absl/types:span",
         "@llvm-project//mlir:IR",
         "@local_tsl//tsl/platform:errors",
+        "@local_tsl//tsl/platform:logging",
     ],
 )
 
@@ -888,19 +892,17 @@ tsl_gpu_library(
     name = "_nccl_utils",
     srcs = if_gpu_is_configured(["nccl_utils.cc"]),
     hdrs = if_gpu_is_configured(["nccl_utils.h"]),
-    # Override tsl_gpu_library()'s internal default value of ["//buildenv/target:gce"].
+    # Override tsl_gpu_library()'s internal default value of ["//buildenv/target:<something>"].
     compatible_with = [],
     defines = if_gpu_is_configured(["XLA_ENABLE_XCCL"]),
     tags = ["manual"],  # Only builds with if_nccl().
     visibility = ["//visibility:public"],
-    deps = if_gpu_is_configured([
+    deps = [
         ":gpu_executable_run_options",
         ":thunk",
-        "@com_google_absl//absl/strings:str_format",
-        "@com_google_absl//absl/container:flat_hash_map",
-        "@com_google_absl//absl/synchronization",
-        "@com_google_absl//absl/time",
         "//xla:debug_options_flags",
+        "//xla:executable_run_options",
+        "//xla:shape_util",
         "//xla:status",
         "//xla:status_macros",
         "//xla:statusor",
@@ -908,12 +910,123 @@ tsl_gpu_library(
         "//xla/service:collective_ops_utils",
         "//xla/service:global_device_id",
         "//xla/service:rendezvous",
-        "@local_tsl//tsl/platform:logging",
+        "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/hash",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:span",
+        "@local_tsl//tsl/lib/gtl:int_type",
         "@local_tsl//tsl/platform:env",
-    ]) + if_cuda_is_configured([
+        "@local_tsl//tsl/platform:errors",
+        "@local_tsl//tsl/platform:logging",
+        "@local_tsl//tsl/platform:statusor",
+    ] + if_cuda_is_configured([
         "@local_config_nccl//:nccl",
     ]) + if_rocm_is_configured([
         "@local_config_rocm//rocm:rccl",
+    ]),
+)
+
+cuda_library(
+    name = "mock_nccl_sleep_kernel_cuda",
+    srcs = if_cuda_is_configured(
+        [
+            "mock_nccl_sleep_kernel.cu.cc",
+        ],
+    ),
+    hdrs = if_cuda_is_configured(["mock_nccl_sleep_kernel.h"]),
+    compatible_with = [],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@local_config_cuda//cuda:cuda_headers",
+    ],
+)
+
+alias(
+    name = "mock_nccl_utils",
+    actual = if_google(
+        google_value = if_nccl(":_mock_nccl_utils_google", ":empty"),
+        oss_value = if_nccl(":_mock_nccl_utils_default", ":empty"),
+    ),
+    visibility = ["//visibility:public"],
+)
+
+# Do not build mock_nccl_utils.cc in OSS. It uses the nccl internal cost model to estimate the
+# communication time of nccl collective calls. Only build it in Google builds.
+# TODO(b/306073484): Stub out the cost model api used in mock nccl functions.
+cc_library(
+    name = "_mock_nccl_utils_google",
+    srcs = if_cuda_is_configured(["mock_nccl_utils.cc"]),
+    hdrs = if_cuda_is_configured(["mock_nccl_utils.h"]),
+    # Override tsl_gpu_library()'s internal default value of ["//buildenv/target:gce"].
+    compatible_with = [],
+    defines = if_cuda_is_configured(["XLA_ENABLE_XCCL"]),
+    tags = ["manual"],
+    visibility = ["//visibility:public"],
+    deps = if_cuda_is_configured([
+        ":gpu_executable_run_options",
+        ":mock_nccl_sleep_kernel_cuda",
+        ":nccl_collective_thunks",
+        ":nccl_utils",
+        ":thunk",
+        "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:span",
+        "@local_config_cuda//cuda:cuda_headers",
+        "@local_config_nccl//:nccl",
+        "//xla:debug_options_flags",
+        "//xla:executable_run_options",
+        "//xla:shape_util",
+        "//xla:status",
+        "//xla:status_macros",
+        "//xla:statusor",
+        "//xla:util",
+        "//xla/service:collective_ops_utils",
+        "//xla/service:global_device_id",
+        "//xla/service:rendezvous",
+        "//xla/stream_executor",
+        "//xla/stream_executor/gpu:gpu_activation",
+        "//xla/stream_executor/gpu:gpu_stream",
+        "//xla/stream_executor/gpu:gpu_types_header",
+        "@local_tsl//tsl/platform:env",
+        "@local_tsl//tsl/platform:errors",
+        "@local_tsl//tsl/platform:statusor",
+    ]),
+)
+
+cc_library(
+    name = "_mock_nccl_utils_default",
+    srcs = if_gpu_is_configured(["mock_nccl_utils_default.cc"]),
+    hdrs = if_gpu_is_configured(["mock_nccl_utils.h"]),
+    # Override tsl_gpu_library()'s internal default value of ["//buildenv/target:gce"].
+    compatible_with = [],
+    tags = ["manual"],
+    visibility = ["//visibility:public"],
+    deps = if_gpu_is_configured([
+        ":gpu_executable_run_options",
+        ":nccl_collective_thunks",
+        ":nccl_utils",
+        ":thunk",
+        "@com_google_absl//absl/strings:string_view",
+        "//xla:executable_run_options",
+        "//xla:status",
+        "//xla:statusor",
+        "//xla:util",
+        "//xla/service:collective_ops_utils",
+        "//xla/service:global_device_id",
+        "//xla/stream_executor",
     ]),
 )
 
@@ -949,15 +1062,11 @@ cc_library(
     name = "gpu_executable",
     srcs = [
         "gpu_executable.cc",
-        "memset_thunk.cc",
-        "norm_thunk.cc",
         "outfeed_thunk.cc",
         "replica_id_thunk.cc",
     ],
     hdrs = [
         "gpu_executable.h",
-        "memset_thunk.h",
-        "norm_thunk.h",
         "outfeed_thunk.h",
         "replica_id_thunk.h",
     ],
@@ -2957,6 +3066,7 @@ cc_library(
         "//xla:util",
         "//xla/hlo/ir:hlo",
         "//xla/service:hlo_pass",
+        "//xla/stream_executor:device_description",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
@@ -3914,18 +4024,15 @@ cc_library(
         ":hlo_traversal",
         ":ir_emission_utils",
         ":launch_dimensions",
-        ":reduction_utils",
         "//xla:shape_util",
         "//xla:statusor",
-        "//xla:union_find",
         "//xla:util",
         "//xla/hlo/ir:hlo",
-        "//xla/hlo/utils:hlo_query",
         "//xla/service/llvm_ir:loop_emitter",
         "//xla/stream_executor:device_description",
         "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:inlined_vector",
-        "@com_google_absl//absl/container:node_hash_map",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/numeric:bits",
         "@com_google_absl//absl/status",
@@ -4045,6 +4152,7 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         ":backend_configs_cc",
+        ":hlo_traversal",
         ":ir_emission_utils",
         ":reduction_utils",
         "//xla:shape_util",
@@ -5174,9 +5282,13 @@ cc_library(
     compatible_with = get_compatible_with_portable(),
     visibility = ["//visibility:public"],
     deps = [
+        "//xla:shape_util",
         "//xla/hlo/ir:hlo",
+        "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/container:inlined_vector",
+        "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/types:span",
     ],
 )
