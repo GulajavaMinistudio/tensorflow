@@ -666,18 +666,11 @@ class HloInstruction {
   static std::unique_ptr<HloInstruction> CreateAsyncStart(
       const Shape& shape, absl::Span<HloInstruction* const> operands,
       HloComputation* async_computation,
-      std::optional<int64_t> async_group_id = std::nullopt,
       absl::string_view async_execution_thread = kMainExecutionThread);
   static std::unique_ptr<HloInstruction> CreateAsyncUpdate(
-      const Shape& shape, HloInstruction* operand,
-      HloComputation* async_computation,
-      std::optional<int64_t> async_group_id = std::nullopt,
-      absl::string_view async_execution_thread = kMainExecutionThread);
+      const Shape& shape, HloInstruction* operand);
   static std::unique_ptr<HloInstruction> CreateAsyncDone(
-      const Shape& shape, HloInstruction* operand,
-      HloComputation* async_computation,
-      std::optional<int64_t> async_group_id = std::nullopt,
-      absl::string_view async_execution_thread = kMainExecutionThread);
+      const Shape& shape, HloInstruction* operand);
 
   // Creates a copy-start op, indicating whether this is a cross-program
   // prefetch or not.
@@ -1929,15 +1922,6 @@ class HloInstruction {
   bool is_default_config() const { return is_default_config_; }
   void set_default_config() { is_default_config_ = true; }
 
-  void set_operation_queue_id(int64_t operation_queue_id) {
-    operation_queue_id_ = operation_queue_id;
-  }
-
-  std::optional<int64_t> operation_queue_id() const {
-    if (operation_queue_id_ == -1) return std::nullopt;
-    return operation_queue_id_;
-  }
-
   // Returns a string representation of a proto in the format used by
   // raw_backend_config_string.
   //
@@ -2278,6 +2262,12 @@ class HloInstruction {
   // async-done.
   bool IsAsynchronous() const;
 
+  // Delagates to HloAsyncInstruction::async_chain_start().
+  HloInstruction* async_chain_start() const;
+
+  // Delagates to HloAsyncInstruction::async_done().
+  HloInstruction* async_chain_done() const;
+
   // Returns the computation that will executed asynchronously.
   HloComputation* async_wrapped_computation() const;
 
@@ -2286,12 +2276,6 @@ class HloInstruction {
 
   // Delagates to HloAsyncInstruction::async_wrapped_opcode().
   HloOpcode async_wrapped_opcode() const;
-
-  // Delegates to HloAsyncInstruction::async_group_id().
-  std::optional<int64_t> async_group_id() const;
-
-  // Delegates to HloAsyncInstruction::set_async_group_id().
-  void set_async_group_id(std::optional<int64_t> async_group_id);
 
   // Delegates to HloAsyncInstruction::async_execution_thread().
   absl::string_view async_execution_thread() const;

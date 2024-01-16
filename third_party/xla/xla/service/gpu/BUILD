@@ -94,12 +94,14 @@ cc_library(
     compatible_with = get_compatible_with_portable(),
     visibility = ["//visibility:public"],
     deps = [
+        ":nccl_clique_key",
         "//xla:status_macros",
         "//xla:statusor",
         "//xla/service:executable",
         "//xla/service:global_device_id",
         "//xla/stream_executor",
         "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/status:statusor",
     ],
 )
 
@@ -107,6 +109,20 @@ cc_library(
     name = "gpu_constants",
     hdrs = ["gpu_constants.h"],
     visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "gpu_memory_space_assignment",
+    hdrs = ["gpu_memory_space_assignment.h"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//xla:status",
+        "//xla/hlo/ir:hlo",
+        "//xla/service:buffer_assignment",
+        "//xla/service:hlo_alias_analysis",
+        "//xla/service:hlo_ordering",
+        "//xla/service:hlo_value",
+    ],
 )
 
 cc_library(
@@ -353,6 +369,8 @@ cc_library(
         "//xla/service/gpu/runtime3:infeed_thunk",
         "//xla/service/gpu/runtime3:kernel_thunk",
         "//xla/service/gpu/runtime3:norm_thunk",
+        "//xla/service/gpu/runtime3:outfeed_thunk",
+        "//xla/service/gpu/runtime3:replica_id_thunk",
         "//xla/service/gpu/runtime3:send_recv_thunk",
         "//xla/service/gpu/runtime3:sequential_thunk",
         "//xla/service/gpu/runtime3:while_thunk",
@@ -422,13 +440,11 @@ cc_library(
         "elemental_ir_emitter.h",
         "ir_emitter.h",
         "ir_emitter_nested.h",
-        "kernel_mapping_scheme.h",
     ],
     copts = if_cuda_is_configured(["-DGOOGLE_CUDA=1"]),
     visibility = ["//visibility:public"],
     deps = [
         ":backend_configs_cc",
-        ":hlo_fusion_analysis",
         ":hlo_to_ir_bindings",
         ":ir_emission_utils",
         ":ir_emitter_context",
@@ -451,7 +467,8 @@ cc_library(
         "//xla/service/llvm_ir:loop_emitter",
         "//xla/service/llvm_ir:math_ops",
         "//xla/service/llvm_ir:tuple_ops",
-        "@com_google_absl//absl/container:inlined_vector",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:span",
         "@llvm-project//llvm:Core",
@@ -668,6 +685,7 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/time",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/types:span",
         "@local_config_cuda//cuda:cuda_headers",
         "//xla:autotuning_proto_cc",
@@ -764,6 +782,7 @@ cc_library(
         "//xla/service/llvm_ir:llvm_util",
         "//xla/service/llvm_ir:loop_emitter",
         "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/status",
         "@llvm-project//llvm:Core",
         "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:logging",
@@ -839,7 +858,12 @@ tsl_gpu_library(
     compatible_with = [],
     visibility = ["//visibility:public"],
     deps = [
+        ":backend_configs_cc",
+        ":buffer_allocations",
         ":ir_emission_utils",
+        ":nccl_clique",
+        ":nccl_clique_key",
+        ":nccl_errors",
         ":nccl_utils",
         ":thunk",
         "//xla:shape_util",
@@ -853,55 +877,160 @@ tsl_gpu_library(
         "//xla/service:collective_ops_utils",
         "//xla/service:global_device_id",
         "//xla/service:hlo_parser",
-        "//xla/service/gpu:backend_configs_cc",
-        "//xla/service/gpu:buffer_allocations",
         "//xla/service/llvm_ir:llvm_util",
+        "//xla/stream_executor:stream_executor_headers",
         "//xla/stream_executor/gpu:gpu_activation_header",
         "//xla/stream_executor/gpu:gpu_stream",
         "//xla/translate/hlo_to_mhlo:hlo_utils",
         "//xla/translate/mhlo_to_hlo:attribute_exporter",
         "//xla/translate/mhlo_to_hlo:type_to_shape",
         "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/functional:function_ref",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/types:span",
         "@llvm-project//mlir:IR",
         "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:logging",
-    ],
+        "@local_tsl//tsl/platform:statusor",
+    ] + if_cuda_is_configured([
+        "@local_config_nccl//:nccl",
+    ]) + if_rocm_is_configured([
+        "@local_config_rocm//rocm:rccl",
+    ]),
 )
 
 # Empty library to implement nested dependency conditions.
 cc_library(
     name = "empty",
+    compatible_with = get_compatible_with_portable(),
     visibility = ["//visibility:public"],
 )
 
-# If NCCL/RCCL is supported, this target '#defines XLA_ENABLE_XCCL' and
-# provides a header which #includes NCCL/RCCL.
+alias(
+    name = "nccl_types",
+    actual = if_nccl(":_nccl_types", ":empty"),
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "nccl_errors",
+    actual = if_nccl(":_nccl_errors", ":empty"),
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "nccl_clique",
+    actual = if_nccl(":_nccl_clique", ":empty"),
+    visibility = ["//visibility:public"],
+)
+
 alias(
     name = "nccl_utils",
     actual = if_nccl(":_nccl_utils", ":empty"),
     visibility = ["//visibility:public"],
 )
 
-# Do not depend on this target, but rather depend on :nccl_utils.
-tsl_gpu_library(
-    name = "_nccl_utils",
-    srcs = if_gpu_is_configured(["nccl_utils.cc"]),
-    hdrs = if_gpu_is_configured(["nccl_utils.h"]),
-    # Override tsl_gpu_library()'s internal default value of ["//buildenv/target:<something>"].
-    compatible_with = [],
-    defines = if_gpu_is_configured(["XLA_ENABLE_XCCL"]),
-    tags = ["manual"],  # Only builds with if_nccl().
+cc_library(
+    name = "nccl_clique_key",
+    srcs = ["nccl_clique_key.cc"],
+    hdrs = ["nccl_clique_key.h"],
+    compatible_with = get_compatible_with_portable(),
     visibility = ["//visibility:public"],
     deps = [
-        ":gpu_executable_run_options",
-        ":thunk",
+        "//xla/service:global_device_id",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:span",
+    ],
+)
+
+tsl_gpu_library(
+    name = "_nccl_types",
+    hdrs = ["nccl_types.h"],
+    defines = if_gpu_is_configured(["XLA_ENABLE_XCCL"]),
+    visibility = ["//visibility:public"],
+    deps = if_cuda_is_configured([
+        "@local_config_nccl//:nccl",
+    ]) + if_rocm_is_configured([
+        "@local_config_rocm//rocm:rccl",
+    ]),
+)
+
+tsl_gpu_library(
+    name = "_nccl_errors",
+    srcs = ["nccl_errors.cc"],
+    hdrs = ["nccl_errors.h"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":_nccl_types",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings:str_format",
+    ] + if_cuda_is_configured([
+        "@local_config_nccl//:nccl",
+    ]) + if_rocm_is_configured([
+        "@local_config_rocm//rocm:rccl",
+    ]),
+)
+
+tsl_gpu_library(
+    name = "_nccl_clique",
+    srcs = ["nccl_clique.cc"],
+    hdrs = ["nccl_clique.h"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":_nccl_errors",
+        ":_nccl_types",
+        ":nccl_clique_key",
         "//xla:debug_options_flags",
         "//xla:executable_run_options",
+        "//xla:status_macros",
+        "//xla/service:global_device_id",
+        "//xla/service:lockable",
+        "//xla/service:rendezvous",
+        "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/container:node_hash_map",
+        "@com_google_absl//absl/hash",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:span",
+        "@local_tsl//tsl/lib/gtl:int_type",
+        "@local_tsl//tsl/platform:env",
+        "@local_tsl//tsl/platform:errors",
+        "@local_tsl//tsl/platform:logging",
+        "@local_tsl//tsl/platform:statusor",
+    ] + if_cuda_is_configured([
+        "@local_config_nccl//:nccl",
+    ]) + if_rocm_is_configured([
+        "@local_config_rocm//rocm:rccl",
+    ]),
+)
+
+tsl_gpu_library(
+    name = "_nccl_utils",
+    srcs = ["nccl_utils.cc"],
+    hdrs = ["nccl_utils.h"],
+    compatible_with = [],  # Override tsl_gpu_library()'s internal default value
+    visibility = ["//visibility:public"],
+    deps = [
+        ":_nccl_clique",
+        ":_nccl_errors",
+        ":_nccl_types",
+        ":thunk",
         "//xla:shape_util",
         "//xla:status",
         "//xla:status_macros",
@@ -909,18 +1038,12 @@ tsl_gpu_library(
         "//xla:xla_data_proto_cc",
         "//xla/service:collective_ops_utils",
         "//xla/service:global_device_id",
-        "//xla/service:rendezvous",
+        "//xla/stream_executor",
         "@com_google_absl//absl/algorithm:container",
-        "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/container:flat_hash_map",
-        "@com_google_absl//absl/hash",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:str_format",
-        "@com_google_absl//absl/synchronization",
-        "@com_google_absl//absl/time",
-        "@com_google_absl//absl/types:span",
-        "@local_tsl//tsl/lib/gtl:int_type",
-        "@local_tsl//tsl/platform:env",
+        "@local_tsl//tsl/concurrency:ref_count",
         "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:logging",
         "@local_tsl//tsl/platform:statusor",
@@ -946,11 +1069,51 @@ cuda_library(
     ],
 )
 
+cc_library(
+    name = "mock_nccl_xml_google",
+    srcs = ["mock_nccl_xml.cc"],
+    hdrs = ["mock_nccl_xml.h"],
+    local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]),
+    tags = ["manual"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//xla:status",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/types:span",
+        "@local_tsl//tsl/platform:errors",
+        "@local_tsl//tsl/platform:regexp",
+    ] + if_cuda_is_configured([
+        "@local_config_nccl//:nccl",
+    ]),
+)
+
+xla_cc_test(
+    name = "mock_nccl_xml_test",
+    size = "small",
+    srcs = if_google(["mock_nccl_xml_test.cc"]),
+    local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]),
+    tags = tf_cuda_tests_tags(),
+    deps = [
+        "//xla:status",
+        "@com_google_googletest//:gtest_main",
+        "@local_tsl//tsl/platform:test",
+    ] + if_google([
+        ":mock_nccl_xml_google",
+    ]) + if_cuda_is_configured([
+        "@local_config_nccl//:nccl",
+    ]),
+)
+
 alias(
     name = "mock_nccl_utils",
-    actual = if_google(
-        google_value = if_nccl(":_mock_nccl_utils_google", ":empty"),
-        oss_value = if_nccl(":_mock_nccl_utils_default", ":empty"),
+    actual = if_nccl(
+        if_google(":_mock_nccl_utils_google", ":_mock_nccl_utils_default"),
+        ":empty",
     ),
     visibility = ["//visibility:public"],
 )
@@ -961,7 +1124,10 @@ alias(
 cc_library(
     name = "_mock_nccl_utils_google",
     srcs = if_cuda_is_configured(["mock_nccl_utils.cc"]),
-    hdrs = if_cuda_is_configured(["mock_nccl_utils.h"]),
+    hdrs = if_cuda_is_configured([
+        "mock_nccl_utils.h",
+        "mock_nccl_topo_config.h",
+    ]),
     # Override tsl_gpu_library()'s internal default value of ["//buildenv/target:gce"].
     compatible_with = [],
     defines = if_cuda_is_configured(["XLA_ENABLE_XCCL"]),
@@ -970,12 +1136,17 @@ cc_library(
     deps = if_cuda_is_configured([
         ":gpu_executable_run_options",
         ":mock_nccl_sleep_kernel_cuda",
+        ":mock_nccl_xml_google",
         ":nccl_collective_thunks",
+        ":nccl_errors",
         ":nccl_utils",
+        ":nccl_clique_key",
+        ":nccl_clique",
         ":thunk",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/container:node_hash_map",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/status",
@@ -1017,8 +1188,12 @@ cc_library(
     deps = if_gpu_is_configured([
         ":gpu_executable_run_options",
         ":nccl_collective_thunks",
+        ":nccl_errors",
         ":nccl_utils",
+        ":nccl_clique_key",
+        ":nccl_clique",
         ":thunk",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings:string_view",
         "//xla:executable_run_options",
         "//xla:status",
@@ -1027,6 +1202,8 @@ cc_library(
         "//xla/service:collective_ops_utils",
         "//xla/service:global_device_id",
         "//xla/stream_executor",
+    ]) + if_cuda_is_configured([
+        "@local_config_nccl//:nccl",
     ]),
 )
 
@@ -1062,13 +1239,9 @@ cc_library(
     name = "gpu_executable",
     srcs = [
         "gpu_executable.cc",
-        "outfeed_thunk.cc",
-        "replica_id_thunk.cc",
     ],
     hdrs = [
         "gpu_executable.h",
-        "outfeed_thunk.h",
-        "replica_id_thunk.h",
     ],
     local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]) + if_rocm_is_configured([
         "TENSORFLOW_USE_ROCM=1",
@@ -1117,6 +1290,7 @@ cc_library(
         "//xla/service:hlo_dataflow_analysis",
         "//xla/service:hlo_execution_profile",
         "//xla/service:hlo_parser",
+        "//xla/service:rendezvous",
         "//xla/service:shaped_buffer",
         "//xla/service:stream_pool",
         "//xla/service:xla_debug_info_manager",
@@ -1149,9 +1323,11 @@ cc_library(
         "@com_google_absl//absl/container:inlined_vector",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:span",
         "@com_google_absl//absl/types:variant",
         "@llvm-project//mlir:FuncDialect",
@@ -1290,6 +1466,7 @@ cc_library(
         "//xla:statusor",
         "//xla:util",
         "//xla/hlo/ir:hlo",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@local_tsl//tsl/platform:statusor",
     ],
@@ -1464,6 +1641,7 @@ cc_library(
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@local_tsl//tsl/platform:errors",
     ],
@@ -1678,6 +1856,7 @@ cc_library(
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:logging",
@@ -1697,6 +1876,7 @@ cc_library(
         "//xla/service:buffer_assignment",
         "//xla/stream_executor",
         "//xla/stream_executor:device_memory",
+        "@com_google_absl//absl/status",
         "@local_tsl//tsl/platform:logging",
     ],
 )
@@ -1972,6 +2152,7 @@ cc_library(
         ":backend_configs_cc",
         "//xla/hlo/utils:hlo_query",
         "//xla/service:hlo_pass",
+        "@com_google_absl//absl/status:statusor",
     ],
 )
 
@@ -1998,6 +2179,7 @@ cc_library(
         ":backend_configs_cc",
         "//xla/service:convert_async_collectives_to_sync",
         "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/status",
     ],
 )
 
@@ -2007,6 +2189,7 @@ xla_cc_test(
     deps = [
         ":backend_configs_cc",
         ":gpu_convert_async_collectives_to_sync",
+        "//xla:util",
         "//xla/hlo/ir:hlo",
         "//xla/tests:hlo_test_base",
         "//xla/tests:xla_internal_test_main",
@@ -2122,6 +2305,7 @@ cc_library(
         "//xla/stream_executor",
         "//xla/stream_executor:dnn",
         "//xla/stream_executor:lazy_op_runner",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -2146,6 +2330,7 @@ cc_library(
         "//xla/stream_executor",
         "//xla/stream_executor:dnn",
         "//xla/stream_executor:lazy_op_runner",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
     ] + if_cuda_is_configured([
         "@local_config_cuda//cuda:cuda_headers",
@@ -2172,6 +2357,7 @@ cc_library(
         "//xla/stream_executor",
         "//xla/stream_executor:dnn",
         "//xla/stream_executor:lazy_op_runner",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -2232,6 +2418,7 @@ cc_library(
         "//xla/service:hlo_creation_utils",
         "//xla/service:hlo_pass",
         "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:logging",
@@ -2308,6 +2495,7 @@ cc_library(
         "//xla/stream_executor",
         "//xla/stream_executor:blas",
         "//xla/stream_executor/gpu:gpu_stream",
+        "@com_google_absl//absl/status",
         "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:logging",
         "@local_tsl//tsl/platform:status",
@@ -2580,6 +2768,8 @@ cc_library(
         "//xla/service/gpu/model:gpu_hlo_cost_analysis",
         "//xla/service/gpu/model:gpu_performance_model",
         "//xla/stream_executor:device_description",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@local_tsl//tsl/platform:errors",
     ],
@@ -2750,6 +2940,7 @@ cc_library(
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/container:inlined_vector",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:string_view",
         "@local_tsl//tsl/platform:errors",
@@ -2931,6 +3122,7 @@ cc_library(
         "//xla/stream_executor/host:host_platform_id",
         "//xla/stream_executor/rocm:rocm_platform_id",
         "@com_google_absl//absl/cleanup",
+        "@com_google_absl//absl/status",
         "@llvm-project//llvm:Core",
         "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:logging",
@@ -2948,6 +3140,7 @@ cc_library(
         "//xla/hlo/utils:hlo_query",
         "//xla/service:collective_opt_utils",
         "//xla/service:hlo_pass",
+        "@com_google_absl//absl/status:statusor",
     ],
 )
 
@@ -2995,6 +3188,7 @@ cc_library(
         ":executable_proto_cc",
         ":gpu_constants",
         ":gpu_executable",
+        ":gpu_memory_space_assignment",
         ":ir_emitter_context",
         ":ir_emitter_unnested",
         ":metrics",
@@ -3031,6 +3225,7 @@ cc_library(
         "//xla/translate/mhlo_to_lhlo_with_xla",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
         "@llvm-project//llvm:AsmParser",
@@ -3433,6 +3628,7 @@ xla_cc_test(
         ":horizontal_loop_fusion",
         ":metrics",
         "//xla:autotune_results_proto_cc",
+        "//xla/service:buffer_assignment",
         "//xla/service:gpu_plugin",
         "//xla/service:pattern_matcher",
         "//xla/service:pattern_matcher_gmock",
@@ -3518,6 +3714,7 @@ cc_library(
         ":triton_autotuner",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base",
+        "@com_google_absl//absl/cleanup",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:node_hash_map",
         "@com_google_absl//absl/log",
@@ -3785,6 +3982,8 @@ cc_library(
         "//xla/stream_executor",
         "//xla/stream_executor/gpu:gpu_executor_header",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
         "@local_tsl//tsl/platform:logging",
         "@local_tsl//tsl/platform:notification",
     ],
@@ -3815,6 +4014,7 @@ cc_library(
         "//xla/stream_executor",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/types:span",
         "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:statusor",
@@ -3860,6 +4060,7 @@ cc_library(
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
         "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:statusor",
@@ -3870,6 +4071,7 @@ xla_cc_test(
     name = "gpu_schedule_postprocessing_test",
     srcs = ["gpu_schedule_postprocessing_test.cc"],
     deps = [
+        ":backend_configs_cc",
         ":gpu_schedule_postprocessing",
         "//xla:util",
         "//xla/hlo/ir:hlo",
@@ -3898,6 +4100,7 @@ cc_library(
         "//xla/hlo/ir:hlo",
         "//xla/hlo/utils:hlo_query",
         "//xla/service:buffer_value",
+        "//xla/service:collective_ops_utils",
         "//xla/service:hlo_memory_scheduler",
         "//xla/service:hlo_pass_pipeline",
         "//xla/service:latency_hiding_scheduler",
@@ -3987,10 +4190,28 @@ cc_library(
         "//xla/hlo/ir:hlo",
         "//xla/service:hlo_module_config",
         "//xla/stream_executor",
+        "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:span",
         "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/util:env_var",
+        "@local_tsl//tsl/util/proto:proto_utils",
+    ],
+)
+
+xla_cc_test(
+    name = "stream_executor_util_test",
+    srcs = ["stream_executor_util_test.cc"],
+    deps = [
+        ":stream_executor_util",
+        "//xla:autotuning_proto_cc",
+        "//xla/service:hlo_module_config",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/time",
+        "@com_google_googletest//:gtest_main",
         "@local_tsl//tsl/util/proto:proto_utils",
     ],
 )
@@ -4012,33 +4233,23 @@ cc_library(
 cc_library(
     name = "hlo_fusion_analysis",
     srcs = ["hlo_fusion_analysis.cc"],
-    hdrs = [
-        "hlo_fusion_analysis.h",
-        "kernel_mapping_scheme.h",
-    ],
+    hdrs = ["hlo_fusion_analysis.h"],
     local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]),
     visibility = ["//visibility:public"],
     deps = [
         ":backend_configs_cc",
-        ":gpu_fusible",
         ":hlo_traversal",
         ":ir_emission_utils",
         ":launch_dimensions",
+        ":reduction_utils",
         "//xla:shape_util",
         "//xla:statusor",
-        "//xla:util",
         "//xla/hlo/ir:hlo",
-        "//xla/service/llvm_ir:loop_emitter",
         "//xla/stream_executor:device_description",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/container:inlined_vector",
         "@com_google_absl//absl/log:check",
-        "@com_google_absl//absl/numeric:bits",
         "@com_google_absl//absl/status",
-        "@com_google_absl//absl/types:span",
-        "@llvm-project//llvm:ir_headers",
-        "@local_tsl//tsl/platform:macros",
     ],
 )
 
@@ -4051,6 +4262,7 @@ xla_cc_test(
         ":hlo_fusion_analysis",
         ":hlo_traversal",
         "//xla/stream_executor:device_description",
+        "//xla/stream_executor:device_description_proto_cc",
         "//xla/tests:hlo_test_base",
         "//xla/tests:xla_internal_test_main",
         "@local_tsl//tsl/platform:statusor",
@@ -4250,6 +4462,7 @@ xla_test(
         "//xla/tests:filecheck",
         "//xla/tests:hlo_test_base",
         "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_googletest//:gtest_main",
@@ -4283,6 +4496,7 @@ cc_library(
         "//xla/service:pattern_matcher",
         "//xla/stream_executor",
         "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:logging",
@@ -4453,6 +4667,7 @@ cc_library(
         "//xla:util",
         "//xla/hlo/ir:hlo",
         "//xla/service:hlo_pass",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:span",
         "@local_tsl//tsl/platform:errors",
@@ -4582,6 +4797,8 @@ cc_library(
         "//xla/service:hlo_creation_utils",
         "//xla/service:hlo_pass",
         "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/types:span",
         "@local_tsl//tsl/platform:errors",
     ],
@@ -4641,6 +4858,7 @@ xla_cc_test(
         "//xla/service:pattern_matcher",
         "//xla/service:pattern_matcher_gmock",
         "//xla/service/gpu/tests:gpu_codegen_test",
+        "//xla/stream_executor:device_description",
         "//xla/tests:xla_internal_test_main",
     ],
 )
@@ -4659,6 +4877,7 @@ cc_library(
         "//xla/service:hlo_pass",
         "//xla/service:pattern_matcher",
         "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@local_tsl//tsl/platform:errors",
     ],
@@ -4675,6 +4894,8 @@ cc_library(
         "//xla/hlo/ir:hlo",
         "//xla/service:hlo_pass",
         "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
     ],
 )
 
@@ -4688,6 +4909,7 @@ cc_library(
         "//xla:shape_util",
         "//xla/hlo/ir:hlo",
         "//xla/service:hlo_pass",
+        "@com_google_absl//absl/status",
     ],
 )
 
@@ -4721,6 +4943,8 @@ cc_library(
         "//xla/service:hlo_pass",
         "//xla/service:pattern_matcher",
         "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@local_tsl//tsl/platform:errors",
     ],
@@ -4743,6 +4967,7 @@ cc_library(
         "//xla/stream_executor:device_description",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/numeric:bits",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -4761,6 +4986,8 @@ cc_library(
         "//xla/service:hlo_pass",
         "//xla/service:pattern_matcher",
         "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
         "@local_tsl//tsl/platform:errors",
     ],
 )
@@ -4998,6 +5225,7 @@ cc_library(
         "//xla/stream_executor",
         "//xla/stream_executor:device_memory",
         "//xla/stream_executor/gpu:gpu_stream_header",
+        "@com_google_absl//absl/status",
         "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:statusor",
     ] + if_cuda_is_configured([
@@ -5048,6 +5276,7 @@ tsl_gpu_library(
         "//xla/service:platform_util",
         "//xla/stream_executor",
         "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:statusor",
@@ -5081,6 +5310,7 @@ cc_library(
         "//xla:statusor",
         "//xla/hlo/ir:hlo",
         "//xla/service:hlo_pass",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:statusor",
@@ -5113,6 +5343,7 @@ cc_library(
         "//xla/service:hlo_creation_utils",
         "//xla/service:hlo_pass",
         "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/status",
     ],
 )
 
@@ -5170,6 +5401,7 @@ cc_library(
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@local_tsl//tsl/platform:statusor",
     ],
@@ -5192,6 +5424,7 @@ cc_library(
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/numeric:bits",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:span",
         "@local_tsl//tsl/platform:statusor",
@@ -5268,6 +5501,7 @@ cc_library(
         "//xla/hlo/ir:hlo",
         "//xla/mlir_hlo:lhlo",
         "//xla/service:buffer_assignment",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/types:span",
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:IR",
@@ -5316,6 +5550,7 @@ cc_library(
         "//xla/hlo/ir:hlo",
         "//xla/service:hlo_pass",
         "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@local_tsl//tsl/platform:errors",
     ],
@@ -5386,6 +5621,7 @@ cc_library(
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:statusor",

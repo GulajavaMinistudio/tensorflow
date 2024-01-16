@@ -14,8 +14,11 @@ limitations under the License.
 ==============================================================================*/
 #include "tensorflow/compiler/mlir/quantization/stablehlo/cc/pre_calibration.h"
 
+#include <utility>
+
+#include "absl/base/nullability.h"
+#include "absl/log/die_if_null.h"
 #include "absl/status/statusor.h"
-#include "absl/strings/string_view.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"  // from @llvm-project
 #include "mlir/IR/BuiltinOps.h"  // from @llvm-project
 #include "mlir/Pass/PassManager.h"  // from @llvm-project
@@ -28,23 +31,20 @@ limitations under the License.
 #include "tsl/platform/errors.h"
 
 namespace mlir::quant::stablehlo {
-namespace {
 
 using ::stablehlo::quantization::QuantizationConfig;
+using ::tensorflow::quantization::CalibrationOptions;
 using ::tensorflow::quantization::RunPasses;
 
-// Name of the post-training quantization pre-calibration step. Used for
-// debugging purposes.
-constexpr absl::string_view kQuantPtqPreCalibrationStepName =
-    "quant_ptq_pre_calibration";
-
-}  // namespace
+PreCalibrationComponent::PreCalibrationComponent(
+    absl::Nonnull<MLIRContext*> ctx, CalibrationOptions calibration_options)
+    : ctx_(ABSL_DIE_IF_NULL(ctx)),  // Crash OK
+      calibration_options_(std::move(calibration_options)) {}
 
 absl::StatusOr<ModuleOp> PreCalibrationComponent::Run(
     ModuleOp module_op, const QuantizationConfig& config) {
   TF_RETURN_IF_ERROR(RunPasses(
-      /*name=*/kQuantPtqPreCalibrationStepName,
-      /*add_passes_func=*/
+      /*name=*/kName, /*add_passes_func=*/
       [this](PassManager& pm) {
         pm.addPass(createLiftQuantizableSpotsAsFunctionsPass());
         pm.addNestedPass<func::FuncOp>(
@@ -54,7 +54,7 @@ absl::StatusOr<ModuleOp> PreCalibrationComponent::Run(
         // the StableHLO module as tf.XlaCallModule to run calibration.
         AddCallModuleSerializationPasses(pm);
       },
-      ctx_, module_op));
+      *ctx_, module_op));
   return module_op;
 }
 

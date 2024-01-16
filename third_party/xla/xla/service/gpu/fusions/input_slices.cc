@@ -68,7 +68,7 @@ namespace {
 //   Write to output of slice1
 // }
 //
-Status EmitElementForInputFusibleSlices(
+absl::Status EmitElementForInputFusibleSlices(
     ElementalIrEmitter& elemental_emitter,
     const HloComputation* fused_computation,
     const std::vector<llvm_ir::IrArray>& inputs,
@@ -139,7 +139,7 @@ Status EmitElementForInputFusibleSlices(
 
     ksl.If(absl::StrCat("slice", i), guarding_cond, emit_slice_elem_func);
   }
-  return OkStatus();
+  return absl::OkStatus();
 }
 
 // Gets the input shape of the ROOT slices, which will be used as the kernel
@@ -149,7 +149,7 @@ Status EmitElementForInputFusibleSlices(
 // Returns the input shape of the ROOT slices if all the input shapes of ROOT
 // slices are the same and the slices are non-strided. Otherwise, returns
 // FailedPrecondition.
-StatusOr<Shape> GetConsistentInputShapeForRootSlices(
+absl::StatusOr<Shape> GetConsistentInputShapeForRootSlices(
     const HloComputation* fused_computation) {
   const HloInstruction& root = *fused_computation->root_instruction();
   if (root.opcode() == HloOpcode::kSlice) {
@@ -174,12 +174,13 @@ StatusOr<Shape> GetConsistentInputShapeForRootSlices(
   return first_slice_operand_shape;
 }
 
+constexpr int kUnrollFactor = 1;
+
 }  // namespace
 
 LaunchDimensions InputSlicesFusion::launch_dimensions() const {
   auto* root = analysis_.fusion_roots().front();
   const auto& shape = root->operands()[0]->shape();
-  constexpr int kUnrollFactor = 1;
   return CalculateLaunchDimensions(shape, analysis_.device_info(),
                                    {kUnrollFactor});
 }
@@ -192,25 +193,23 @@ std::optional<IndexingMap> InputSlicesFusion::ComputeThreadIdToOutputIndexing(
   // The implementation requires the shapes and layouts to be the same, but we
   // still use the requested output's shape for clarity.
   const auto& shape = analysis_.fusion_roots()[output_id]->shape();
-  IndexingMap result{
-      GetDefaultThreadIdToOutputIndexingMap(launch_dims, shape, ctx),
-      GetThreadIdDomain(launch_dims)};
+  IndexingMap result{GetDefaultThreadIdToOutputIndexingMap(
+                         launch_dims, kUnrollFactor, shape, ctx),
+                     GetThreadIdDomain(launch_dims, kUnrollFactor)};
   result.Simplify();
   return result;
 }
 
-Status InputSlicesFusion::EmitKernel(IrEmitterContext& ir_emitter_context,
-                                     const HloFusionInstruction& fusion,
-                                     const LaunchDimensions& launch_dims,
-                                     std::vector<llvm_ir::IrArray> inputs,
-                                     std::vector<llvm_ir::IrArray> outputs,
-                                     llvm::IRBuilder<>* builder) const {
+absl::Status InputSlicesFusion::EmitKernel(
+    IrEmitterContext& ir_emitter_context, const HloFusionInstruction& fusion,
+    const LaunchDimensions& launch_dims, std::vector<llvm_ir::IrArray> inputs,
+    std::vector<llvm_ir::IrArray> outputs, llvm::IRBuilder<>* builder) const {
   TF_ASSIGN_OR_RETURN(Shape element_shape,
                       GetConsistentInputShapeForRootSlices(
                           fusion.fused_instructions_computation()));
   GpuElementalIrEmitter elemental_emitter(ir_emitter_context, builder);
   return ParallelLoopEmitter(
-             [&](const llvm_ir::IrArray::Index index) -> Status {
+             [&](const llvm_ir::IrArray::Index index) -> absl::Status {
                return EmitElementForInputFusibleSlices(
                    elemental_emitter, fusion.fused_instructions_computation(),
                    inputs, outputs, index, builder);
