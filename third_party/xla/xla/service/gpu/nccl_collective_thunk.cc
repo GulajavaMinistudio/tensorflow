@@ -57,6 +57,49 @@ namespace xla {
 namespace gpu {
 namespace {
 
+//==-----------------------------------------------------------------------===//
+// Macros to return on NCCL errors.
+//==-----------------------------------------------------------------------===//
+
+#if defined(GOOGLE_CUDA) && defined(XLA_ENABLE_XCCL)
+static absl::Status ToStatus(ncclResult_t s, const char* file, int64_t line,
+                             const char* expr) {
+  if (s == ncclSuccess) return absl::OkStatus();
+
+  return absl::InternalError(absl::StrFormat(
+      "%s:%d: NCCL operation %s failed: %s."
+      " Last NCCL warning(error) log entry (may be unrelated) '%s'.",
+      file, line, expr, ncclGetErrorString(s), ncclGetLastError(nullptr)));
+}
+
+static absl::Status ToStatus(CUresult s, const char* file, int64_t line,
+                             const char* expr) {
+  if (s == CUDA_SUCCESS) {
+    return OkStatus();
+  }
+  const char* name;
+  cuGetErrorName(s, &name);
+  const char* message;
+  cuGetErrorString(s, &message);
+  return absl::AbortedError(
+      absl::StrFormat("%s:%d: CUDA operation %s failed: %s, %s", file, line,
+                      expr, name, message));
+}
+#endif
+
+#define XLA_NCCL_STATUS(expr) \
+  xla::gpu::ToStatus(expr, __FILE__, __LINE__, #expr)
+
+#define XLA_NCCL_RETURN_IF_ERROR(expr)      \
+  do {                                      \
+    absl::Status s = XLA_NCCL_STATUS(expr); \
+    if (!s.ok()) {                          \
+      return s;                             \
+    }                                       \
+  } while (0)
+
+//==-----------------------------------------------------------------------===//
+
 bool IsTypeSupportedByNccl(PrimitiveType element_type,
                            Thunk::Kind reduction_op) {
   switch (element_type) {
@@ -287,19 +330,6 @@ absl::StatusOr<std::vector<DeviceBufferPair>> ConvertToDeviceBuffers(
 }
 
 #if defined(GOOGLE_CUDA) && defined(XLA_ENABLE_XCCL)
-Status ToStatus(CUresult s, const char* file, int64_t line, const char* expr) {
-  if (s == CUDA_SUCCESS) {
-    return OkStatus();
-  }
-  const char* name;
-  cuGetErrorName(s, &name);
-  const char* message;
-  cuGetErrorString(s, &message);
-  return absl::AbortedError(
-      absl::StrFormat("%s:%d: CUDA operation %s failed: %s, %s", file, line,
-                      expr, name, message));
-}
-
 // This function is used to determine if a buffer resides in memory that was
 // allocated using ncclMemAlloc.
 StatusOr<bool> IsBufferInCollectiveMemory(int device_ordinal,
@@ -413,14 +443,15 @@ Status NcclCollectiveThunk::ExecuteOnStream(const ExecuteParams& params) {
   // Run the collective on main stream or using the async executor.
   absl::Status status = [&]() {
     if (!IsAsync()) {
-      return RunNcclCollective(params, *params.stream, *comm);
+      return RunNcclCollective(params, *params.stream,
+                               reinterpret_cast<ncclComm_t>(*comm));
     }
     return async_->Execute(
         [this](const ExecuteParams& params, se::Stream& stream,
                ncclComm_t comm) {
           return RunNcclCollective(params, stream, comm);
         },
-        params, *comm, GetAsyncStreamKind());
+        params, reinterpret_cast<ncclComm_t>(*comm), GetAsyncStreamKind());
   }();
   TF_RETURN_IF_ERROR(status);
 
