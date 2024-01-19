@@ -1,4 +1,4 @@
-/* Copyright 2017 The TensorFlow Authors. All Rights Reserved.
+/* Copyright 2017 The OpenXLA Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -476,6 +476,29 @@ XLA_TEST_F(MultiOutputFusionTest,
       ROOT fusion = (f32[2,32]{1,0}, f32[2,32]{1,0}, f16[2,32,32]{2,1,0}) fusion(p),
                     kind=kInput, calls=fused_reduce
     })");
+  auto module = ParseAndReturnVerifiedModule(testcase).value();
+  EXPECT_TRUE(RunAndCompareNoHloPasses(std::move(module), ErrorSpec(1e-5)));
+}
+
+XLA_TEST_F(MultiOutputFusionTest,
+           MultiOutputTransposeFusionHeroWithMultipleRootUsers) {
+  const std::string testcase = R"(
+    HloModule test
+    fused_transpose {
+      p0 = f32[128,64]{1,0} parameter(0)
+      p1 = f32[64,128]{1,0} parameter(1)
+      tr = f32[64,128]{1,0} transpose(p0), dimensions={1,0}
+      add = f32[64,128]{1,0} add(tr, p1)
+      neg = f32[64,128]{1,0} negate(add)
+      ROOT tuple = (f32[64,128]{1,0}, f32[64,128]{1,0}, f32[64,128]{1,0}) tuple(tr, add, neg)
+    }
+
+    ENTRY main {
+      p = f32[128,64]{1,0} parameter(0)
+      p2 = f32[64,128]{1,0} parameter(1)
+      ROOT fusion = (f32[64,128]{1,0}, f32[64,128]{1,0}, f32[64,128]{1,0}) fusion(p, p2),
+                    kind=kInput, calls=fused_transpose
+    })";
   auto module = ParseAndReturnVerifiedModule(testcase).value();
   EXPECT_TRUE(RunAndCompareNoHloPasses(std::move(module), ErrorSpec(1e-5)));
 }

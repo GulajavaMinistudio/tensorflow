@@ -1,4 +1,4 @@
-/* Copyright 2017 The TensorFlow Authors. All Rights Reserved.
+/* Copyright 2017 The OpenXLA Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -195,6 +195,12 @@ bool IsInputFusibleSlices(mlir::Operation* unnested_hlo,
     }
   }
   return true;
+}
+
+bool IsSliceWithUnitStrides(const HloInstruction* instr) {
+  auto slice = DynCast<HloSliceInstruction>(instr);
+  return slice && absl::c_all_of(slice->slice_strides(),
+                                 [](int64_t stride) { return stride == 1; });
 }
 
 // This emits a device-side call to
@@ -527,6 +533,12 @@ absl::StatusOr<BufferAllocation::Slice> GetAllocationSlice(
   return Unimplemented(
       "Operand has to be in the form of ViewOp(arg) or "
       "StaticMemRefCastOp(ViewOp(arg)) or arg");
+}
+
+absl::StatusOr<BufferAllocation::Slice> GetAllocationSlice(
+    const BufferAssignment& buffer_assignment, const HloInstruction* instr,
+    const ShapeIndex& index) {
+  return buffer_assignment.GetUniqueSlice(instr, index);
 }
 
 std::vector<const HloInstruction*> GetOutputDefiningDynamicUpdateSlices(
