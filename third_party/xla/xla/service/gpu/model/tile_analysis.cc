@@ -24,7 +24,6 @@ limitations under the License.
 #include <vector>
 
 #include "absl/algorithm/container.h"
-#include "absl/log/check.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Casting.h"
 #include "mlir/IR/AffineExpr.h"  // from @llvm-project
@@ -32,6 +31,7 @@ limitations under the License.
 #include "mlir/Support/LLVM.h"  // from @llvm-project
 #include "xla/service/gpu/model/affine_map_printer.h"
 #include "xla/service/gpu/model/indexing_map.h"
+#include "tsl/platform/status.h"
 
 namespace xla {
 namespace gpu {
@@ -237,7 +237,7 @@ std::optional<RawSymbolicTile> RawSymbolicTileFromIndexingMap(
           const Range& symbol_range =
               indexing_map.domain.symbol_ranges[symbol_expr.getPosition()];
           size_expr = getAffineConstantExpr(
-              symbol_range.upper_bound - symbol_range.lower_bound,
+              symbol_range.upper_bound - symbol_range.lower_bound + 1,
               mlir_context);
         } else if (auto dim_expr = llvm::dyn_cast<AffineDimExpr>(expr)) {
           CHECK(!size_expr);

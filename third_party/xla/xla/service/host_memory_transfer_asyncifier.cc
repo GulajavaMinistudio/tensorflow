@@ -52,13 +52,12 @@ class HostMemoryTransferAsyncifierVisitor : public DfsHloVisitorWithDefault {
     // pass must only be run after LayoutAssignment.
     HloInstruction* dynamic_slice_operand = dynamic_slice->mutable_operand(0);
     if (!dynamic_slice->shape().has_layout()) {
-      return InternalErrorStrCat(dynamic_slice->name(),
-                                 " does not have a layout.");
+      return InternalStrCat(dynamic_slice->name(), " does not have a layout.");
     }
     if (!dynamic_slice_operand->shape().has_layout()) {
-      return InternalErrorStrCat(dynamic_slice->name(), "'s operand, ",
-                                 dynamic_slice_operand->name(),
-                                 ", does not have a layout.");
+      return InternalStrCat(dynamic_slice->name(), "'s operand, ",
+                            dynamic_slice_operand->name(),
+                            ", does not have a layout.");
     }
 
     // Check that this is a dynamic-slice slicing from host memory to device
@@ -100,18 +99,18 @@ class HostMemoryTransferAsyncifierVisitor : public DfsHloVisitorWithDefault {
     HloInstruction* dynamic_update_slice_update =
         dynamic_update_slice->mutable_operand(1);
     if (!dynamic_update_slice->shape().has_layout()) {
-      return InternalErrorStrCat(dynamic_update_slice->name(),
-                                 " does not have a layout.");
+      return InternalStrCat(dynamic_update_slice->name(),
+                            " does not have a layout.");
     }
     if (!dynamic_update_slice_operand->shape().has_layout()) {
-      return InternalErrorStrCat(dynamic_update_slice->name(), "'s operand, ",
-                                 dynamic_update_slice_operand->name(),
-                                 ", does not have a layout.");
+      return InternalStrCat(dynamic_update_slice->name(), "'s operand, ",
+                            dynamic_update_slice_operand->name(),
+                            ", does not have a layout.");
     }
     if (!dynamic_update_slice_update->shape().has_layout()) {
-      return InternalErrorStrCat(dynamic_update_slice->name(), "'s update, ",
-                                 dynamic_update_slice_update->name(),
-                                 ", does not have a layout.");
+      return InternalStrCat(dynamic_update_slice->name(), "'s update, ",
+                            dynamic_update_slice_update->name(),
+                            ", does not have a layout.");
     }
 
     // Check that this is a dynamic-update-slice updating from device memory
@@ -128,7 +127,7 @@ class HostMemoryTransferAsyncifierVisitor : public DfsHloVisitorWithDefault {
     }
     if (dynamic_update_slice_operand->shape().layout().memory_space() !=
         dynamic_update_slice->shape().layout().memory_space()) {
-      return InternalErrorStrCat(
+      return InternalStrCat(
           "Unexpected that ", dynamic_update_slice_operand->name(),
           "'s memory space is not the same as the dynamic-update-slice.");
     }
@@ -151,10 +150,10 @@ class HostMemoryTransferAsyncifierVisitor : public DfsHloVisitorWithDefault {
   Status HandleCopy(HloInstruction* copy) override {
     HloInstruction* operand = copy->mutable_operand(0);
     if (!operand->shape().has_layout()) {
-      return InternalErrorStrCat(operand->name(), " does not have a layout.");
+      return InternalStrCat(operand->name(), " does not have a layout.");
     }
     if (!copy->shape().has_layout()) {
-      return InternalErrorStrCat(copy->name(), " does not have a layout.");
+      return InternalStrCat(copy->name(), " does not have a layout.");
     }
 
     const auto copy_src_memory_space = operand->shape().layout().memory_space();
@@ -176,23 +175,10 @@ class HostMemoryTransferAsyncifierVisitor : public DfsHloVisitorWithDefault {
         << "Copy \"" << copy->name()
         << "\" is between device and host memory space. Converting to async.";
     const Shape context_shape = ShapeUtil::MakeScalarShape(U32);
-    {
-      // TODO(b/319466176): CreateAsyncInstructions does not work for `copy`.
-      // Once it does, replace this block with that.
-      Shape instruction_shape_source = copy->operand(0)->shape();
-      Shape instruction_shape_destination = copy->shape();
-      HloInstruction* copy_start_to_device =
-          copy->parent()->AddInstruction(HloInstruction::CreateCopyStart(
-              ShapeUtil::MakeTupleShape({instruction_shape_destination,
-                                         instruction_shape_source,
-                                         context_shape}),
-              copy->mutable_operand(0)));
-      HloInstruction* copy_done_to_device =
-          copy->parent()->AddInstruction(HloInstruction::CreateUnary(
-              instruction_shape_destination, HloOpcode::kCopyDone,
-              copy_start_to_device));
-      TF_RETURN_IF_ERROR(copy->ReplaceAllUsesWith(copy_done_to_device));
-    }
+    TF_ASSIGN_OR_RETURN(
+        HloInstruction * async_done,
+        copy->parent()->CreateAsyncInstructions(copy, {context_shape}));
+    (void)async_done;
     MarkAsChanged();
     return OkStatus();
   }
