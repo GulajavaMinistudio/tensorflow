@@ -1,4 +1,4 @@
-/* Copyright 2024 The TensorFlow Authors. All Rights Reserved.
+/* Copyright 2024 The OpenXLA Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ limitations under the License.
 #include <cstdint>
 #include <cstdlib>
 #include <memory>
+#include <string>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -32,6 +33,7 @@ limitations under the License.
 #include "absl/strings/str_format.h"
 #include "absl/synchronization/barrier.h"
 #include "absl/synchronization/mutex.h"
+#include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "xla/debug_options_flags.h"
@@ -94,6 +96,19 @@ static absl::Duration TerminateTimeout() {
 // NcclClique
 //===----------------------------------------------------------------------===//
 
+std::string NcclClique::DebugString() const {
+  std::string out = absl::StrFormat(
+      "NcclClique: clique_key: %s; hash(id): %d; size: %d; communicators: ",
+      value().clique_key.ToString(), absl::HashOf(value().clique_id),
+      value().communicators.size());
+  int32_t cnt = 0;
+  for (const auto& [rank, comm] : value().communicators) {
+    if (cnt++) absl::StrAppend(&out, ", ");
+    absl::StrAppendFormat(&out, "[rank=%d, comm=%p]", rank, comm.value());
+  }
+  return out;
+}
+
 namespace {
 // Container for initialized and ready to use local (in-process) NCCL cliques.
 struct NcclCliques {
@@ -122,24 +137,67 @@ static absl::StatusOr<NcclClique::Lock> AcquireNcclClique(
   absl::MutexLock lock(&cliques.mu);
   if (auto it = cliques.map.find(clique_key); it != cliques.map.end()) {
     NcclClique::Lock clique = it->second.Acquire();
-
-    // If multiple executable are running simultaneously while using multiple
-    // hosts, it is possible that different executables could acquire the same
-    // clique on different hosts. We protect against this by checking that the
-    // run ID increases monotonically.
-    bool is_local = clique_key.devices().size() == num_local_participants;
-    TF_RET_CHECK(is_local || (run_id.ToInt() >= clique->run_id))
-        << "Run ID " << run_id.ToInt() << " is smaller than clique run ID "
-        << clique->run_id << ". Multiple XLA runs for the same clique "
-        << "can lead to a deadlock. Do not execute concurrent runs of "
-        << "multi-host XLA executable.";
-
     clique->run_id = run_id.ToInt();
     return clique;
   }
 
   // Return empty lock if we do not have a clique for `clique_key`.
   return NcclClique::Lock();
+}
+
+//===----------------------------------------------------------------------===//
+// NcclClique Heart Beat Monitor
+//===----------------------------------------------------------------------===//
+
+// Runs an async error check for a `comm` and aborts it if it is in the
+// error state. It will free resources that are allocated to a communicator
+// and abort any uncompleted operations before destroying the communicator.
+static absl::Status CheckComm(NcclComm& lockable_comm) {
+  NcclComm::Lock comm = lockable_comm.Acquire();
+  absl::Status async_err = NcclApi::Default()->CommGetAsyncError(*comm);
+  if (!async_err.ok()) {
+    LOG(ERROR) << "Aborting communicator: " << comm
+               << " due to async NCCL error: " << async_err;
+    TF_RETURN_IF_ERROR(NcclApi::Default()->CommAbort(*comm));
+  }
+  return async_err;
+}
+
+// Runs async check on all communicators in a clique.
+static void CheckClique(const NcclCliqueKey& clique_key,
+                        NcclClique& lockable_clique) {
+  NcclClique::Lock clique = lockable_clique.Acquire();
+  VLOG(5) << "Checking NCCL clique " << clique_key.ToString()
+          << " for async errors; num_communicators="
+          << clique->communicators.size();
+  for (auto& [rank, comm] : clique->communicators) {
+    if (auto status = CheckComm(comm); !status.ok()) {
+      LOG(ERROR) << status;
+    }
+  }
+}
+
+// TODO(ezhulenev): We need a mechanism to destroy whole clique when one of the
+// communicators is aborted to be able to recover from errors.
+static void NcclCliqueHeartBeatMonitorThread() {
+  VLOG(5) << "Starting NCCL clique heart beat monitor";
+  while (true) {
+    absl::SleepFor(absl::Seconds(30));
+    NcclCliques& cliques = GetNcclCliques();
+    absl::MutexLock lock(&cliques.mu);
+    VLOG(5) << "Checking NCCL communicators for async errors"
+            << "; num_cliques=" << cliques.map.size();
+    for (auto& [clique_key, lockable_clique] : cliques.map) {
+      CheckClique(clique_key, lockable_clique);
+    }
+  }
+}
+
+static void StartNcclCliqueHeartBeatMonitor() {
+  static auto* monitor_thread = tsl::Env::Default()->StartThread(
+      tsl::ThreadOptions(), "nccl_clique_heart_beat_monitor",
+      NcclCliqueHeartBeatMonitorThread);
+  (void)monitor_thread;  // suppress unused variable warning
 }
 
 //===----------------------------------------------------------------------===//
@@ -186,6 +244,9 @@ static absl::StatusOr<std::shared_ptr<NcclClique::Lock>> InitializeNcclClique(
   VLOG(3) << "Initialize NCCL clique " << clique_key.ToString() << " rank #"
           << rank << " of " << nranks
           << "; num_local_participants=" << num_local_participants;
+
+  // Start NCCL clique heart beat monitor when create a first clique.
+  StartNcclCliqueHeartBeatMonitor();
 
   // Creates initialization state for participating ranks.
   auto create_initialization_state = [&](absl::Span<const int32_t* const> ranks)
@@ -242,6 +303,10 @@ static absl::StatusOr<std::shared_ptr<NcclClique::Lock>> InitializeNcclClique(
     // Create NCCL communicators from handles.
     absl::node_hash_map<int32_t, NcclComm> communicators;
     for (const auto& [rank, comm] : state->comms) {
+      if (*comm == nullptr) {
+        return absl::InternalError(absl::StrFormat(
+            "uninitialized NCCL communicator for rank %d", rank));
+      }
       communicators.try_emplace(rank, *comm);
     }
 
@@ -250,8 +315,17 @@ static absl::StatusOr<std::shared_ptr<NcclClique::Lock>> InitializeNcclClique(
 
     // Create a new clique with given clique id and communicators.
     absl::MutexLock lock(&cliques.mu);
-    cliques.map.try_emplace(clique_key, clique_key, state->clique_id,
-                            std::move(communicators));
+    auto emplaced = cliques.map.try_emplace(
+        clique_key, clique_key, state->clique_id, std::move(communicators));
+
+    // We can have a race to create a clique for a given key, the winner inserts
+    // it into a map and the looser destroys all communicators.
+    if (!emplaced.second) {
+      VLOG(3) << "Clique already exists: "
+              << emplaced.first->second.DebugString();
+    } else {
+      VLOG(3) << "Created new clique: " << emplaced.first->second.DebugString();
+    }
   }
 
   // Do one more round of rendezvous to guarantee that all ranks that

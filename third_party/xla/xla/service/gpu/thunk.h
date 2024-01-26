@@ -175,6 +175,8 @@ class Thunk {
     absl::StatusOr<NcclComm::Lock> GetComm(const NcclCliqueKey& clique_key,
                                            int32_t rank) const;
 
+    bool empty() const { return cliques_map_.empty(); }
+
    private:
     CliquesMap cliques_map_;
   };
@@ -253,6 +255,9 @@ class Thunk {
 
     // Parameters for executing collective operations.
     const CollectiveExecuteParams* collective_params = nullptr;
+
+    // Collective cliques acquired based on resource requests.
+    CollectiveCliques* collective_cliques = nullptr;
   };
 
   //===--------------------------------------------------------------------===//

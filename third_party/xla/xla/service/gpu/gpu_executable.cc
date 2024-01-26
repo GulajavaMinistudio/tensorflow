@@ -373,8 +373,9 @@ absl::Status ExecuteThunks(const std::string& module_name,
 
   {  // Initialize thunks using prepared resources before execution.
     Thunk::InitializeParams initialize_params{
-        executor,    executable_source,           &buffer_allocations,
-        main_stream, command_buffer_trace_stream, &collective_params};
+        executor,           executable_source,           &buffer_allocations,
+        main_stream,        command_buffer_trace_stream, &collective_params,
+        &collective_cliques};
 
     tsl::profiler::TraceMe trace([&] { return "Thunks::Initialize"; });
     for (const std::unique_ptr<Thunk>& thunk : thunk_sequence) {
@@ -382,9 +383,13 @@ absl::Status ExecuteThunks(const std::string& module_name,
     }
   }
 
-  // Maybe join a round of rendezvous after thunk initialization.
-  TF_RETURN_IF_ERROR(
-      MaybeRendezvousAfterInitialization(run_options, thunks_initialized));
+  // Maybe join a round of rendezvous after thunk initialization. We do this
+  // only in presence of collective cliques which means that we have collective
+  // operations in the XLA operations that tend to cause deadlocks.
+  if (!collective_cliques.empty()) {
+    TF_RETURN_IF_ERROR(
+        MaybeRendezvousAfterInitialization(run_options, thunks_initialized));
+  }
 
   // Prepare parameters for thunks execution.
   Thunk::ExecuteParams execute_params = Thunk::ExecuteParams::Create(

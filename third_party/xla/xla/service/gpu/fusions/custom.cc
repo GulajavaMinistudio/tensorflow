@@ -93,9 +93,6 @@ absl::StatusOr<BufferAllocation::Slice> GetSliceWithUpdatedOffsetAndSize(
   const auto& slice_instr = *static_cast<const HloSliceInstruction*>(
       &maybe_slice_adaptor->instruction());
 
-  TF_RET_CHECK(IsSliceWithUnitStrides(&slice_instr))
-      << "AddressComputationFusion only handles slices with unit strides "
-         "currently";
   TF_RET_CHECK(IsContiguousSlice(slice_instr))
       << "AddressComputationFusion only handles contiguous slices currently";
 
@@ -132,7 +129,7 @@ absl::StatusOr<FusionEmissionResult> CustomFusion::Emit(
 
   VLOG(3) << "Lower HLO fusion to a custom fusion " << config.name();
 
-  auto* registry = CustomFusionRegistry::Default();
+  auto* registry = CustomKernelFusionRegistry::Default();
   auto* custom_kernel_fusion = registry->Lookup(config.name());
 
   // If custom fusion is not found it means that some of the build targets might
