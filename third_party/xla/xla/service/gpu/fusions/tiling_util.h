@@ -35,43 +35,23 @@ namespace gpu {
 //
 // In the presence of virtual threadIdx/blockIdx scaling, all accessors are
 // "logical", unless otherwise specified.
-//
-// DimZ is always the batch dimension, DimY and DimX are tiled.
 class TilingScheme {
  public:
   enum { DimZ = 0, DimY, DimX, DimTot };
 
-  enum IndexingOrder {
-    // Thread reads consecutive elements.
-    LinearIndexingX,
-    // Thread reads strided elements while keeping memory coalescing.
-    StridedIndexingX,
-  };
-
   TilingScheme(Vector3 dims_in_elems, Vector3 tile_sizes, Vector3 num_threads,
-               IndexingOrder indexing_order, int vector_size,
-               int scaling_factor)
+               int vector_size, int scaling_factor)
       : dims_in_elems_(dims_in_elems),
         tile_sizes_per_thread_(tile_sizes),
         tile_sizes_per_block_{num_threads[0] * tile_sizes[0],
                               num_threads[1] * tile_sizes[1],
                               num_threads[2] * tile_sizes[2]},
         num_threads_(num_threads),
-        indexing_order_(indexing_order),
         vector_size_(vector_size),
         thread_id_virtual_scaling_(scaling_factor) {
     CHECK_EQ(tile_sizes[2] % vector_size_, 0)
         << "tile sizes = " << absl::StrJoin(tile_sizes, ", ")
         << "; vector size = " << vector_size_;
-  }
-
-  static std::string IndexingOrderToString(IndexingOrder order) {
-    switch (order) {
-      case LinearIndexingX:
-        return "linear";
-      case StridedIndexingX:
-        return "strided";
-    }
   }
 
   std::string ToString() const {
@@ -82,8 +62,6 @@ class TilingScheme {
                          absl::StrJoin(tile_sizes_per_thread_, ", ")),
          absl::StrFormat("num_threads = {%s}",
                          absl::StrJoin(num_threads_, ", ")),
-         absl::StrFormat("indexing_order = %s",
-                         IndexingOrderToString(indexing_order_)),
          absl::StrFormat("vector_size = %d", vector_size_),
          absl::StrFormat("thread_id_virtual_scaling = %d",
                          thread_id_virtual_scaling_)},
@@ -128,7 +106,6 @@ class TilingScheme {
            thread_id_virtual_scaling_;
   }
 
-  IndexingOrder GetIndexingOrder() const { return indexing_order_; }
   int GetVectorSize() const { return vector_size_; }
 
   // Scaling factor for transforming physical threadId to logical.
@@ -150,8 +127,6 @@ class TilingScheme {
   // Number of threads implicitly assigned to each dimension.
   Vector3 num_threads_;
 
-  IndexingOrder indexing_order_;
-
   // Vector size for dimension X.
   int vector_size_;
 
@@ -164,23 +139,11 @@ class TilingScheme {
 // occupancy) will differ from logical thread id. This struct contains
 // logical thread ids, along with meta-information about the scaling applied.
 struct TilingThreadIdInfo {
-  TilingThreadIdInfo(llvm::Value* thread_id, llvm::Value* thread_id_x,
-                     llvm::Value* thread_id_y, llvm::Value* lane_id,
-                     llvm::Value* block_id, llvm::Value* scaling)
-      : thread_id(thread_id),
-        thread_id_x(thread_id_x),
-        thread_id_y(thread_id_y),
-        lane_id(lane_id),
-        block_id(block_id),
-        scaling(scaling) {}
-
   llvm::Value* thread_id;
 
-  // X-coordinate calculated from thread id: `thread_id % num_threads_x`
-  llvm::Value* thread_id_x;
-
-  // Y-coordinate calculated from thread id: `thread_id / num_threads_x`
-  llvm::Value* thread_id_y;
+  std::array<llvm::Value*, 3> thread_ids;
+  std::array<llvm::Value*, 3> start_offsets;
+  std::array<llvm::Value*, 3> strides;
 
   // Lane id: `thread_id % WarpSize`
   llvm::Value* lane_id;
@@ -188,29 +151,13 @@ struct TilingThreadIdInfo {
   // Block id.
   llvm::Value* block_id;
 
-  // Emits GEP into a shared memory, taking virtual thread scaling into
-  // account. Automatically inserts the first zero required by LLVM GEP.
-  // Defined on ThreadIdInfo to keep `scaling` private.
-  //
-  // Same semantics as CreateInBoundsGEP.
-  llvm::Value* GEPIntoSharedMemory(
-      llvm::IRBuilder<>* b, llvm::GlobalVariable* shared,
-      absl::Span<llvm::Value* const> idx_major_to_minor,
-      const llvm::Twine& name = "") const;
-
-  // Calculate the pointee type of the llvm::Value returned by
-  // GEPIntoSharedMemory
-  llvm::Type* GEPIntoSharedMemoryType(
-      llvm::GlobalVariable* shared,
-      absl::Span<llvm::Value* const> idx_major_to_minor) const;
-
- private:
-  llvm::Value* scaling;
+  // The virtual scaling index: [0; thread_id_virtual_scaling).
+  llvm::Value* scaling_index;
 };
 
 struct TilingKernelInfo {
   // Tiling bounds.
-  std::array<llvm::Value*, 2> output_tile_bounds;
+  std::array<llvm::Value*, 3> output_tile_bounds;
 
   // Starting tile, as calculated from block id only.
   llvm_ir::IrArray::Index tile_origin;
@@ -226,14 +173,13 @@ struct TilingKernelInfo {
 using TileGenerator =
     std::function<void(const TilingThreadIdInfo& thread_id_info,
                        const llvm_ir::IrArray::Index& tile_start_index,
-                       std::array<llvm::Value*, 2> tile_dimensions)>;
+                       std::array<llvm::Value*, 3> tile_dimensions)>;
 
 // A function object to generate code to process one element in a tile.
 //
-// y_loc: The y coordinate within a tile.
-// x_loc: The x coordinate within a tile.
+// index_in_tile: the current [z, y, x] coordinate.
 using TileElementGenerator =
-    std::function<void(llvm::Value* y_loc, llvm::Value* x_loc)>;
+    std::function<void(std::array<llvm::Value*, 3> index_in_tile)>;
 
 // Emits code to iterate through a 2-dimensional tile with a given tile
 // dimensions and given strides, and call the callback at each iteration.,
@@ -261,7 +207,7 @@ using TileElementGenerator =
 //
 void EmitTile(llvm::IRBuilder<>* builder, const TilingScheme& tiling_scheme,
               const TilingThreadIdInfo& thread_id_info,
-              std::array<llvm::Value*, 2> tile_dimensions,
+              absl::Span<llvm::Value* const> tile_dimensions,
               const TileElementGenerator& emit_elem_function);
 
 // Emits a kernel for the hlo instruction using the given kernel mapping
