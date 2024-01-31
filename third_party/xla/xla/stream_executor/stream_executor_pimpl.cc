@@ -173,53 +173,6 @@ int64_t StreamExecutor::GetDeviceLoad() const {
   return implementation_->GetDeviceLoad();
 }
 
-absl::Status StreamExecutor::GetFusedMatmulRunners(
-    bool use_cudnn_frontend, dnn::DataType input_type, dnn::DataType bias_type,
-    dnn::DataType output_type, Stream* stream, bool trans_a, bool trans_b,
-    uint64_t m, uint64_t n, uint64_t k, int64_t lda, int64_t ldb, int64_t ldc,
-    dnn::ActivationMode activation_mode, bool use_fallback,
-    const NumericOptions& numeric_options,
-    std::vector<std::unique_ptr<const dnn::FusedMatmulRunner>>*
-        out_exec_plans) {
-  dnn::DnnSupport* dnn_support = AsDnn();
-  if (!dnn_support) {
-    return absl::UnimplementedError("DNN library is not found.");
-  }
-
-  return dnn_support->GetFusedMatmulRunners(
-      use_cudnn_frontend, input_type, bias_type, output_type, stream, trans_a,
-      trans_b, m, n, k, lda, ldb, ldc, activation_mode, use_fallback,
-      numeric_options, out_exec_plans);
-}
-
-bool StreamExecutor::GetMIOpenConvolveAlgorithms(
-    dnn::ConvolutionKind kind, dnn::DataType element_type, Stream* stream,
-    const dnn::BatchDescriptor& input_descriptor, DeviceMemoryBase input_data,
-    const dnn::FilterDescriptor& filter_descriptor,
-    DeviceMemoryBase filter_data, const dnn::BatchDescriptor& output_descriptor,
-    DeviceMemoryBase output_data,
-    const dnn::ConvolutionDescriptor& convolution_descriptor,
-    ScratchAllocator* scratch_allocator,
-    std::vector<dnn::ProfileResult>* out_algorithms) {
-  dnn::DnnSupport* dnn_support = AsDnn();
-  if (!dnn_support) {
-    return false;
-  }
-  return dnn_support->GetMIOpenConvolveAlgorithms(
-      kind, element_type, stream, input_descriptor, input_data,
-      filter_descriptor, filter_data, output_descriptor, output_data,
-      convolution_descriptor, scratch_allocator, out_algorithms);
-}
-
-bool StreamExecutor::GetRnnAlgorithms(
-    std::vector<dnn::AlgorithmDesc>* out_algorithms) {
-  dnn::DnnSupport* dnn_support = AsDnn();
-  if (!dnn_support) {
-    return false;
-  }
-  return dnn_support->GetRnnAlgorithms(out_algorithms);
-}
-
 bool StreamExecutor::GetBlasGemmAlgorithms(
     Stream* stream, std::vector<blas::AlgorithmType>* out_algorithms) {
   blas::BlasSupport* blas_support = AsBlas();
@@ -227,62 +180,6 @@ bool StreamExecutor::GetBlasGemmAlgorithms(
     return false;
   }
   return blas_support->GetBlasGemmAlgorithms(stream, out_algorithms);
-}
-
-absl::StatusOr<std::unique_ptr<dnn::RnnDescriptor>>
-StreamExecutor::createRnnDescriptor(
-    int num_layers, int hidden_size, int input_size, int cell_size,
-    int batch_size, dnn::RnnInputMode input_mode,
-    dnn::RnnDirectionMode direction_mode, dnn::RnnMode rnn_mode,
-    dnn::DataType data_type, const dnn::AlgorithmConfig& algorithm_config,
-    const NumericOptions& numeric_options, float dropout, uint64_t seed,
-    ScratchAllocator* state_allocator, bool use_padded_io) {
-  dnn::DnnSupport* dnn_support = AsDnn();
-  if (!dnn_support) {
-    return absl::UnknownError("Fail to find the dnn implementation.");
-  }
-  return dnn_support->createRnnDescriptor(
-      num_layers, hidden_size, input_size, cell_size, batch_size, input_mode,
-      direction_mode, rnn_mode, data_type, algorithm_config, numeric_options,
-      dropout, seed, state_allocator, use_padded_io);
-}
-
-absl::StatusOr<std::unique_ptr<dnn::RnnSequenceTensorDescriptor>>
-StreamExecutor::createRnnSequenceTensorDescriptor(int max_seq_length,
-                                                  int batch_size, int data_size,
-                                                  dnn::DataType data_type) {
-  dnn::DnnSupport* dnn_support = AsDnn();
-  if (!dnn_support) {
-    return absl::UnknownError("Fail to find the dnn implementation.");
-  }
-  return dnn_support->createRnnSequenceTensorDescriptor(
-      max_seq_length, batch_size, data_size, data_type);
-}
-
-absl::StatusOr<std::unique_ptr<dnn::RnnSequenceTensorDescriptor>>
-StreamExecutor::createRnnSequenceTensorDescriptor(
-    int max_seq_length, int batch_size, int data_size,
-    const absl::Span<const int>& seq_lengths, bool time_major,
-    dnn::DataType data_type) {
-  dnn::DnnSupport* dnn_support = AsDnn();
-  if (!dnn_support) {
-    return absl::UnknownError("Fail to find the dnn implementation.");
-  }
-  return dnn_support->createRnnSequenceTensorDescriptor(
-      max_seq_length, batch_size, data_size, seq_lengths, time_major,
-      data_type);
-}
-
-absl::StatusOr<std::unique_ptr<dnn::RnnStateTensorDescriptor>>
-StreamExecutor::createRnnStateTensorDescriptor(int num_layer, int batch_size,
-                                               int data_size,
-                                               dnn::DataType data_type) {
-  dnn::DnnSupport* dnn_support = AsDnn();
-  if (!dnn_support) {
-    return absl::UnknownError("Fail to find the dnn implementation.");
-  }
-  return dnn_support->createRnnStateTensorDescriptor(num_layer, batch_size,
-                                                     data_size, data_type);
 }
 
 dnn::DnnSupport* StreamExecutor::AsDnn() {
