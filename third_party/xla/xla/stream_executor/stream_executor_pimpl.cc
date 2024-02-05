@@ -173,15 +173,6 @@ int64_t StreamExecutor::GetDeviceLoad() const {
   return implementation_->GetDeviceLoad();
 }
 
-bool StreamExecutor::GetBlasGemmAlgorithms(
-    Stream* stream, std::vector<blas::AlgorithmType>* out_algorithms) {
-  blas::BlasSupport* blas_support = AsBlas();
-  if (!blas_support) {
-    return false;
-  }
-  return blas_support->GetBlasGemmAlgorithms(stream, out_algorithms);
-}
-
 dnn::DnnSupport* StreamExecutor::AsDnn() {
   absl::MutexLock lock(&mu_);
   if (dnn_ != nullptr) {

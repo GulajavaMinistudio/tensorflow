@@ -18,6 +18,7 @@ limitations under the License.
 #include <cstdint>
 #include <vector>
 
+#include "absl/status/status.h"
 #include "absl/strings/ascii.h"
 #include "xla/service/buffer_assignment.h"
 #include "xla/service/gpu/buffer_allocations.h"
@@ -175,10 +176,10 @@ TEST(CommandBufferCmdTest, MemcpyCmd) {
 
   auto command_buffer = se::CommandBuffer::Create(executor).value();
   TF_ASSERT_OK(commands.Record({executor, &stream, &stream, &allocations},
-                               &command_buffer));
+                               command_buffer.get()));
 
   // Execute command buffer and verify that it copied the memory.
-  TF_ASSERT_OK(executor->Submit(&stream, command_buffer));
+  TF_ASSERT_OK(executor->Submit(&stream, *command_buffer));
 
   // Copy `b` data back to host.
   std::vector<int32_t> dst(4, 0);
@@ -230,16 +231,16 @@ TEST(CommandBufferCmdTest, LaunchCmd) {
       /*binary=*/se::gpu::internal::kAddI32KernelModule
 #endif
   };
-  TF_ASSERT_OK(commands.Initialize(executor, source));
+  TF_ASSERT_OK(commands.Initialize({executor, source}));
 
   BufferAllocations allocations({a, b}, 0, executor->GetAllocator());
 
   auto command_buffer = se::CommandBuffer::Create(executor).value();
   TF_ASSERT_OK(commands.Record({executor, &stream, &stream, &allocations},
-                               &command_buffer));
+                               command_buffer.get()));
 
   // Execute command buffer and verify that it copied the memory.
-  TF_ASSERT_OK(executor->Submit(&stream, command_buffer));
+  TF_ASSERT_OK(executor->Submit(&stream, *command_buffer));
 
   // Copy `b` data back to host.
   std::vector<int32_t> dst(4, 0);
