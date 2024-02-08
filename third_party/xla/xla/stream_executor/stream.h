@@ -297,44 +297,6 @@ class Stream {
     return absl::UnimplementedError("DNN library is not found.");
   }
 
-  template <typename ElementType>
-  absl::Status ThenPoolForward(
-      const dnn::PoolingDescriptor &pooling_dimensions,
-      const NumericOptions &numeric_options,
-      const dnn::BatchDescriptor &input_dimensions,
-      const DeviceMemory<ElementType> &input_data,
-      const dnn::BatchDescriptor &output_dimensions,
-      DeviceMemory<ElementType> *output_data,
-      ScratchAllocator *workspace_allocator = nullptr) {
-    if (dnn::DnnSupport *dnn = parent_->AsDnn()) {
-      return dnn->DoPoolForward(dnn::ToDataType<ElementType>::value, this,
-                                pooling_dimensions, numeric_options,
-                                input_dimensions, input_data, output_dimensions,
-                                *output_data, workspace_allocator);
-    }
-    return absl::UnimplementedError("DNN library is not found.");
-  }
-
-  template <typename ElementType>
-  absl::Status ThenPoolBackward(
-      const dnn::PoolingDescriptor &pooling_dimensions,
-      const NumericOptions &numeric_options,
-      const dnn::BatchDescriptor &input_dimensions,
-      const DeviceMemory<ElementType> &input_data,
-      const dnn::BatchDescriptor &output_dimensions,
-      const DeviceMemory<ElementType> &output_data,
-      const DeviceMemory<ElementType> &input_diff_data,
-      DeviceMemory<ElementType> *output_diff_data,
-      ScratchAllocator *workspace_allocator = nullptr) {
-    if (dnn::DnnSupport *dnn = parent_->AsDnn()) {
-      return dnn->DoPoolBackward(
-          dnn::ToDataType<ElementType>::value, this, pooling_dimensions,
-          numeric_options, input_dimensions, input_data, output_dimensions,
-          output_data, input_diff_data, *output_diff_data, workspace_allocator);
-    }
-    return absl::UnimplementedError("DNN library is not found.");
-  }
-
   /////////////////
   // BLAS support
 
@@ -615,25 +577,6 @@ class Stream {
   // Returns an OK status if the blocking was successful and the stream is ok().
   // Otherwise returns an error describing why the blocking failed.
   absl::Status BlockHostUntilDone() TF_LOCKS_EXCLUDED(mu_);
-
-  // Warning! This method interacts with internal threads in
-  // sometimes-unpredictable ways and is intended for GPU-Executor-internal
-  // use
-  // only. Please check with a member of the FASTR team before making use of
-  // this method.
-  //
-  // Entrains onto the stream a function to be executed on the host at some
-  // point in the future.
-  // Async host callbacks DO NOT block the stream as device functions (or as
-  // synchronous host callbacks). No synchronization is possible with
-  // asynchronous callbacks; they are strictly fire-and-forget.
-  // This method is private due to the potential for undefined behavior with
-  // synchronization using OpenCL user events.
-  // The ONLY lifetime guarantee in these calls is that the StreamExecutor
-  // parameter will still be valid - this Stream may not be!
-  // Any callbacks requiring device API calls must use this method.
-  Stream &ThenEnqueueOnBackgroundThread(
-      std::function<void(StreamExecutor *)> task);
 
   // Returns the (opaque) platform-specific backing object. Ownership is not
   // transferred to the caller.

@@ -436,6 +436,8 @@ cc_library(
         "//xla/service/gpu/runtime3:cub_sort_thunk",
         "//xla/service/gpu/runtime3:gpublas_lt_matmul_thunk",
         "//xla/service/gpu/runtime3:triangular_solve_thunk",
+    ]) + if_rocm_is_configured([
+        "@local_config_rocm//rocm:rocm_headers",
     ]),
 )
 
@@ -1269,6 +1271,7 @@ cc_library(
         "//xla/service:xla_debug_info_manager",
         "//xla/service/gpu:backend_configs_cc",
         "//xla/service/gpu/runtime:tracing",
+        "//xla/service/gpu/runtime3:annotation",
         "//xla/stream_executor",
         "//xla/stream_executor:device_description",
         "//xla/stream_executor:device_memory",
@@ -1284,6 +1287,7 @@ cc_library(
         "@com_google_absl//absl/cleanup",
         "@com_google_absl//absl/container:btree",
         "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/container:inlined_vector",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/status",
@@ -2515,6 +2519,7 @@ cc_library(
         "//xla/stream_executor:stream_executor_headers",
         "//xla/tools:hlo_module_loader",
         "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/container:inlined_vector",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
         "@local_tsl//tsl/platform:env",
@@ -3190,7 +3195,6 @@ cc_library(
         "//xla:util",
         "//xla:xla_data_proto_cc",
         "//xla/hlo/ir:hlo",
-        "//xla/mlir/backends/gpu/transforms:passes",
         "//xla/mlir/runtime/transforms:compilation_pipeline_gpu",
         "//xla/mlir_hlo:transforms_gpu_passes",
         "//xla/service:buffer_assignment",
@@ -3647,16 +3651,16 @@ cc_library(
     ],
 )
 
-xla_cc_test(
+xla_test(
     name = "gpu_compiler_test",
     srcs = ["gpu_compiler_test.cc"],
-    tags = tf_cuda_tests_tags(),
+    backends = ["gpu"],
     deps = [
         ":horizontal_loop_fusion",
         ":metrics",
         "//xla:autotune_results_proto_cc",
         "//xla/service:buffer_assignment",
-        "//xla/service:gpu_plugin",
+        "//xla/service:hlo_module_config",
         "//xla/service:pattern_matcher",
         "//xla/service:pattern_matcher_gmock",
         "//xla/service:xla_debug_info_manager",
