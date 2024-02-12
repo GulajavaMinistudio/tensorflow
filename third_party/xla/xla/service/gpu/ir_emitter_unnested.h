@@ -40,7 +40,7 @@ limitations under the License.
 #include "xla/service/gpu/hlo_fusion_analysis.h"
 #include "xla/service/gpu/ir_emitter.h"
 #include "xla/service/gpu/nccl_collective_thunk.h"
-#include "xla/service/gpu/runtime3/send_recv_thunk.h"
+#include "xla/service/gpu/runtime/send_recv_thunk.h"
 #include "xla/service/gpu/thunk.h"
 #include "xla/service/llvm_ir/ir_array.h"
 #include "xla/service/llvm_ir/llvm_util.h"
@@ -166,6 +166,7 @@ class IrEmitterUnnested : public IrEmitter {
   absl::Status EmitNormThunk(mlir::Operation* op);
   absl::Status EmitNormThunk(const HloCustomCallInstruction* instr);
   absl::Status EmitFusedMHAThunk(mlir::Operation* op);
+  absl::Status EmitFusedMHAThunk(const HloCustomCallInstruction* instr);
   absl::Status EmitFusedMHABackwardThunk(mlir::Operation* op);
 #endif  // GOOGLE_CUDA
 #if GOOGLE_CUDA || TENSORFLOW_USE_ROCM
@@ -385,7 +386,7 @@ class IrEmitterUnnested : public IrEmitter {
   //   return;
   // }
   //   ```
-  absl::Status EmitSliceToDynamic(mlir::Operation* op);
+  absl::Status EmitSliceToDynamic(const HloCustomCallInstruction* instr);
 
   absl::StatusOr<BufferAllocation::Slice> GetAllocationSlice(mlir::Value v);
   absl::StatusOr<std::vector<BufferAllocation::Slice>> GetAllocationSlices(

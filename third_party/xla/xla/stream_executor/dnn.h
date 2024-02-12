@@ -1493,6 +1493,30 @@ class DnnSupport {
         "DnnSupport::DoFusedConvolve not implemented on this platform.");
   }
 
+  template <typename InputT, typename ScaleT, typename SideInputT,
+            typename BiasT, typename OutputT>
+  absl::Status FusedConvolveWithAlgorithm(
+      Stream* stream, const BatchDescriptor& conv_input_descriptor,
+      const DeviceMemory<InputT>& conv_input_data, ScaleT conv_input_scale,
+      const FilterDescriptor& filter_descriptor,
+      const DeviceMemory<InputT>& filter_data,
+      const ConvolutionDescriptor& convolution_descriptor,
+      const DeviceMemory<SideInputT>& side_input_data, ScaleT side_input_scale,
+      const BatchDescriptor& bias_descriptor, const DeviceMemory<BiasT>& biases,
+      ActivationMode activation_mode, const BatchDescriptor& output_descriptor,
+      DeviceMemory<OutputT>* output, ScratchAllocator* scratch_allocator,
+      const AlgorithmConfig& algorithm_config,
+      ProfileResult* output_profile_result) {
+    return DoFusedConvolve(
+        stream, ToDataType<InputT>::value, ToDataType<SideInputT>::value,
+        ToDataType<BiasT>::value, ToDataType<OutputT>::value,
+        conv_input_descriptor, conv_input_data, conv_input_scale,
+        filter_descriptor, filter_data, convolution_descriptor, side_input_data,
+        side_input_scale, bias_descriptor, biases, activation_mode,
+        output_descriptor, *output, scratch_allocator, algorithm_config,
+        output_profile_result);
+  }
+
   template <typename ElementType, typename OutputType>
   absl::Status PrepareForConvolution(
       ConvolutionKind kind, Stream* stream,
@@ -1569,6 +1593,32 @@ class DnnSupport {
       const ConvolutionDescriptor& convolution_descriptor,
       AlgorithmDesc algorithm_desc, DeviceMemory<uint8_t> scratch_memory,
       ProfileResult* output_profile_result) = 0;
+
+  template <typename InputType, typename OutputType>
+  absl::Status ConvolveWithAlgorithm(
+      Stream* stream, ConvolutionKind kind,
+      const BatchDescriptor& input_descriptor,
+      DeviceMemory<InputType> input_data,
+      const FilterDescriptor& filter_descriptor,
+      DeviceMemory<InputType> filter_data,
+      const BatchDescriptor& output_descriptor,
+      DeviceMemory<OutputType> output_data,
+      const ConvolutionDescriptor& convolution_descriptor,
+      ScratchAllocator* scratch_allocator,
+      const AlgorithmConfig& algorithm_config,
+      ProfileResult* output_profile_result) {
+    DeviceMemory<uint8_t> scratch_memory;
+    AlgorithmDesc algorithm_desc;
+    TF_RETURN_IF_ERROR(PrepareForConvolution(
+        kind, stream, input_descriptor, input_data, filter_descriptor,
+        filter_data, output_descriptor, output_data, convolution_descriptor,
+        algorithm_config, scratch_allocator, &algorithm_desc, &scratch_memory));
+    return DoConvolve(kind, ToDataType<InputType>::value,
+                      ToDataType<OutputType>::value, stream, input_descriptor,
+                      input_data, filter_descriptor, filter_data,
+                      output_descriptor, output_data, convolution_descriptor,
+                      algorithm_desc, scratch_memory, output_profile_result);
+  }
 
   virtual absl::Status GetConvolveRunners(
       bool use_cudnn_frontend, ConvolutionKind kind, DataType input_type,
