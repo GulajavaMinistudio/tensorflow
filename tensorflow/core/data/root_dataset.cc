@@ -28,6 +28,7 @@ limitations under the License.
 #include "tensorflow/core/data/rewrite_utils.h"
 #include "tensorflow/core/framework/dataset.h"
 #include "tensorflow/core/framework/dataset_options.pb.h"
+#include "tensorflow/core/framework/metrics.h"
 #include "tensorflow/core/framework/model.h"
 #include "tensorflow/core/framework/model.pb.h"
 #include "tensorflow/core/platform/errors.h"
@@ -151,12 +152,18 @@ Status RootDataset::FromOptions(const DatasetBase* input,
   SetRootDatasetParams(input->options(), &params);
   *output = new RootDataset(input, params);
   (*output)->Initialize(/*metadata=*/{});
+  for (const auto& framework : input->options().framework_type()) {
+    metrics::RecordTFDataFrameworkType(framework);
+  }
   return absl::OkStatus();
 }
 
 Status RootDataset::FromOptions(core::RefCountPtr<DatasetBase> input,
                                 DatasetBase** output) {
   Params params;
+  for (const auto& framework : input->options().framework_type()) {
+    metrics::RecordTFDataFrameworkType(framework);
+  }
   SetRootDatasetParams(input->options(), &params);
   *output = new RootDataset(std::move(input), params);
   (*output)->Initialize(/*metadata=*/{});
@@ -195,8 +202,12 @@ class RootDataset::Iterator : public DatasetIterator<RootDataset> {
         dataset()->params_.ComputeInitialAutotuneRamBudget());
 
     if (dataset()->params_.autotune) {
-      model_ = ctx->model() != nullptr ? ctx->model()
-                                       : std::make_shared<model::Model>();
+      if (ctx->model() != nullptr) {
+        model_ = ctx->model();
+      } else {
+        model_ = std::make_shared<model::Model>();
+        ctx->SetModel(model_);
+      }
 
       absl::flat_hash_set<string> experiments = GetExperiments();
       if (experiments.contains("stage_based_autotune_v2")) {

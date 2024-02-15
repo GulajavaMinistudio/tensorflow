@@ -17,6 +17,7 @@ limitations under the License.
 
 #include <algorithm>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <set>
@@ -272,10 +273,10 @@ class ResourceRequests : public Thunk::ResourceRequests {
           const NcclCliqueIdCallback* clique_id_callback,
           GetNcclCliqueIdCallback(params.nccl_clique_id_callback, is_local));
 
-      TF_ASSIGN_OR_RETURN(
-          std::shared_ptr<NcclClique::Lock> clique,
-          AcquireNcclClique(params.run_id, clique_key, *clique_id_callback,
-                            *rank, num_local_participants, false));
+      TF_ASSIGN_OR_RETURN(std::shared_ptr<NcclClique::Lock> clique,
+                          AcquireNcclClique(params.executor, params.run_id,
+                                            clique_key, *clique_id_callback,
+                                            *rank, num_local_participants));
 
       cliques_map[clique_key] = std::move(clique);
     }
@@ -292,8 +293,9 @@ class ResourceRequests : public Thunk::ResourceRequests {
 
  private:
   // Keep all clique requests in an ordered container so that we acquire cliques
-  // in the same order for all participants and do not create a deadlock.
-  absl::btree_map<NcclCliqueKey, int64_t> cliques_;
+  // in the same order for all participants and do not create a deadlock. We use
+  // greater ordering to acquire largest cliques first.
+  absl::btree_map<NcclCliqueKey, int64_t, std::greater<NcclCliqueKey>> cliques_;
 };
 
 absl::Status MaybeSyncAndProfile(
