@@ -21,7 +21,14 @@ load(
     "if_rocm_is_configured",
     "rocm_copts",
 )
-load("@local_tsl//tsl:tsl.bzl", "if_google", "if_nccl", "tsl_copts", "tsl_gpu_library")
+load(
+    "@local_tsl//tsl:tsl.bzl",
+    "if_google",
+    "if_nccl",
+    "internal_visibility",
+    "tsl_copts",
+    "tsl_gpu_library",
+)
 load("@local_tsl//tsl:tsl.default.bzl", "filegroup", "get_compatible_with_portable")
 load(
     "@local_tsl//tsl/platform:build_config.bzl",
@@ -39,7 +46,8 @@ load(
 )
 
 package(
-    default_visibility = ["//visibility:public"],
+    # copybara:uncomment default_applicable_licenses = ["//tensorflow:license"],
+    default_visibility = internal_visibility([":friends"]),
     licenses = ["notice"],
 )
 
@@ -57,7 +65,6 @@ filegroup(
         "**/*.cc",
         "**/*.h",
     ]),
-    visibility = ["//visibility:public"],
 )
 
 tf_proto_library(
@@ -70,7 +77,6 @@ tf_proto_library(
         "//xla:autotuning_proto",
         "@local_tsl//tsl/protobuf:dnn_proto",
     ],
-    visibility = ["//visibility:public"],
 )
 
 xla_cc_test(
@@ -114,13 +120,11 @@ cc_library(
 cc_library(
     name = "gpu_constants",
     hdrs = ["gpu_constants.h"],
-    visibility = ["//visibility:public"],
 )
 
 cc_library(
     name = "gpu_memory_space_assignment",
     hdrs = ["gpu_memory_space_assignment.h"],
-    visibility = ["//visibility:public"],
     deps = [
         "//xla:status",
         "//xla/hlo/ir:hlo",
@@ -140,7 +144,6 @@ cc_library(
         "launch_dimensions.h",
     ],
     compatible_with = get_compatible_with_portable(),
-    visibility = ["//visibility:public"],
     deps = [
         "//xla:shape_util",
         "//xla:statusor",
@@ -208,7 +211,6 @@ cc_library(
     name = "hlo_to_ir_bindings",
     srcs = ["hlo_to_ir_bindings.cc"],
     hdrs = ["hlo_to_ir_bindings.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":buffer_allocations",
         ":ir_emission_utils",
@@ -232,7 +234,6 @@ cc_library(
     srcs = ["target_util.cc"],
     hdrs = ["target_util.h"],
     compatible_with = get_compatible_with_portable(),
-    visibility = ["//visibility:public"],
     deps = [
         "//xla:shape_util",
         "//xla:status",
@@ -265,7 +266,6 @@ cc_library(
     srcs = ["gpu_device_info_for_tests.cc"],
     hdrs = ["gpu_device_info_for_tests.h"],
     compatible_with = get_compatible_with_portable(),
-    visibility = ["//visibility:public"],
     deps = [
         "//xla/stream_executor:device_description",
     ],
@@ -275,7 +275,6 @@ cc_library(
     name = "ir_emitter_context",
     srcs = ["ir_emitter_context.cc"],
     hdrs = ["ir_emitter_context.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":gpu_constants",
         ":gpu_executable",
@@ -300,7 +299,6 @@ cc_library(
     ]) + if_rocm_hipblaslt([
         "TF_HIPBLASLT=1",
     ]),
-    visibility = ["//visibility:public"],
     deps = [
         ":backend_configs_cc",
         ":cublas_cudnn",
@@ -326,6 +324,8 @@ cc_library(
         ":reduction_utils",
         ":target_util",
         ":thunk",
+        ":triton_call",
+        ":triton_fusion_analysis",
         "//xla:autotuning_proto_cc",
         "//xla:literal",
         "//xla:permutation_util",
@@ -384,6 +384,7 @@ cc_library(
         "//xla/service/llvm_ir:llvm_util",
         "//xla/service/llvm_ir:sort_util",
         "//xla/stream_executor:device_description",
+        "//xla/stream_executor:launch_dim",
         "//xla/stream_executor/gpu:gpu_blas_lt",
         "//xla/translate/hlo_to_mhlo:hlo_utils",
         "//xla/translate/mhlo_to_hlo:attribute_exporter",
@@ -413,8 +414,11 @@ cc_library(
         "@llvm-project//mlir:IR",
         "@llvm-project//mlir:LLVMDialect",
         "@llvm-project//mlir:LLVMToLLVMIRTranslation",
+        "@llvm-project//mlir:MathDialect",
         "@llvm-project//mlir:MemRefDialect",
+        "@llvm-project//mlir:MemRefTransforms",
         "@llvm-project//mlir:NVVMToLLVMIRTranslation",
+        "@llvm-project//mlir:Parser",
         "@llvm-project//mlir:ROCDLToLLVMIRTranslation",
         "@llvm-project//mlir:Support",
         "@llvm-project//mlir:ToLLVMIRTranslation",
@@ -423,6 +427,7 @@ cc_library(
         "@local_tsl//tsl/platform:status",
         "@local_tsl//tsl/platform:statusor",
         "@local_tsl//tsl/protobuf:dnn_proto_cc",
+        "@triton//:TritonDialects",
     ] + if_gpu_is_configured([
         ":ir_emitter_triton",
         "//xla/service/gpu/runtime:cholesky_thunk",
@@ -447,7 +452,6 @@ cc_library(
         "ir_emitter_nested.h",
     ],
     copts = if_cuda_is_configured(["-DGOOGLE_CUDA=1"]),
-    visibility = ["//visibility:public"],
     deps = [
         ":backend_configs_cc",
         ":hlo_to_ir_bindings",
@@ -489,7 +493,6 @@ cc_library(
         "ir_emitter_triton.cc",
     ]),
     hdrs = if_gpu_is_configured(["ir_emitter_triton.h"]),
-    visibility = ["//visibility:public"],
     deps = [
         ":hlo_traversal",
         ":ir_emission_utils",
@@ -513,6 +516,7 @@ cc_library(
         "//xla/mlir_hlo",
         "//xla/mlir_hlo:map_mhlo_to_scalar_op",
         "//xla/service:dump",
+        "//xla/service:hlo_module_config",
         "//xla/service/gpu/llvm_gpu_backend",
         "//xla/service/llvm_ir:llvm_util",
         "//xla/stream_executor:device_description",
@@ -558,7 +562,6 @@ cc_library(
         "@local_tsl//tsl/platform:statusor",
         "@local_tsl//tsl/platform:tensor_float_32_utils",
         "@triton//:TritonDialects",
-        "@triton//:TritonTmaMetadata",
         "@triton//:TritonTransforms",
     ] + if_cuda_is_configured([
         "@triton//:NVGPUToLLVM",
@@ -591,6 +594,8 @@ xla_test(
         ":triton_fusion_analysis",
         "//xla:autotuning_proto_cc",
         "//xla:error_spec",
+        "//xla:literal",
+        "//xla:literal_util",
         "//xla:status_macros",
         "//xla:statusor",
         "//xla:xla_proto_cc",
@@ -603,6 +608,7 @@ xla_test(
         "//xla/tests:filecheck",
         "//xla/tests:verified_hlo_module",
         "//xla/tests:xla_internal_test_main",  # fixdeps: keep
+        "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest",
         "@llvm-project//llvm:Support",
@@ -674,7 +680,6 @@ cc_library(
     name = "triton_autotuner",
     srcs = if_cuda_is_configured(["triton_autotuner.cc"]),
     hdrs = if_cuda_is_configured(["triton_autotuner.h"]),
-    visibility = ["//visibility:public"],
     deps = if_cuda_is_configured([
         ":autotuner_compile_util",
         ":autotuner_util",
@@ -780,11 +785,25 @@ xla_test(
 )
 
 cc_library(
+    name = "triton_call",
+    srcs = if_gpu_is_configured(["triton_call.cc"]),
+    hdrs = ["triton_call.h"],
+    local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]) + if_rocm_is_configured([
+        "TENSORFLOW_USE_ROCM=1",
+    ]),
+    deps = [
+        "@llvm-project//mlir:AsmParser",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Parser",
+        "@llvm-project//mlir:Support",
+    ],
+)
+
+cc_library(
     name = "parallel_loop_emitter",
     srcs = ["parallel_loop_emitter.cc"],
     hdrs = ["parallel_loop_emitter.h"],
     compatible_with = get_compatible_with_portable(),
-    visibility = ["//visibility:public"],
     deps = [
         ":launch_dimensions",
         ":target_util",
@@ -806,7 +825,6 @@ cc_library(
     name = "buffer_allocations",
     srcs = ["buffer_allocations.cc"],
     hdrs = ["buffer_allocations.h"],
-    visibility = ["//visibility:public"],
     deps = [
         "//xla:status",
         "//xla:statusor",
@@ -824,7 +842,6 @@ cc_library(
     name = "thunk",
     srcs = ["thunk.cc"],
     hdrs = ["thunk.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":backend_configs_cc",
         ":buffer_allocations",
@@ -871,8 +888,9 @@ cc_library(
         "nccl_recv_thunk.h",
         "nccl_send_thunk.h",
     ],
-    local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]),
-    visibility = ["//visibility:public"],
+    local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]) + if_rocm_is_configured([
+        "TENSORFLOW=1",
+    ]),
     deps = [
         ":backend_configs_cc",
         ":buffer_allocations",
@@ -940,23 +958,19 @@ cc_library(
 # have `if_nccl` and `if_gpu_configured` that do not compose. NCCL header included directly in
 # :nccl_api target and all other targets should use this header to launch collective operations.
 # This allows to minimize the spreading of #ifdef all over the XLA code base.
-
 alias(
     name = "nccl_api",
     actual = if_nccl(":_nccl_api_impl", ":_nccl_api_stub"),
-    visibility = ["//visibility:public"],
 )
 
 cc_library(
     name = "_nccl_api_impl",
-    srcs = if_cuda_is_configured(
+    srcs = if_gpu_is_configured(
         ["nccl_api.cc"],
         ["nccl_api_stub.cc"],
     ),
     hdrs = ["nccl_api.h"],
     compatible_with = get_compatible_with_portable(),
-    defines = if_cuda_is_configured(["XLA_ENABLE_XCCL"]),  # TODO(ezhulenev): Remove!
-    visibility = ["//visibility:public"],
     deps = [
         ":nccl_clique_key",
         "//xla:shape_util",
@@ -965,6 +979,7 @@ cc_library(
         "//xla/stream_executor",
         "//xla/stream_executor/gpu:gpu_activation",
         "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/container:btree",
         "@com_google_absl//absl/hash",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
@@ -979,6 +994,10 @@ cc_library(
         "@local_config_nccl//:nccl",
         "//xla/stream_executor/cuda:cuda_driver",
         "//xla/stream_executor/cuda:cuda_executor",
+    ]) + if_rocm_is_configured([
+        "@local_config_rocm//rocm:rccl",
+        "//xla/stream_executor/rocm:rocm_driver",
+        "//xla/stream_executor/rocm:rocm_executor",
     ]) + if_gpu_is_configured([
         "//xla/stream_executor/gpu:gpu_stream",
     ]),
@@ -989,7 +1008,6 @@ cc_library(
     srcs = ["nccl_api_stub.cc"],
     hdrs = ["nccl_api.h"],
     compatible_with = get_compatible_with_portable(),
-    visibility = ["//visibility:public"],
     deps = [
         ":nccl_clique_key",
         "//xla:shape_util",
@@ -1009,7 +1027,6 @@ cc_library(
     srcs = ["nccl_clique_key.cc"],
     hdrs = ["nccl_clique_key.h"],
     compatible_with = get_compatible_with_portable(),
-    visibility = ["//visibility:public"],
     deps = [
         "//xla/service:global_device_id",
         "@com_google_absl//absl/algorithm:container",
@@ -1036,7 +1053,6 @@ cc_library(
     name = "nccl_clique",
     srcs = ["nccl_clique.cc"],
     hdrs = ["nccl_clique.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":nccl_api",
         ":nccl_clique_key",
@@ -1049,7 +1065,7 @@ cc_library(
         "//xla/stream_executor",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/container:btree",
         "@com_google_absl//absl/container:node_hash_map",
         "@com_google_absl//absl/functional:function_ref",
         "@com_google_absl//absl/hash",
@@ -1062,6 +1078,7 @@ cc_library(
         "@com_google_absl//absl/types:span",
         "@local_tsl//tsl/platform:env",
         "@local_tsl//tsl/platform:errors",
+        "@local_tsl//tsl/platform:hash",
         "@local_tsl//tsl/platform:logging",
         "@local_tsl//tsl/platform:statusor",
     ],
@@ -1071,7 +1088,6 @@ cuda_library(
     name = "sleep_kernel",
     srcs = if_cuda_is_configured(["sleep_kernel.cu.cc"]),
     hdrs = if_cuda_is_configured(["sleep_kernel.h"]),
-    visibility = ["//visibility:public"],
     deps = ["@local_config_cuda//cuda:cuda_headers"],
 )
 
@@ -1079,9 +1095,11 @@ cc_library(
     name = "mock_nccl_xml_google",
     srcs = ["mock_nccl_xml.cc"],
     hdrs = ["mock_nccl_xml.h"],
-    local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]),
+    local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]) + if_rocm_is_configured([
+        "TENSORFLOW_USE_ROCM=1",
+    ]),
     tags = ["manual"],
-    visibility = ["//visibility:public"],
+    visibility = ["//visibility:private"],
     deps = [
         "//xla:status",
         "@com_google_absl//absl/container:flat_hash_map",
@@ -1095,6 +1113,8 @@ cc_library(
         "@local_tsl//tsl/platform:regexp",
     ] + if_cuda_is_configured([
         "@local_config_nccl//:nccl",
+    ]) + if_rocm_is_configured([
+        "@local_config_rocm//rocm:rccl",
     ]),
 )
 
@@ -1102,7 +1122,9 @@ xla_cc_test(
     name = "mock_nccl_xml_test",
     size = "small",
     srcs = if_google(["mock_nccl_xml_test.cc"]),
-    local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]),
+    local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]) + if_rocm_is_configured([
+        "TENSORFLOW_USE_ROCM=1",
+    ]),
     tags = tf_cuda_tests_tags(),
     deps = [
         "//xla:status",
@@ -1112,6 +1134,8 @@ xla_cc_test(
         ":mock_nccl_xml_google",
     ]) + if_cuda_is_configured([
         "@local_config_nccl//:nccl",
+    ]) + if_rocm_is_configured([
+        "@local_config_rocm//rocm:rccl",
     ]),
 )
 
@@ -1119,7 +1143,6 @@ xla_cc_test(
 cc_library(
     name = "empty",
     compatible_with = get_compatible_with_portable(),
-    visibility = ["//visibility:public"],
 )
 
 alias(
@@ -1128,7 +1151,6 @@ alias(
         if_google(":_mock_nccl_utils_google", ":_mock_nccl_utils_default"),
         ":empty",
     ),
-    visibility = ["//visibility:public"],
 )
 
 # Do not build mock_nccl_utils.cc in OSS. It uses the nccl internal cost model to estimate the
@@ -1143,9 +1165,8 @@ cc_library(
     ]),
     # Override tsl_gpu_library()'s internal default value of ["//buildenv/target:gce"].
     compatible_with = [],
-    defines = if_cuda_is_configured(["XLA_ENABLE_XCCL"]),  # TODO(ezhulenev): Remove!
     tags = ["manual"],
-    visibility = ["//visibility:public"],
+    visibility = ["//visibility:private"],
     deps = if_cuda_is_configured([
         ":gpu_executable_run_options",
         ":mock_nccl_xml_google",
@@ -1179,11 +1200,13 @@ cc_library(
         "//xla/service:collective_ops_utils",
         "//xla/service:global_device_id",
         "//xla/service:rendezvous",
+        "//xla/service:lockable",
         "//xla/stream_executor",
         "//xla/stream_executor/gpu:gpu_activation",
         "//xla/stream_executor/gpu:gpu_stream",
         "//xla/stream_executor/gpu:gpu_types_header",
         "@local_tsl//tsl/platform:env",
+        "@local_tsl//tsl/lib/gtl:int_type",
         "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:statusor",
     ]),
@@ -1196,7 +1219,7 @@ cc_library(
     # Override tsl_gpu_library()'s internal default value of ["//buildenv/target:gce"].
     compatible_with = [],
     tags = ["manual"],
-    visibility = ["//visibility:public"],
+    visibility = ["//visibility:private"],
     deps = if_gpu_is_configured([
         ":gpu_executable_run_options",
         ":nccl_collective_thunks",
@@ -1214,6 +1237,8 @@ cc_library(
         "//xla/stream_executor",
     ]) + if_cuda_is_configured([
         "@local_config_nccl//:nccl",
+    ]) + if_rocm_is_configured([
+        "@local_config_rocm//rocm:rccl",
     ]),
 )
 
@@ -1234,7 +1259,6 @@ cc_library(
     local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]) + if_rocm_is_configured([
         "TENSORFLOW_USE_ROCM=1",
     ]),
-    visibility = ["//visibility:public"],
     deps = [
         ":buffer_allocations",
         ":gpu_constants",
@@ -1318,7 +1342,6 @@ cc_library(
     srcs = ["ir_emission_utils.cc"],
     hdrs = ["ir_emission_utils.h"],
     compatible_with = get_compatible_with_portable(),
-    visibility = ["//visibility:public"],
     deps = [
         ":hlo_traversal",
         ":target_util",
@@ -1393,7 +1416,6 @@ cc_library(
     srcs = ["reduction_utils.cc"],
     hdrs = ["reduction_utils.h"],
     local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]),
-    visibility = ["//visibility:public"],
     deps = [
         ":ir_emission_utils",
         "//xla:shape_util",
@@ -1428,7 +1450,6 @@ cc_library(
     srcs = ["cublas_cudnn.cc"],
     hdrs = ["cublas_cudnn.h"],
     compatible_with = get_compatible_with_portable(),
-    visibility = ["//visibility:public"],
     deps = [
         "//xla:status",
         "//xla:statusor",
@@ -1455,7 +1476,6 @@ gpu_kernel_library(
 cc_library(
     name = "variant_visitor",
     hdrs = ["variant_visitor.h"],
-    visibility = ["//visibility:public"],
 )
 
 build_cub_sort_kernels(
@@ -1478,7 +1498,6 @@ cc_library(
     local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]) + if_rocm_is_configured([
         "TENSORFLOW_USE_ROCM=1",
     ]),
-    visibility = ["//visibility:public"],
     deps = [
         ":backend_configs_cc",
         ":cublas_cudnn",
@@ -1513,7 +1532,6 @@ cc_library(
     name = "triton_support",
     srcs = ["triton_support.cc"],
     hdrs = ["triton_support.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":variant_visitor",
         "//xla:xla_data_proto_cc",
@@ -1527,7 +1545,6 @@ cc_library(
     name = "triton_tiling_propagation",
     srcs = ["triton_tiling_propagation.cc"],
     hdrs = ["triton_tiling_propagation.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":triton_support",
         "//xla:permutation_util",
@@ -1550,7 +1567,6 @@ cc_library(
     name = "triton_fusion_analysis",
     srcs = ["triton_fusion_analysis.cc"],
     hdrs = ["triton_fusion_analysis.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":matmul_utils",
         ":triton_tiling_propagation",
@@ -1594,7 +1610,6 @@ cc_library(
     name = "gemm_rewriter_triton",
     srcs = ["gemm_rewriter_triton.cc"],
     hdrs = ["gemm_rewriter_triton.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":backend_configs_cc",
         ":cublas_padding_requirements",
@@ -1653,7 +1668,6 @@ cc_library(
     name = "split_k_gemm_rewriter",
     srcs = ["split_k_gemm_rewriter.cc"],
     hdrs = ["split_k_gemm_rewriter.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":ir_emission_utils",
         ":matmul_utils",
@@ -1715,7 +1729,6 @@ cc_library(
     name = "fusion_merger_triton",
     srcs = ["fusion_merger_triton.cc"],
     hdrs = ["fusion_merger_triton.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":backend_configs_cc",
         ":gpu_fusible",
@@ -1761,7 +1774,6 @@ cc_library(
     name = "softmax_rewriter_triton",
     srcs = ["softmax_rewriter_triton.cc"],
     hdrs = ["softmax_rewriter_triton.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":backend_configs_cc",
         ":ir_emission_utils",
@@ -1769,12 +1781,12 @@ cc_library(
         "//xla:shape_util",
         "//xla:status",
         "//xla:status_macros",
-        "//xla:statusor",
         "//xla:util",
         "//xla:xla_data_proto_cc",
         "//xla/hlo/ir:hlo",
         "//xla/hlo/utils:hlo_query",
         "//xla/service:hlo_pass",
+        "//xla/service:instruction_fusion",
         "//xla/stream_executor:device_description",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/container:flat_hash_map",
@@ -1796,7 +1808,6 @@ cc_library(
     local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]) + if_rocm_is_configured([
         "TENSORFLOW_USE_ROCM=1",
     ]),
-    visibility = ["//visibility:public"],
     deps = if_gpu_is_configured([
         ":backend_configs_cc",
         ":buffer_comparator",
@@ -1832,7 +1843,6 @@ cc_library(
     name = "autotuner_util",
     srcs = if_gpu_is_configured(["autotuner_util.cc"]),
     hdrs = if_gpu_is_configured(["autotuner_util.h"]),
-    visibility = ["//visibility:public"],
     deps = if_gpu_is_configured([
         ":gpu_asm_opts_util",
         ":stream_executor_util",
@@ -1872,7 +1882,6 @@ cc_library(
     name = "autotuner_compile_util",
     srcs = if_gpu_is_configured(["autotuner_compile_util.cc"]),
     hdrs = if_gpu_is_configured(["autotuner_compile_util.h"]),
-    visibility = ["//visibility:public"],
     deps = if_gpu_is_configured([
         ":autotuner_util",
         ":gpu_executable_run_options",
@@ -1939,7 +1948,6 @@ cc_library(
     local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]) + if_rocm_is_configured([
         "TENSORFLOW_USE_ROCM=1",
     ]),
-    visibility = ["//visibility:public"],
     deps = [
         ":backend_configs_cc",
         ":ir_emission_utils",
@@ -1996,7 +2004,6 @@ cc_library(
     name = "dot_dimension_sorter",
     srcs = ["dot_dimension_sorter.cc"],
     hdrs = ["dot_dimension_sorter.h"],
-    visibility = ["//visibility:public"],
     deps = [
         "//xla:permutation_util",
         "//xla:shape_util",
@@ -2034,7 +2041,6 @@ cc_library(
     name = "gpu_async_collective_annotator",
     srcs = ["gpu_async_collective_annotator.cc"],
     hdrs = ["gpu_async_collective_annotator.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":backend_configs_cc",
         "//xla/hlo/utils:hlo_query",
@@ -2061,7 +2067,6 @@ cc_library(
     name = "gpu_convert_async_collectives_to_sync",
     srcs = ["gpu_convert_async_collectives_to_sync.cc"],
     hdrs = ["gpu_convert_async_collectives_to_sync.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":backend_configs_cc",
         "//xla/service:convert_async_collectives_to_sync",
@@ -2091,7 +2096,6 @@ cc_library(
     local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]) + if_rocm_is_configured([
         "TENSORFLOW_USE_ROCM=1",
     ]),
-    visibility = ["//visibility:public"],
     deps = if_gpu_is_configured([
         ":autotuner_util",
         ":backend_configs_cc",
@@ -2176,7 +2180,6 @@ cc_library(
     name = "gpu_conv_runner",
     srcs = ["gpu_conv_runner.cc"],
     hdrs = ["gpu_conv_runner.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":backend_configs_cc",
         ":cublas_cudnn",
@@ -2201,7 +2204,6 @@ cc_library(
     name = "gpu_norm_runner",
     srcs = ["gpu_norm_runner.cc"],
     hdrs = ["gpu_norm_runner.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":backend_configs_cc",
         ":cublas_cudnn",
@@ -2228,7 +2230,6 @@ cc_library(
     name = "gpu_fused_mha_runner",
     srcs = ["gpu_fused_mha_runner.cc"],
     hdrs = ["gpu_fused_mha_runner.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":backend_configs_cc",
         ":cublas_cudnn",
@@ -2254,7 +2255,6 @@ cc_library(
     name = "gpu_conv_rewriter",
     srcs = ["gpu_conv_rewriter.cc"],
     hdrs = ["gpu_conv_rewriter.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":backend_configs_cc",
         ":cublas_cudnn",
@@ -2273,7 +2273,6 @@ cc_library(
     name = "gpu_sort_rewriter",
     srcs = if_gpu_is_configured(["gpu_sort_rewriter.cc"]),
     hdrs = if_gpu_is_configured(["gpu_sort_rewriter.h"]),
-    visibility = ["//visibility:public"],
     deps = [
         ":cublas_cudnn",
         "//xla:comparison_util",
@@ -2297,7 +2296,6 @@ cc_library(
     name = "move_copy_to_users",
     srcs = ["move_copy_to_users.cc"],
     hdrs = ["move_copy_to_users.h"],
-    visibility = ["//visibility:public"],
     deps = [
         "//xla:shape_util",
         "//xla:status",
@@ -2372,7 +2370,6 @@ cc_library(
     local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]) + if_rocm_is_configured([
         "TENSORFLOW_USE_ROCM=1",
     ]),
-    visibility = ["//visibility:public"],
     deps = [
         "//xla:comparison_util",
         "//xla:status",
@@ -2402,7 +2399,6 @@ cc_library(
     name = "cusolver_rewriter",
     srcs = if_gpu_is_configured(["cusolver_rewriter.cc"]),
     hdrs = if_gpu_is_configured(["cusolver_rewriter.h"]),
-    visibility = ["//visibility:public"],
     deps = if_gpu_is_configured([
         ":cusolver_context",
         ":ir_emission_utils",
@@ -2430,7 +2426,6 @@ cc_library(
     name = "instruction_fusion",
     srcs = ["instruction_fusion.cc"],
     hdrs = ["instruction_fusion.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":gpu_fusible",
         "//xla:shape_util",
@@ -2477,14 +2472,12 @@ tf_proto_library(
     protodeps = [
         "//xla/stream_executor:device_description_proto",
     ],
-    visibility = ["//visibility:public"],
 )
 
 cc_library(
     name = "fusion_process_dump",
     srcs = ["fusion_process_dump.cc"],
     hdrs = ["fusion_process_dump.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":fusion_process_dump_proto_cc",
         "//xla:util",
@@ -2530,7 +2523,6 @@ cc_library(
     name = "priority_fusion",
     srcs = ["priority_fusion.cc"],
     hdrs = ["priority_fusion.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":fusion_process_dump_proto_cc",
         ":gpu_fusible",
@@ -2550,6 +2542,7 @@ cc_library(
         "//xla/service/gpu/model:fusion_analysis_cache",
         "//xla/service/gpu/model:gpu_hlo_cost_analysis",
         "//xla/service/gpu/model:gpu_performance_model",
+        "//xla/service/gpu/model:gpu_performance_model_base",
         "//xla/stream_executor:device_description",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
@@ -2595,7 +2588,6 @@ cc_library(
     name = "multi_output_fusion",
     srcs = ["multi_output_fusion.cc"],
     hdrs = ["multi_output_fusion.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":gpu_fusible",
         "//xla:debug_options_flags",
@@ -2645,7 +2637,6 @@ cc_library(
     name = "rename_fusions",
     srcs = ["rename_fusions.cc"],
     hdrs = ["rename_fusions.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":hlo_traversal",
         ":ir_emission_utils",
@@ -2678,13 +2669,13 @@ xla_cc_test(
         "//xla:shape_util",
         "//xla:statusor",
         "//xla/hlo/ir:hlo",
+        "//xla/service:instruction_fusion",
         "//xla/service:pattern_matcher",
         "//xla/service:pattern_matcher_gmock",
         "//xla/stream_executor:device_description",
         "//xla/tests:hlo_test_base",
         "//xla/tests:xla_internal_test_main",  # build_cleaner: keep
         "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest",
@@ -2698,7 +2689,6 @@ cc_library(
     name = "gpu_sanitize_constant_names",
     srcs = ["gpu_sanitize_constant_names.cc"],
     hdrs = ["gpu_sanitize_constant_names.h"],
-    visibility = ["//visibility:public"],
     deps = [
         "//xla/hlo/ir:hlo",
         "//xla/service:hlo_pass",
@@ -2728,7 +2718,6 @@ cc_library(
     name = "fusion_merger",
     srcs = ["fusion_merger.cc"],
     hdrs = ["fusion_merger.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":gpu_fusible",
         "//xla:shape_util",
@@ -2769,7 +2758,6 @@ cc_library(
     name = "gpu_conv_padding_legalization",
     srcs = ["gpu_conv_padding_legalization.cc"],
     hdrs = ["gpu_conv_padding_legalization.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":cublas_cudnn",
         "//xla:literal",
@@ -2806,7 +2794,6 @@ cc_library(
     name = "cudnn_support_utils",
     srcs = ["cudnn_support_utils.cc"],
     hdrs = ["cudnn_support_utils.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":cublas_cudnn",
         "//xla:shape_util",
@@ -2849,7 +2836,6 @@ cc_library(
     name = "cudnn_pad_for_convolutions",
     srcs = ["cudnn_pad_for_convolutions.cc"],
     hdrs = ["cudnn_pad_for_convolutions.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":cublas_cudnn",
         ":cudnn_support_utils",
@@ -2892,7 +2878,6 @@ cc_library(
     name = "cudnn_vectorize_convolutions",
     srcs = ["cudnn_vectorize_convolutions.cc"],
     hdrs = ["cudnn_vectorize_convolutions.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":backend_configs_cc",
         ":cublas_cudnn",
@@ -2945,7 +2930,6 @@ cc_library(
     name = "cudnn_simplify_padding",
     srcs = ["cudnn_simplify_padding.cc"],
     hdrs = ["cudnn_simplify_padding.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":backend_configs_cc",
         ":cublas_cudnn",
@@ -3002,7 +2986,6 @@ cc_library(
     name = "cublas_pad_for_gemms",
     srcs = ["cublas_pad_for_gemms.cc"],
     hdrs = ["cublas_pad_for_gemms.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":gemm_rewriter_triton",
         ":ir_emission_utils",
@@ -3025,7 +3008,6 @@ cc_library(
     name = "cublas_padding_requirements",
     srcs = ["cublas_padding_requirements.cc"],
     hdrs = ["cublas_padding_requirements.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":variant_visitor",
         "//xla:shape_util",
@@ -3060,20 +3042,17 @@ tf_proto_library(
         "//xla/service:hlo_proto",
         "//xla:xla_proto",
     ],
-    visibility = ["//visibility:public"],
 )
 
 cc_library(
     name = "target_constants",
     hdrs = ["target_constants.h"],
-    visibility = ["//visibility:public"],
 )
 
 cc_library(
     name = "gpu_transfer_manager",
     srcs = ["gpu_transfer_manager.cc"],
     hdrs = ["gpu_transfer_manager.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":io_feed_manager",
         ":target_constants",
@@ -3097,11 +3076,16 @@ cc_library(
         "//xla/stream_executor/rocm:rocm_platform_id",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/cleanup",
+        "@com_google_absl//absl/container:node_hash_map",
+        "@com_google_absl//absl/functional:function_ref",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/synchronization",
         "@llvm-project//llvm:Core",
         "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:logging",
+        "@local_tsl//tsl/platform:numbers",
         "@local_tsl//tsl/platform:statusor",
     ],
     alwayslink = True,  # Contains per-platform transfer manager registration
@@ -3111,7 +3095,6 @@ cc_library(
     name = "gpu_reduce_scatter_creator",
     srcs = ["gpu_reduce_scatter_creator.cc"],
     hdrs = ["gpu_reduce_scatter_creator.h"],
-    visibility = ["//visibility:public"],
     deps = [
         "//xla/hlo/ir:hlo",
         "//xla/hlo/utils:hlo_query",
@@ -3125,7 +3108,6 @@ cc_library(
     name = "gpu_all_gather_optimizer",
     srcs = ["gpu_all_gather_optimizer.cc"],
     hdrs = ["gpu_all_gather_optimizer.h"],
-    visibility = ["//visibility:public"],
     deps = [
         "//xla:shape_util",
         "//xla:statusor",
@@ -3143,7 +3125,6 @@ cc_library(
     name = "gpu_float_support",
     srcs = ["gpu_float_support.cc"],
     hdrs = ["gpu_float_support.h"],
-    visibility = ["//visibility:public"],
     deps = [
         "//xla:xla_data_proto_cc",
         "//xla/hlo/ir:hlo",
@@ -3160,7 +3141,6 @@ cc_library(
     hdrs = [
         "compile_module_to_llvm_ir.h",
     ],
-    visibility = ["//visibility:public"],
     deps = [
         ":executable_proto_cc",
         ":gpu_constants",
@@ -3223,7 +3203,6 @@ cc_library(
     name = "command_buffer_scheduling",
     srcs = ["command_buffer_scheduling.cc"],
     hdrs = ["command_buffer_scheduling.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":backend_configs_cc",
         ":cublas_cudnn",
@@ -3273,7 +3252,6 @@ cc_library(
     name = "custom_kernel_fusion_rewriter",
     srcs = ["custom_kernel_fusion_rewriter.cc"],
     hdrs = ["custom_kernel_fusion_rewriter.h"],
-    visibility = ["//visibility:public"],
     deps = [
         "//xla:shape_util",
         "//xla:statusor",
@@ -3313,7 +3291,6 @@ cc_library(
     name = "address_computation_fusion_rewriter",
     srcs = ["address_computation_fusion_rewriter.cc"],
     hdrs = ["address_computation_fusion_rewriter.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":backend_configs_cc",
         ":cublas_cudnn",
@@ -3372,7 +3349,6 @@ cc_library(
     name = "fusion_pipeline",
     srcs = ["fusion_pipeline.cc"],
     hdrs = ["fusion_pipeline.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":fusion_merger",
         ":horizontal_input_fusion",
@@ -3401,7 +3377,6 @@ cc_library(
     name = "prepare_hlo_for_ir_emitting_pipeline",
     srcs = ["prepare_hlo_for_ir_emitting_pipeline.cc"],
     hdrs = ["prepare_hlo_for_ir_emitting_pipeline.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":alias_passthrough_params",
         ":copy_fusion",
@@ -3431,7 +3406,6 @@ cc_library(
     local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]) + if_rocm_is_configured([
         "TENSORFLOW_USE_ROCM=1",
     ]),
-    visibility = ["//visibility:public"],
     deps = if_gpu_is_configured([
         ":address_computation_fusion_rewriter",
         ":alias_passthrough_params",
@@ -3698,7 +3672,6 @@ cc_library(
     srcs = if_cuda_is_configured([
         "nvptx_compiler_registration.cc",
     ]),
-    visibility = ["//visibility:public"],
     deps = if_cuda_is_configured([
         "//xla/stream_executor/cuda:cuda_platform_id",
         ":nvptx_compiler_impl",
@@ -3721,7 +3694,6 @@ cc_library(
         ],
         "//conditions:default": [],
     }),
-    visibility = ["//visibility:public"],
     deps = if_cuda_is_configured([
         ":autotuner_util",
         ":buffer_sharing",
@@ -3888,7 +3860,6 @@ cc_library(
         "amdgpu_compiler_registration.cc",
     ],
     tags = ["manual"],
-    visibility = ["//visibility:public"],
     deps = [
         ":amdgpu_compiler_impl",
         "//xla/stream_executor/rocm:rocm_platform_id",
@@ -3905,7 +3876,6 @@ cc_library(
         "amdgpu_compiler.h",
     ],
     tags = ["manual"],
-    visibility = ["//visibility:public"],
     deps = [
         ":conv_algorithm_picker",
         ":cublas_pad_for_gemms",
@@ -3946,7 +3916,6 @@ cc_library(
     name = "all_reduce_blueconnect",
     srcs = ["all_reduce_blueconnect.cc"],
     hdrs = ["all_reduce_blueconnect.h"],
-    visibility = ["//visibility:public"],
     deps = [
         "//xla:shape_util",
         "//xla:status_macros",
@@ -3989,7 +3958,6 @@ xla_cc_test(
 cc_library(
     name = "xfeed_queue",
     hdrs = ["xfeed_queue.h"],
-    visibility = ["//visibility:public"],
     deps = [
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/synchronization",
@@ -4009,7 +3977,6 @@ cc_library(
         "outfeed_manager.h",
     ],
     local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]),
-    visibility = ["//visibility:public"],
     deps = [
         ":xfeed_queue",
         "//xla:literal",
@@ -4031,7 +3998,6 @@ cc_library(
     name = "gpu_layout_assignment",
     srcs = ["gpu_layout_assignment.cc"],
     hdrs = ["gpu_layout_assignment.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":backend_configs_cc",
         ":cublas_cudnn",
@@ -4088,7 +4054,6 @@ cc_library(
     name = "gpu_schedule_postprocessing",
     srcs = ["gpu_schedule_postprocessing.cc"],
     hdrs = ["gpu_schedule_postprocessing.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":backend_configs_cc",
         "//xla:statusor",
@@ -4126,7 +4091,6 @@ cc_library(
     name = "gpu_hlo_schedule",
     srcs = ["gpu_hlo_schedule.cc"],
     hdrs = ["gpu_hlo_schedule.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":backend_configs_cc",
         ":cublas_cudnn",
@@ -4215,7 +4179,6 @@ cc_library(
     srcs = ["stream_executor_util.cc"],
     hdrs = ["stream_executor_util.h"],
     copts = tsl_copts(),
-    visibility = ["//visibility:public"],
     deps = [
         ":cublas_cudnn",
         ":launch_dimensions",
@@ -4262,7 +4225,6 @@ cc_library(
     hdrs = ["gpu_asm_opts_util.h"],
     compatible_with = get_compatible_with_portable(),
     copts = tsl_copts(),
-    visibility = ["//visibility:public"],
     deps = [
         "//xla:xla_proto_cc",
         "//xla/stream_executor/gpu:gpu_asm_opts",
@@ -4275,7 +4237,6 @@ cc_library(
     srcs = ["hlo_fusion_analysis.cc"],
     hdrs = ["hlo_fusion_analysis.h"],
     local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]),
-    visibility = ["//visibility:public"],
     deps = [
         ":backend_configs_cc",
         ":hlo_traversal",
@@ -4318,7 +4279,6 @@ cc_library(
     local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]) + if_rocm_is_configured([
         "TENSORFLOW_USE_ROCM=1",
     ]),
-    visibility = ["//visibility:public"],
     deps = if_gpu_is_configured([
         ":buffer_comparator_kernel",
         ":gpu_asm_opts_util",
@@ -4347,7 +4307,6 @@ cuda_library(
     local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]) + if_rocm_is_configured([
         "TENSORFLOW_USE_ROCM=1",
     ]),
-    visibility = ["//visibility:public"],
     deps = if_cuda_is_configured([
         "@local_config_cuda//cuda:cuda_headers",
     ]) + if_rocm_is_configured([
@@ -4383,7 +4342,6 @@ cc_library(
     name = "buffer_sharing",
     srcs = ["buffer_sharing.cc"],
     hdrs = ["buffer_sharing.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":backend_configs_cc",
         ":cublas_cudnn",
@@ -4403,7 +4361,6 @@ cc_library(
     name = "gpu_fusible",
     srcs = ["gpu_fusible.cc"],
     hdrs = ["gpu_fusible.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":backend_configs_cc",
         ":hlo_traversal",
@@ -4439,7 +4396,6 @@ cc_library(
     srcs = ["cudnn_fused_conv_rewriter.cc"],
     hdrs = ["cudnn_fused_conv_rewriter.h"],
     local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]),
-    visibility = ["//visibility:public"],
     deps = [
         ":backend_configs_cc",
         ":cublas_cudnn",
@@ -4522,7 +4478,6 @@ cc_library(
     srcs = ["cudnn_norm_rewriter.cc"],
     hdrs = ["cudnn_norm_rewriter.h"],
     local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]),
-    visibility = ["//visibility:public"],
     deps = [
         ":backend_configs_cc",
         ":cublas_cudnn",
@@ -4576,7 +4531,6 @@ cc_library(
     srcs = ["cudnn_fused_mha_rewriter.cc"],
     hdrs = ["cudnn_fused_mha_rewriter.h"],
     local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]),
-    visibility = ["//visibility:public"],
     deps = [
         ":backend_configs_cc",
         ":cublas_cudnn",
@@ -4611,7 +4565,6 @@ cc_library(
     name = "cudnn_fused_mha_transpose_fusion",
     srcs = ["cudnn_fused_mha_transpose_fusion.cc"],
     hdrs = ["cudnn_fused_mha_transpose_fusion.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":backend_configs_cc",
         ":cublas_cudnn",
@@ -4706,7 +4659,6 @@ cc_library(
     name = "variadic_op_splitter",
     srcs = ["variadic_op_splitter.cc"],
     hdrs = ["variadic_op_splitter.h"],
-    visibility = ["//visibility:public"],
     deps = [
         "//xla:statusor",
         "//xla:util",
@@ -4723,7 +4675,6 @@ cc_library(
     name = "gpu_scatter_expander",
     srcs = ["gpu_scatter_expander.cc"],
     hdrs = ["gpu_scatter_expander.h"],
-    visibility = ["//visibility:public"],
     deps = [
         "//xla:statusor",
         "//xla/hlo/ir:hlo",
@@ -4762,14 +4713,12 @@ tf_proto_library(
         "//xla/service:hlo_proto",
         "//xla:autotuning_proto",
     ],
-    visibility = ["//visibility:public"],
 )
 
 cc_library(
     name = "hlo_algorithm_denylist",
     srcs = ["hlo_algorithm_denylist.cc"],
     hdrs = ["hlo_algorithm_denylist.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":gpu_autotuning_proto_cc",
         "//xla:autotuning_proto_cc",
@@ -4806,7 +4755,6 @@ cc_library(
     name = "alias_passthrough_params",
     srcs = ["alias_passthrough_params.cc"],
     hdrs = ["alias_passthrough_params.h"],
-    visibility = ["//visibility:public"],
     deps = [
         "//xla:shape_util",
         "//xla:statusor",
@@ -4838,7 +4786,6 @@ cc_library(
     name = "horizontal_loop_fusion",
     srcs = ["horizontal_loop_fusion.cc"],
     hdrs = ["horizontal_loop_fusion.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":gpu_fusible",
         "//xla:shape_util",
@@ -4885,7 +4832,6 @@ cc_library(
     name = "horizontal_input_fusion",
     srcs = ["horizontal_input_fusion.cc"],
     hdrs = ["horizontal_input_fusion.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":gpu_fusible",
         "//xla/hlo/ir:hlo",
@@ -4918,7 +4864,6 @@ cc_library(
     name = "reduction_degenerate_dim_remover",
     srcs = ["reduction_degenerate_dim_remover.cc"],
     hdrs = ["reduction_degenerate_dim_remover.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":ir_emission_utils",
         "//xla:shape_util",
@@ -4938,7 +4883,6 @@ cc_library(
     name = "reduction_dimension_grouper",
     srcs = ["reduction_dimension_grouper.cc"],
     hdrs = ["reduction_dimension_grouper.h"],
-    visibility = ["//visibility:public"],
     deps = [
         "//xla:shape_util",
         "//xla:statusor",
@@ -4954,7 +4898,6 @@ cc_library(
     name = "reduction_splitter",
     srcs = ["reduction_splitter.cc"],
     hdrs = ["reduction_splitter.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":reduction_utils",
         "//xla:shape_util",
@@ -4984,7 +4927,6 @@ cc_library(
     name = "reduction_layout_normalizer",
     srcs = ["reduction_layout_normalizer.cc"],
     hdrs = ["reduction_layout_normalizer.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":ir_emission_utils",
         "//xla:shape_util",
@@ -5005,7 +4947,6 @@ cc_library(
     name = "tree_reduction_rewriter",
     srcs = ["tree_reduction_rewriter.cc"],
     hdrs = ["tree_reduction_rewriter.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":reduction_utils",
         "//xla:shape_util",
@@ -5027,7 +4968,6 @@ cc_library(
     name = "gemm_broadcast_folding_rewriter",
     srcs = ["gemm_broadcast_folding_rewriter.cc"],
     hdrs = ["gemm_broadcast_folding_rewriter.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":backend_configs_cc",
         ":cublas_cudnn",
@@ -5047,7 +4987,6 @@ cc_library(
     name = "metrics",
     srcs = ["metrics.cc"],
     hdrs = ["metrics.h"],
-    visibility = ["//visibility:public"],
     deps = [
         "@local_tsl//tsl/lib/monitoring:counter",
         "@local_tsl//tsl/lib/monitoring:gauge",
@@ -5059,7 +4998,6 @@ cc_library(
     name = "dot_operand_converter",
     srcs = ["dot_operand_converter.cc"],
     hdrs = ["dot_operand_converter.h"],
-    visibility = ["//visibility:public"],
     deps = [
         "//xla:shape_util",
         "//xla/hlo/ir:hlo",
@@ -5096,7 +5034,6 @@ cc_library(
     name = "make_batch_pointers",
     srcs = if_gpu_is_configured(["make_batch_pointers.cc"]),
     hdrs = if_gpu_is_configured(["make_batch_pointers.h"]),
-    visibility = ["//visibility:public"],
     deps = [
         "//xla:status",
         "//xla:statusor",
@@ -5118,7 +5055,6 @@ cc_library(
 cuda_library(
     name = "make_batch_pointers_kernel",
     srcs = if_cuda_is_configured(["make_batch_pointers.cu.cc"]),
-    visibility = ["//visibility:public"],
     deps = [
         "@local_config_cuda//cuda:cuda_headers",  # build_cleaner: keep
     ],
@@ -5128,7 +5064,6 @@ cc_library(
     name = "triangular_solve_rewriter",
     srcs = ["triangular_solve_rewriter.cc"],
     hdrs = ["triangular_solve_rewriter.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":cublas_cudnn",
         "//xla:statusor",
@@ -5143,7 +5078,6 @@ tsl_gpu_library(
     name = "runtime_intrinsics",
     srcs = ["runtime_intrinsics.cc"],
     hdrs = ["runtime_intrinsics.h"],
-    visibility = ["//visibility:public"],
     deps = [
         "//xla:shape_util",
         "//xla:status",
@@ -5184,7 +5118,6 @@ cc_library(
     name = "hlo_fusion_stats",
     srcs = ["hlo_fusion_stats.cc"],
     hdrs = ["hlo_fusion_stats.h"],
-    visibility = ["//visibility:public"],
     deps = [
         "//xla:status",
         "//xla:statusor",
@@ -5216,7 +5149,6 @@ cc_library(
     name = "scatter_slice_simplifier",
     srcs = ["scatter_slice_simplifier.cc"],
     hdrs = ["scatter_slice_simplifier.h"],
-    visibility = ["//visibility:public"],
     deps = [
         "//xla:shape_util",
         "//xla/hlo/ir:hlo",
@@ -5244,7 +5176,6 @@ cc_library(
     name = "conv_layout_normalization",
     srcs = ["conv_layout_normalization.cc"],
     hdrs = ["conv_layout_normalization.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":cublas_cudnn",
         "//xla:shape_util",
@@ -5265,7 +5196,6 @@ cc_library(
     local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]) + if_rocm_is_configured([
         "TENSORFLOW_USE_ROCM=1",
     ]),
-    visibility = ["//visibility:public"],
     deps = [
         "//xla:executable_run_options",
         "//xla:shape_util",
@@ -5291,7 +5221,6 @@ cc_library(
     name = "topk_splitter",
     srcs = ["topk_splitter.cc"],
     hdrs = ["topk_splitter.h"],
-    visibility = ["//visibility:public"],
     deps = [
         "//xla:literal_util",
         "//xla:shape_util",
@@ -5365,7 +5294,6 @@ cc_library(
     name = "copy_fusion",
     srcs = ["copy_fusion.cc"],
     hdrs = ["copy_fusion.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":gpu_fusible",
         ":ir_emission_utils",
@@ -5385,7 +5313,6 @@ cc_library(
     name = "kernel_reuse_cache",
     srcs = ["kernel_reuse_cache.cc"],
     hdrs = ["kernel_reuse_cache.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":kernel_arguments",
         ":launch_dimensions",
@@ -5404,7 +5331,6 @@ cc_library(
     name = "kernel_arguments",
     srcs = ["kernel_arguments.cc"],
     hdrs = ["kernel_arguments.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":gpu_constants",
         ":ir_emission_utils",
@@ -5427,7 +5353,6 @@ cc_library(
     srcs = ["hlo_traversal.cc"],
     hdrs = ["hlo_traversal.h"],
     compatible_with = get_compatible_with_portable(),
-    visibility = ["//visibility:public"],
     deps = [
         "//xla:shape_util",
         "//xla/hlo/ir:hlo",
@@ -5455,7 +5380,6 @@ cc_library(
     name = "fusion_wrapper",
     srcs = ["fusion_wrapper.cc"],
     hdrs = ["fusion_wrapper.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":gpu_fusible",
         "//xla:status_macros",
@@ -5518,7 +5442,6 @@ cc_library(
     name = "loop_double_buffer_transformer",
     srcs = ["loop_double_buffer_transformer.cc"],
     hdrs = ["loop_double_buffer_transformer.h"],
-    visibility = ["//visibility:public"],
     deps = [
         "//xla:status",
         "//xla:statusor",
@@ -5586,7 +5509,6 @@ xla_cc_test(
 cc_library(
     name = "gpu_symbol_repository",
     hdrs = ["gpu_symbol_repository.h"],
-    visibility = ["//visibility:public"],
     deps = [
         "//xla:xla_proto_cc",
         "//xla/service:symbol_repository",

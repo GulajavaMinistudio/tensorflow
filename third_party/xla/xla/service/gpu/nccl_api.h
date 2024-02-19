@@ -116,6 +116,9 @@ class NcclApi {
   };
 
   struct DeviceRank {
+    DeviceRank(se::StreamExecutor* device, int32_t rank)
+        : device(device), rank(rank) {}
+
     se::StreamExecutor* device;
     int32_t rank;
   };
@@ -134,19 +137,25 @@ class NcclApi {
   // https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/api/comms.html#ncclgetuniqueid
   virtual absl::StatusOr<NcclCliqueId> GetUniqueId() = 0;
 
-  // Creates a new communicator.
-  //
-  // https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/api/comms.html#ncclcomminitrank
-  virtual absl::StatusOr<OwnedNcclComm> CommInitRank(
-      int32_t nranks, const NcclCliqueId& clique_id, int32_t rank) = 0;
-
   // Creates new communicators for given devices.
   //
   // This API doesn't have a corresponding API in NCCL and implemented as
-  // multiple calls to CommInitRank within a single group.
+  // multiple calls to ncclCommInitRank within a single group.
+  //
+  // https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/api/comms.html#ncclcomminitrank
   virtual absl::StatusOr<std::vector<OwnedNcclComm>> CommInitRanks(
       int32_t nranks, const NcclCliqueId& clique_id,
       absl::Span<const DeviceRank> ranks) = 0;
+
+  // Creates new communicators by splitting `comms`.
+  //
+  // This API doesn't have a corresponding API in NCCL and implemented as
+  // multiple calls to ncclCommSplit within a single group.
+  //
+  // https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/api/comms.html#ncclcommsplit
+  virtual absl::StatusOr<std::vector<OwnedNcclComm>> CommSplit(
+      absl::Span<const NcclCommHandle> comms, int32_t color,
+      absl::Span<const int32_t> keys) = 0;
 
   // Abort any uncompleted operations and destroys the communicator. Frees
   // resources that are allocated to a communicator object comm.

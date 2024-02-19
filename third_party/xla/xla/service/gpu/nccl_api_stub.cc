@@ -15,6 +15,7 @@ limitations under the License.
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 #include "absl/status/status.h"
@@ -85,13 +86,14 @@ class NcclApiStub final : public NcclApi {
     return UnimplementedError();
   }
 
-  absl::StatusOr<OwnedNcclComm> CommInitRank(int32_t, const NcclCliqueId&,
-                                             int32_t) final {
+  absl::StatusOr<std::vector<OwnedNcclComm>> CommInitRanks(
+      int32_t, const NcclCliqueId&, absl::Span<const DeviceRank>) final {
     return UnimplementedError();
   }
 
-  absl::StatusOr<std::vector<OwnedNcclComm>> CommInitRanks(
-      int32_t, const NcclCliqueId&, absl::Span<const DeviceRank>) final {
+  absl::StatusOr<std::vector<OwnedNcclComm>> CommSplit(
+      absl::Span<const NcclCommHandle>, int32_t,
+      absl::Span<const int32_t>) final {
     return UnimplementedError();
   }
 
