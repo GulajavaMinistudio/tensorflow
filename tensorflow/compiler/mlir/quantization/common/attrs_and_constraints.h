@@ -48,9 +48,6 @@ bool HasStaticShape(Value value);
 // Returns true if the value has static shape at given dims.
 bool HasStaticShapeAtDims(Value value, ArrayRef<int> dims);
 
-// Returns true if the op has any quantized tensors as input or output.
-bool HasQuantizedTensors(Operation *op);
-
 // Creates a new type that has the shape from the `old_type` and the element
 // type from the `element_type`.
 Type CloneTypeWithNewElementType(Type old_type, Type element_type);
@@ -172,20 +169,11 @@ Operation *FindUserOfType(Operation *op) {
 
 // Returns the function attribute for the given call op which is lifted for
 // quantization.
-template <typename LiftedOp>
-inline FlatSymbolRefAttr GetFuncAttr(LiftedOp call_op) {
-  static_assert(false, "DuplicateOp for call_op is not implemented.");
-}
-
-template <>
-inline FlatSymbolRefAttr GetFuncAttr<TF::PartitionedCallOp>(
-    TF::PartitionedCallOp call_op) {
+inline FlatSymbolRefAttr GetFuncAttr(TF::PartitionedCallOp call_op) {
   return call_op.getFAttr().template dyn_cast<FlatSymbolRefAttr>();
 }
 
-template <>
-inline FlatSymbolRefAttr GetFuncAttr<TF::XlaCallModuleOp>(
-    TF::XlaCallModuleOp call_op) {
+inline FlatSymbolRefAttr GetFuncAttr(TF::XlaCallModuleOp call_op) {
   return call_op->getAttrOfType<FlatSymbolRefAttr>(
       TF::kStablehloEntryFunctionAttrName);
 }

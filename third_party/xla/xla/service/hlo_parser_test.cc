@@ -4185,6 +4185,37 @@ TEST_F(HloParserTest, ParseShapeStringWithDynamicShapeMetadataPrefix) {
       << "actual:   " << ShapeUtil::HumanStringWithLayout(actual);
 }
 
+TEST_F(HloParserTest, ParseShapeStringWithSplitConfigLayout) {
+  // Tile, memory space, and split config.
+  std::string shape_string = "pred[123,456]{1,0:T(2,128)S(3)SC(1:200)}";
+  TF_ASSERT_OK_AND_ASSIGN(Shape actual, ParseShape(shape_string));
+  Shape expected = ShapeUtil::MakeShapeWithDenseLayout(
+      PRED, {123, 456}, {1, 0}, {Tile({2, 128})}, 1, 0, 3,
+      {SplitConfig(1, {200})});
+  EXPECT_EQ(expected, actual)
+      << "expected: " << ShapeUtil::HumanStringWithLayout(expected)
+      << "actual:   " << ShapeUtil::HumanStringWithLayout(actual);
+
+  // Memory space and split config.
+  shape_string = "pred[123,456]{1,0:S(3)SC(0:10)(1:4,5)}";
+  TF_ASSERT_OK_AND_ASSIGN(actual, ParseShape(shape_string));
+  expected = ShapeUtil::MakeShapeWithDenseLayout(
+      PRED, {123, 456}, {1, 0}, {}, 1, 0, 3,
+      {SplitConfig(0, {10}), SplitConfig(1, {4, 5})});
+  EXPECT_EQ(expected, actual)
+      << "expected: " << ShapeUtil::HumanStringWithLayout(expected)
+      << "actual:   " << ShapeUtil::HumanStringWithLayout(actual);
+
+  // Split config only.
+  shape_string = "pred[123,456]{1,0:SC(1:50,200)}";
+  TF_ASSERT_OK_AND_ASSIGN(actual, ParseShape(shape_string));
+  expected = ShapeUtil::MakeShapeWithDenseLayout(
+      PRED, {123, 456}, {1, 0}, {}, 1, 0, 0, {SplitConfig(1, {50, 200})});
+  EXPECT_EQ(expected, actual)
+      << "expected: " << ShapeUtil::HumanStringWithLayout(expected)
+      << "actual:   " << ShapeUtil::HumanStringWithLayout(actual);
+}
+
 TEST_F(HloParserTest, ParseOpaqueType) {
   TF_ASSERT_OK_AND_ASSIGN(Shape actual, ParseShape("opaque[]"));
   Shape expected = ShapeUtil::MakeOpaqueShape();
@@ -4527,6 +4558,50 @@ ENTRY TestComputation {
             "attr_name");
   EXPECT_EQ(result.value()->frontend_attributes().map().begin()->second,
             "attr_value");
+}
+
+TEST_F(HloParserTest, CheckAllowSpmdShardingPropagationToParameters) {
+  const char* const hlo_string = R"(
+HloModule TestModule, allow_spmd_sharding_propagation_to_parameters=true
+
+ENTRY TestComputation {
+    p0 = f16[2048,1024] parameter(0)
+    p1 = f16[2048,1024] parameter(1)
+    ROOT root = (f16[2048,1024], f16[2048,1024]) tuple(p0, p1)
+}
+)";
+  auto result = ParseAndReturnVerifiedModule(hlo_string);
+  TF_EXPECT_OK(result.status());
+  EXPECT_EQ((*result)
+                ->config()
+                .allow_spmd_sharding_propagation_to_parameters()
+                .size(),
+            1);
+  EXPECT_TRUE(
+      (*result)->config().allow_spmd_sharding_propagation_to_parameters()[0]);
+}
+
+TEST_F(HloParserTest, CheckAllowSpmdShardingPropagationToParametersVec) {
+  const char* const hlo_string = R"(
+HloModule TestModule, allow_spmd_sharding_propagation_to_parameters={true,false}
+
+ENTRY TestComputation {
+    p0 = f16[2048,1024] parameter(0)
+    p1 = f16[2048,1024] parameter(1)
+    ROOT root = (f16[2048,1024], f16[2048,1024]) tuple(p0, p1)
+}
+)";
+  auto result = ParseAndReturnVerifiedModule(hlo_string);
+  TF_EXPECT_OK(result.status());
+  EXPECT_EQ((*result)
+                ->config()
+                .allow_spmd_sharding_propagation_to_parameters()
+                .size(),
+            2);
+  EXPECT_TRUE(
+      (*result)->config().allow_spmd_sharding_propagation_to_parameters()[0]);
+  EXPECT_FALSE(
+      (*result)->config().allow_spmd_sharding_propagation_to_parameters()[1]);
 }
 
 TEST_F(HloParserTest, CheckAllowSpmdShardingPropagationToOutput) {
