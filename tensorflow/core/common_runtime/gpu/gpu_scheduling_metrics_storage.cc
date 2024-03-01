@@ -1,4 +1,4 @@
-/* Copyright 2022 The TensorFlow Authors. All Rights Reserved.
+/* Copyright 2024 The TensorFlow Authors. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,22 +12,14 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
-#ifndef TENSORFLOW_CORE_PROFILER_BACKENDS_CPU_PYTHON_TRACER_H_
-#define TENSORFLOW_CORE_PROFILER_BACKENDS_CPU_PYTHON_TRACER_H_
-
-#include <memory>
-
-#include "xla/backends/profiler/cpu/python_tracer.h"
-#include "tsl/profiler/lib/profiler_interface.h"
+#include "tensorflow/core/common_runtime/gpu/gpu_scheduling_metrics_storage.h"
 
 namespace tensorflow {
-namespace profiler {
 
-using xla::profiler::PythonTracerOptions;  // NOLINT
+/*static*/ GpuSchedulingMetricsStorage&
+GpuSchedulingMetricsStorage::GetGlobalStorage() {
+  static auto* storage = new GpuSchedulingMetricsStorage();
+  return *storage;
+}
 
-using xla::profiler::CreatePythonTracer;  // NOLINT
-
-}  // namespace profiler
 }  // namespace tensorflow
-
-#endif  // TENSORFLOW_CORE_PROFILER_BACKENDS_CPU_PYTHON_TRACER_H_

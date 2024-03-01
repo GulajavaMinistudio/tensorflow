@@ -66,31 +66,42 @@ namespace {
 constexpr double kSmallestHalfRange = kNearZeroTolerance / 2;
 using QType = quant::QuantizedType;
 
-// This method expands the range to be larger than or equal to 1.0e-6, if it is
+// Repeats the content of `data` multiple times to resize to `target_size`.
+// Note that this only broadcast across one dimension.
+template <typename T>
+bool BroadcastVector(int target_size, SmallVectorImpl<T>& data) {
+  const int size = data.size();
+  if (size != target_size) {
+    if (target_size % size != 0) return true;
+    data.reserve(target_size);
+    for (int i = 1; i < target_size / size; ++i) {
+      data.insert(data.end(), data.begin(), data.begin() + size);
+    }
+  }
+  return false;
+}
+
+// Expands the range to be larger than or equal to 1.0e-6, if it is
 // very small (< 1.0e-6). This is to prevent very large quantized value by this
 // range.
 void ExpandVerySmallRange(const ArrayRef<double> mins,
                           const ArrayRef<double> maxs,
-                          SmallVectorImpl<double>* effective_mins,
-                          SmallVectorImpl<double>* effective_maxs) {
-  for (const auto arg : llvm::zip(mins, maxs)) {
-    const double min = std::get<0>(arg);
-    const double max = std::get<1>(arg);
-    // The range is wide, then use the same min/max.
-    if ((max - min) > kNearZeroTolerance) {
-      effective_mins->push_back(min);
-      effective_maxs->push_back(max);
-      continue;
-    }
-
+                          SmallVectorImpl<double>& effective_mins,
+                          SmallVectorImpl<double>& effective_maxs) {
+  for (const auto [min, max] : llvm::zip(mins, maxs)) {
     // The range is small. Expands the range to stride 0.0 and also at least
     // 1.0e-6.
-    effective_mins->push_back(std::min(min, -kSmallestHalfRange));
-    effective_maxs->push_back(std::max(max, kSmallestHalfRange));
+    if (max - min > kNearZeroTolerance) {
+      effective_mins.push_back(min);
+      effective_maxs.push_back(max);
+    } else {
+      effective_mins.push_back(std::min(min, -kSmallestHalfRange));
+      effective_maxs.push_back(std::max(max, kSmallestHalfRange));
+    }
   }
 }
 
-// Set the min / max, scale and zero_points from the fake quant num_bits
+// Sets the min / max, scale and zero_points from the fake quant num_bits
 // attribute from QAT.
 QuantizedType ResetMinMaxFromNumBits(const QuantizedType type,
                                      const int num_bits,
@@ -136,21 +147,6 @@ QuantizedType ResetMinMaxFromNumBits(const QuantizedType type,
     llvm_unreachable("Unsupported QuantizedType in ResetMinMaxFromNumBits");
   }
   return type;
-}
-
-// Repeats the content of `data` multiple times to resize to `target_size`.
-// Note that this only broadcast across one dimension.
-template <typename T>
-bool BroadcastVector(const int target_size, SmallVectorImpl<T>& data) {
-  const int size = data.size();
-  if (size != target_size) {
-    if (target_size % size != 0) return true;
-    data.reserve(target_size);
-    for (int i = 1, e = target_size / size; i != e; ++i) {
-      data.insert(data.end(), data.begin(), data.begin() + size);
-    }
-  }
-  return false;
 }
 
 // Changes the axis of the input per-channel quantized type to match the
@@ -241,7 +237,7 @@ Type GetQuantizedType(Builder builder, const Type input_type,
   // integers which can cause overflow. This leads to scale
   // 7.843137254901961e-9 with 8 bits.
   SmallVector<double, 4> effective_mins, effective_maxs;
-  ExpandVerySmallRange(min, max, &effective_mins, &effective_maxs);
+  ExpandVerySmallRange(min, max, effective_mins, effective_maxs);
 
   quant::QuantizedType quantizedEleType;
   if (min.size() == 1 && max.size() == 1 && quant_dim == -1) {
@@ -270,11 +266,11 @@ Type GetQuantizedType(Builder builder, const Type input_type,
   }
   if (!quantizedEleType) return {};
   // Use fake quant configured bit-widths (only supported for
-  // 1 < num_bits < 8 bits) instead of using 8bit defaults.
-  if (use_fake_quant_num_bits && (storage_type_width > 1) &&
-      (storage_type_width < 8) &&
-      (quantizedEleType.getStorageTypeMax() >
-       QType::getDefaultMinimumForInteger(is_signed, storage_type_width))) {
+  // 1 < num_bits < 8 bits) instead of using 8-bit defaults.
+  if (use_fake_quant_num_bits && storage_type_width > 1 &&
+      storage_type_width < 8 &&
+      quantizedEleType.getStorageTypeMax() >
+          QType::getDefaultMinimumForInteger(is_signed, storage_type_width)) {
     const auto resetEleType = ResetMinMaxFromNumBits(
         quantizedEleType, storage_type_width, narrow_range, is_signed);
     return converter.convert(resetEleType);
@@ -297,8 +293,9 @@ TypeAttr RescaleQuantizedType(const Type input, const Attribute factor) {
     new_scales.reserve(scales.size());
     auto scales_iter = scales.begin();
     for (const auto& f : factor_values) {
-      new_scales.push_back(*(scales_iter++) *
+      new_scales.push_back(*scales_iter *
                            std::fabs(FloatAttr::getValueAsDouble(f)));
+      ++scales_iter;
     }
     // We are assuming symmetric quantization.
     auto new_ele_type = quant::UniformQuantizedPerAxisType::get(
@@ -326,10 +323,10 @@ TypeAttr GetQuantizedTypeAttr(const Builder builder, const Type input_type,
   if (mins && maxs) {
     min_value.reserve(mins.getNumElements());
     max_value.reserve(maxs.getNumElements());
-    for (auto it = mins.begin(), e = mins.end(); it != e; ++it) {
+    for (auto it = mins.begin(); it != mins.end(); ++it) {
       min_value.push_back(FloatAttr::getValueAsDouble(*it));
     }
-    for (auto it = maxs.begin(), e = maxs.end(); it != e; ++it) {
+    for (auto it = maxs.begin(); it != maxs.end(); ++it) {
       max_value.push_back(FloatAttr::getValueAsDouble(*it));
     }
   } else {
@@ -402,8 +399,7 @@ void ExtractMinMaxFromAttr(const DenseFPElementsAttr values, const int dim_size,
     }
   } else {
     int64_t flatten_index = 0;
-    for (auto it = values.begin(), e = values.end(); it != e;
-         ++it, ++flatten_index) {
+    for (auto it = values.begin(); it != values.end(); ++it, ++flatten_index) {
       const double ele_value = FloatAttr::getValueAsDouble(*it);
       const int slice_index = flatten_index / slice_size;
       const int channel_index = slice_index % dim_size;
@@ -503,7 +499,7 @@ quant::QuantizedType GetUniformQuantizedTypeForBias(
 
     if (const auto type =
             op_type.dyn_cast<quant::UniformQuantizedPerAxisType>()) {
-      if ((axis_size != 1 && axis_size != type.getScales().size())) return {};
+      if (axis_size != 1 && axis_size != type.getScales().size()) return {};
       if (quant_dim != -1 && quant_dim != type.getQuantizedDimension())
         return {};
       axis_size = type.getScales().size();
@@ -524,7 +520,7 @@ quant::QuantizedType GetUniformQuantizedTypeForBias(
       }
     } else if (const auto type =
                    op_type.dyn_cast<quant::UniformQuantizedType>()) {
-      for (int index = 0, e = axis_size; index != e; ++index) {
+      for (int index = 0; index < axis_size; ++index) {
         scales[index] *= type.getScale();
       }
     }
@@ -900,7 +896,7 @@ LogicalResult VerifySameScales(Operation* op) {
 
   if (collected_quant_params.size() <= 1) return success();
   const auto& expected_params = collected_quant_params[0];
-  for (int i = 1; i < collected_quant_params.size(); i++) {
+  for (int i = 1; i < collected_quant_params.size(); ++i) {
     const auto& compared_params = collected_quant_params[i];
     // For some ops (such as Transpose or Squeeze), the quantized axis might not
     // be the same, this function only verifies the scale and zero point in
@@ -928,9 +924,9 @@ LogicalResult VerifySameScales(Operation* op) {
     // If the quantization parameters are not the same, as long as it has the
     // same storage type and the op interface doesn't require same scale
     // constraint for this storage type, it is still ok.
-    if ((expected_params.isSigned() == compared_params.isSigned() &&
-         expected_params.getStorageTypeIntegralWidth() ==
-             compared_params.getStorageTypeIntegralWidth()) &&
+    if (expected_params.isSigned() == compared_params.isSigned() &&
+        expected_params.getStorageTypeIntegralWidth() ==
+            compared_params.getStorageTypeIntegralWidth() &&
         !same_scale_op.RequiredSameOperandsAndResultsScale(
             expected_params.isSigned(),
             expected_params.getStorageTypeIntegralWidth()))
@@ -1006,7 +1002,7 @@ Type ConvertSignedQuantizedToUnsigned(const Type signed_tensor_type,
     const auto zero_points = aqtype.getZeroPoints();
     llvm::SmallVector<int64_t, 4> new_zero_points(zero_points.begin(),
                                                   zero_points.end());
-    for (int i = 0, e = new_zero_points.size(); i != e; ++i) {
+    for (int i = 0; i < new_zero_points.size(); ++i) {
       new_zero_points[i] -= offset;
     }
     new_qtype = quant::UniformQuantizedPerAxisType::getChecked(
