@@ -107,6 +107,7 @@ xla_test(
         "//xla/service:custom_call_target_registry",
         "//xla/service:executable",
         "//xla/service:hlo_module_config",
+        "//xla/stream_executor",
         "//xla/stream_executor:device_description",
         "//xla/stream_executor/gpu:gpu_types_header",
         "//xla/tests:hlo_test_base",
@@ -573,6 +574,7 @@ xla_test(
         "gpu",
     ],
     deps = [
+        "//xla/service/gpu:stream_executor_util",
         "//xla/service/gpu/tests:gpu_codegen_test",
         "@com_google_googletest//:gtest_main",
         "@local_tsl//tsl/platform:test",

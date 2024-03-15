@@ -107,7 +107,6 @@ gpu_only_cc_library(
     deps = [
         ":gpu_types_header",
         "//xla/stream_executor",
-        "//xla/stream_executor:device_options",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
@@ -174,7 +173,6 @@ gpu_only_cc_library(
         "//xla/stream_executor/cuda:cuda_conditional_kernels",
     ]) + if_rocm_is_configured([
         "//xla/stream_executor/rocm:hip_conditional_kernels",
-        "//xla/stream_executor/rocm:hip_noop_kernel",
     ]),
 )
 
