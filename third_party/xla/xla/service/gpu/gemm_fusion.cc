@@ -162,14 +162,17 @@ struct HlosAndRequirements {
 HloInstruction& FuseDot(const HloDotInstruction& dot,
                         const HloInstruction& fused_lhs,
                         const HloInstruction& fused_rhs,
+                        std::optional<const HloInstruction*> fused_meta,
                         HloComputation::Builder& builder  // append
 ) {
-  CHECK_EQ(dot.operand_count(), 2);
   VLOG(3) << "Fusing " << dot.ToString();
 
-  std::array<HloInstruction*, 2> hlo_new_operands = {
+  std::vector<HloInstruction*> hlo_new_operands = {
       const_cast<HloInstruction*>(&fused_lhs),
       const_cast<HloInstruction*>(&fused_rhs)};
+  if (fused_meta.has_value()) {
+    hlo_new_operands.push_back(const_cast<HloInstruction*>(fused_meta.value()));
+  }
   return *builder.AddInstruction(
       dot.CloneWithNewOperands(dot.shape(), hlo_new_operands));
 }
@@ -620,12 +623,33 @@ absl::StatusOr<FusionDecision> CreateDotFusion(
     return can_handle;
   }
 
+  // Verify sparse dot constraints.
+  if (dot.sparse_operands()) {
+    const SparsityDescriptor& descriptor = dot.sparsity().front();
+    if (dot.sparse_operands() != 1 || descriptor.index() != 0) {
+      return InvalidArgument("Sparsity is only supported on left operand");
+    }
+    if (descriptor.type() != SparsityType::SPARSITY_STRUCTURED_N_M ||
+        descriptor.n() != 2 || descriptor.m() != 4) {
+      return InvalidArgument("Only 2:4 structured sparsity is supported");
+    }
+    // DotDimensionSorter pass makes sure the sparse dimension is minor.
+    CHECK_EQ(descriptor.dimension(), dot.operand(0)->shape().rank() - 1);
+  }
+
   HlosAndRequirements lhs_hlos_and_reqs = FuseDotOperand(
       dot, /*operand_index=*/0, gpu_version, builder, fusion_inputs);
   HlosAndRequirements rhs_hlos_and_reqs = FuseDotOperand(
       dot, /*operand_index=*/1, gpu_version, builder, fusion_inputs);
-  HloInstruction& fused_dot = FuseDot(dot, *lhs_hlos_and_reqs.fused_hlo,
-                                      *rhs_hlos_and_reqs.fused_hlo, builder);
+  std::optional<const HloInstruction*> meta_hlo;
+  if (dot.sparse_operands()) {
+    HlosAndRequirements meta_hlos_and_reqs = FuseDotOperand(
+        dot, /*operand_index=*/2, gpu_version, builder, fusion_inputs);
+    meta_hlo.emplace(meta_hlos_and_reqs.fused_hlo);
+  }
+  HloInstruction& fused_dot =
+      FuseDot(dot, *lhs_hlos_and_reqs.fused_hlo, *rhs_hlos_and_reqs.fused_hlo,
+              meta_hlo, builder);
   // For now the RHS doesn't support splits, so it also doesn't impose any
   // requirements.
   HlosAndRequirements fused_output_and_reqs =
@@ -642,7 +666,8 @@ absl::StatusOr<FusionDecision> CreateDotFusion(
       dot.precision_config().algorithm();
   if (algorithm == PrecisionConfig::ALG_DOT_BF16_BF16_F32_X6 ||
       algorithm == PrecisionConfig::ALG_DOT_BF16_BF16_F32_X3 ||
-      dot.GetModule()->config().debug_options().xla_gpu_triton_gemm_any()) {
+      dot.GetModule()->config().debug_options().xla_gpu_triton_gemm_any() ||
+      dot.sparse_operands()) {
     return FusionDecision{};
   }
 
@@ -703,9 +728,14 @@ class GemmFusionVisitor : public DfsHloRewriteVisitor {
     // If a GEMM requiring padding for cuBLAS is encountered here this
     // happened because earlier ShouldTritonHandleGEMM() accepted it and padding
     // was skipped. Accept it ignoring profitability checks.
-    if (!CublasRequiresPadding(*Cast<HloDotInstruction>(dot), gpu_version_) &&
-        !should_fuse) {
-      return absl::OkStatus();
+    // TODO(rocm): check ROCM padding requirements.
+    if (std::holds_alternative<se::CudaComputeCapability>(gpu_version_)) {
+      if (!CublasRequiresPadding(
+              *Cast<HloDotInstruction>(dot),
+              std::get<se::CudaComputeCapability>(gpu_version_)) &&
+          !should_fuse) {
+        return OkStatus();
+      }
     }
 
     HloComputation* computation =
@@ -751,17 +781,29 @@ absl::StatusOr<bool> RunOnComputation(
   return visitor.changed();
 }
 
-bool IsSupportedByTriton(
-    PrecisionConfig::Algorithm algorithm,
-    const se::CudaComputeCapability& cuda_compute_capability) {
+bool IsSupportedByTriton(PrecisionConfig::Algorithm algorithm,
+                         const se::GpuComputeCapability& gpu_version) {
+  auto cuda_compute_capability =
+      std::get_if<se::CudaComputeCapability>(&gpu_version);
+  auto rocm_compute_capability =
+      std::get_if<se::RocmComputeCapability>(&gpu_version);
   switch (algorithm) {
-    case PrecisionConfig::ALG_DOT_BF16_BF16_F32:
-      return true;
-
     case PrecisionConfig::ALG_DOT_TF32_TF32_F32:
+      if (cuda_compute_capability) {
+        return cuda_compute_capability->IsAtLeastAmpere();
+      }
+      return false;
+    case PrecisionConfig::ALG_DOT_BF16_BF16_F32:
+
     case PrecisionConfig::ALG_DOT_BF16_BF16_F32_X3:
     case PrecisionConfig::ALG_DOT_BF16_BF16_F32_X6:
-      return cuda_compute_capability.IsAtLeastAmpere();
+      if (cuda_compute_capability) {
+        return cuda_compute_capability->IsAtLeastAmpere();
+      }
+      if (rocm_compute_capability) {
+        return rocm_compute_capability->has_bf16_dtype_support();
+      }
+      return false;
 
     // TODO(b/326579472): Fix the support of this algorithm and maybe allow it
     // here.
@@ -779,8 +821,12 @@ FusionDecision CanTritonHandleGEMM(
     const HloDotInstruction& dot, const se::GpuComputeCapability& gpu_version) {
   auto cuda_compute_capability =
       std::get_if<se::CudaComputeCapability>(&gpu_version);
+  auto rocm_compute_capability =
+      std::get_if<se::RocmComputeCapability>(&gpu_version);
 
-  if (!cuda_compute_capability) return "Non CUDA device.";
+  if (!cuda_compute_capability && !rocm_compute_capability) {
+    return "Non CUDA or ROCM device.";
+  }
 
   if (dot.precision_config().algorithm() == PrecisionConfig::ALG_UNSET) {
     if (!tsl::tensor_float_32_execution_enabled() ||
@@ -801,8 +847,14 @@ FusionDecision CanTritonHandleGEMM(
       case F32:
         return true;
       case BF16:
-        return cuda_compute_capability->IsAtLeast(
-            stream_executor::CudaComputeCapability::AMPERE);
+        if (cuda_compute_capability) {
+          return cuda_compute_capability->IsAtLeast(
+              stream_executor::CudaComputeCapability::AMPERE);
+        }
+        if (rocm_compute_capability) {
+          return rocm_compute_capability->has_bf16_dtype_support();
+        }
+        return false;
       default:
         return false;
     }
