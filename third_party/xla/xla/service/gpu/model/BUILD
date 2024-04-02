@@ -1,12 +1,13 @@
-# Libraries for performance modeling of HLO.
-load("//xla/tests:build_defs.bzl", "xla_test")
 load("@local_config_cuda//cuda:build_defs.bzl", "if_cuda")
-load("//xla:xla.bzl", "xla_cc_test", "xla_nvml_deps")
 load("@local_tsl//tsl:tsl.bzl", "internal_visibility")
 load("@local_tsl//tsl:tsl.default.bzl", "get_compatible_with_portable")
 load("@local_tsl//tsl/platform:build_config.bzl", "tf_proto_library")
 load("@local_tsl//tsl/platform:build_config_root.bzl", "tf_cuda_tests_tags")
 load("@local_tsl//tsl/platform/default:cuda_build_defs.bzl", "if_cuda_is_configured")
+load("//xla:xla.bzl", "xla_cc_test", "xla_nvml_deps")
+
+# Libraries for performance modeling of HLO.
+load("//xla/tests:build_defs.bzl", "xla_test")
 
 package(
     # copybara:uncomment default_applicable_licenses = ["//tensorflow:license"],
@@ -423,7 +424,6 @@ cc_library(
     deps = [
         ":affine_map_printer",
         "//xla/hlo/ir:hlo",
-        "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/types:span",
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:IR",
@@ -437,8 +437,12 @@ xla_cc_test(
     srcs = ["indexing_map_test.cc"],
     deps = [
         ":affine_map_printer",
+        ":indexing_analysis",
         ":indexing_map",
         ":indexing_test_utils",
+        "//xla:literal_util",
+        "//xla:shape_util",
+        "//xla/hlo/ir:hlo",
         "//xla/tests:hlo_test_base",
         "//xla/tests:xla_internal_test_main",
         "@com_google_googletest//:gtest",
@@ -740,6 +744,7 @@ cc_library(
             "//xla/service:hlo_runner",
             "//xla/service:platform_util",
             "//xla/stream_executor:device_description",
+            "//xla/tsl/util:command_line_flags",
             "@com_google_absl//absl/log",
             "@com_google_absl//absl/strings",
             "@com_google_absl//absl/strings:str_format",
@@ -747,7 +752,6 @@ cc_library(
             "@local_tsl//tsl/platform:path",
             "@local_tsl//tsl/platform:platform_port",
             "@local_tsl//tsl/platform:status",
-            "@local_tsl//tsl/util:command_line_flags",
         ],
     )
     for sm in [

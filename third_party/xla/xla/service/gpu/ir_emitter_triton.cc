@@ -271,7 +271,10 @@ Value Cast(ImplicitLocOpBuilder& b, Value value, Type dst_element_ty) {
     return Cast(b, b.create<ma::ExtFOp>(fp32_ty, value), dst_element_ty);
   }
   if (dst_element_ty.isBF16()) {
-    return b.create<ma::TruncFOp>(dst_ty, Cast(b, value, b.getF32Type()));
+    // S8 -> BF16 is directly supported and doesn't need to go through f32.
+    if (!src_element_ty.isInteger(8)) {
+      return b.create<ma::TruncFOp>(dst_ty, Cast(b, value, b.getF32Type()));
+    }
   }
 
   // float => float
@@ -348,8 +351,7 @@ Value Compare(ImplicitLocOpBuilder& b, ValueRange values,
 
 Value Maximum(ImplicitLocOpBuilder& b, const se::DeviceDescription& device_info,
               ValueRange values) {
-  if (mlir::getElementTypeOrSelf(values[0]).isa<mlir::FloatType>() &&
-      device_info.cuda_compute_capability().IsAtLeastAmpere()) {
+  if (mlir::getElementTypeOrSelf(values[0]).isa<mlir::FloatType>()) {
     return b.create<ma::MaximumFOp>(values);
   }
   // logic: isNaN(lhs) || (!isNan(rhs) && lhs >= rhs) ? lhs : rhs
@@ -370,8 +372,7 @@ Value Maximum(ImplicitLocOpBuilder& b, const se::DeviceDescription& device_info,
 
 Value Minimum(ImplicitLocOpBuilder& b, const se::DeviceDescription& device_info,
               ValueRange values) {
-  if (mlir::getElementTypeOrSelf(values[0]).isa<mlir::FloatType>() &&
-      device_info.cuda_compute_capability().IsAtLeastAmpere()) {
+  if (mlir::getElementTypeOrSelf(values[0]).isa<mlir::FloatType>()) {
     return b.create<ma::MinimumFOp>(values);
   }
   // logic: isNaN(lhs) || (!isNan(rhs) && lhs <= rhs) ? lhs : rhs
@@ -414,9 +415,11 @@ Value AddPtr(ImplicitLocOpBuilder& b, Value ptr, Value offset) {
   return b.create<mt::AddPtrOp>(ptr.getType(), ptr, offset);
 }
 
-Value EmitElementwise(ImplicitLocOpBuilder& b, absl::string_view libdevice_path,
-                      const se::DeviceDescription& device_info,
-                      const HloInstruction& hlo, ValueRange inputs) {
+absl::StatusOr<Value> EmitElementwise(ImplicitLocOpBuilder& b,
+                                      absl::string_view libdevice_path,
+                                      const se::DeviceDescription& device_info,
+                                      const HloInstruction& hlo,
+                                      ValueRange inputs) {
   if (mlir::getElementTypeOrSelf(inputs[0]).isF32() ||
       mlir::getElementTypeOrSelf(inputs[0]).isF64()) {
     auto dev_fn_id = GetTargetDeviceFunctionID(hlo.opcode());
@@ -488,7 +491,8 @@ Value EmitElementwise(ImplicitLocOpBuilder& b, absl::string_view libdevice_path,
                   mlir::mhlo::ComparisonDirection::NE),
           inputs[1], inputs[2]);
     default:
-      LOG(FATAL) << "Unsupported operation " << hlo.ToString();
+      return absl::InvalidArgumentError(
+          absl::StrCat("Unsupported elementwise operation ", hlo.ToString()));
   }
 }
 
@@ -900,7 +904,8 @@ absl::StatusOr<Value> EmitScope(
       for (const HloInstruction* operand : hlo->operands()) {
         operands.push_back(values[operand]);
       }
-      result = EmitElementwise(b, libdevice_path, device_info, *hlo, operands);
+      TF_ASSIGN_OR_RETURN(result, EmitElementwise(b, libdevice_path,
+                                                  device_info, *hlo, operands));
     } else if (hlo->opcode() == HloOpcode::kTuple) {
       TF_RET_CHECK(hlo->IsRoot()) << hlo->ToString();
     } else if (hlo->opcode() == HloOpcode::kBitcast ||
@@ -918,7 +923,8 @@ absl::StatusOr<Value> EmitScope(
                           EmitNestedFusion(b, libdevice_path, device_info,
                                            *fusion_instruction, values));
     } else {
-      LOG(FATAL) << hlo->ToString();
+      return absl::InvalidArgumentError(
+          absl::StrCat("Unsupported operation ", hlo->ToString()));
     }
     TF_RET_CHECK(values.insert({hlo, result}).second) << hlo->ToString();
     VLOG(8) << "Emitted " << hlo->ToString(HloPrintOptions::ShortParsable());
@@ -966,10 +972,9 @@ absl::Status CreateTritonPipeline(
   pm.addPass(mt::gpu::createOptimizeDotOperandsPass());
   pm.addPass(mlir::createCSEPass());
 
-  if (cc.IsAtLeastAmpere()) {
-    pm.addPass(mt::gpu::createPipelinePass(config.num_stages, config.num_warps,
-                                           config.num_ctas, ccAsInt));
-  }
+  pm.addPass(mt::gpu::createPipelinePass(config.num_stages, config.num_warps,
+                                         config.num_ctas, ccAsInt));
+
   if (!cc.IsAtLeastHopper()) {
     pm.addPass(mt::gpu::createPrefetchPass());
   }
@@ -1191,11 +1196,11 @@ struct MatMulLaunchConfig {
   matmul_dims.out_lhs_noncontracting_dim_idx = dot.shape().rank() - 2;
 
   auto* root = dot.parent()->root_instruction();
-  matmul_dims.n = analysis
-                      .IterSpec(TritonFusionAnalysis::Scope::OUTPUT, root,
-                                matmul_dims.out_rhs_noncontracting_dim_idx)
-                      ->at(0)
-                      .count;
+  auto iter_spec =
+      analysis.IterSpec(TritonFusionAnalysis::Scope::OUTPUT, root,
+                        matmul_dims.out_rhs_noncontracting_dim_idx);
+  TF_RET_CHECK(iter_spec != nullptr);
+  matmul_dims.n = iter_spec->at(0).count;
   // Contracting dimension length.
   if (config.split_k > 1 &&
       dot.operand(0)->operand(0)->opcode() == HloOpcode::kPad) {
@@ -1904,9 +1909,7 @@ bool Is6xBfloat16MatMul(const HloDotInstruction* dot_instr,
   if (algorithm == PrecisionConfig::ALG_UNSET) {
     const HloModule* hlo_module = dot_instr->GetModule();
     Type f32 = builder.getF32Type();
-    // BF16 datatype is not supported before Ampere.
-    return device_info.cuda_compute_capability().IsAtLeastAmpere() &&
-           hlo_module->config()
+    return hlo_module->config()
                .debug_options()
                .xla_gpu_enable_bf16_6way_gemm() &&
            dot_input_lhs.getType().cast<ShapedType>().getElementType() == f32 &&
@@ -1926,9 +1929,7 @@ bool Is3xBfloat16MatMul(const HloDotInstruction* dot_instr,
   if (algorithm == PrecisionConfig::ALG_UNSET) {
     const HloModule* hlo_module = dot_instr->GetModule();
     Type f32 = builder.getF32Type();
-    // BF16 datatype is not supported before Ampere.
-    return device_info.cuda_compute_capability().IsAtLeastAmpere() &&
-           hlo_module->config()
+    return hlo_module->config()
                .debug_options()
                .xla_gpu_enable_bf16_3way_gemm() &&
            dot_input_lhs.getType().cast<ShapedType>().getElementType() == f32 &&
@@ -1936,6 +1937,43 @@ bool Is3xBfloat16MatMul(const HloDotInstruction* dot_instr,
   }
 
   return algorithm == PrecisionConfig::ALG_DOT_BF16_BF16_F32_X3;
+}
+
+// This is a heuristic that serves as a proxy for register usage and code size.
+//
+// We have noticed that tilings with very long LLVM IR code are both slow to
+// compile and slow to run. This can be for example due to register spills. So
+// we should skip these tilings to save time. But it's better to skip them
+// before the LLVM IR is generated. To do that, we came up with a formula that
+// strongly correlates with the LLVM IR size. The formula is the size of the two
+// input and the output thread block tiles divided by the number of warps. We
+// read https://developer.nvidia.com/blog/cutlass-linear-algebra-cuda/ as a
+// reference, and found the formula by trial and error.
+//
+// To regenerate the limit, we have to run an exhaustive search on all tilings
+// for a few different HLOs, printing the runtimes and the heuristic values.
+//
+// From that, we can find a limit, such that all tilings within alpha *
+// optimal_runtime have a heuristic value less than or equal to the limit.
+//
+// In our measurements, all tilings which were within 1.13 * optimal_runtime had
+// a complexity_heuristic_value <= kComplexityHeuristicLimit.
+//
+// See go/tiling-heuristic for more details.
+absl::Status CheckGemmTilingComplexityHeuristic(
+    const TritonGemmConfig& config) {
+  constexpr int64_t kComplexityHeuristicLimit = 9000;
+  int64_t complexity_heuristic_value =
+      (config.block_m * config.block_n +
+       (config.block_m + config.block_n) * config.block_k) /
+      config.num_warps;
+  VLOG(2) << "Complexity heuristic: " << complexity_heuristic_value;
+  if (complexity_heuristic_value > kComplexityHeuristicLimit) {
+    return ResourceExhausted("Tiling complexity heuristic exceeded: %d > %d",
+                             complexity_heuristic_value,
+                             kComplexityHeuristicLimit);
+  }
+  return absl::OkStatus();
 }
 
 }  // namespace
@@ -1948,6 +1986,8 @@ absl::Status EmitMatMul(mlir::OpBuilder builder,
                         const HloComputation* computation,
                         mlir::triton::FuncOp fn,
                         const TritonGemmConfig& config) {
+  TF_RETURN_IF_ERROR(CheckGemmTilingComplexityHeuristic(config));
+
   const HloDotInstruction* dot_instr = DynCast<HloDotInstruction>(
       hlo_query::GetFirstInstructionWithOpcode(*computation, HloOpcode::kDot));
   TF_RET_CHECK(!dot_instr->sparse_operands());
@@ -2144,7 +2184,6 @@ absl::Status EmitMatMul(mlir::OpBuilder builder,
     Value accumulator_next;
     if (Is6xBfloat16MatMul(dot_instr, b, dot_input_lhs, dot_input_rhs,
                            device_info)) {
-      CHECK(device_info.cuda_compute_capability().IsAtLeastAmpere());
       absl::StatusOr<Value> accumulator_next_or = Emit6xBfloat16MatMul(
           b, dot_input_lhs, dot_input_rhs, iter_args.back());
       TF_CHECK_OK(accumulator_next_or.status());
@@ -2400,7 +2439,7 @@ absl::Status EmitTiledSoftMax(mlir::OpBuilder builder,
 
     IndexingMap program_id_to_input_tile_indexing = ComposeIndexingMaps(
         program_id_to_output_tile_indexing, tiled_hlo_instruction.indexing_map);
-    program_id_to_input_tile_indexing.Simplify();
+    program_id_to_input_tile_indexing.Simplify(GetIndexingMapForInstruction);
 
     // Manually compute pointer offset to avoid materialized fully parallel
     // dimensions in the tile. Current codegen tried to avoid size-1 dims.
@@ -2707,53 +2746,20 @@ absl::StatusOr<mlir::OwningOpRef<mlir::ModuleOp>> CreateTritonModule(
 
 absl::StatusOr<TritonWrapperResult> TritonWrapper(
     const TritonFusionAnalysis& analysis, absl::string_view fn_name,
-    const HloComputation* hlo_computation, absl::string_view fusion_kind,
-    const se::CudaComputeCapability& cc,
+    const HloComputation* hlo_computation, const se::CudaComputeCapability& cc,
     const se::DeviceDescription& device_info, const TritonGemmConfig& config,
     llvm::Module* llvm_module, TritonIrEmitter ir_emitter,
     mlir::MLIRContext& mlir_context) {
+  if (!cc.IsAtLeastAmpere()) {
+    return absl::FailedPreconditionError(
+        "Triton support is only enabled for Ampere GPUs and up.");
+  }
+
   auto debug_options = GetDebugOptionsFromFlags();
   if (debug_options.xla_gpu_enable_triton_hopper()) {
     // Set environment variables for consumption by Triton.
     tsl::setenv("ENABLE_MMA_V3", "true", true /*overwrite*/);
     tsl::setenv("ENABLE_PIPELINING", "true", true /*overwrite*/);
-  }
-
-  if (fusion_kind == kTritonGemmFusionKind) {
-    // This is a heuristic that serves as a proxy for register usage and code
-    // size.
-    //
-    // We have noticed that tilings with very long LLVM IR code are both slow to
-    // compile and slow to run. This can be for example due to register spills.
-    // So we should skip these tilings to save time. But it's better to skip
-    // them before the LLVM IR is generated. To do that, we came up with a
-    // formula that strongly correlates with the LLVM IR size. The formula is
-    // the size of the two input and the output thread block tiles divided by
-    // the number of warps. We read
-    // https://developer.nvidia.com/blog/cutlass-linear-algebra-cuda/ as a
-    // reference, and found the formula by trial and error.
-    //
-    // To regenerate the limit, we have to run an exhaustive search on all
-    // tilings for a few different HLOs, printing the runtimes and the heuristic
-    // values.
-    // From that, we can find a limit, such that all tilings within alpha *
-    // optimal_runtime have a heuristic value less than or equal to the limit.
-    //
-    // In our measurements, all tilings which were within 1.13 * optimal_runtime
-    // had a complexity_heuristic_value <= kComplexityHeuristicLimit.
-    //
-    // See go/tiling-heuristic for more details.
-    constexpr int64_t kComplexityHeuristicLimit = 9000;
-    int64_t complexity_heuristic_value =
-        (config.block_m * config.block_n +
-         (config.block_m + config.block_n) * config.block_k) /
-        config.num_warps;
-    VLOG(2) << "Complexity heuristic: " << complexity_heuristic_value;
-    if (complexity_heuristic_value > kComplexityHeuristicLimit) {
-      return ResourceExhausted("Tiling complexity heuristic exceeded: %d > %d",
-                               complexity_heuristic_value,
-                               kComplexityHeuristicLimit);
-    }
   }
 
   TF_ASSIGN_OR_RETURN(
@@ -2778,6 +2784,11 @@ absl::StatusOr<TritonWrapperResult> CompileTritonToLLVM(
     const se::DeviceDescription& device_info, const TritonGemmConfig& config,
     mlir::ModuleOp triton_module, llvm::Module* llvm_module,
     mlir::MLIRContext& mlir_context) {
+  if (!cc.IsAtLeastAmpere()) {
+    return absl::FailedPreconditionError(
+        "Triton support is only enabled for Ampere GPUs and up.");
+  }
+
   bool should_verify =
       (hlo_config.debug_options().xla_gpu_llvm_verification_level() >= 1);
 #ifndef NDEBUG

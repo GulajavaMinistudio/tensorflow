@@ -1,8 +1,8 @@
-load("//xla/tests:build_defs.bzl", "xla_test")
-load("//xla:xla.bzl", "xla_cc_test")
 load("@local_config_rocm//rocm:build_defs.bzl", "if_rocm_is_configured")
 load("@local_tsl//tsl/platform:build_config_root.bzl", "tf_cuda_tests_tags")
 load("@local_tsl//tsl/platform/default:cuda_build_defs.bzl", "if_cuda_is_configured")
+load("//xla:xla.bzl", "xla_cc_test")
+load("//xla/tests:build_defs.bzl", "xla_test")
 
 package(
     # copybara:uncomment default_applicable_licenses = ["//tensorflow:license"],
@@ -66,6 +66,7 @@ cc_library(
         "//xla/service/gpu/fusions/mlir:computation_partitioner",
         "//xla/service/gpu/fusions/mlir:elemental_hlo_to_mlir",
         "//xla/service/gpu/fusions/mlir:mlir_fusion_emitter",
+        "//xla/service/gpu/model:indexing_analysis",
         "//xla/service/gpu/model:indexing_map",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/status",
@@ -146,6 +147,7 @@ cc_library(
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:span",
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:AsmParser",
         "@llvm-project//mlir:IR",
@@ -171,6 +173,7 @@ xla_test(
         "//xla/service:custom_call_target_registry",
         "//xla/service:executable",
         "//xla/service:hlo_module_config",
+        "//xla/service/gpu:address_computation_fusion_rewriter",
         "//xla/stream_executor",
         "//xla/stream_executor:device_description",
         "//xla/stream_executor/gpu:gpu_types_header",
@@ -348,6 +351,7 @@ cc_library(
         "//xla/service/gpu/fusions/mlir:elemental_hlo_to_mlir",
         "//xla/service/gpu/fusions/mlir:mlir_fusion_emitter",
         "//xla/service/gpu/fusions/mlir/ir:xla_gpu",
+        "//xla/service/gpu/model:indexing_analysis",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/status",
@@ -393,6 +397,7 @@ cc_library(
         "//xla/service/gpu/fusions/mlir:elemental_hlo_to_mlir",
         "//xla/service/gpu/fusions/mlir:mlir_fusion_emitter",
         "//xla/service/gpu/fusions/mlir/ir:xla_gpu",
+        "//xla/service/gpu/model:indexing_analysis",
         "//xla/service/gpu/model:indexing_map",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log",
@@ -518,6 +523,7 @@ cc_library(
         "//xla/service/gpu:ir_emitter_context",
         "//xla/service/gpu:launch_dimensions",
         "//xla/service/gpu:parallel_loop_emitter",
+        "//xla/service/gpu/model:indexing_analysis",
         "//xla/service/llvm_ir:fused_ir_emitter",
         "//xla/service/llvm_ir:ir_array",
         "//xla/service/llvm_ir:llvm_util",

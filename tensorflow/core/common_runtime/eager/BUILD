@@ -1,5 +1,10 @@
 load("@bazel_skylib//lib:selects.bzl", "selects")
 load(
+    "@local_xla//xla/tsl/mkl:build_defs.bzl",
+    "if_mkl",
+    "mkl_deps",
+)
+load(
     "//tensorflow:tensorflow.bzl",
     "clean_dep",
     "if_google",
@@ -11,11 +16,6 @@ load(
     "tf_mkl_kernel_library",
 )
 load("//tensorflow:tensorflow.default.bzl", "filegroup")
-load(
-    "@local_xla//xla/tsl/mkl:build_defs.bzl",
-    "if_mkl",
-    "mkl_deps",
-)
 load("//tensorflow/core/platform:rules_cc.bzl", "cc_library")
 
 package(
@@ -124,7 +124,7 @@ tf_cuda_library(
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
-        "@local_tsl//tsl/util:env_var",
+        "@local_xla//xla/tsl/util:env_var",
     ] + select({
         "//tensorflow:android": [
             "//tensorflow/core:portable_tensorflow_lib_lite",
@@ -643,7 +643,7 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:optional",
         "@com_google_absl//absl/types:span",
-        "@local_tsl//tsl/util:env_var",
+        "@local_xla//xla/tsl/util:env_var",
     ] + select({
         "//tensorflow:android": [
             "//tensorflow/core:portable_tensorflow_lib_lite",
@@ -813,7 +813,7 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:optional",
         "@com_google_absl//absl/types:span",
-        "@local_tsl//tsl/util:env_var",
+        "@local_xla//xla/tsl/util:env_var",
     ] + select({
         "//tensorflow:android": [
             "//tensorflow/core:portable_tensorflow_lib_lite",

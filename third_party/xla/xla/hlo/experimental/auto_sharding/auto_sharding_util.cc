@@ -1351,9 +1351,7 @@ HloInstruction* ReshardTensor(HloInstruction* tensor,
 void FixMixedMeshShapeReshardingGetTupleElementWithTupleOutput(
     HloInstruction* inst,
     const std::vector<std::optional<HloSharding>>& dst_shardings,
-    const Array<int64_t>& device_mesh,
-    absl::flat_hash_map<std::string, std::vector<HloSharding>>*
-        preserve_shardings) {
+    const Array<int64_t>& device_mesh) {
   size_t tuple_size = inst->shape().tuple_shapes_size();
   auto current_sharding = inst->sharding();
 
@@ -1414,7 +1412,7 @@ void FixMixedMeshShapeReshardingGetTupleElementWithTupleOutput(
 void FixMixedMeshShapeReshardingGetTupleElement(
     HloInstruction* inst, const HloSharding& dst_sharding,
     const Array<int64_t>& device_mesh,
-    absl::flat_hash_map<std::string, std::vector<HloSharding>>*
+    absl::flat_hash_map<std::string, std::vector<HloSharding>>&
         preserve_shardings) {
   HloInstruction* operand = inst->mutable_operand(0);
   auto input_tuple_sharding = operand->sharding();
@@ -1444,11 +1442,11 @@ void FixMixedMeshShapeReshardingGetTupleElement(
     TF_CHECK_OK(inst->ReplaceUseWith(user, replace_with));
   }
 
-  CHECK_NE(preserve_shardings, nullptr);
-  if (preserve_shardings->contains(inst->name())) {
-    (*preserve_shardings)[replace_with->name()] =
-        std::vector<HloSharding>(preserve_shardings->at(inst->name()));
-    preserve_shardings->erase(inst->name());
+  auto iter = preserve_shardings.find(inst->name());
+  if (iter != preserve_shardings.end()) {
+    preserve_shardings[replace_with->name()] =
+        std::vector<HloSharding>(iter->second);
+    preserve_shardings.erase(inst->name());
   }
 }
 
@@ -2201,29 +2199,6 @@ void EnumerateAllPossibleMeshShapesHelper(
   }
 }
 
-std::vector<std::vector<int64_t>> EnumerateAllPossibleMeshShapes(
-    const int64_t num_devices, int num_mesh_dims, bool symmetrical_mesh_dims) {
-  std::vector<std::vector<int64_t>> result;
-  EnumerateAllPossibleMeshShapesHelper(num_devices, num_mesh_dims, {}, result);
-
-  if (symmetrical_mesh_dims) {
-    absl::flat_hash_set<absl::btree_multiset<int64_t>> dedup_result;
-    for (const std::vector<int64_t>& mesh_shape : result) {
-      dedup_result.insert(
-          absl::btree_multiset<int64_t>(mesh_shape.begin(), mesh_shape.end()));
-    }
-
-    result.clear();
-
-    for (const absl::btree_multiset<int64_t>& mesh_shape_set : dedup_result) {
-      result.push_back(
-          std::vector<int64_t>(mesh_shape_set.begin(), mesh_shape_set.end()));
-    }
-  }
-
-  return result;
-}
-
 std::vector<std::vector<int64_t>> InferMeshShapesToTry(
     const HloModule& module) {
   int64_t sharding_1d = -1;
@@ -2282,10 +2257,24 @@ std::vector<std::vector<int64_t>> InferOrEnumerateMeshShapesToTry(
     bool symmetrical_mesh_dims) {
   std::vector<std::vector<int64_t>> mesh_shapes = InferMeshShapesToTry(module);
   if (mesh_shapes.empty()) {
-    mesh_shapes = spmd::EnumerateAllPossibleMeshShapes(
-        num_devices, num_mesh_dims,
-        /* symmetrical_mesh_dims */ symmetrical_mesh_dims);
+    EnumerateAllPossibleMeshShapesHelper(num_devices, num_mesh_dims, {},
+                                         mesh_shapes);
   }
+  if (symmetrical_mesh_dims) {
+    absl::flat_hash_set<absl::btree_multiset<int64_t>> dedup_result;
+    for (const std::vector<int64_t>& mesh_shape : mesh_shapes) {
+      dedup_result.insert(
+          absl::btree_multiset<int64_t>(mesh_shape.begin(), mesh_shape.end()));
+    }
+
+    mesh_shapes.clear();
+
+    for (const absl::btree_multiset<int64_t>& mesh_shape_set : dedup_result) {
+      mesh_shapes.push_back(
+          std::vector<int64_t>(mesh_shape_set.begin(), mesh_shape_set.end()));
+    }
+  }
+
   return mesh_shapes;
 }
 
