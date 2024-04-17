@@ -34,8 +34,11 @@ from tensorflow.python.ops import nn_ops
 from tensorflow.python.ops import variables
 from tensorflow.python.platform import test
 from tensorflow.python.saved_model import load
+from tensorflow.python.saved_model import loader_impl
 from tensorflow.python.saved_model import save as saved_model_save
 from tensorflow.python.types import core
+
+FUNC_ALIAS = 'some_alias'
 
 
 class QuantizedModelTest(test.TestCase, parameterized.TestCase):
@@ -72,6 +75,29 @@ class QuantizedModelTest(test.TestCase, parameterized.TestCase):
             stablehlo_module = ir.Module.parse(mlir_bytecode, context=context)
             return str(stablehlo_module)
     raise ValueError('No XlaCallModule found in saved model.')
+
+  def _get_num_xla_call_module_op(self, output_saved_model_path: str) -> int:
+    """Gets the number of XlaCallModule ops in the output saved model."""
+    root = load.load(output_saved_model_path)
+    tf_graph_def = root.signatures['serving_default'].graph.as_graph_def()
+    count = 0
+    for node_def in tf_graph_def.node:
+      if node_def.op == 'XlaCallModule':
+        count += 1
+    for function in tf_graph_def.library.function:
+      for node_def in function.node_def:
+        if node_def.op == 'XlaCallModule':
+          count += 1
+    return count
+
+  def _get_function_aliases(
+      self, output_saved_model_path: str, tags: List[str]
+  ) -> dict[str, str]:
+    """Gets the function aliases in the output saved model."""
+    loader = loader_impl.SavedModelLoader(output_saved_model_path)
+    return loader.get_meta_graph_def_from_tags(
+        tags
+    ).meta_info_def.function_aliases
 
   def _create_matmul_model(
       self,
@@ -239,6 +265,7 @@ class QuantizedModelTest(test.TestCase, parameterized.TestCase):
       strides: Sequence[int] = (1, 1, 1, 1),
       dilations: Sequence[int] = (1, 1, 1, 1),
       padding: str = 'SAME',
+      has_func_alias: bool = False,
   ) -> module.Module:
     class ConvModel(module.Module):
       """A simple model with a single conv2d, bias and relu."""
@@ -295,6 +322,11 @@ class QuantizedModelTest(test.TestCase, parameterized.TestCase):
         return {'output': out}
 
     model = ConvModel()
+    save_options = None
+    if has_func_alias:
+      save_options = tensorflow.saved_model.SaveOptions(
+          function_aliases={FUNC_ALIAS: model.conv2d}
+      )
     saved_model_save.save(
         model,
         saved_model_path,
@@ -303,6 +335,7 @@ class QuantizedModelTest(test.TestCase, parameterized.TestCase):
                 shape=input_shape, dtype=dtypes.float32, name='input_tensor'
             )
         ),
+        options=save_options,
     )
     return model
 
@@ -338,6 +371,42 @@ class QuantizedModelTest(test.TestCase, parameterized.TestCase):
         return {'output': out}
 
     return GatherModel(use_variable)
+
+  def _create_add_model(
+      self,
+      shape: Sequence[int],
+      saved_model_path: str,
+  ) -> module.Module:
+    class AddModel(module.Module):
+      """A simple model with a single add."""
+
+      def __init__(self):
+        pass
+
+      @def_function.function
+      def add(self, input_tensor: core.Tensor) -> Mapping[str, core.Tensor]:
+        """Performs an add operation.
+
+        Args:
+          input_tensor: Input tensor to perform add on.
+
+        Returns:
+          A map of: output key -> output result.
+        """
+        out = math_ops.add(input_tensor, input_tensor)
+        return {'output': out}
+
+    model = AddModel()
+    saved_model_save.save(
+        model,
+        saved_model_path,
+        signatures=model.add.get_concrete_function(
+            tensor_spec.TensorSpec(
+                shape=shape, dtype=dtypes.float32, name='input_tensor'
+            )
+        ),
+    )
+    return model
 
   # Prepares sample einsum input data shapes.
   # This function returns:
