@@ -252,13 +252,6 @@ absl::StatusOr<bool> IsDotGeneralFullyConnected(
 std::optional<int64_t> GetDotGeneralQuantizationDim(
     ::mlir::stablehlo::DotGeneralOp dot_general_op);
 
-// Checks if the `Method` attatched to the given op has `WeightOnlyPtq`.
-bool HasWeightOnlyPtqMethod(Operation& op);
-
-// Checks if an op is a `tf.XlaCallModule` op, contains 'conv' or 'dot_general'
-// in its name and has `Method` with `WeightOnlyPtq`.
-bool IsWeightOnlyQuantizableOp(const Operation& op);
-
 // Checks if a `StringRef` contains 'conv' or 'dot_general'.
 bool ContainsConvOrDot(StringRef str);
 
