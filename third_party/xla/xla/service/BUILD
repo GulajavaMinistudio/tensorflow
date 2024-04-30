@@ -557,6 +557,7 @@ cc_library(
         "@local_tsl//tsl/platform:path",
         "@local_tsl//tsl/platform:regexp",
         "@local_tsl//tsl/platform:status",
+        "@local_tsl//tsl/profiler/lib:scoped_annotation",
     ],
 )
 
@@ -1241,6 +1242,8 @@ cc_library(
         "@com_google_absl//absl/container:inlined_vector",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/types:span",
@@ -1549,6 +1552,7 @@ cc_library(
         ":compiler",
         "@llvm-project//llvm:Core",
         "@local_tsl//tsl/platform:denormal",
+        "@local_tsl//tsl/profiler/lib:scoped_annotation",
     ],
 )
 
@@ -1909,6 +1913,7 @@ cc_library(
         "@local_tsl//tsl/lib/gtl:map_util",
         "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:logging",
+        "@local_tsl//tsl/profiler/lib:scoped_annotation",
     ],
 )
 
@@ -4047,6 +4052,7 @@ cc_library(
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
         "@local_tsl//tsl/lib/gtl:map_util",
         "@local_tsl//tsl/platform:errors",
     ],
@@ -7663,6 +7669,7 @@ cc_library(
     name = "export_hlo",
     hdrs = ["export_hlo.h"],
     deps = [
+        "//xla:autotune_results_proto_cc",
         "//xla/hlo/ir:hlo",
         "//xla/stream_executor:device_description_proto_cc",
         "@com_google_absl//absl/strings",

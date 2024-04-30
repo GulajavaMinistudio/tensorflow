@@ -183,6 +183,7 @@ xla_test(
         "//xla/service/gpu:gpu_executable",
         "//xla/service/gpu:variant_visitor",
         "//xla/stream_executor:device_description",
+        "//xla/stream_executor:device_memory_allocator",
         "//xla/tests:filecheck",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/functional:any_invocable",
@@ -928,8 +929,7 @@ xla_test(
     srcs = ["gpu_sparse_dot_test.cc"],
     backends = [
         "gpu_a100",
-        # TODO(b/335197598): re-enable Hopper test when the blocker is resolved (PTX version)
-        # "gpu_h100",
+        "gpu_h100",
     ],
     deps = [
         ":gpu_codegen_test",
@@ -1072,6 +1072,18 @@ xla_cc_test(
 xla_cc_test(
     name = "simplify_fp_conversions_test",
     srcs = ["simplify_fp_conversions_test.cc"],
+    tags = tf_cuda_tests_tags(),
+    deps = [
+        "//xla:xla_proto_cc",
+        "//xla/service:gpu_plugin",
+        "//xla/tests:hlo_test_base",
+        "@local_tsl//tsl/platform:test_main",
+    ],
+)
+
+xla_cc_test(
+    name = "nop_custom_call_test",
+    srcs = ["nop_custom_call_test.cc"],
     tags = tf_cuda_tests_tags(),
     deps = [
         "//xla:xla_proto_cc",

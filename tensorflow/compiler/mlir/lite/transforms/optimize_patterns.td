@@ -771,9 +771,13 @@ def UndoBroadcastConvBiasAdd : Pat<
    (HasRankAtLeast<2> $bias),
    (IsDefinedByConv2DOp $lhs)]>;
 
-// Function to map final permutation to initial permutation
-// initial -> permutation1 -> permutation2 -> final
-def RemapPermutation: NativeCodeCall<"RemapPermutation($0, $1)">;
+// Pattern to convert a trivial transpose op to a reshape op.
+def ConvertTrivialTransposeOpToReshapeOp : Pat<
+  (TFL_TransposeOp:$transpose_op $input, (Arith_ConstantOp:$permutation $p1)),
+  (TFL_ReshapeOp $input, (Arith_ConstantOp (GetShape $transpose_op))),
+  [(IsTransposeTrivial $input, $permutation),
+   (AnyStaticShapeTensor $input),
+   (AnyStaticShapeTensor $transpose_op)]>;
 
 // Pattern to fuse redundant tanspose op
 def FoldDoubleTranspose : Pat<
@@ -1561,6 +1565,20 @@ def FuseTransposeAfterBatchMatmul : Pat<
                      $asymmetric_quantize_inputs
   ),
   [(AreLastTwoDimsTransposed $perm_value)]>;
+
+// Fuse redundant RHS TFL_TransposeOp into TFL_BatchMatMulOp if rhs is constant
+// tensor of rank-2.
+def FuseTransposeIntoBatchMatMulRHS: Pat<
+  (TFL_BatchMatMulOp $lhs,
+    (TFL_TransposeOp (TFL_QConstOp:$input $_, $_), (Arith_ConstantOp:$perm_value $p0)),
+    $adj_x, $adj_y, $asymmetric_quantize_inputs),
+  (TFL_FullyConnectedOp
+    $lhs,
+    $input, (CreateNoneValue $lhs), TFL_AF_None, TFL_FCWO_Default,
+    ConstBoolAttrTrue, $asymmetric_quantize_inputs),
+  [(HasRank<2> $input),
+   (AreLastTwoDimsTransposed $perm_value),
+   (IsBoolAttrEqual<"false"> $adj_y)]>;
 
 // Replace conv-->transpose-->add with conv-->add-->transpose
 // The bias needs only reshape (i.e. ReshapeNCHWBiasToNHWC) and not transpose
