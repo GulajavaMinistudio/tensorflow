@@ -20,6 +20,7 @@ limitations under the License.
 #error Two different XLA FFI implementations cannot be included together
 #endif  // XLA_FFI_FFI_H_
 
+#include <algorithm>
 #include <complex>
 #include <cstddef>
 #include <cstdint>
@@ -110,6 +111,10 @@ class Span {
       : Span(vec.data(), vec.size()) {}
 
   T& operator[](size_t index) const { return data_[index]; }
+
+  bool operator==(const Span<T>& other) const {
+    return size() == other.size() && std::equal(begin(), end(), other.begin());
+  }
 
   size_t size() const { return size_; }
 
@@ -367,11 +372,14 @@ struct RetDecoding<Buffer<dtype, rank>> {
     }                                                                       \
   }
 
+XLA_FFI_REGISTER_ARRRAY_ATTR_DECODING(int8_t, XLA_FFI_DataType_S8);
+XLA_FFI_REGISTER_ARRRAY_ATTR_DECODING(int16_t, XLA_FFI_DataType_S16);
 XLA_FFI_REGISTER_ARRRAY_ATTR_DECODING(int32_t, XLA_FFI_DataType_S32);
 XLA_FFI_REGISTER_ARRRAY_ATTR_DECODING(int64_t, XLA_FFI_DataType_S64);
 XLA_FFI_REGISTER_ARRRAY_ATTR_DECODING(float, XLA_FFI_DataType_F32);
+XLA_FFI_REGISTER_ARRRAY_ATTR_DECODING(double, XLA_FFI_DataType_F64);
 
-#undef XLA_FFI_REGISTER_SCALAR_ATTR_DECODING
+#undef XLA_FFI_REGISTER_ARRRAY_ATTR_DECODING
 
 // A type tag to mark i64 attributes as pointers to `T`.
 template <typename T>

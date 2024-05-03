@@ -143,6 +143,11 @@ filegroup(
 )
 
 cc_library(
+    name = "cpu_event",
+    hdrs = ["cpu_event.h"],
+)
+
+cc_library(
     name = "cpu_xfeed",
     srcs = ["cpu_xfeed.cc"],
     hdrs = ["cpu_xfeed.h"],
@@ -223,7 +228,6 @@ cc_library(
         ":cpu_options",
         ":dot_op_emitter",
         ":executable_proto_cc",
-        ":hlo_xla_runtime_pipeline",
         ":ir_emission_utils",
         ":ir_emitter",
         ":onednn_matmul_rewriter",
@@ -246,19 +250,10 @@ cc_library(
         "//xla:xla_proto_cc",
         "//xla/hlo/ir:hlo",
         "//xla/hlo/ir:hlo_module_group",
-        "//xla/mlir/framework/ir:xla_framework",
-        "//xla/mlir/runtime/ir:rt",
-        "//xla/mlir/runtime/transforms:calling_convention",
-        "//xla/mlir/runtime/transforms:compilation_pipeline_cpu",
-        "//xla/mlir/runtime/transforms:compiler",
-        "//xla/mlir/runtime/transforms:jit_compiler",
         "//xla/mlir_hlo",
         "//xla/mlir_hlo:all_passes",
         "//xla/mlir_hlo:mhlo_passes",
         "//xla/mlir_hlo:transforms_passes",
-        "//xla/runtime:custom_call_registry",
-        "//xla/runtime:executable",
-        "//xla/runtime:jit_executable",
         "//xla/service:algebraic_simplifier",
         "//xla/service:all_reduce_promotion",
         "//xla/service:all_to_all_decomposer",
@@ -340,13 +335,6 @@ cc_library(
         "//xla/service:while_loop_invariant_code_motion",
         "//xla/service:while_loop_simplifier",
         "//xla/service:zero_sized_hlo_elimination",
-        "//xla/service/cpu/runtime:collectives",
-        "//xla/service/cpu/runtime:convolution_call",
-        "//xla/service/cpu/runtime:custom_call",
-        "//xla/service/cpu/runtime:fft_call",
-        "//xla/service/cpu/runtime:retain",
-        "//xla/service/cpu/runtime:rng_call",
-        "//xla/service/cpu/runtime:xfeed",
         "//xla/service/llvm_ir:llvm_command_line_options",
         "//xla/service/llvm_ir:llvm_util",
         "//xla/service/spmd:stateful_rng_spmd_partitioner",
@@ -470,56 +458,6 @@ cc_library(
 )
 
 cc_library(
-    name = "hlo_xla_runtime_pipeline",
-    srcs = ["hlo_xla_runtime_pipeline.cc"],
-    hdrs = ["hlo_xla_runtime_pipeline.h"],
-    local_defines = select({
-        ":experimental_mlir_gpu_enabled": ["EXPERIMENTAL_MLIR_GPU=1"],
-        "//conditions:default": [],
-    }),
-    deps = [
-        "//xla:status",
-        "//xla/mlir/backends/cpu/transforms:passes",
-        "//xla/mlir/runtime/transforms:compiler",
-        "//xla/mlir_hlo:all_passes",
-        "//xla/mlir_hlo:mhlo_passes",
-        "//xla/mlir_hlo:transforms_passes",
-        "//xla/runtime:compiler",
-        "@llvm-project//mlir:ArithTransforms",
-        "@llvm-project//mlir:BufferizationToMemRef",
-        "@llvm-project//mlir:BufferizationTransforms",
-        "@llvm-project//mlir:ComplexToStandard",
-        "@llvm-project//mlir:FuncDialect",
-        "@llvm-project//mlir:FuncTransforms",
-        "@llvm-project//mlir:LinalgTransforms",
-        "@llvm-project//mlir:MemRefTransforms",
-        "@llvm-project//mlir:Pass",
-        "@llvm-project//mlir:ReconcileUnrealizedCasts",
-        "@llvm-project//mlir:SCFToControlFlow",
-        "@llvm-project//mlir:SCFTransforms",
-        "@llvm-project//mlir:ShapeToStandard",
-        "@llvm-project//mlir:ShapeTransforms",
-        "@llvm-project//mlir:SparseTensorTransforms",
-        "@llvm-project//mlir:Support",
-        "@llvm-project//mlir:TensorToLinalg",
-        "@llvm-project//mlir:TensorTransforms",
-        "@llvm-project//mlir:Transforms",
-        "@llvm-project//mlir:VectorToLLVM",
-        "@llvm-project//mlir:VectorToSCF",
-        "@llvm-project//mlir:VectorTransforms",
-        "@local_tsl//tsl/platform:errors",
-        "@local_tsl//tsl/platform:logging",
-    ] + select({
-        ":experimental_mlir_gpu_enabled": [
-            "@llvm-project//mlir:GPUDialect",
-            "@llvm-project//mlir:GPUToNVVMTransforms",
-        ],
-        "//conditions:default": [],
-    }),
-    alwayslink = 1,  # has pipeline registration
-)
-
-cc_library(
     name = "simple_orc_jit",
     srcs = [
         "simple_orc_jit.cc",
@@ -622,9 +560,6 @@ cc_library(
         "//xla:util",
         "//xla:xla_data_proto_cc",
         "//xla/hlo/ir:hlo",
-        "//xla/mlir/runtime/transforms:compiler",
-        "//xla/runtime:executable",
-        "//xla/runtime:jit_executable",
         "//xla/service:buffer_assignment",
         "//xla/service:computation_layout",
         "//xla/service:custom_call_status_internal",
@@ -866,7 +801,6 @@ cc_library(
         "//xla:statusor",
         "//xla:types",
         "//xla:util",
-        "//xla/runtime:execution_engine",
         "//xla/service:llvm_compiler",
         "//xla/service/llvm_ir:llvm_util",
         "@com_google_absl//absl/functional:any_invocable",
