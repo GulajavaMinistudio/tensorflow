@@ -70,11 +70,6 @@ class StreamExecutor : public StreamExecutorInterface {
 
   const Platform* GetPlatform() const override { return platform_; }
 
-  // Returns a reference to the platform that created this executor.
-  // TODO(b/301020144) Delete this once all callers are migrated to GetPlatform.
-  ABSL_DEPRECATED("Use GetPlatform instead.")
-  const Platform* platform() const { return platform_; }
-
   // Synchronously allocates an array on the device of type T with element_count
   // elements.
   template <typename T>
@@ -114,9 +109,9 @@ class StreamExecutor : public StreamExecutorInterface {
   // The value is cached on first use.
   const DeviceDescription& GetDeviceDescription() const;
 
-  // Creates and initializes a Stream.
   absl::StatusOr<std::unique_ptr<Stream>> CreateStream(
-      std::optional<std::variant<StreamPriority, int>> priority = std::nullopt);
+      std::optional<std::variant<StreamPriority, int>> priority =
+          std::nullopt) override;
 
  private:
   // Reader/writer lock for mutable data structures on this StreamExecutor.

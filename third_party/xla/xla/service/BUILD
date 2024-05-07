@@ -3183,6 +3183,51 @@ xla_cc_test(
 )
 
 cc_library(
+    name = "scan_loop_accumulator_input_unification",
+    srcs = ["scan_loop_accumulator_input_unification.cc"],
+    hdrs = ["scan_loop_accumulator_input_unification.h"],
+    deps = [
+        ":call_graph",
+        ":hlo_alias_analysis",
+        ":hlo_dataflow_analysis",
+        ":hlo_pass",
+        ":pattern_matcher",
+        ":tuple_simplifier",
+        ":while_loop_simplifier",
+        ":while_loop_unroller",
+        "//xla:literal_util",
+        "//xla:shape_util",
+        "//xla:util",
+        "//xla/hlo/ir:hlo",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@local_tsl//tsl/platform:errors",
+        "@local_tsl//tsl/platform:statusor",
+    ],
+)
+
+xla_cc_test(
+    name = "scan_loop_accumulator_input_unification_test",
+    srcs = ["scan_loop_accumulator_input_unification_test.cc"],
+    deps = [
+        ":copy_insertion",
+        ":scan_loop_accumulator_input_unification",
+        "//xla:literal",
+        "//xla/hlo/ir:hlo",
+        "//xla/tests:hlo_test_base",
+        "//xla/tests:literal_test_util",
+        "//xla/tests:test_utils",
+        "//xla/tests:verified_hlo_module",
+        "//xla/tests:xla_internal_test_main",
+        "@com_google_absl//absl/log",
+        "@com_google_googletest//:gtest",
+        "@local_tsl//tsl/platform:statusor",
+    ],
+)
+
+cc_library(
     name = "while_loop_unroller",
     srcs = ["while_loop_unroller.cc"],
     hdrs = ["while_loop_unroller.h"],
@@ -3192,6 +3237,7 @@ cc_library(
         ":flatten_call_graph",
         ":hlo_cse",
         ":hlo_pass",
+        ":pattern_matcher",
         ":tuple_simplifier",
         ":while_loop_analysis",
         ":while_loop_constant_sinking",
@@ -3214,7 +3260,6 @@ cc_library(
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@local_tsl//tsl/platform:errors",
-        "@local_tsl//tsl/platform:statusor",
     ],
 )
 
@@ -6043,6 +6088,40 @@ xla_cc_test(
 )
 
 cc_library(
+    name = "host_offloading_prepare",
+    srcs = ["host_offloading_prepare.cc"],
+    hdrs = ["host_offloading_prepare.h"],
+    deps = [
+        ":call_graph",
+        ":hlo_pass",
+        ":host_memory_offload_annotations_hdr",
+        "//xla/hlo/ir:hlo",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:check",
+        "@local_tsl//tsl/platform:errors",
+        "@local_tsl//tsl/platform:statusor",
+    ],
+)
+
+xla_cc_test(
+    name = "host_offloading_prepare_test",
+    srcs = ["host_offloading_prepare_test.cc"],
+    deps = [
+        ":host_memory_offload_annotations_hdr",
+        ":host_offloading_prepare",
+        "//xla/hlo/ir:hlo",
+        "//xla/tests:hlo_test_base",
+        "//xla/tests:xla_internal_test_main",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_googletest//:gtest",
+        "@local_tsl//tsl/lib/core:status_test_util",
+        "@local_tsl//tsl/platform:statusor",
+    ],
+)
+
+cc_library(
     name = "while_util",
     srcs = ["while_util.cc"],
     hdrs = ["while_util.h"],
@@ -7253,7 +7332,12 @@ cc_library(
     name = "custom_call_sharding_helper",
     srcs = ["custom_call_sharding_helper.cc"],
     hdrs = ["custom_call_sharding_helper.h"],
-    deps = ["//xla/hlo/ir:hlo"],
+    deps = [
+        "//xla/hlo/ir:hlo",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/synchronization",
+        "@local_tsl//tsl/platform:logging",
+    ],
 )
 
 tf_proto_library(
