@@ -320,8 +320,6 @@ absl::StatusOr<std::unique_ptr<HloModule>> TritonGemmAutotuneExtractor(
     bool allow_filtering_kernels_spilling_registers) {
   std::unique_ptr<HloModule> new_module =
       ExtractInstructionIntoNewModule(*fusion);
-  // Reduce memory usage during compilation by disabling GPU runtime.
-  debug_opts.set_xla_gpu_enable_xla_runtime_executable(false);
   // TODO(anlunx): Disable command buffers for now because it breaks triton
   // autotuner test. Enable this when the function of command buffers is stable.
   debug_opts.clear_xla_gpu_enable_command_buffer();
@@ -626,8 +624,9 @@ GemmFusionAutotunerImpl::GenerateTritonConfigs(const HloDotInstruction& dot) {
 
   // Triton configurations are adjusted and deduplicated.
   absl::flat_hash_set<TritonGemmConfig> added;
-  bool is_hopper =
-      !config_.IsDeviceless() && GetComputeCapability().IsAtLeastHopper();
+  bool is_hopper = debug_options_.xla_gpu_enable_triton_hopper() &&
+                   !config_.IsDeviceless() &&
+                   GetComputeCapability().IsAtLeastHopper();
   for (TritonGemmConfig& config : triton_configs) {
     config.block_m = std::min(config.block_m, limits.block_m);
     config.block_n = std::min(config.block_n, limits.block_n);

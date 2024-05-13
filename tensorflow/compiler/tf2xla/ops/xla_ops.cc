@@ -1212,7 +1212,11 @@ REGISTER_OP("XlaGather")
                               gather_dim_numbers, slice_sizes));
       std::vector<shape_inference::DimensionHandle> dims;
       for (int64_t i = 0; i < output_shape.rank(); ++i) {
-        dims.push_back(c->MakeDim(output_shape.dimensions(i)));
+        if (output_shape.is_unbounded_dynamic_dimension(i)) {
+          dims.push_back(c->UnknownDim());
+        } else {
+          dims.push_back(c->MakeDim(output_shape.dimensions(i)));
+        }
       }
       c->set_output(0, c->MakeShape(dims));
       VLOG(3) << "output: " << c->DebugString(c->output(0));

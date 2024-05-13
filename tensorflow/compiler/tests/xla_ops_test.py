@@ -1322,6 +1322,20 @@ class XlaOpsShapeInferenceTest(xla_test.XLATestCase, parameterized.TestCase):
     res = xla.gather(operand, start_indices, dimension_numbers, slice_sizes)
     self.assertEqual(res.shape, tensor_shape.TensorShape([1, 3]))
 
+  def testGatherShapeInferenceDynamicSlice(self):
+    operand = np.arange(12, dtype=np.int32).reshape([3, 2, 2])
+    start_indices = array_ops.placeholder(np.int32, shape=(3, None, 2))
+    slice_sizes = np.array([1, 2, 2], np.int32)
+    dimension_numbers = xla_data_pb2.GatherDimensionNumbers(
+        offset_dims=[2, 3],
+        collapsed_slice_dims=[0],
+        start_index_map=[0, 1],
+        index_vector_dim=2,
+    )
+
+    res = xla.gather(operand, start_indices, dimension_numbers, slice_sizes)
+    self.assertEqual(res.shape, tensor_shape.TensorShape([3, None, 2, 2]))
+
   def testGatherShapeInferenceDynamicInput(self):
     operand = array_ops.placeholder(np.int32, shape=(None, 5))
     start_indices = np.array([2], np.int32)

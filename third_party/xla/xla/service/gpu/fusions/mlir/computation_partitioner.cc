@@ -286,7 +286,7 @@ PartitionedComputation::PartitionedComputation(
           }
         } else {
           first_root_shape = &instruction->shape();
-          if (first_root_shape->IsTuple()) {
+          while (first_root_shape->IsTuple()) {
             first_root_shape = &first_root_shape->tuple_shapes()[0];
           }
           root_indexing.push_back(mlir::AffineMap::getMultiDimIdentityMap(
@@ -450,12 +450,9 @@ mlir::func::FuncOp CreateSubgraphMlirFunction(
   };
 
   for (auto* root : subgraph.roots) {
-    if (root->shape().IsTuple()) {
-      for (auto& shape : root->shape().tuple_shapes()) {
-        result_types.push_back(element_type(shape));
-      }
-    } else {
-      result_types.push_back(element_type(root->shape()));
+    for (auto ty : ShapeToMlirTypes(root->shape(), b)) {
+      result_types.push_back(
+          mlir::cast<mlir::RankedTensorType>(ty).getElementType());
     }
   }
 

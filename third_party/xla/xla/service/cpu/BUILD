@@ -19,9 +19,9 @@ load(
 )
 load(
     "//xla:xla.bzl",
-    "ORC_JIT_MEMORY_MAPPER_TARGETS",
     "xla_cc_binary",
     "xla_cc_test",
+    "xla_internal",
 )
 load("//xla/tsl:tsl.bzl", "internal_visibility", "tf_openmp_copts", "tsl_copts")
 load("//xla/tsl:tsl.default.bzl", "filegroup", "get_compatible_with_portable")
@@ -313,6 +313,7 @@ cc_library(
         "//xla/service:optimize_input_output_buffer_alias",
         "//xla/service:qr_expander",
         "//xla/service:reduce_decomposer",
+        "//xla/service:reduce_window_rewriter",
         "//xla/service:reshape_decomposer",
         "//xla/service:reshape_mover",
         "//xla/service:result_caster",
@@ -429,6 +430,7 @@ cc_library(
         "//xla/service:hlo_profile_printer_data_cc",
         "//xla/service:hlo_proto_cc",
         "//xla/service:llvm_compiler",
+        "//xla/service:reduce_window_rewriter",
         "//xla/stream_executor",
         "//xla/stream_executor/host:host_platform_id",
         "@llvm-project//llvm:Target",
@@ -508,7 +510,7 @@ cc_library(
         "@llvm-project//llvm:TargetParser",
         "@llvm-project//mlir:mlir_c_runner_utils",
         "@local_tsl//tsl/platform:logging",
-    ] + ORC_JIT_MEMORY_MAPPER_TARGETS,
+    ] + xla_internal(["service/cpu:named_orc_jit_memory_mapper"]),
 )
 
 cc_library(

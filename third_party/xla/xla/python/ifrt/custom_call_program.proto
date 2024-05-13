@@ -13,13 +13,19 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "xla/python/ifrt/io_callable_program.h"
+syntax = "proto3";
 
-namespace xla {
-namespace ifrt {
+package xla.ifrt;
 
-char IoCallableProgram::ID = 0;         // NOLINT
-char IoCallableCompileOptions::ID = 0;  // NOLINT
+import "xla/python/ifrt/array_spec.proto";
+import "xla/python/ifrt/device.proto";
 
-}  // namespace ifrt
-}  // namespace xla
+// Proto equivalent of C++ `CustomCallProgram`.
+message CustomCallProgramProto {
+  string type = 1;
+  string name = 2;
+  bytes serialized_program_text = 3;
+  DeviceListProto devices = 4;
+  repeated ArraySpecProto input_specs = 5;
+  repeated ArraySpecProto output_specs = 6;
+}

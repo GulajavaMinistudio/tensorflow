@@ -89,7 +89,12 @@ DebugOptions DefaultDebugOptionsIgnoringFlags() {
   opts.set_xla_cpu_fast_math_honor_division(true);
 
   // TODO(AyanmoI): Remove this flag when cuDNN FMHA is fully supported.
-  opts.set_xla_gpu_enable_cudnn_fmha(true);
+  //
+  // cuDNN FMHA currently rewrites attention layers to use FlashAttention by
+  // default. This reassociation is not semantics-preserving, and the user
+  // should explicitly opt in if they wish to use this feature. cuDNN FMHA can
+  // not be turned on by default.
+  opts.set_xla_gpu_enable_cudnn_fmha(false);
 
   opts.set_xla_gpu_fused_attention_use_cudnn_rng(false);
 
@@ -139,7 +144,7 @@ DebugOptions DefaultDebugOptionsIgnoringFlags() {
   opts.set_xla_gpu_nccl_termination_timeout_seconds(-1);
   opts.set_xla_gpu_enable_shared_constants(true);
   opts.set_xla_gpu_enable_nccl_user_buffers(false);
-  opts.set_xla_gpu_enable_nccl_comm_splitting(false);
+  opts.set_xla_gpu_enable_nccl_comm_splitting(true);
   opts.set_xla_gpu_enable_nccl_per_stream_comms(false);
 
   // Set 4GB space limit for redzone scratch allocator.
@@ -245,6 +250,8 @@ DebugOptions DefaultDebugOptionsIgnoringFlags() {
   opts.set_xla_gpu_gemm_rewrite_size_threshold(kDefaultMinGemmRewriteSize);
 
   opts.set_xla_gpu_use_memcpy_local_p2p(false);
+
+  opts.set_xla_reduce_window_rewrite_base_length(32);
 
   return opts;
 }
@@ -1687,6 +1694,12 @@ void MakeDebugOptionsFlags(std::vector<tsl::Flag>* flag_list,
       debug_options->xla_gpu_dump_autotune_logs_to(),
       "File to write autotune logs to. It will be a binary file unless the "
       "name ends with .txt or .textproto."));
+  flag_list->push_back(tsl::Flag(
+      "xla_reduce_window_rewrite_base_length",
+      int64_setter_for(
+          &DebugOptions::set_xla_reduce_window_rewrite_base_length),
+      debug_options->xla_reduce_window_rewrite_base_length(),
+      "Base length to rewrite the reduce window to, no rewrite if set to 0."));
 }  // NOLINT(readability/fn_size)
 
 // Allocates flag_values and flag_objects; this function must not be called more
