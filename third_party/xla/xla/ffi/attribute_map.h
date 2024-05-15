@@ -1,4 +1,4 @@
-/* Copyright 2023 The OpenXLA Authors.
+/* Copyright 2024 The OpenXLA Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -13,14 +13,20 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef XLA_SERVICE_GPU_SLEEP_KERNEL_H_
-#define XLA_SERVICE_GPU_SLEEP_KERNEL_H_
+#ifndef XLA_FFI_ATTRIBUTE_MAP_H_
+#define XLA_FFI_ATTRIBUTE_MAP_H_
 
-namespace xla::gpu {
+#include "absl/status/statusor.h"
+#include "mlir/IR/BuiltinAttributes.h"  // from @llvm-project
+#include "xla/ffi/call_frame.h"
 
-// Returns a pointer to CUDA kernel that does sleep operation on device.
-void* GetSleepKernel();
+namespace xla::ffi {
 
-}  // namespace xla::gpu
+// Converts MLIR dictionary attribute attached to a custom call operation to a
+// custom call handler attributes that are forwarded to the FFI handler.
+absl::StatusOr<CallFrameBuilder::FlatAttributesMap> BuildAttributesMap(
+    mlir::DictionaryAttr dict);
 
-#endif  // XLA_SERVICE_GPU_SLEEP_KERNEL_H_
+}  // namespace xla::ffi
+
+#endif  // XLA_FFI_ATTRIBUTE_MAP_H_
