@@ -217,7 +217,7 @@ cc_library(
         "//xla/stream_executor/cuda:cuda_driver",
         "//xla/stream_executor/cuda:cuda_executor",
     ]) + if_rocm_is_configured([
-        "//third_party/gpus/rocm:rocm_headers",
+        "@local_config_rocm//rocm:rocm_headers",
         "@local_config_rocm//rocm:rccl",
         "//xla/stream_executor/rocm:rocm_driver",
         "//xla/stream_executor/rocm:rocm_executor",
@@ -1120,6 +1120,40 @@ cc_library(
         "@llvm-project//mlir:IR",
         "@local_tsl//tsl/lib/gtl:int_type",
         "@local_tsl//tsl/platform:statusor",
+    ],
+)
+
+cc_library(
+    name = "for_all_thunks",
+    srcs = ["for_all_thunks.cc"],
+    hdrs = ["for_all_thunks.h"],
+    deps = [
+        ":address_computation_thunk",
+        ":command_buffer_thunk",
+        ":conditional_thunk",
+        ":sequential_thunk",
+        ":thunk",
+        ":while_thunk",
+        "@com_google_absl//absl/functional:function_ref",
+        "@local_tsl//tsl/platform:casts",
+    ],
+)
+
+cc_test(
+    name = "for_all_thunks_test",
+    srcs = ["for_all_thunks_test.cc"],
+    deps = [
+        ":address_computation_thunk",
+        ":command_buffer_cmd",
+        ":command_buffer_thunk",
+        ":conditional_thunk",
+        ":for_all_thunks",
+        ":sequential_thunk",
+        ":thunk",
+        ":while_thunk",
+        "//xla/service:buffer_assignment",
+        "@com_google_absl//absl/status",
+        "@com_google_googletest//:gtest_main",
     ],
 )
 
