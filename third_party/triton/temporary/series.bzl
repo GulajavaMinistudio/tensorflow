@@ -6,7 +6,6 @@ internal patch during the next triton integration process.
 """
 
 temporary_patch_list = [
-    "//third_party/triton/temporary:reduction_mma_v3_fix.patch",
-    "//third_party/triton/temporary:exclude_failing_h100_tests.patch",
-    "//third_party/triton/temporary:enable_mma_v3.patch",
+    "//third_party/triton/temporary:fp8_splat_partial_revert.patch",
+    "//third_party/triton/temporary:local_alloc_lowering_fix.patch",
 ]

@@ -120,6 +120,7 @@ cc_library(
         ":cudnn_thunk",
         ":custom_call_thunk",
         ":gemm_thunk",
+        ":gpublas_lt_matmul_thunk",
         ":kernel_thunk",
         ":memset_thunk",
         ":nccl_all_gather_thunk",
@@ -320,6 +321,7 @@ cc_library(
     hdrs = ["address_computation_thunk.h"],
     deps = [
         ":sequential_thunk",
+        ":while_thunk",
         "//xla:shape_util",
         "//xla:status",
         "//xla:status_macros",
@@ -331,13 +333,16 @@ cc_library(
         "//xla/stream_executor:memory_allocation",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/container:inlined_vector",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/types:span",
         "@llvm-project//llvm:Support",
         "@local_tsl//tsl/platform:errors",
+        "@local_tsl//tsl/platform:logging",
         "@local_tsl//tsl/platform:statusor",
+        "@local_tsl//tsl/profiler/lib:traceme",
     ],
 )
 
@@ -351,6 +356,7 @@ xla_test(
     backends = [
         "gpu_a100",
         "gpu_v100",
+        "gpu_amd_any",
     ],
     local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]) + if_rocm_is_configured(["TENSORFLOW_USE_ROCM=1"]),
     deps = [
@@ -451,6 +457,7 @@ xla_test(
     backends = [
         "gpu_a100",
         "gpu_v100",
+        "gpu_amd_any",
     ],
     local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]) + if_rocm_is_configured(["TENSORFLOW_USE_ROCM=1"]),
     deps = [
@@ -1225,8 +1232,11 @@ cc_library(
         "//xla/service/gpu/runtime:thunk",
         "//xla/stream_executor",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/cleanup",
         "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/debugging:leak_check",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/synchronization",
         "@local_tsl//tsl/platform:errors",
