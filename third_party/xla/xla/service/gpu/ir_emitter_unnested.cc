@@ -153,7 +153,6 @@ limitations under the License.
 #include "xla/service/name_uniquer.h"
 #include "xla/shape.h"
 #include "xla/shape_util.h"
-#include "xla/status.h"
 #include "xla/status_macros.h"
 #include "xla/stream_executor/device_description.h"
 #include "xla/stream_executor/gpu/gpu_blas_lt.h"
@@ -1220,13 +1219,16 @@ absl::Status IrEmitterUnnested::EmitCubDeviceRadixSort(
 
   TF_ASSIGN_OR_RETURN(xla::SortOptions options,
                       instr->backend_config<xla::SortOptions>());
+  const Shape& operand_shape = instr->operand(0)->shape();
   auto thunk = std::make_unique<CubSortThunk>(
       Thunk::ThunkInfo::WithProfileAnnotation(instr),
-      instr->operand(0)->shape().element_type(),
+      operand_shape.element_type(),
       instr->operand_count() == 2
           ? std::optional(instr->operand(1)->shape().element_type())
           : std::nullopt,
-      operands, results, scratch, options.descending());
+      operands, results, scratch, options.descending(),
+      Product(operand_shape.dimensions()) /
+          operand_shape.dimensions(operand_shape.rank() - 1));
   AddThunkToThunkSequence(std::move(thunk));
   return absl::OkStatus();
 }
