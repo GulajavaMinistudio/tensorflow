@@ -193,6 +193,7 @@ cc_library(
         "pjrt_host_callback.cc",
         "pjrt_memory.cc",
         "pjrt_remap.cc",
+        "pjrt_topology.cc",
         "pjrt_tuple.cc",
     ],
     hdrs = [
@@ -204,6 +205,7 @@ cc_library(
         "pjrt_host_callback.h",
         "pjrt_memory.h",
         "pjrt_remap.h",
+        "pjrt_topology.h",
         "pjrt_tuple.h",
     ],
     compatible_with = get_compatible_with_portable(),
@@ -280,11 +282,13 @@ cc_library(
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/types:span",
         "@llvm-project//llvm:Support",
+        "@local_tsl//tsl/platform:statusor",
     ],
 )
 

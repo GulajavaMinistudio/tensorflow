@@ -67,6 +67,25 @@ cc_library(
 )
 
 xla_test(
+    name = "dynamic_slice_fusion_test",
+    srcs = ["dynamic_slice_fusion_test.cc"],
+    backends = ["gpu"],
+    local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]),
+    deps = [
+        "//xla:error_spec",
+        "//xla:shape_util",
+        "//xla/ffi",
+        "//xla/ffi:ffi_api",
+        "//xla/stream_executor",
+        "//xla/tests:hlo_test_base",
+        "//xla/tests:xla_internal_test_main",
+        "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/status",
+        "@local_tsl//tsl/platform:test",
+    ],
+)
+
+xla_test(
     name = "element_wise_row_vectorization_test",
     srcs = ["element_wise_row_vectorization_test.cc"],
     backends = ["gpu"],
@@ -963,6 +982,25 @@ xla_test(
         ],
         ["@local_tsl//tsl/platform:test_main"],  # b/317293391
     ),
+)
+
+xla_test(
+    name = "gpu_cub_sort_test",
+    srcs = ["gpu_cub_sort_test.cc"],
+    backends = ["gpu"],
+    shard_count = 10,
+    deps = [
+        "//xla:error_spec",
+        "//xla:shape_util",
+        "//xla:xla_data_proto_cc",
+        "//xla/hlo/ir:hlo",
+        "//xla/service/gpu:gpu_sort_rewriter",
+        "//xla/tests:hlo_test_base",
+        "@com_google_absl//absl/strings",
+        "@com_google_googletest//:gtest_main",
+        "@local_tsl//tsl/platform:statusor",
+        "@local_tsl//tsl/platform:test_main",
+    ],
 )
 
 xla_test(
