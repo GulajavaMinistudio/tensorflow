@@ -34,8 +34,8 @@ xla_cc_binary(
     ] + tf_gpu_tests_tags(),
     deps = [
         ":functional_hlo_runner",
-        ":hlo_runner_flags",
         "//xla:debug_options_flags",
+        "//xla:status_macros",
         "//xla:statusor",
         "//xla/pjrt:pjrt_client",
         "//xla/pjrt/distributed",
@@ -48,6 +48,7 @@ xla_cc_binary(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
+        "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:logging",
         "@local_tsl//tsl/platform:platform_port",
         "@local_tsl//tsl/platform:status",
@@ -71,8 +72,8 @@ xla_cc_binary(
     ] + tf_gpu_tests_tags(),
     deps = [
         ":functional_hlo_runner",
-        ":hlo_runner_flags",
         "//xla:debug_options_flags",
+        "//xla:status_macros",
         "//xla:statusor",
         "//xla/pjrt:pjrt_client",
         "//xla/pjrt/distributed",
@@ -86,6 +87,7 @@ xla_cc_binary(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
+        "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:logging",
         "@local_tsl//tsl/platform:platform_port",
         "@local_tsl//tsl/platform:status",
@@ -149,18 +151,6 @@ cc_library(
     ],
 )
 
-cc_library(
-    name = "hlo_runner_flags",
-    srcs = ["hlo_runner_flags.cc"],
-    hdrs = ["hlo_runner_flags.h"],
-    deps = [
-        ":functional_hlo_runner",
-        "//xla/pjrt:pjrt_executable",
-        "@com_google_absl//absl/strings",
-        "@local_tsl//tsl/platform:logging",
-    ],
-)
-
 xla_test(
     name = "functional_hlo_runner_test",
     srcs = ["functional_hlo_runner_test.cc"],
@@ -178,6 +168,7 @@ xla_test(
         "gpu",
     ],
     data = [
+        "data/multiple_gemm_fusions.hlo",
         "data/sharded_16_devices.hlo",
         "data/sharded_2_devices.hlo",
         "data/single_device.hlo",
@@ -186,14 +177,25 @@ xla_test(
     tags = ["nomac"],
     deps = [
         ":functional_hlo_runner",
+        "//xla:debug_options_flags",
         "//xla:statusor",
         "//xla/pjrt:pjrt_client",
+        "//xla/pjrt/distributed:key_value_store_interface",
+        "//xla/pjrt/distributed:service",
         "//xla/tests:filecheck",
-        "@com_google_googletest//:gtest_main",
+        "//xla/tsl/util:command_line_flags",
+        "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/time",
+        "@com_google_googletest//:gtest",
         "@local_tsl//tsl/lib/core:status_test_util",
         "@local_tsl//tsl/platform:env",
+        "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:path",
         "@local_tsl//tsl/platform:statusor",
+        "@local_tsl//tsl/platform:subprocess",
         "@local_tsl//tsl/platform:test",
     ],
 )

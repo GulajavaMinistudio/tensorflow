@@ -391,15 +391,6 @@ class CStreamExecutor : public StreamExecutorCommon {
     SP_Stream stream_handle = static_cast<CStream*>(stream)->Handle();
     return static_cast<CEvent*>(event)->Record(stream_handle);
   }
-  absl::Status WaitForEvent(Stream* stream, Event* event) override {
-    SP_Stream stream_handle = static_cast<CStream*>(stream)->Handle();
-    SP_Event event_handle = static_cast<CEvent*>(event)->Handle();
-    OwnedTFStatus c_status(TF_NewStatus());
-    stream_executor_->wait_for_event(&device_, stream_handle, event_handle,
-                                     c_status.get());
-    absl::Status s = StatusFromTF_Status(c_status.get());
-    return s;
-  }
   void DeallocateStream(Stream* stream) override {
     static_cast<CStream*>(stream)->Destroy();
   }
@@ -447,14 +438,6 @@ class CStreamExecutor : public StreamExecutorCommon {
     stream_executor_->block_host_for_event(&device_, event_handle,
                                            c_status.get());
     stream_executor_->destroy_event(&device_, event_handle);
-    return StatusFromTF_Status(c_status.get());
-  }
-
-  absl::Status GetStatus(Stream* stream) override {
-    OwnedTFStatus c_status(TF_NewStatus());
-    SP_Stream stream_handle = static_cast<CStream*>(stream)->Handle();
-    stream_executor_->get_stream_status(&device_, stream_handle,
-                                        c_status.get());
     return StatusFromTF_Status(c_status.get());
   }
 
