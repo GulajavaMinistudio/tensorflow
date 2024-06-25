@@ -31,21 +31,6 @@ limitations under the License.
 
 namespace tensorflow {
 
-ABSL_DEPRECATED("Use tensorflow::tf2xla::api::ConvertMlirToGraphdef instead.")
-// Given an MLIR module, returns a GraphDef.
-absl::StatusOr<std::unique_ptr<GraphDef>> ConvertMlirToGraphdef(
-    mlir::ModuleOp module, const GraphExportConfig& configs);
-
-// Converts an MLIR module to TensorFlow graph and FunctionLibraryDefinition.
-// The "main" function of the module is stored in the graph and the rest of
-// functions are stored in the library. Control ret nodes are stored separately
-// in `control_ret_nodes`.
-Status ConvertMlirToGraph(mlir::ModuleOp module,
-                          const GraphExportConfig& configs,
-                          std::unique_ptr<Graph>* graph,
-                          FunctionLibraryDefinition* flib_def,
-                          absl::flat_hash_set<Node*>* control_ret_nodes);
-
 // Converts an MLIR module to TensorFlow graph and FunctionLibraryDefinition.
 // The "main" function of the module is stored in the graph and the rest of
 // functions are stored in the library.
@@ -54,11 +39,6 @@ Status ConvertMlirToGraph(mlir::ModuleOp module,
                           const GraphExportConfig& configs,
                           std::unique_ptr<Graph>* graph,
                           FunctionLibraryDefinition* flib_def);
-
-// Converts an MLIR function and adds it to a FunctionLibraryDefinition.
-Status ConvertMlirFunctionToFunctionLibraryDef(mlir::func::FuncOp func,
-                                               const GraphExportConfig& configs,
-                                               FunctionDef* function_def);
 }  // namespace tensorflow
 
 #endif  // TENSORFLOW_COMPILER_MLIR_TENSORFLOW_TRANSLATE_EXPORT_GRAPHDEF_H_

@@ -572,16 +572,6 @@ absl::Status GpuExecutor::SynchronousMemcpy(void* host_dst,
                                          AsROCmDevicePtr(gpu_src), size);
 }
 
-absl::Status GpuExecutor::MemZero(Stream* stream, DeviceMemoryBase* location,
-                                  uint64_t size) {
-  if (reinterpret_cast<uintptr_t>(location->opaque()) % 4 == 0 &&
-      size % 4 == 0) {
-    return Memset32(stream, location, 0x0, size);
-  } else {
-    return Memset(stream, location, 0x0, size);
-  }
-}
-
 absl::Status GpuExecutor::Memset(Stream* stream, DeviceMemoryBase* location,
                                  uint8 pattern, uint64_t size) {
   VLOG(2) << "enqueueing memset8 operation onto stream " << stream
@@ -590,55 +580,6 @@ absl::Status GpuExecutor::Memset(Stream* stream, DeviceMemoryBase* location,
   return GpuDriver::AsynchronousMemsetUint8(context_, AsROCmDevicePtr(location),
                                             pattern, size,
                                             AsGpuStreamValue(stream));
-}
-
-absl::Status GpuExecutor::Memset32(Stream* stream, DeviceMemoryBase* location,
-                                   uint32 pattern, uint64_t size) {
-  VLOG(2) << "enqueueing memset32 operation onto stream " << stream
-          << " at location " << location << " with size " << size
-          << " and pattern " << std::hex << pattern;
-  CHECK(reinterpret_cast<uintptr_t>(location->opaque()) % 4 == 0 &&
-        size % 4 == 0);
-  return GpuDriver::AsynchronousMemsetUint32(
-      context_, AsROCmDevicePtr(location), pattern, size / 4,
-      AsGpuStreamValue(stream));
-}
-
-absl::Status GpuExecutor::Memcpy(Stream* stream, void* host_dst,
-                                 const DeviceMemoryBase& gpu_src,
-                                 uint64_t size) {
-  bool ok = GpuDriver::AsynchronousMemcpyD2H(context_, host_dst,
-                                             AsROCmDevicePtr(gpu_src), size,
-                                             AsGpuStreamValue(stream));
-
-  // TODO(b/326130105): Change AsynchronousMemcpyD2H calls to return
-  // absl::Status.
-  if (!ok) {
-    return absl::InternalError("Failed to memcpy from device to host.");
-  }
-  return absl::OkStatus();
-}
-
-absl::Status GpuExecutor::Memcpy(Stream* stream, DeviceMemoryBase* gpu_dst,
-                                 const void* host_src, uint64_t size) {
-  bool ok = GpuDriver::AsynchronousMemcpyH2D(context_, AsROCmDevicePtr(gpu_dst),
-                                             host_src, size,
-                                             AsGpuStreamValue(stream));
-  // TODO(b/326130105): Change AsynchronousMemcpyD2H calls to return
-  // absl::Status.
-  if (!ok) {
-    return absl::InternalError("Failed to memcpy from device to host.");
-  }
-  return absl::OkStatus();
-}
-
-bool GpuExecutor::MemcpyDeviceToDevice(Stream* stream,
-                                       DeviceMemoryBase* gpu_dst,
-                                       const DeviceMemoryBase& gpu_src,
-                                       uint64_t size) {
-  return GpuDriver::AsynchronousMemcpyD2D(context_, AsROCmDevicePtr(gpu_dst),
-                                          AsROCmDevicePtr(gpu_src), size,
-                                          AsGpuStreamValue(stream));
 }
 
 bool GpuExecutor::HostCallback(Stream* stream,
@@ -658,10 +599,6 @@ bool GpuExecutor::HostCallback(Stream* stream,
   auto* callback = reinterpret_cast<absl::AnyInvocable<void() &&>*>(data);
   std::move (*callback)();
   delete callback;
-}
-
-absl::Status GpuExecutor::RecordEvent(Stream* stream, Event* event) {
-  return AsGpuEvent(event)->Record(AsGpuStream(stream));
 }
 
 void GpuExecutor::DeallocateStream(Stream* stream) {
