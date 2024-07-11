@@ -133,7 +133,6 @@ DebugOptions DefaultDebugOptionsIgnoringFlags() {
   opts.set_xla_gpu_reduce_scatter_combine_threshold_bytes(kDefaultThreshold);
   opts.set_xla_gpu_enable_all_gather_combine_by_dim(true);
   opts.set_xla_gpu_enable_reduce_scatter_combine_by_dim(true);
-  opts.set_xla_gpu_enable_all_reduce_splitter(true);
   opts.set_xla_gpu_enable_approx_costly_collectives(false);
 
   opts.set_xla_gpu_enable_reassociation_for_converted_ar(true);
@@ -211,7 +210,7 @@ DebugOptions DefaultDebugOptionsIgnoringFlags() {
   opts.set_xla_gpu_auto_spmd_partitioning_memory_budget_ratio(1.1);
   opts.set_xla_gpu_unsafe_pipelined_loop_annotator(false);
 
-  opts.set_xla_gpu_copy_insertion_use_region_analysis(true);
+  opts.set_xla_gpu_copy_insertion_use_region_analysis(false);
   opts.set_xla_gpu_collect_cost_model_stats(false);
   opts.set_xla_gpu_enable_split_k_autotuning(true);
 
@@ -391,6 +390,16 @@ void MakeDebugOptionsFlags(std::vector<tsl::Flag>* flag_list,
         for (const auto& passname : std::vector<std::string>(
                  absl::StrSplit(comma_separated_values, ','))) {
           debug_options->add_xla_enable_hlo_passes_only(passname);
+        }
+        return true;
+      };
+
+  // Custom "sub-parser" lambda for legacy_command_buffer_custom_call_targets.
+  auto setter_for_legacy_command_buffer_custom_call_targets =
+      [debug_options](std::string comma_separated_values) {
+        for (const auto& target : std::vector<std::string>(
+                 absl::StrSplit(comma_separated_values, ','))) {
+          debug_options->add_legacy_command_buffer_custom_call_targets(target);
         }
         return true;
       };
@@ -1119,12 +1128,6 @@ void MakeDebugOptionsFlags(std::vector<tsl::Flag>* flag_list,
       "Combine reduce-scatter ops with the same dimension or irrespective of "
       "their dimension."));
   flag_list->push_back(tsl::Flag(
-      "xla_gpu_enable_all_reduce_splitter",
-      bool_setter_for(&DebugOptions::set_xla_gpu_enable_all_reduce_splitter),
-      debug_options->xla_gpu_enable_all_reduce_splitter(),
-      "Splits cross-device all reduce into logical reduce scatter followed by "
-      "dynamic slice and all reduce."));
-  flag_list->push_back(tsl::Flag(
       "xla_gpu_enable_approx_costly_collectives",
       bool_setter_for(
           &DebugOptions::set_xla_gpu_enable_approx_costly_collectives),
@@ -1216,6 +1219,15 @@ void MakeDebugOptionsFlags(std::vector<tsl::Flag>* flag_list,
       " can either be a list of command types or a list of command types with"
       " + and - as prefix, which indicate adding or removing a command type"
       " to/from the default list."));
+
+  flag_list->push_back(
+      tsl::Flag("legacy_command_buffer_custom_call_targets",
+                setter_for_legacy_command_buffer_custom_call_targets, "",
+                "Comma-separated list of custom call targets with legacy "
+                "registry API (non FFI API), whose targets supports lowering "
+                "to command buffer custom command, i.e, custom call target "
+                "supports cuda-graph capturing for CUDA devices."));
+
   flag_list->push_back(tsl::Flag(
       "xla_gpu_graph_min_graph_size",
       int32_setter_for(&DebugOptions::set_xla_gpu_graph_min_graph_size),

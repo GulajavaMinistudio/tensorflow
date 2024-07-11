@@ -1,9 +1,5 @@
 load("//tensorflow:tensorflow.bzl", "tf_cc_test")
 load("//tensorflow:tensorflow.default.bzl", "get_compatible_with_portable")
-load(
-    "//tensorflow/lite:build_def.bzl",
-    "tflite_copts",
-)
 load("//tensorflow/lite:special_rules.bzl", "tflite_portable_test_suite")
 
 package(
@@ -23,7 +19,6 @@ cc_library(
     compatible_with = get_compatible_with_portable(),
     deps = [
         "//tensorflow/compiler/mlir/lite/tools/optimize:reduced_precision_metadata",
-        "//tensorflow/lite/kernels/internal:compatibility",
     ],
 )
 
@@ -227,18 +222,9 @@ tf_cc_test(
     ],
 )
 
-cc_library(
+alias(
     name = "operator_property",
-    srcs = ["operator_property.cc"],
-    hdrs = ["operator_property.h"],
-    compatible_with = get_compatible_with_portable(),
-    copts = tflite_copts(),
-    deps = [
-        "//tensorflow/lite:framework",
-        "//tensorflow/lite/core:framework",
-        "//tensorflow/lite/schema:schema_fbs",
-        "//tensorflow/lite/schema:schema_utils",
-    ],
+    actual = "//tensorflow/compiler/mlir/lite/tools/optimize:operator_property",
 )
 
 tf_cc_test(

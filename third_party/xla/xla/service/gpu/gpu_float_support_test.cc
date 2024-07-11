@@ -93,68 +93,62 @@ class FloatSupportTest : public HloTestBase {
   }
 };
 
-TEST_F(FloatSupportTest, Fp8DotHopperF8E4M3FN_F16) {
+TEST_F(FloatSupportTest, ShouldAlwaysConvertFp8Dot) {
   TestDotConversion(F8E4M3FN, F8E4M3FN, F16,
                     se::CudaComputeCapability::Hopper(),
-                    /*should_convert_lhs=*/false,
-                    /*should_convert_rhs=*/false, F8E4M3FN);
-}
+                    /*should_convert_lhs=*/true,
+                    /*should_convert_rhs=*/true, F8E4M3FN);
 
-TEST_F(FloatSupportTest, Fp8DotHopperF8E4M3FN_F32) {
   TestDotConversion(F8E4M3FN, F8E4M3FN, F32,
                     se::CudaComputeCapability::Hopper(),
-                    /*should_convert_lhs=*/false,
-                    /*should_convert_rhs=*/false, F8E4M3FN);
-}
+                    /*should_convert_lhs=*/true,
+                    /*should_convert_rhs=*/true, F8E4M3FN);
 
-TEST_F(FloatSupportTest, Fp8DotAmpereF8E4M3FN_F16) {
   TestDotConversion(F8E4M3FN, F8E4M3FN, F16,
                     se::CudaComputeCapability::Ampere(),
                     /*should_convert_lhs=*/true,
                     /*should_convert_rhs=*/true, F8E4M3FN);
-}
 
-TEST_F(FloatSupportTest, Fp8DotAmpereF8E4M3FN_F32) {
   TestDotConversion(F8E4M3FN, F8E4M3FN, F32,
                     se::CudaComputeCapability::Hopper(),
-                    /*should_convert_lhs=*/false,
-                    /*should_convert_rhs=*/false, F8E4M3FN);
-}
+                    /*should_convert_lhs=*/true,
+                    /*should_convert_rhs=*/true, F8E4M3FN);
 
-TEST_F(FloatSupportTest, Fp8DotAmpereF8E5M2_F16) {
   TestDotConversion(F8E5M2, F8E5M2, F16, se::CudaComputeCapability::Ampere(),
-                    /*should_convert_lhs=*/false,
-                    /*should_convert_rhs=*/false, F8E5M2);
-}
+                    /*should_convert_lhs=*/true,
+                    /*should_convert_rhs=*/true, F8E5M2);
 
-TEST_F(FloatSupportTest, Fp8DotAmpereF8E5M2_F32) {
   TestDotConversion(F8E5M2, F8E5M2, F32, se::CudaComputeCapability::Ampere(),
-                    /*should_convert_lhs=*/false,
-                    /*should_convert_rhs=*/false, F8E5M2);
-}
+                    /*should_convert_lhs=*/true,
+                    /*should_convert_rhs=*/true, F8E5M2);
 
-TEST_F(FloatSupportTest, Fp8DotHopperMixedFp8_F16) {
   TestDotConversion(F8E5M2, F8E4M3FN, F16, se::CudaComputeCapability::Hopper(),
-                    /*should_convert_lhs=*/false,
+                    /*should_convert_lhs=*/true,
                     /*should_convert_rhs=*/false, F8E5M2);
-}
 
-TEST_F(FloatSupportTest, Fp8DotHopperMixedFp8_F32) {
   TestDotConversion(F8E5M2, F8E4M3FN, F32, se::CudaComputeCapability::Hopper(),
-                    /*should_convert_lhs=*/false,
+                    /*should_convert_lhs=*/true,
                     /*should_convert_rhs=*/false, F8E5M2);
-}
 
-TEST_F(FloatSupportTest, Fp8DotHopperMixedNonFp8_F16) {
   TestDotConversion(F8E5M2, F16, F16, se::CudaComputeCapability::Hopper(),
                     /*should_convert_lhs=*/true,
                     /*should_convert_rhs=*/false, F8E5M2);
-}
 
-TEST_F(FloatSupportTest, Fp8DotHopperMixedNonFp8_F32) {
   TestDotConversion(F8E5M2, F16, F32, se::CudaComputeCapability::Hopper(),
                     /*should_convert_lhs=*/true,
                     /*should_convert_rhs=*/false, F8E5M2);
+}
+
+TEST_F(FloatSupportTest, ShouldKeepBf16OnAmpere) {
+  TestDotConversion(BF16, BF16, F32, se::CudaComputeCapability::Ampere(),
+                    /*should_convert_lhs=*/false,
+                    /*should_convert_rhs=*/false, BF16);
+}
+
+TEST_F(FloatSupportTest, ShouldKeepBf16OnHopper) {
+  TestDotConversion(BF16, BF16, F32, se::CudaComputeCapability::Hopper(),
+                    /*should_convert_lhs=*/false,
+                    /*should_convert_rhs=*/false, BF16);
 }
 
 }  // namespace

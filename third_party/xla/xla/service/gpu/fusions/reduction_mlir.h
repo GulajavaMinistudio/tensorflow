@@ -28,6 +28,7 @@ limitations under the License.
 #include "mlir/IR/AffineExpr.h"  // from @llvm-project
 #include "mlir/IR/MLIRContext.h"  // from @llvm-project
 #include "mlir/IR/Value.h"  // from @llvm-project
+#include "mlir/IR/ValueRange.h"  // from @llvm-project
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_instructions.h"
 #include "xla/service/gpu/fusions/mlir/computation_partitioner.h"
@@ -67,11 +68,8 @@ class MlirReductionFusion : public MlirFusionEmitterBase {
   struct EmitterState;
   friend struct EmitterState;
 
-  // Returns the init values for reductions, and the init values for the side
-  // outputs. Side output init values are tensors, while reduction init values
-  // are scalars.
-  HloValueMap GetInitsAndSideOutputTensors(int group_id,
-                                           EmitterState& state) const;
+  // Returns the init values for reductions (scalars).
+  HloValueMap GetInits(int group_id, EmitterState& state) const;
 
   absl::Status EmitEntryFunction(
       const mlir_converter::PartitionedComputations& computations,
@@ -84,24 +82,20 @@ class MlirReductionFusion : public MlirFusionEmitterBase {
       mlir::MLIRContext* mlir_context) const override;
 
   llvm::SmallVector<mlir::Value> EvaluateEpilogue(
-      mlir::ImplicitLocOpBuilder& b, const HloValueMap& results,
-      llvm::SmallVector<mlir::Value> outputs, EmitterState& state, int group_id,
-      mlir::MLIRContext* ctx, mlir::Value vector_index = nullptr) const;
+      const HloValueMap& results, llvm::SmallVector<mlir::Value> outputs,
+      EmitterState& state, int group_id, mlir::ValueRange symbol_values) const;
 
   virtual llvm::SmallVector<mlir::Value> EmitReduction(
       int group_id, EmitterState& state) const = 0;
 
-  // Returns a reduction indexing map with the given results. Symbols are
-  // derived from tile_sizes_per_thread_. Symbols not occurring in the results
-  // have their ranges set to 1 (instead of the size).
-  IndexingMap GetIndexingMap(llvm::ArrayRef<mlir::AffineExpr> results) const;
-  // Returns an indexing map whose domain is (thread ID, vector_index).
-  IndexingMap GetThreadVectorIndexingMap(
+  // Returns a reduction indexing map with the given results.
+  IndexingMap GetIndexingMap(llvm::ArrayRef<mlir::AffineExpr> results,
+                             absl::Span<int64_t const> symbol_sizes = {}) const;
+  // Returns an indexing map whose domain is (thread ID)[s...].
+  IndexingMap GetThreadIndexingMap(
       llvm::ArrayRef<mlir::AffineExpr> results,
-      absl::Span<std::pair<mlir::AffineExpr, Interval> const> constraints)
-      const;
-  // Returns the loop symbol corresponding to the thread tile index.
-  mlir::AffineExpr GetLoopSymbol(int index, mlir::MLIRContext* ctx) const;
+      absl::Span<std::pair<mlir::AffineExpr, Interval> const> constraints,
+      absl::Span<int64_t const> symbol_sizes = {}) const;
 
   Shape GetReduceOperandShape() const {
     return first_reduce_->operand(0)->shape();
@@ -145,7 +139,7 @@ class MlirReductionFusion : public MlirFusionEmitterBase {
 
   absl::InlinedVector<int64_t, 4> num_threads_;
   absl::InlinedVector<int64_t, 4> num_blocks_;
-  int64_t vector_size_ = -1;
+  int64_t vector_size_ = 1;
 
   ReductionDimensions reduction_dimensions_;
   ReductionGroups groups_;
@@ -157,7 +151,6 @@ class MlirRowReductionFusion : public MlirReductionFusion {
   explicit MlirRowReductionFusion(const HloFusionAnalysis& analysis);
 
  protected:
-  int GetRowsPerWarp() const;
   // The number of warps working on one output element.
   int GetWarpsPerRow() const;
   llvm::SmallVector<mlir::Value> EmitReduction(
@@ -171,6 +164,20 @@ class MlirRowReductionFusion : public MlirReductionFusion {
   IndexingMap GetSharedMemoryWriteMap(mlir::MLIRContext* ctx) const override;
 
   absl::InlinedVector<int64_t, 4> tile_sizes_per_block_;
+};
+
+class MlirMultiRowReductionFusion : public MlirReductionFusion {
+ public:
+  explicit MlirMultiRowReductionFusion(const HloFusionAnalysis& analysis);
+
+ protected:
+  int GetRowsPerWarp() const;
+  llvm::SmallVector<mlir::Value> EmitReduction(
+      int group_id, EmitterState& state) const override;
+  IndexingMap ComputeReductionInputIndexing(
+      mlir::MLIRContext* ctx) const override;
+  IndexingMap ComputeReductionOutputIndexing(
+      mlir::MLIRContext* ctx) const override;
 };
 
 class MlirColumnReductionFusion : public MlirReductionFusion {

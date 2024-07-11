@@ -8,11 +8,11 @@ load(
     "@local_tsl//tsl/platform/default:cuda_build_defs.bzl",
     "if_cuda_is_configured",
 )
-load("//third_party/compute_library:build_defs.bzl", "if_enable_acl")
 
-# Placeholder: load py_proto_library
+# copybara:uncomment load("@rules_python//python:proto.bzl", "py_proto_library")
+load("//third_party/compute_library:build_defs.bzl", "if_enable_acl")
 load("//xla:package_groups.bzl", "xla_package_groups")
-load("//xla:xla.bzl", "xla_cc_test", "xla_py_proto_library")
+load("//xla:xla.bzl", "xla_bzl_library", "xla_cc_test", "xla_py_proto_library")
 load("//xla/tsl:tsl.bzl", "if_google", "internal_visibility")
 load("//xla/tsl:tsl.default.bzl", "filegroup", "get_compatible_with_portable")
 
@@ -244,6 +244,7 @@ cc_library(
     deps = [
         ":statusor",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/base:log_severity",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@local_tsl//tsl/platform:logging",
@@ -302,6 +303,7 @@ cc_library(
     deps = [
         ":types",
         ":util",
+        "@com_google_absl//absl/base:core_headers",
     ],
 )
 
@@ -336,6 +338,7 @@ cc_library(
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/base:log_severity",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/container:inlined_vector",
@@ -1252,7 +1255,6 @@ cc_library(
 )
 
 # -----------------------------------------------------------------------------
-
 # copybara:uncomment_begin(google-only)
 # py_proto_library(
 #     name = "xla_data_proto_py_pb2",
@@ -1265,7 +1267,7 @@ cc_library(
 #     name = "xla_py_pb2",
 #     testonly = 0,
 #     api_version = 2,
-#     compatible_with = ["//buildenv/target:non_prod"],
+#     compatible_with = get_compatible_with_portable(),
 #     visibility = internal_visibility([":friends"]),
 #     deps = [":xla_proto"],
 # )
@@ -1286,16 +1288,10 @@ alias(
 bzl_library(
     name = "lit_bzl",
     srcs = ["lit.bzl"],
-    deps = ["@bazel_skylib//lib:paths"],
-)
-
-bzl_library(
-    name = "xla_bzl",
-    srcs = ["xla.bzl"],
     deps = [
         "//xla/tsl:tsl_bzl",
-        "@local_config_rocm//rocm:build_defs_bzl",
-        "@local_tsl//tsl/platform:build_config_root_bzl",
-        "@local_tsl//tsl/platform/default:cuda_build_defs_bzl",
+        "@bazel_skylib//lib:paths",
     ],
 )
+
+xla_bzl_library()
