@@ -418,6 +418,27 @@ ENTRY triton_computation {
   RunSupportTest(std::move(ti), /*output_tile_sizes=*/{1}, cc);
 }
 
+TEST_F(ReduceTest, IsTritonSupportedReductionWithMultidimensionalTile) {
+  const std::string kHloTestTemplate = R"(
+add {
+  Arg_0 = $0[] parameter(0)
+  Arg_1 = $0[] parameter(1)
+  ROOT add = $0[] add(Arg_0, Arg_1)
+}
+
+ENTRY triton_computation {
+  parameter_0 = $0[3,125,127]{2,1,0} parameter(0)
+  constant_0 = $0[] constant(0)
+  ROOT reduce = $0[3,125]{1,0} reduce(parameter_0, constant_0),
+    dimensions={2}, to_apply=add
+})";
+  TF_ASSERT_OK_AND_ASSIGN(TestedInstruction ti,
+                          ParseTemplateAndGetInstruction(kHloTestTemplate, F32,
+                                                         HloOpcode::kReduce));
+  RunSupportTest(std::move(ti), /*output_tile_sizes=*/{3, 4},
+                 se::CudaComputeCapability::Ampere());
+}
+
 TEST_P(
     ReduceTest,
     UnsupportedReduceWithMoreThanOneReduceDimensionsFailsGracefullyWithTriton) {
@@ -502,9 +523,8 @@ ENTRY triton_computation {
   RunSupportTest(std::move(ti), /*output_tile_sizes=*/{1}, cc);
 }
 
-TEST_P(ReduceTest,
-       UnsupportedReduceWithNonConstReduceValueFailsGracefullyWithTriton) {
-  auto [data_type, opcode, cc] = GetParam();
+TEST_F(ReduceTest, ReduceWithNonConstReduceValueIsSupportedWithTriton) {
+  const se::GpuComputeCapability cc = se::CudaComputeCapability::Ampere();
   const std::string kHloTestTemplate = R"(
 add {
   Arg_0 = $0[] parameter(0)
@@ -517,11 +537,11 @@ ENTRY triton_computation {
   init = $0[] parameter(1)
   ROOT reduce = $0[125]{0} reduce(parameter_0, init), dimensions={1}, to_apply=add
 })";
-  TF_ASSERT_OK_AND_ASSIGN(
-      TestedInstruction ti,
-      ParseTemplateAndGetInstruction(kHloTestTemplate, data_type, opcode));
-  EXPECT_FALSE(IsTritonSupportedInstruction(ti.Instruction(), cc));
-  RunSupportTest(std::move(ti), /*output_tile_sizes=*/{1}, cc);
+  TF_ASSERT_OK_AND_ASSIGN(TestedInstruction ti,
+                          ParseTemplateAndGetInstruction(kHloTestTemplate, F32,
+                                                         HloOpcode::kReduce));
+  EXPECT_TRUE(IsTritonSupportedInstruction(ti.Instruction(), cc));
+  RunSupportTest(std::move(ti), /*output_tile_sizes=*/{2}, cc);
 }
 
 TEST_P(ReduceTest, UnsupportedReductionComputationFailsGracefullyWithTriton) {

@@ -39,7 +39,7 @@ limitations under the License.
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/types/span.h"
-#include "mlir/IR/BuiltinOps.h"  // from @llvm-project
+#include "mlir/IR/BuiltinOps.h"
 #include "xla/client/executable_build_options.h"
 #include "xla/client/local_client.h"
 #include "xla/client/xla_computation.h"
@@ -56,6 +56,7 @@ limitations under the License.
 #include "xla/pjrt/pjrt_future.h"
 #include "xla/pjrt/tracked_device_buffer.h"
 #include "xla/pjrt/transpose.h"
+#include "xla/pjrt/utils.h"
 #include "xla/service/computation_placer.h"
 #include "xla/service/executable.h"
 #include "xla/service/gpu/gpu_executable_run_options.h"
@@ -147,8 +148,11 @@ class PjRtStreamExecutorDevice : public PjRtDevice {
     client_ = client;
     // We have to define debug_string_ and to_string_ here, because
     // platform_name() requires client_ to be set.
+    std::string device_name =
+        absl::StrCat(MakeAsciiTitlecase(platform_name()), "Device");
+
     description().SetDebugString(absl::StrCat(platform_name(), ":", id()));
-    description().SetToString(absl::StrCat(platform_name(), "(id=", id(), ")"));
+    description().SetToString(absl::StrCat(device_name, "(id=", id(), ")"));
   }
 
   PjRtStreamExecutorDeviceDescription& description() { return description_; }

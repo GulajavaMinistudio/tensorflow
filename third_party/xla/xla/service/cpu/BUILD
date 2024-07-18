@@ -850,7 +850,9 @@ cc_library(
         "//xla/service/cpu/runtime:reduce_scatter_thunk",
         "//xla/service/cpu/runtime:resource_use",
         "//xla/service/cpu/runtime:rng_state_thunk",
+        "//xla/service/cpu/runtime:sort_thunk",
         "//xla/service/cpu/runtime:thunk",
+        "//xla/service/cpu/runtime:topk_thunk",
         "//xla/service/cpu/runtime:while_thunk",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/container:flat_hash_map",
@@ -1652,6 +1654,23 @@ xla_cc_test(
         "@llvm-project//llvm:Core",
         "@llvm-project//llvm:MC",
         "@llvm-project//llvm:Target",
+    ],
+)
+
+xla_cc_test(
+    name = "scoped_ir_builder_test",
+    srcs = ["scoped_ir_builder_test.cc"],
+    deps = [
+        ":ir_emitter",
+        ":target_machine_features_fake",
+        "//xla/service:buffer_assignment",
+        "//xla/service:hlo_ordering",
+        "//xla/service:logical_buffer",
+        "//xla/tests:hlo_test_base",
+        "@com_google_googletest//:gtest_main",
+        "@llvm-project//llvm:Core",
+        "@local_tsl//tsl/platform:test",
+        "@local_tsl//tsl/platform:test_main",
     ],
 )
 

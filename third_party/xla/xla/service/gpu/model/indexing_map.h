@@ -19,6 +19,7 @@ limitations under the License.
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <ostream>
 #include <string>
@@ -29,10 +30,10 @@ limitations under the License.
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/SmallVector.h"
-#include "mlir/IR/AffineExpr.h"  // from @llvm-project
-#include "mlir/IR/AffineMap.h"  // from @llvm-project
-#include "mlir/IR/MLIRContext.h"  // from @llvm-project
-#include "mlir/Support/LLVM.h"  // from @llvm-project
+#include "mlir/IR/AffineExpr.h"
+#include "mlir/IR/AffineMap.h"
+#include "mlir/IR/MLIRContext.h"
+#include "mlir/Support/LLVM.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/service/gpu/model/affine_map_printer.h"
 
@@ -154,13 +155,14 @@ inline size_t hash_value(const Interval& range) {
   return llvm::hash_combine(range.lower, range.upper);
 }
 
+class IndexingMap;
+
 // Evaluates lower and upper bounds for expressions given the domain.
-// Not thread safe.
+// Not thread safe. Lifetime is tied to the owning IndexingMap's lifetime.
 class RangeEvaluator {
  public:
-  RangeEvaluator(absl::Span<const Interval> dim_ranges,
-                 absl::Span<const Interval> symbol_ranges,
-                 mlir::MLIRContext* mlir_context);
+  RangeEvaluator(const IndexingMap& indexing_map,
+                 mlir::MLIRContext* mlir_context, bool use_constraints = true);
 
   // Checks whether an `AffineExpr` always describes a non-negative value.
   bool IsAlwaysPositiveOrZero(mlir::AffineExpr expr);
@@ -176,7 +178,8 @@ class RangeEvaluator {
 
  private:
   mlir::MLIRContext* mlir_context_;
-  llvm::DenseMap<mlir::AffineExpr, Interval> expression_ranges_cache_;
+  const IndexingMap& indexing_map_;
+  bool use_constraints_;
 };
 
 // Dimension variable represents a dimension of a tensor or a GPU grid.
@@ -360,11 +363,6 @@ class IndexingMap {
   bool IsKnownEmpty() const { return is_known_empty_; }
 
   bool IsUndefined() const { return affine_map_ == mlir::AffineMap(); }
-
-  // Removes unused dimensions from the `affine_map_` and constraints.
-  // Returns a bit vector of dimensions that were removed. If none of the
-  // dimensions were removed, returns {}.
-  llvm::SmallBitVector RemoveUnusedDimensions();
 
   // Removes unused symbols from the `affine_map_` and constraints.
   // Returns a bit vector of symbols that were removed. If none of the symbols

@@ -312,21 +312,7 @@ CodegenDecision CanTritonHandleReduce(
   if (reduce.dimensions().size() == 1 &&
       reduce.dimensions().front() == reduce.operand(0)->shape().rank() - 1 &&
       reduce.operand_count() == 2) {
-    const HloInstruction* operand = reduce.operand(1);
-    // We assume that the reduction init value was input as a constant, or in
-    // the case of a data type affected by float normalization, a convert of a
-    // constant.
-    if (operand->opcode() == HloOpcode::kConvert) {
-      if (operand->operand(0)->opcode() == HloOpcode::kConstant &&
-          operand->operand(0)->shape().element_type() == BF16 &&
-          operand->shape().element_type() == F32) {
-        return CodegenDecision{};
-      }
-    } else if (operand->opcode() == HloOpcode::kConstant) {
-      return CodegenDecision{};
-    }
-    return "Reduction init value should be a constant or a convert of a "
-           "constant.";
+    return CodegenDecision{};
   }
   return "Reduction is not a row-reduction of a single operand.";
 }
@@ -395,10 +381,6 @@ CodegenDecision IsTritonSupportedInstruction(
         return "No non-contracting dimensions.";
       }
       return CanTritonHandleGEMM(*dot, gpu_version);
-    }
-    case HloOpcode::kReduce: {
-      return CanTritonHandleReduce(*Cast<HloReduceInstruction>(&instr),
-                                   gpu_version);
     }
     case HloOpcode::kTuple: {
       if (instr.IsRoot()) {
@@ -607,6 +589,8 @@ CodegenDecision IsTritonSupportedInstructionImpl(
   // TODO(bchetioui): support kDot, kPad, and kDynamicSlice.
   switch (instr.opcode()) {
     case HloOpcode::kReduce: {
+      // TODO(bchetioui): upgrade `CanTritonHandleReduce` to correspond to
+      // the new implementation.
       return legacy_triton::CanTritonHandleReduce(
           *Cast<HloReduceInstruction>(&instr), gpu_version);
     }
@@ -628,11 +612,18 @@ absl::Status EnsureTritonSupportsComputeCapability(
     const se::GpuComputeCapability& gpu_compute_capability) {
   auto cuda_compute_capability =
       std::get_if<se::CudaComputeCapability>(&gpu_compute_capability);
+  auto rocm_compute_capability =
+      std::get_if<se::RocmComputeCapability>(&gpu_compute_capability);
+  if (!cuda_compute_capability && !rocm_compute_capability) {
+    return absl::FailedPreconditionError(
+        "Triton support is only enabled for CUDA and ROCm GPUs.");
+  }
+
   if (cuda_compute_capability && !cuda_compute_capability->IsAtLeastAmpere()) {
     return absl::FailedPreconditionError(
-        absl::StrCat("Triton support is only enabled for Ampere GPUs (compute ",
-                     "capability 8.0) and up, but got compute capability ",
-                     cuda_compute_capability->major, ".",
+        absl::StrCat("CUDA Triton support is only enabled for Ampere GPUs ",
+                     "(compute capability 8.0) and up, but got compute ",
+                     "capability ", cuda_compute_capability->major, ".",
                      cuda_compute_capability->minor, "."));
   }
 

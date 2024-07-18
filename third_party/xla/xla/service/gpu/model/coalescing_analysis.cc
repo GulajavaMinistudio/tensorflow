@@ -28,11 +28,11 @@ limitations under the License.
 #include "absl/log/check.h"
 #include "absl/log/log.h"
 #include "absl/types/span.h"
-#include "llvm/ADT/STLExtras.h"
-#include "mlir/IR/AffineExpr.h"  // from @llvm-project
-#include "mlir/IR/AffineMap.h"  // from @llvm-project
-#include "mlir/IR/MLIRContext.h"  // from @llvm-project
-#include "mlir/Support/LLVM.h"  // from @llvm-project
+#include "llvm/Support/MathExtras.h"
+#include "mlir/IR/AffineExpr.h"
+#include "mlir/IR/AffineMap.h"
+#include "mlir/IR/MLIRContext.h"
+#include "mlir/Support/LLVM.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/layout.h"
@@ -121,15 +121,15 @@ bool EstimateCoalescingViaMemoryTransactionsCount(
   int total_num_elements = 0;
   for (const auto& range : intervals) {
     int64_t num_elements = range.upper - range.lower + 1;
-    memory_transactions +=
-        CeilDiv(num_elements * type_size, kBytesPerMemoryTransaction);
+    memory_transactions += llvm::divideCeilSigned(num_elements * type_size,
+                                                  kBytesPerMemoryTransaction);
     total_num_elements += num_elements;
   }
   if (memory_transactions == 0) {
     return true;
   }
-  int memory_transactions_lower_bound =
-      CeilDiv(total_num_elements * type_size, kBytesPerMemoryTransaction);
+  int memory_transactions_lower_bound = llvm::divideCeilSigned(
+      total_num_elements * type_size, kBytesPerMemoryTransaction);
   // The magic value chosen by an uneducated guess.
   constexpr float kIsCoalescedThreshold = 0.9;
   return memory_transactions_lower_bound >

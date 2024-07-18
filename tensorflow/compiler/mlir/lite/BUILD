@@ -708,6 +708,7 @@ cc_library(
         "//tensorflow/compiler/mlir/lite/quantization/ir:QuantOps",
         "//tensorflow/compiler/mlir/lite/schema:schema_fbs",
         "//tensorflow/compiler/mlir/lite/stablehlo:optimize_layout",
+        "//tensorflow/compiler/mlir/lite/stablehlo:prepare_hlo",
         "//tensorflow/compiler/mlir/lite/stablehlo:tf_legalize_hlo",
         "//tensorflow/compiler/mlir/lite/stablehlo:tfl_legalize_chlo",
         "//tensorflow/compiler/mlir/lite/stablehlo:tfl_legalize_hlo",
@@ -888,6 +889,7 @@ cc_library(
         "//tensorflow/core/platform:logging",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/strings",
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:FuncDialect",
         "@llvm-project//mlir:IR",
@@ -1358,6 +1360,7 @@ cc_library(
         "//tensorflow/compiler/mlir/lite/stablehlo:composite_lowering",
         "//tensorflow/compiler/mlir/lite/stablehlo:legalize_stablehlo_composite_to_tfl_custom",
         "//tensorflow/compiler/mlir/lite/stablehlo:legalize_tf_xla_call_module_to_stablehlo_pass",
+        "//tensorflow/compiler/mlir/lite/stablehlo:prepare_hlo",  # buildcleaner: keep
         "//tensorflow/compiler/mlir/lite/stablehlo:rename_entrypoint_to_main",
         "//tensorflow/compiler/mlir/lite/stablehlo:tf_legalize_hlo",  # buildcleaner: keep
         "//tensorflow/compiler/mlir/lite/stablehlo:tfl_legalize_chlo",  # buildcleaner: keep
