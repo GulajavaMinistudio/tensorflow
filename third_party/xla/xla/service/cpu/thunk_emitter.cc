@@ -231,6 +231,7 @@ absl::StatusOr<ThunkSequence> ThunkEmitter::EmitHloInstruction(
     case HloOpcode::kSin:
     case HloOpcode::kSqrt:
     case HloOpcode::kSubtract:
+    case HloOpcode::kTranspose:
     case HloOpcode::kTan:
     case HloOpcode::kTanh:
     case HloOpcode::kXor:
@@ -897,7 +898,6 @@ absl::StatusOr<ThunkSequence> ThunkEmitter::EmitCustomCallThunk(
   // TODO(penporn): Support these existing targets.
   auto custom_call_target = custom_call->custom_call_target();
   if (custom_call_target == "PadToStatic" ||
-      custom_call_target == "SliceToDynamic" ||
       custom_call_target == "__onednn$matmul" ||
       custom_call_target == "__onednn$softmax" ||
       custom_call_target == "__onednn$layernorm" ||
@@ -907,6 +907,8 @@ absl::StatusOr<ThunkSequence> ThunkEmitter::EmitCustomCallThunk(
   }
   if (custom_call_target == "TopK") {
     return EmitTopKThunk(custom_call);
+  } else if (custom_call_target == "SliceToDynamic") {
+    return EmitSliceToDynamicThunk(instruction);
   }
 
   // Check the API version.
@@ -925,6 +927,17 @@ absl::StatusOr<ThunkSequence> ThunkEmitter::EmitCustomCallThunk(
   return ThunkSequence::Of<CustomCallThunk>(ThunkInfo(instruction),
                                             custom_call_target, op_buffers,
                                             backend_config, version);
+}
+
+absl::StatusOr<ThunkSequence> ThunkEmitter::EmitSliceToDynamicThunk(
+    const HloInstruction* instruction) {
+  TF_ASSIGN_OR_RETURN(auto kernel,
+                      ir_emitter_.EmitSliceToDynamicHostKernel(instruction));
+  TF_ASSIGN_OR_RETURN(auto buffers, GetHostKernelAllocationSlices(instruction));
+
+  return ThunkSequence::Of<KernelThunk>(
+      ThunkInfo(instruction), buffers.arguments, buffers.results, kernel.name,
+      kernel.thread_dims, /*min_alignment=*/cpu_function_runtime::MinAlign());
 }
 
 absl::StatusOr<ThunkSequence> ThunkEmitter::EmitSelectAndScatterThunk(
@@ -964,25 +977,39 @@ absl::StatusOr<ThunkSequence> ThunkEmitter::EmitSortThunk(
   TF_ASSIGN_OR_RETURN(auto comparator, ir_emitter_.EmitSortComparator(sort));
   TF_ASSIGN_OR_RETURN(auto buffers, GetHostKernelAllocationSlices(sort));
 
-  if (!absl::c_equal(buffers.arguments, buffers.results)) {
+  if (buffers.arguments.size() != buffers.results.size()) {
     return Internal(
-        "Sort operation expected to be performed inplace and all arguments "
-        "must alias with results");
+        "Sort operation expects the same number of operands and results");
   }
+
+  ThunkSequence thunks;
 
   std::vector<SortThunk::Input> inputs;
   inputs.reserve(sort->operand_count());
 
   for (size_t i = 0; i < sort->operand_count(); ++i) {
-    inputs.push_back(SortThunk::Input{
-        buffers.arguments[i],
-        sort->operand(i)->shape(),
-    });
+    const Shape& shape = sort->operand(i)->shape();
+
+    BufferAllocation::Slice arg = buffers.arguments[i];
+    BufferAllocation::Slice result = buffers.results[i];
+
+    // Copy argument to result if they are not the same buffer.
+    if (arg != result) {
+      TF_ASSIGN_OR_RETURN(
+          thunks.emplace_back(),
+          CopyThunk::Create(ThunkInfo(instruction), arg, shape, result, shape));
+    }
+
+    // Add sort thunk input to sort result buffer inplace.
+    inputs.push_back(SortThunk::Input{result, shape});
   }
 
-  return ThunkSequence::Of<SortThunk>(ThunkInfo(instruction), inputs,
-                                      sort->sort_dimension(), sort->is_stable(),
-                                      comparator.name);
+  TF_ASSIGN_OR_RETURN(
+      thunks.emplace_back(),
+      SortThunk::Create(ThunkInfo(instruction), inputs, sort->sort_dimension(),
+                        sort->is_stable(), comparator.name));
+
+  return thunks;
 }
 
 absl::StatusOr<ThunkEmitter::HostKernelAllocationSlices>

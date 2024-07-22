@@ -56,12 +56,12 @@ limitations under the License.
 #include "xla/stream_executor/data_type.h"
 #include "xla/stream_executor/device_description.h"
 #include "xla/stream_executor/dnn.h"
+#include "xla/stream_executor/event_based_timer.h"
 #include "xla/stream_executor/gpu/gpu_activation.h"
 #include "xla/stream_executor/gpu/gpu_diagnostics.h"
 #include "xla/stream_executor/gpu/gpu_driver.h"
 #include "xla/stream_executor/gpu/gpu_executor.h"
 #include "xla/stream_executor/gpu/gpu_stream.h"
-#include "xla/stream_executor/gpu/gpu_timer.h"
 #include "xla/stream_executor/numeric_options.h"
 #include "xla/stream_executor/platform/initialize.h"
 #include "xla/stream_executor/plugin_registry.h"
@@ -2255,7 +2255,7 @@ absl::StatusOr<DeviceMemory<uint8_t>> CreateBatchNormBackwardWorkspace(
 
 // Populates the profile result if not empty.
 static absl::Status PopulateProfileFromTimer(
-    std::optional<GpuTimer>& timer, const dnn::AlgorithmDesc& algorithm,
+    EventBasedTimer* timer, const dnn::AlgorithmDesc& algorithm,
     dnn::ProfileResult* profile_result,
     std::optional<uint64_t> scratch_size = std::nullopt) {
   if (profile_result) {
@@ -2306,13 +2306,12 @@ absl::Status CudnnSupport::DoRnnForwardImpl(
       stream, cudnn, rnn_desc, model_dims, input_desc, workspace_allocator,
       reserve_space_allocator, is_training, &workspace, &reserve_space));
 
-  const bool is_profiling = output_profile_result != nullptr;
-  TF_ASSIGN_OR_RETURN(
-      std::optional<GpuTimer> timer,
-      GpuTimer::CreateIfNeeded(
-          stream,
-          output_profile_result && output_profile_result->warmup_run_executed(),
-          is_profiling));
+  std::unique_ptr<EventBasedTimer> timer;
+  if (output_profile_result != nullptr) {
+    TF_ASSIGN_OR_RETURN(timer,
+                        stream->CreateEventBasedTimer(
+                            output_profile_result->warmup_run_executed()));
+  }
 
   if (input_desc.is_var_seq_lengths()) {
     // In CUDNN v8, the cudnnRNNForward*** and cudnnRNNForward***Ex have been
@@ -2409,9 +2408,9 @@ absl::Status CudnnSupport::DoRnnForwardImpl(
 #endif  // CUDNN_VERSION >= 90000
   }
 
-  if (is_profiling) {
+  if (timer != nullptr) {
     TF_RETURN_IF_ERROR(PopulateProfileFromTimer(
-        timer, *rnn_desc.algorithm_config().algorithm(),
+        timer.get(), *rnn_desc.algorithm_config().algorithm(),
         output_profile_result));
   }
 
@@ -2460,13 +2459,12 @@ absl::Status CudnnSupport::DoRnnBackwardImpl(
                                         input_desc, workspace_allocator,
                                         nullptr, true, &workspace, nullptr));
 
-  const bool is_profiling = output_profile_result != nullptr;
-  TF_ASSIGN_OR_RETURN(
-      std::optional<GpuTimer> timer,
-      GpuTimer::CreateIfNeeded(
-          stream,
-          output_profile_result && output_profile_result->warmup_run_executed(),
-          is_profiling));
+  std::unique_ptr<EventBasedTimer> timer;
+  if (output_profile_result != nullptr) {
+    TF_ASSIGN_OR_RETURN(timer,
+                        stream->CreateEventBasedTimer(
+                            output_profile_result->warmup_run_executed()));
+  }
 
   if (input_desc.is_var_seq_lengths()) {
     // In CUDNN v8, the cudnnRNNBackward*** and cudnnRNNBackward***Ex have
@@ -2604,9 +2602,9 @@ absl::Status CudnnSupport::DoRnnBackwardImpl(
 #endif  // CUDNN_VERSION >= 90000
   }
 
-  if (is_profiling) {
+  if (timer != nullptr) {
     TF_RETURN_IF_ERROR(PopulateProfileFromTimer(
-        timer, *rnn_desc.algorithm_config().algorithm(),
+        timer.get(), *rnn_desc.algorithm_config().algorithm(),
         output_profile_result));
   }
 
@@ -5589,12 +5587,11 @@ class CudnnLegacyConvRunner : public dnn::ConvRunner {
                      ? static_cast<void*>(&dbeta)
                      : static_cast<void*>(&fbeta);
 
-    const bool is_profiling = profile_result != nullptr;
-    TF_ASSIGN_OR_RETURN(
-        std::optional<GpuTimer> timer,
-        GpuTimer::CreateIfNeeded(
-            stream, profile_result && profile_result->warmup_run_executed(),
-            is_profiling));
+    std::unique_ptr<EventBasedTimer> timer;
+    if (profile_result != nullptr) {
+      TF_ASSIGN_OR_RETURN(timer, stream->CreateEventBasedTimer(
+                                     profile_result->warmup_run_executed()));
+    }
 
     const auto get_fwd_bugs = [&]() -> absl::Status {
 #if CUDNN_VERSION < 8000
@@ -5671,9 +5668,9 @@ class CudnnLegacyConvRunner : public dnn::ConvRunner {
                                      static_cast<int>(kind_));
     }
 
-    if (is_profiling) {
-      TF_RETURN_IF_ERROR(PopulateProfileFromTimer(timer, algo, profile_result,
-                                                  scratch_memory.size()));
+    if (timer != nullptr) {
+      TF_RETURN_IF_ERROR(PopulateProfileFromTimer(
+          timer.get(), algo, profile_result, scratch_memory.size()));
     }
 
     return absl::OkStatus();
@@ -6035,21 +6032,20 @@ class CudnnExecutionPlanRunner<void(Args...)>
             << "\nWorkspace size in bytes: " << workspace_size
             << "\nVariantPack: " << variantPack.describe();
 
-    const bool is_profiling = profile_result != nullptr;
-    TF_ASSIGN_OR_RETURN(
-        std::optional<GpuTimer> timer,
-        GpuTimer::CreateIfNeeded(
-            stream, profile_result && profile_result->warmup_run_executed(),
-            is_profiling));
+    std::unique_ptr<EventBasedTimer> timer;
+    if (profile_result != nullptr) {
+      TF_ASSIGN_OR_RETURN(timer, stream->CreateEventBasedTimer(
+                                     profile_result->warmup_run_executed()));
+    }
 
     cudnnStatus_t status = cudnnBackendExecute(
         cudnn.handle(), plan_.get_raw_desc(), variantPack.get_raw_desc());
     RETURN_IF_CUDNN_ERROR(status);
 
-    if (is_profiling) {
+    if (timer != nullptr) {
       TF_ASSIGN_OR_RETURN(auto desc, ToAlgorithmDesc());
-      TF_RETURN_IF_ERROR(PopulateProfileFromTimer(timer, desc, profile_result,
-                                                  scratch_memory.size()));
+      TF_RETURN_IF_ERROR(PopulateProfileFromTimer(
+          timer.get(), desc, profile_result, scratch_memory.size()));
 
       VLOG(4) << "cudnn op with plan " << plan_.getTag()
               << ", workspace_size=" << workspace_size << " -> "
@@ -6616,12 +6612,12 @@ class CudnnLegacyFusedConvRunner : public dnn::FusedConvRunner {
     }
 
     auto algo = MakeAlgorithmDesc();
+    std::unique_ptr<EventBasedTimer> timer;
 
-    TF_ASSIGN_OR_RETURN(
-        std::optional<GpuTimer> timer,
-        GpuTimer::CreateIfNeeded(
-            stream, profile_result && profile_result->warmup_run_executed(),
-            profile_result != nullptr));
+    if (profile_result != nullptr) {
+      TF_ASSIGN_OR_RETURN(timer, stream->CreateEventBasedTimer(
+                                     profile_result->warmup_run_executed()));
+    }
     auto side_input_data_ptr = (side_input_scale_ == 0)
                                    ? output_data.opaque()
                                    : side_input_data.opaque();
@@ -6675,9 +6671,9 @@ class CudnnLegacyFusedConvRunner : public dnn::FusedConvRunner {
     }
     RETURN_IF_CUDNN_ERROR(status);
 
-    if (profile_result) {
-      TF_RETURN_IF_ERROR(PopulateProfileFromTimer(timer, algo, profile_result,
-                                                  scratch_memory.size()));
+    if (timer != nullptr) {
+      TF_RETURN_IF_ERROR(PopulateProfileFromTimer(
+          timer.get(), algo, profile_result, scratch_memory.size()));
       VLOG(4) << "conv with algorithm " << ToConvForwardAlgo(algo)
               << ", tensor_ops_enabled=" << tensor_ops_enabled_
               << ", workspace_size=" << scratch_memory.size() << " -> "

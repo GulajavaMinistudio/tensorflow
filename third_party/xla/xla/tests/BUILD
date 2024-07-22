@@ -332,12 +332,12 @@ cc_library(
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
+        "@local_tsl//tsl/platform",
         "@local_tsl//tsl/platform:env",
         "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:path",
         "@local_tsl//tsl/platform:resource_loader",
         "@local_tsl//tsl/platform:subprocess",
-        "@local_tsl//tsl/platform:test",
     ],
 )
 
@@ -1107,6 +1107,7 @@ xla_test(
 xla_test(
     name = "transpose_test",
     srcs = ["transpose_test.cc"],
+    tags = ["test_xla_cpu_thunks"],
     deps = [
         ":client_library_test_base",
         ":hlo_test_base",
@@ -1114,10 +1115,11 @@ xla_test(
         ":test_macros_header",
         ":xla_internal_test_main",
         "//xla:array2d",
+        "//xla:literal_util",
         "//xla:reference_util",
         "//xla:util",
-        "//xla/client:local_client",
         "//xla/client:xla_builder",
+        "@local_tsl//tsl/platform:statusor",
         "@local_tsl//tsl/platform:test",
     ],
 )
@@ -1776,6 +1778,19 @@ xla_test(
         ":xla_internal_test_main",
         "@com_google_absl//absl/strings",
         "@local_tsl//tsl/platform:test",
+    ],
+)
+
+xla_test(
+    name = "sort_test",
+    srcs = ["sort_test.cc"],
+    tags = ["test_xla_cpu_thunks"],
+    deps = [
+        ":hlo_test_base",
+        ":test_macros_header",
+        ":xla_internal_test_main",
+        "//xla:error_spec",
+        "@com_google_googletest//:gtest_main",
     ],
 )
 
@@ -2937,7 +2952,7 @@ xla_test(
 xla_test(
     name = "set_dimension_size_test",
     srcs = ["set_dimension_size_test.cc"],
-    # TODO(abanas): add test_xla_cpu_thunks tag when 'SliceToDynamic' custom call is supported.
+    tags = ["test_xla_cpu_thunks"],
     deps = [
         ":hlo_test_base",
         ":xla_internal_test_main",  # fixdeps: keep
