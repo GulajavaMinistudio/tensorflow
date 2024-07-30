@@ -231,7 +231,6 @@ xla_test(
         "//xla:xla_data_proto_cc",
         "//xla/service:platform_util",
         "//xla/stream_executor",
-        "//xla/stream_executor:kernel_factory",
         "//xla/stream_executor:platform",
         "//xla/stream_executor:platform_manager",
         "//xla/stream_executor/cuda:cuda_platform",
@@ -281,7 +280,6 @@ xla_test(
         ":cutlass_gemm_custom_kernel",
         "//xla:xla_data_proto_cc",
         "//xla/stream_executor",
-        "//xla/stream_executor:kernel_factory",
         "//xla/stream_executor:platform",
         "//xla/stream_executor:platform_manager",
         "//xla/stream_executor/cuda:cuda_platform",
@@ -302,7 +300,6 @@ xla_cc_binary(
         "//xla:xla_data_proto_cc",
         "//xla/service:gpu_plugin",
         "//xla/stream_executor",
-        "//xla/stream_executor:kernel_factory",
         "//xla/stream_executor:platform",
         "//xla/stream_executor:platform_manager",
         "//xla/stream_executor/cuda:cuda_platform",
@@ -409,17 +406,6 @@ cuda_library(
         ":cutlass_gemm_adaptor",
         "@cutlass_archive//:cutlass",
         "@local_config_cuda//cuda:cuda_headers",
-    ]),
-)
-
-cuda_library(
-    name = "cutlass_gemm_kernel_bf16xbf16_to_f32",
-    srcs = if_cuda_is_configured(["cutlass_gemm_kernel_bf16xbf16_to_f32.cu.cc"]),
-    copts = ["-Wno-unknown-attributes"],
-    deps = if_cuda_is_configured([
-        ":cutlass_gemm_adaptor",
-        "@local_config_cuda//cuda:cuda_headers",
-        "@cutlass_archive//:cutlass",
     ]),
 )
 

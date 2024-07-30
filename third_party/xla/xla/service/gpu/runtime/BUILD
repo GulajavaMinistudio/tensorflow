@@ -87,7 +87,6 @@ cc_library(
         "//xla/stream_executor",
         "//xla/stream_executor:command_buffer",
         "//xla/stream_executor:dnn",
-        "//xla/stream_executor:kernel_factory",
         "//xla/stream_executor:lazy_op_runner",
         "//xla/stream_executor:trace_command_buffer_factory",
         "//xla/stream_executor/gpu:gpu_stream_header",
@@ -429,10 +428,10 @@ cc_library(
     deps = [
         ":annotation",
         ":command_buffer_cmd",
+        ":sequential_thunk",  # build_cleaner: keep
         ":thunk",
         "//xla/service:buffer_assignment",  # build_cleaner: keep
         "//xla/service/gpu:buffer_allocations",  # build_cleaner: keep
-        "//xla/service/gpu/runtime:sequential_thunk",  # build_cleaner: keep
         "//xla/stream_executor",
         "//xla/stream_executor:command_buffer",
         "@com_google_absl//absl/base:core_headers",
@@ -466,6 +465,8 @@ xla_test(
     deps = [
         ":command_buffer_cmd",
         ":command_buffer_thunk",
+        ":memset_thunk",
+        ":sequential_thunk",
         ":thunk",
         "//xla:shape_util",
         "//xla:types",
@@ -491,6 +492,7 @@ xla_test(
         "@local_tsl//tsl/platform:statusor",
         "@local_tsl//tsl/platform:test",
         "@local_tsl//tsl/platform:test_main",
+        "@local_tsl//tsl/profiler/lib:profiler_lock",
     ] + if_cuda_is_configured([
         "@local_config_cuda//cuda:cuda_headers",
     ]),
@@ -754,7 +756,6 @@ cc_library(
         "//xla/service/gpu:stream_executor_util",
         "//xla/service/gpu/kernels:custom_kernel",
         "//xla/stream_executor",
-        "//xla/stream_executor:kernel_factory",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:inlined_vector",

@@ -118,6 +118,7 @@ limitations under the License.
 #include "xla/service/gpu/command_buffer_scheduling.h"
 #include "xla/service/gpu/compile_module_to_llvm_ir.h"
 #include "xla/service/gpu/conv_layout_normalization.h"
+#include "xla/service/gpu/custom_kernel_fusion_autotuner.h"
 #include "xla/service/gpu/custom_kernel_fusion_rewriter.h"
 #include "xla/service/gpu/dot_dimension_sorter.h"
 #include "xla/service/gpu/dot_operand_converter.h"
@@ -933,6 +934,8 @@ absl::Status RunCollectiveOptimizationPasses(
   // Remove dead computations left over after ar/rs promotion.
   collectives_pipeline.AddPass<HloDCE>();
 
+  // Moves collectives' subsequent quantization before the collective to
+  // minimize data transfers.
   collectives_pipeline.AddPass<CollectiveQuantizer>();
   // Remove dead computations after collective quantization.
   collectives_pipeline.AddPass<HloDCE>();
@@ -1252,7 +1255,7 @@ absl::Status GpuCompiler::OptimizeHloModule(
   // This is a "low effort, high impact" fusion that should be run first.
   if (hlo_module->config()
           .debug_options()
-          .xla_gpu_enable_address_computation_fusion()) {
+          .xla_gpu_enable_dynamic_slice_fusion()) {
     HloPassPipeline pipeline("dynamic-slice");
     TF_ASSIGN_OR_RETURN(se::Platform * platform,
                         se::PlatformManager::PlatformWithId(PlatformId()));
@@ -1375,6 +1378,7 @@ absl::Status GpuCompiler::OptimizeHloPostLayoutAssignment(
     if (debug_options.xla_gpu_enable_custom_fusions()) {
       pipeline.AddPass<CustomKernelFusionRewriter>(
           &gpu_target_config.device_description);
+      pipeline.AddPass<CustomKernelFusionAutotuner>(autotune_config);
     }
 
     // Rewrite GEMMs into custom calls.

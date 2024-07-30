@@ -476,7 +476,7 @@ message DebugOptions {
 
   // Enables address computation fusion to optimize dynamic-slice and
   // dynamic-update-slice operations around library calls.
-  bool xla_gpu_enable_address_computation_fusion = 105;
+  bool xla_gpu_enable_dynamic_slice_fusion = 105;
 
   reserved 233;  // was xla_gpu_enable_gpu2_runtime
   reserved 234;  // was xla_gpu_enable_gpu2_hal
@@ -806,10 +806,7 @@ message DebugOptions {
   // If true, Nccl errors will terminate the process.
   bool xla_gpu_nccl_terminate_on_error = 301;
 
-  // Use Shardy, a new partitioner, to replace the existing
-  // ShardingPropagation and SpmdPartitioner. See go/xla-sdy-pipeline for
-  // details.
-  bool xla_use_shardy = 302;
+  reserved 302;  // was xla_use_shardy
 
   bool xla_gpu_shard_autotuning = 304;
 
@@ -873,7 +870,12 @@ message DebugOptions {
   // Relative precision for comparing different GEMM solutions
   float xla_gpu_autotune_gemm_rtol = 316;
 
-  // Next id: 317
+  // Allow launching command buffers while profiling active.
+  // When disabled, execute in op-by-op mode.
+  // TODO(b/355487968): Remove this option when validation complete.
+  bool xla_enable_command_buffers_during_profiling = 317;
+
+  // Next id: 318
 
   // Extra options to pass to the compilation backend (e.g. LLVM); specific
   // interpretation of these values is left to the backend.
