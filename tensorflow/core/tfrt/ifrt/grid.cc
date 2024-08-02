@@ -1,4 +1,4 @@
-/* Copyright 2024 The OpenXLA Authors.
+/* Copyright 2024 The TensorFlow Authors. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -13,21 +13,18 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef XLA_SERVICE_GPU_FUSIONS_MLIR_IR_XLA_GPU_ATTRS_H_
-#define XLA_SERVICE_GPU_FUSIONS_MLIR_IR_XLA_GPU_ATTRS_H_
+#include "tensorflow/core/tfrt/ifrt/grid.h"
 
-#include "mlir/IR/Attributes.h"
-#include "mlir/IR/OpImplementation.h"
-#include "mlir/Support/LLVM.h"
-#include "xla/service/gpu/model/indexing_map.h"  // IWYU pragma: keep
+#include <string>
 
-namespace xla {
-namespace gpu {
+#include "absl/strings/str_cat.h"
 
-// Custom parser to parse IndexingMapAttr.
-mlir::FailureOr<mlir::Attribute> ParseIndexingMapAttr(mlir::AsmParser& parser);
+namespace tensorflow {
+namespace ifrt_serving {
 
-}  // namespace gpu
-}  // namespace xla
+std::string GridCoords::ToString() const {
+  return absl::StrCat("[", dim[0], ",", dim[1], ",", dim[2], ",", dim[3], "]");
+}
 
-#endif  // XLA_SERVICE_GPU_FUSIONS_MLIR_IR_XLA_GPU_ATTRS_H_
+}  // namespace ifrt_serving
+}  // namespace tensorflow
