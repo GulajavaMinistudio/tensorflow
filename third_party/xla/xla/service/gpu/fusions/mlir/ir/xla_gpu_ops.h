@@ -31,6 +31,9 @@ limitations under the License.
 #define GET_ATTRDEF_CLASSES
 #include "xla/service/gpu/fusions/mlir/ir/xla_gpu_attrs.h.inc"
 #undef GET_ATTRDEF_CLASSES
+#define GET_TYPEDEF_CLASSES
+#include "xla/service/gpu/fusions/mlir/ir/xla_gpu_types.h.inc"
+#undef GET_TYPEDEF_CLASSES
 #define GET_OP_CLASSES
 #include "xla/service/gpu/fusions/mlir/ir/xla_gpu_ops.h.inc"
 #undef GET_OP_CLASSES

@@ -1052,12 +1052,7 @@ cc_library(
         "@local_tsl//tsl/profiler/rpc:profiler_server_impl",
         "@local_tsl//tsl/profiler/rpc/client:capture_profile",
         "@local_tsl//tsl/profiler/rpc/client:profiler_client_impl",
-    ] + select({
-        ":gpu_enabled": [
-            "//xla/backends/profiler/gpu:device_tracer",
-        ],
-        "//conditions:default": [],
-    }),
+    ],
 )
 
 cc_library(
@@ -1407,7 +1402,8 @@ tsl_pybind_extension(
         "@local_tsl//tsl/platform/cloud:gcs_file_system",
     ] + select({
         # gloo transport only builds on linux
-        "//xla/tsl:macos": [
+        "//xla/tsl:macos_arm64": [],
+        "//xla/tsl:macos_x86_64": [
             "//xla/pjrt/cpu:gloo_collectives",
             "//xla/pjrt/cpu:gloo_kv_store",
         ] + if_oss(["@gloo//:transport_uv"]),
