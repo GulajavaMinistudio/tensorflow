@@ -525,7 +525,7 @@ class SparseLocalLoadToLLVMPass
 
   void runOnOperation() override {
     // Exit early if there are no sparse ops.
-    mlir::ModuleOp mod = getOperation();
+    ModuleOp mod = getOperation();
     if (!mod.walk([](triton::gpu::LocalLoadOp op) {
               if (isa<triton::gpu::SparseDotMetaEncodingAttr>(
                       op.getType().getEncoding())) {
