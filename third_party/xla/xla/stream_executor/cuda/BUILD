@@ -226,11 +226,7 @@ xla_test(
     name = "cuda_driver_test",
     srcs = ["cuda_driver_test.cc"],
     backends = ["gpu"],
-    tags = [
-        # TODO(b/317293391) Remove once Bazel test_suite handles tags correctly
-        "gpu",
-        "no_rocm",
-    ],
+    tags = ["no_rocm"],
     deps = [
         ":cuda_driver",
         ":cuda_status",
@@ -429,7 +425,6 @@ gpu_kernel_library(
         "//xla/stream_executor/gpu:gpu_driver_header",
         "//xla/stream_executor/gpu:gpu_executor_header",
         "//xla/stream_executor/gpu:gpu_semaphore",
-        "//xla/stream_executor/gpu:gpu_stream",
         "@com_google_absl//absl/status:statusor",
     ],
 )
@@ -591,6 +586,7 @@ cc_library(
 cc_library(
     name = "ptx_compiler",
     hdrs = ["ptx_compiler.h"],
+    tags = ["no_rocm"],
     deps = select({
         ":libnvptxcompiler_support_enabled": [":ptx_compiler_impl"],
         "//conditions:default": [":ptx_compiler_stub"],
@@ -603,8 +599,11 @@ cc_library(
 xla_cc_test(
     name = "ptx_compiler_test",
     srcs = ["ptx_compiler_test.cc"],
-    # TODO(b/343996893): Figure out whether msan reports a false positive or not.
-    tags = ["nomsan"],
+    tags = [
+        "no_rocm",
+        # TODO(b/343996893): Figure out whether msan reports a false positive or not.
+        "nomsan",
+    ],
     deps = [
         ":ptx_compiler",
         ":ptx_compiler_support",
