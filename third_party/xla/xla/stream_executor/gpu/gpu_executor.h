@@ -53,7 +53,6 @@ limitations under the License.
 #include "xla/stream_executor/host_memory_allocation.h"
 #include "xla/stream_executor/kernel.h"
 #include "xla/stream_executor/kernel_spec.h"
-#include "xla/stream_executor/launch_dim.h"
 #include "xla/stream_executor/memory_allocation.h"
 #include "xla/stream_executor/module_spec.h"
 #include "xla/stream_executor/platform.h"
@@ -137,15 +136,6 @@ class GpuExecutor : public StreamExecutorCommon {
   // returns a pointer to that buffer with shared ownership.
   absl::StatusOr<std::shared_ptr<DeviceMemoryBase>> CreateOrShareConstant(
       Stream* stream, absl::Span<const uint8_t> content) override;
-
-  absl::Status Launch(Stream* stream, const ThreadDim& thread_dims,
-                      const BlockDim& block_dims, const Kernel& kernel,
-                      const KernelArgs& args) override;
-
-  absl::Status Launch(Stream* stream, const ThreadDim& thread_dims,
-                      const BlockDim& block_dims,
-                      const ClusterDim& cluster_dims, const Kernel& kernel,
-                      const KernelArgs& args) override;
 
   DeviceMemoryBase Allocate(uint64_t size, int64_t memory_space) override;
 
@@ -315,11 +305,6 @@ class GpuExecutor : public StreamExecutorCommon {
   // (supported on ROCm only)
   absl::Status LoadModuleFromHsaco(const char* hsaco, GpuModuleHandle* module)
       TF_EXCLUSIVE_LOCKS_REQUIRED(in_memory_modules_mu_);
-
-  absl::Status Launch(Stream* stream, const ThreadDim& thread_dims,
-                      const BlockDim& block_dims,
-                      const std::optional<ClusterDim>& cluster_dims,
-                      const Kernel& kernel, const KernelArgs& args);
 
   bool UnloadGpuBinary(const void* gpu_binary)
       TF_EXCLUSIVE_LOCKS_REQUIRED(in_memory_modules_mu_);

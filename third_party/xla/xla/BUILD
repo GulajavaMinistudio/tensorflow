@@ -516,6 +516,7 @@ xla_cc_test(
         ":test",
         ":util",
         ":xla_data_proto_cc",
+        "@com_google_absl//absl/container:inlined_vector",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:span",
@@ -1133,6 +1134,7 @@ cc_library(
         [
             ":parse_flags_from_env",
             ":xla_proto_cc",
+            "//xla/stream_executor/cuda:nvjitlink_support",
             "//xla/stream_executor/cuda:ptx_compiler_support",
             "//xla/tsl/util:command_line_flags",
             "@com_google_absl//absl/algorithm:container",

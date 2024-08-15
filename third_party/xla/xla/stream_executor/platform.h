@@ -29,7 +29,6 @@ limitations under the License.
 namespace stream_executor {
 
 class StreamExecutor;
-class DeviceDescription;
 
 // An enum to represent different levels of stream priorities.
 // This is to avoid platform-specific representations in abstractions.
@@ -46,10 +45,6 @@ struct StreamExecutorConfig {
 
   // Simple ordinal-setting constructor.
   explicit StreamExecutorConfig(int ordinal);
-
-  // The GPU stream for which we are searching the executor.
-  // If this field is specified for the search, others will be ignored.
-  void* gpu_stream = nullptr;
 
   // The ordinal of the device to be managed by the returned StreamExecutor.
   int ordinal;
@@ -104,6 +99,13 @@ class Platform {
   // which returns a cached instance specific to the initialized StreamExecutor.
   virtual absl::StatusOr<std::unique_ptr<DeviceDescription>>
   DescriptionForDevice(int ordinal) const = 0;
+
+  // Returns a StreamExecutor for the given ordinal if one has already been
+  // created, or an error is returned if none exists.  Does not create a new
+  // context with the device.
+  virtual absl::StatusOr<StreamExecutor*> FindExisting(int ordinal) {
+    return absl::NotFoundError("Not implemented for this platform.");
+  }
 
   // Returns a device with the given ordinal on this platform with a default
   // plugin configuration or, if none can be found with the given ordinal or

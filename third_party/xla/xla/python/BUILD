@@ -427,9 +427,9 @@ cc_library(
         "@local_tsl//tsl/profiler/protobuf:profiled_instructions_proto_cc",
     ] + if_cuda([
         "@local_config_cuda//cuda:cuda_headers",
-        # TODO(b/324133505): remove this dependency after JAX OSS migrates to cuda plugin.
-        "//xla/stream_executor/cuda:cuda_driver",
     ]) + if_rocm([
+        # keep sorted
+        "@local_config_rocm//rocm:hip",
         "@local_config_rocm//rocm:rocm_headers",
     ]) + if_cuda_or_rocm([
         ":py_client_gpu",  # TODO(b/337876408): remove after migration to plugin

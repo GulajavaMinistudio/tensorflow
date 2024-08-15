@@ -58,14 +58,14 @@ absl::StatusOr<StreamExecutor*> ROCmPlatform::ExecutorForDevice(int ordinal) {
   return GetExecutor(config);
 }
 
+absl::StatusOr<StreamExecutor*> ROCmPlatform::FindExisting(int ordinal) {
+  StreamExecutorConfig config;
+  config.ordinal = ordinal;
+  return executor_cache_.Get(config);
+}
+
 absl::StatusOr<StreamExecutor*> ROCmPlatform::GetExecutor(
     const StreamExecutorConfig& config) {
-  if (config.gpu_stream) {
-    // If the GPU stream was provided, it's not possible to get-or-create a
-    // stream with a required pointer: so we are looking for previously
-    // allocated streams.
-    return executor_cache_.Get(config);
-  }
   return executor_cache_.GetOrCreate(
       config, [&]() { return GetUncachedExecutor(config); });
 }

@@ -14,9 +14,11 @@ limitations under the License.
 ==============================================================================*/
 
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstdint>
-#include <cstring>
+#include <cstdlib>
+#include <ios>
 #include <limits>
 #include <tuple>
 #include <type_traits>
@@ -45,7 +47,7 @@ namespace {
 // including float16 and bfloat.
 //
 // Test parameter is a pair of (begin, end) for range under test.
-template <PrimitiveType T>
+template <PrimitiveType T, bool kLeftToRightPacking = false>
 class Exhaustive16BitBinaryTest
     : public ExhaustiveBinaryTest<T>,
       public ::testing::WithParamInterface<std::pair<int64_t, int64_t>> {
@@ -57,9 +59,13 @@ class Exhaustive16BitBinaryTest
   }
 
   // Given a range of uint64_t representation, uses bits 0..15 and bits 16..31
-  // for the values of src0 and src1 for a 16 bit binary operation being tested,
-  // and generates the cartesian product of the two sets as the two inputs for
-  // the test.
+  // for the values of src0 and src1 (see below for ordering) for the 16 bit
+  // binary operation being tested, and generates the cartesian product of the
+  // two sets as the two inputs for the test.
+  //
+  // If `kLeftToRightPacking == true`, bit 31..16 become src0 and 15..0 becomes
+  // src1. If `kLeftToRightPacking == false`, then bits 31..16 become src1
+  // and 15..0 becomes src0.
   void FillInput(std::array<Literal, 2>* input_literals) override {
     int64_t input_size = GetInputSize();
     CHECK_EQ(input_size, (*input_literals)[0].element_count());
@@ -67,17 +73,53 @@ class Exhaustive16BitBinaryTest
 
     int64_t begin, end;
     std::tie(begin, end) = GetParam();
-    VLOG(2) << "Checking range [" << begin << ", " << end << "]";
+
+    uint16_t left_begin, left_end, right_begin, right_end;
+    if constexpr (kLeftToRightPacking) {
+      left_begin = std::bit_cast<uint16_t>(static_cast<int16_t>(begin >> 16));
+      left_end = std::bit_cast<uint16_t>(static_cast<int16_t>(end >> 16));
+      right_begin = std::bit_cast<uint16_t>(static_cast<int16_t>(begin));
+      right_end = std::bit_cast<uint16_t>(static_cast<int16_t>(end));
+    } else {
+      left_begin = std::bit_cast<uint16_t>(static_cast<int16_t>(begin));
+      left_end = std::bit_cast<uint16_t>(static_cast<int16_t>(end));
+      right_begin = std::bit_cast<uint16_t>(static_cast<int16_t>(begin >> 16));
+      right_end = std::bit_cast<uint16_t>(static_cast<int16_t>(end >> 16));
+    }
+    if (VLOG_IS_ON(2)) {
+      LOG(INFO) << this->SuiteName() << this->TestName() << " Range:";
+      LOG(INFO) << "\tfrom=(" << left_begin << ", " << right_begin << "); hex=("
+                << std::hex << left_begin << ", " << right_begin << "); float=("
+                << *reinterpret_cast<xla::bfloat16*>(&left_begin) << ", "
+                << *reinterpret_cast<xla::bfloat16*>(&right_begin)
+                << ") (inclusive)";
+      LOG(INFO) << "\tto=(" << left_end << ", " << right_end << "); hex=("
+                << std::hex << left_end << ", " << right_end << "); float=("
+                << *reinterpret_cast<xla::bfloat16*>(&left_end) << ", "
+                << *reinterpret_cast<xla::bfloat16*>(&right_end)
+                << ") (exclusive)";
+      LOG(INFO) << "\ttotal values to test=" << (end - begin);
+    }
 
     absl::Span<NativeT> input_arr_0 = (*input_literals)[0].data<NativeT>();
     absl::Span<NativeT> input_arr_1 = (*input_literals)[1].data<NativeT>();
     for (int64_t i = 0; i < input_size; i++) {
       uint32_t input_val = i + begin;
-      // Convert the lower 16 bits to the NativeT and replaced known incorrect
-      // input values with 0.
-      input_arr_0[i] = ConvertAndReplaceKnownIncorrectValueWith(input_val, 0);
-      input_arr_1[i] =
-          ConvertAndReplaceKnownIncorrectValueWith(input_val >> 16, 0);
+      // Convert the packed bits to a pair of NativeT and replace known
+      // incorrect input values with 0.
+      //
+      // In either case, we only use 32 bits out of the 64 bits possible.
+      if constexpr (kLeftToRightPacking) {
+        // Left is stored at higher 16 bits.
+        input_arr_0[i] =
+            ConvertAndReplaceKnownIncorrectValueWith(input_val >> 16, 0);
+        input_arr_1[i] = ConvertAndReplaceKnownIncorrectValueWith(input_val, 0);
+      } else {
+        // Left is stored at lower 16 bits.
+        input_arr_0[i] = ConvertAndReplaceKnownIncorrectValueWith(input_val, 0);
+        input_arr_1[i] =
+            ConvertAndReplaceKnownIncorrectValueWith(input_val >> 16, 0);
+      }
     }
   }
 
@@ -108,14 +150,70 @@ using ExhaustiveBF16BinaryTest = Exhaustive16BitBinaryTest<BF16>;
   BINARY_TEST_F16(test_name, __VA_ARGS__) \
   BINARY_TEST_BF16(test_name, __VA_ARGS__)
 
+// Can be thought of as an absolute error of
+// `<= |std::numeric_limits::<float>::min()|`.
+double AddCpuBf16AbsErr(xla::bfloat16 left, xla::bfloat16 right) {
+  float output = static_cast<float>(left) + static_cast<float>(right);
+
+  // Hardware flushes subnormal outputs to 0.
+  if (IsSubnormal(output)) {
+    return std::numeric_limits<float>::min();
+  }
+
+  return 0.0;
+}
+
 BINARY_TEST_16BIT(Add, {
-  auto host_add = [](float x, float y) { return x + y; };
-  Run(AddEmptyBroadcastDimension(Add), host_add);
+  ErrorSpecGen error_spec_gen = +[](NativeT, NativeT) {
+    return ErrorSpec::Builder().strict_signed_zeros().build();
+  };
+  if (IsCpu(platform_)) {
+    if constexpr (std::is_same_v<NativeT, xla::bfloat16>) {
+      error_spec_gen = +[](NativeT left, NativeT right) {
+        return ErrorSpec::Builder()
+            .abs_err(AddCpuBf16AbsErr(static_cast<xla::bfloat16>(left),
+                                      static_cast<xla::bfloat16>(right)))
+            .strict_signed_zeros()
+            .build();
+      };
+    }
+  }
+  Run(
+      AddEmptyBroadcastDimension(Add), [](float x, float y) { return x + y; },
+      error_spec_gen);
 })
 
+// Can be thought of as an absolute error of
+// `<= |std::numeric_limits::<float>::min()|`.
+double SubCpuBf16AbsErr(xla::bfloat16 left, xla::bfloat16 right) {
+  float output = static_cast<float>(left) - static_cast<float>(right);
+
+  // Hardware flushes subnormal outputs to 0.
+  if (IsSubnormal(output)) {
+    return std::numeric_limits<float>::min();
+  }
+
+  return 0.0;
+}
+
 BINARY_TEST_16BIT(Sub, {
-  auto host_sub = [](float x, float y) { return x - y; };
-  Run(AddEmptyBroadcastDimension(Sub), host_sub);
+  ErrorSpecGen error_spec_gen = +[](NativeT, NativeT) {
+    return ErrorSpec::Builder().strict_signed_zeros().build();
+  };
+  if (IsCpu(platform_)) {
+    if constexpr (std::is_same_v<NativeT, xla::bfloat16>) {
+      error_spec_gen = +[](NativeT left, NativeT right) {
+        return ErrorSpec::Builder()
+            .abs_err(SubCpuBf16AbsErr(static_cast<xla::bfloat16>(left),
+                                      static_cast<xla::bfloat16>(right)))
+            .strict_signed_zeros()
+            .build();
+      };
+    }
+  }
+  Run(
+      AddEmptyBroadcastDimension(Sub), [](float x, float y) { return x - y; },
+      error_spec_gen);
 })
 
 // Can be thought of as an absolute error of
@@ -223,16 +321,81 @@ BINARY_TEST_16BIT(Min, {
   Run(AddEmptyBroadcastDimension(Min), ReferenceMin<float>);
 })
 
-// TODO(bixia): Pow fails with bfloat16 on CPU.
-BINARY_TEST_16BIT(DISABLED_ON_GPU(DISABLED_ON_CPU(Pow)), {
-  // See b/162664705.
-  known_incorrect_fn_ = [](int64_t val) {
-    Eigen::bfloat16 f;
-    uint16_t val_16 = val;
-    memcpy(&f, &val_16, 2);
-    return std::isnan(f);
+template <typename NativeT>
+bool PowCpuGpuF16Skip(NativeT left, NativeT right) {
+  // Hardware seems to always return 1 if right is 0, no matter if left is NaN.
+  if (std::isnan(left) && right == 0) {
+    return true;
+  }
+  // Hardware seems to always return 1 if left is 1, no matter if right is NaN.
+  if (left == 1 && std::isnan(right)) {
+    return true;
+  }
+  return false;
+}
+
+double PowCpuBf16AbsErr(xla::bfloat16 left, xla::bfloat16 right) {
+  float output = std::pow(static_cast<float>(left), static_cast<float>(right));
+
+  // Output is flushed to 0 if subnormal.
+  if (IsSubnormal(output)) {
+    return std::numeric_limits<float>::min();
+  }
+
+  // TODO(b/359325328): pow computation for subnormal bases is different from
+  // std::pow.
+  //
+  // If the base is subnormal, the output computation selects a different base.
+  // The minimum value ever chosen is slightly greater than the 1e-91 used
+  // below. We return an absolute error from this value to the "real" output.
+  //
+  // Because the exponent (right) can be any floating point value, this allows
+  // an arbitrary absolute error for subnormal values.
+  if (IsSubnormal(left)) {
+    xla::bfloat16 output_as_bf16 = static_cast<xla::bfloat16>(output);
+    auto expected = std::pow(1e-91, static_cast<double>(right));
+    auto err = std::abs(expected - output_as_bf16);
+    if (!std::isnan(err)) {
+      return err;
+    }
+  }
+
+  return 0.0;
+}
+
+BINARY_TEST_16BIT(Pow, {
+  ErrorSpecGen error_spec_gen = +[](NativeT, NativeT) {
+    return ErrorSpec::Builder().strict_signed_zeros().build();
   };
-  Run(AddEmptyBroadcastDimension(Pow), std::pow);
+  if (IsCpu(platform_)) {
+    if constexpr (std::is_same_v<NativeT, xla::half>) {
+      error_spec_gen = +[](NativeT left, NativeT right) {
+        return ErrorSpec::Builder()
+            .strict_signed_zeros()
+            .skip_comparison(PowCpuGpuF16Skip(left, right))
+            .build();
+      };
+    }
+    if constexpr (std::is_same_v<NativeT, xla::bfloat16>) {
+      error_spec_gen = +[](NativeT left, NativeT right) {
+        return ErrorSpec::Builder()
+            .abs_err(PowCpuBf16AbsErr(static_cast<xla::bfloat16>(left),
+                                      static_cast<xla::bfloat16>(right)))
+            .strict_signed_zeros()
+            .build();
+      };
+    }
+  }
+  if (IsGpu(platform_)) {
+    error_spec_gen = +[](NativeT left, NativeT right) {
+      return ErrorSpec::Builder()
+          .distance_err(1)
+          .strict_signed_zeros()
+          .skip_comparison(PowCpuGpuF16Skip(left, right))
+          .build();
+    };
+  }
+  Run(AddEmptyBroadcastDimension(Pow), std::pow, error_spec_gen);
 })
 
 // Can be thought of as an absolute error of

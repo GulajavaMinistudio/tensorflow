@@ -686,11 +686,11 @@ xla_cc_test(
         "//xla:literal_util",
         "//xla:shape_util",
         "//xla:types",
-        "//xla:util",
         "//xla/hlo/ir:backend_config",
         "//xla/service:buffer_assignment",
         "//xla/tests:hlo_test_base",
         "//xla/tests:xla_internal_test_main",  # fixdeps: keep
+        "@com_google_absl//absl/container:inlined_vector",
         "@com_google_absl//absl/strings",
         "@local_tsl//tsl/platform:status_matchers",
         "@local_tsl//tsl/platform:statusor",
@@ -2071,6 +2071,7 @@ cc_library(
         "//xla/service:p2p_schedule_preparation",
         "//xla/service:profile_guided_latency_estimator",
         "//xla/service/gpu/model:analytical_latency_estimator",
+        "//xla/service/gpu/transforms:pgle_accuracy_checker",
         "//xla/service/gpu/transforms:schedule_postprocessing",
         "//xla/service/gpu/transforms:scheduling_instruction_annotator",
         "//xla/stream_executor:device_description",
@@ -2087,6 +2088,7 @@ cc_library(
         "@local_tsl//tsl/platform:path",
         "@local_tsl//tsl/platform:protobuf",
         "@local_tsl//tsl/platform:statusor",
+        "@local_tsl//tsl/profiler/lib:traceme",
         "@local_tsl//tsl/profiler/protobuf:profiled_instructions_proto_cc",
     ],
 )
@@ -2111,6 +2113,7 @@ xla_test(
         "//xla/tests:test_utils",
         "//xla/tests:verified_hlo_module",
         "//xla/tests:xla_internal_test_main",
+        "//xla/tsl/lib/core:status_test_util",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/status",
@@ -2645,6 +2648,7 @@ tsl_gpu_library(
         "//xla/service:custom_call_target_registry",
         "//xla/service:platform_util",
         "//xla/stream_executor",
+        "//xla/stream_executor:stream_finder",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/status",
@@ -2719,11 +2723,7 @@ cc_library(
 xla_test(
     name = "dot_algorithm_support_test",
     srcs = if_gpu_is_configured(["dot_algorithm_support_test.cc"]),
-    backends = [
-        "gpu_v100",
-        "gpu_a100",
-        "gpu_amd_any",
-    ],
+    backends = ["gpu"],
     tags = [
         "nomac",
     ],
