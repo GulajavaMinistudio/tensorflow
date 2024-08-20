@@ -19,13 +19,16 @@ package_group(
 
 filegroup(
     name = "runtime_srcs",
-    srcs = ["conv_impl.cc"],
+    srcs = [
+        "convolution_thunk_f16.cc",
+        "convolution_thunk_f32.cc",
+    ],
     visibility = internal_visibility([":friends"]),
 )
 
 filegroup(
     name = "runtime_hdrs",
-    srcs = ["conv_impl.h"],
+    srcs = ["convolution_thunk_internal.h"],
     visibility = internal_visibility([":friends"]),
 )
 
@@ -272,16 +275,18 @@ cc_library(
 )
 
 cc_library(
-    name = "conv_impl",
-    srcs = ["conv_impl.cc"],
-    hdrs = ["conv_impl.h"],
+    name = "convolution_thunk_internal",
+    srcs = [
+        "convolution_thunk_f16.cc",
+        "convolution_thunk_f32.cc",
+    ],
+    hdrs = ["convolution_thunk_internal.h"],
     copts = runtime_copts(),
     visibility = internal_visibility([":friends"]),
     deps = [
         "//xla/tsl/framework/contraction:eigen_contraction_kernel",
         "//xla/tsl/framework/convolution:eigen_helpers",
         "@eigen_archive//:eigen3",
-        "@local_tsl//tsl/platform:mutex",  # build_cleaner: keep
     ],
 )
 
@@ -291,7 +296,7 @@ cc_library(
     hdrs = ["convolution_thunk.h"],
     copts = runtime_copts(),
     deps = [
-        ":conv_impl",
+        ":convolution_thunk_internal",
         ":thunk",
         "//xla:executable_run_options",
         "//xla:shape_util",
@@ -557,7 +562,9 @@ cc_library(
         "//xla:util",
         "//xla/ffi:attribute_map",
         "//xla/ffi:call_frame",
+        "//xla/ffi:execution_state",
         "//xla/ffi:ffi_api",
+        "//xla/ffi/api:c_api",
         "//xla/runtime:buffer_use",
         "//xla/service:buffer_assignment",
         "//xla/service:custom_call_status",
@@ -568,6 +575,7 @@ cc_library(
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/container:inlined_vector",
         "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/strings:string_view",
@@ -778,7 +786,9 @@ cc_library(
         "//xla/stream_executor/host:host_kernel",
         "//xla/stream_executor/host:host_kernel_c_api",
         "//xla/tsl/concurrency:async_value",
+        "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/container:inlined_vector",
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/numeric:bits",
@@ -809,6 +819,7 @@ xla_cc_test(
         "//xla/stream_executor/host:host_kernel_c_api",
         "//xla/tsl/concurrency:async_value",
         "//xla/tsl/lib/core:status_test_util",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@local_tsl//tsl/platform:statusor",

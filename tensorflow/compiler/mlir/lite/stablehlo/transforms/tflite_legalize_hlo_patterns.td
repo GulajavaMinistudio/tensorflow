@@ -13,15 +13,15 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-include "mlir/IR/OpBase.td"
+include "mlir/Dialect/Arith/IR/ArithOps.td"
 include "mlir/Dialect/Func/IR/FuncOps.td"
-include "mhlo/IR/hlo_ops.td"
 include "mlir/IR/CommonAttrConstraints.td"
 include "mlir/IR/CommonAttrConstraints.td"
 include "mlir/IR/CommonTypeConstraints.td"
-include "tensorflow/compiler/mlir/lite/ir/tfl_ops.td"
+include "mlir/IR/OpBase.td"
 include "tensorflow/compiler/mlir/lite/ir/tfl_op_enums.td"
-include "mlir/Dialect/Arith/IR/ArithOps.td"
+include "tensorflow/compiler/mlir/lite/ir/tfl_ops.td"
+include "mhlo/IR/hlo_ops.td"
 
 
 def ShapeToConst : NativeCodeCall<"ShapeToConst($_builder, $0)">;
@@ -33,13 +33,8 @@ def LegalizeTranspose : Pat<(MHLO_TransposeOp $arg, $perm),
                             (TFL_TransposeOp $arg,
                             (CreateTFLCastToInt32Op (TFL_ConstOp $perm)))>;
 
-
-def : Pat<(MHLO_ShiftRightArithmeticOp $l, $r), (TFL_RightShiftOp $l, $r)>;
-def : Pat<(MHLO_ShiftRightLogicalOp $l, $r), (TFL_RightShiftOp $l, $r)>;
-def : Pat<(MHLO_RemOp $l, $r), (TFL_FloorModOp $l, $r)>;
-
 def LegalizeReshape : Pat<(MHLO_ReshapeOp:$output $input),
-          (TFL_ReshapeOp $input, 
+          (TFL_ReshapeOp $input,
             (CreateTFLCastToInt32Op (ShapeToConst $output)))>;
 
 def LegalizeDynamicReshape : Pat<(MHLO_DynamicReshapeOp $input, $shape),
@@ -91,6 +86,48 @@ def : Pat<(MHLO_NotOp TensorOf<[UI32]>:$input),
             (TFL_BitwiseXorOp $input,
               (Arith_ConstantOp
                 (GetRankedScalarAttr<"u", 32, ", false", "0xFFFFFFFFUL">)))>;
+
+foreach pair = [
+  [MHLO_AndOp, TFL_LogicalAndOp],
+  [MHLO_OrOp, TFL_LogicalOrOp]]
+in {
+  def : Pat<
+    (pair[0] TFL_BoolTensor:$l, TFL_BoolTensor:$r),
+    (pair[1] $l, $r)>;
+}
+
+def LegalizeXor : Pat<
+  (MHLO_XorOp
+    TFL_IntTensor:$l,
+    TFL_IntTensor:$r),
+  (TFL_BitwiseXorOp $l, $r)>;
+
+//===----------------------------------------------------------------------===//
+// binary element-wise ops
+//===----------------------------------------------------------------------===//
+
+def : Pat<
+  (MHLO_ShiftRightArithmeticOp $l, $r),
+  (TFL_RightShiftOp $l, $r)>;
+
+def : Pat<
+  (MHLO_ShiftRightLogicalOp $l, $r),
+  (TFL_RightShiftOp $l, $r)>;
+
+def : Pat<
+  (MHLO_RemOp $l, $r),
+  (TFL_FloorModOp $l, $r)>;
+
+// Binary ops with no attrs.
+foreach pair = [
+  [MHLO_MaxOp, TFL_MaximumOp],
+  [MHLO_MinOp, TFL_MinimumOp],
+] in {
+  def : Pat<
+    (pair[0] $l, $r),
+    (pair[1] $l, $r)>;
+}
+
 
 //===----------------------------------------------------------------------===//
 // comparison ops
@@ -555,3 +592,10 @@ def : Pat<(MHLO_RoundOp
            (FloatOrDefaultCompare $compare_type, $cst_zero),
            (FloatOrDefaultCompare $compare_type1, $cst_sgn)]>;
 
+
+//===----------------------------------------------------------------------===//
+// ternary op patterns.
+//===----------------------------------------------------------------------===//
+
+def : Pat<(MHLO_ClampOp $min, $arg, $max),
+          (TFL_MaximumOp (TFL_MinimumOp $arg, $max), $min)>;
