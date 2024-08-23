@@ -347,7 +347,9 @@ xla_cc_test(
         ":collective_permute_cycle_decomposer",
         "//xla/hlo/ir:hlo",
         "//xla/service:hlo_parser",
+        "//xla/tests:filecheck",
         "//xla/tests:hlo_test_base",
+        "//xla/tests:test_utils",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_googletest//:gtest",
         "@local_tsl//tsl/platform:statusor",
@@ -1153,7 +1155,7 @@ cc_library(
         "//xla/stream_executor/cuda:cudnn_plugin",
         "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:statusor",
-    ]),
+    ]) + ["@com_google_absl//absl/container:flat_hash_map"],
 )
 
 cc_library(
@@ -2025,6 +2027,7 @@ xla_cc_test(
         "//xla/tests:hlo_test_base",
         "//xla/tests:xla_internal_test_main",
         "@com_google_absl//absl/strings",
+        "@com_google_googletest//:gtest_main",
     ],
 )
 
@@ -2095,7 +2098,7 @@ cc_library(
         "//xla/service/gpu/model:gpu_performance_model",
         "//xla/service/gpu/model:gpu_performance_model_base",
         "//xla/service/gpu/model:symbolic_tile_analysis",
-        "//xla/service/gpu/model:tiled_hlo_computation",
+        "//xla/service/gpu/model:tiled_hlo_instruction_or_computation",
         "//xla/service/gpu/model:triton_emitter_constraints",
         "//xla/stream_executor:device_description",
         "@com_google_absl//absl/container:flat_hash_map",
@@ -2271,7 +2274,6 @@ cc_library(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
-        "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:statusor",
     ],
 )
@@ -2287,6 +2289,10 @@ xla_test(
         "//xla:error_spec",
         "//xla/tests:hlo_test_base",
         "@com_google_absl//absl/strings:string_view",
+        "@com_google_googletest//:gtest_main",
+        "@local_tsl//tsl/platform:errors",
+        "@local_tsl//tsl/platform:status_matchers",
+        "@local_tsl//tsl/platform:statusor",
         "@local_tsl//tsl/platform:test",
         "@local_tsl//tsl/platform:test_main",
     ],
@@ -2523,7 +2529,7 @@ cc_library(
         "//xla/service/gpu/model:fusion_analysis_cache",
         "//xla/service/gpu/model:gpu_indexing_performance_model",
         "//xla/service/gpu/model:symbolic_tile_analysis",
-        "//xla/service/gpu/model:tiled_hlo_computation",
+        "//xla/service/gpu/model:tiled_hlo_instruction_or_computation",
         "//xla/service/gpu/model:triton_emitter_constraints",
         "//xla/stream_executor:device_description",
         "@com_google_absl//absl/algorithm:container",
