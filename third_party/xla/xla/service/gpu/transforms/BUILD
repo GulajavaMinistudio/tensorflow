@@ -2126,7 +2126,6 @@ xla_cc_test(
     name = "priority_fusion_test",
     srcs = ["priority_fusion_test.cc"],
     local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]),
-    tags = ["no_pip"],
     deps = [
         ":priority_fusion",
         "//xla:shape_util",
@@ -2795,6 +2794,7 @@ cc_library(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/types:span",
         "@local_tsl//tsl/platform:statusor",
     ],
 )
