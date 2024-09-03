@@ -119,6 +119,7 @@ cc_library(
         ":hlo_pass",
         ":shape_inference",
         "//xla:frontend_attributes",
+        "//xla:shape_util",
         "//xla:util",
         "//xla/hlo/ir:hlo",
         "@com_google_absl//absl/container:flat_hash_map",
@@ -1741,9 +1742,6 @@ cc_library(
 xla_test(
     name = "compiler_test",
     srcs = ["compiler_test.cc"],
-    backend_tags = {
-        "gpu": if_google(["requires-gpu-nvidia"]),
-    },
     backends = [
         "gpu",
         "cpu",
@@ -3539,7 +3537,7 @@ cc_library(
 xla_cc_test(
     name = "hlo_unstacker_test",
     srcs = ["hlo_unstacker_test.cc"],
-    tags = ["requires-net:external"],
+    tags = if_google(["requires-net:external"]),
     deps = [
         ":hlo_unstacker",
         "//xla/hlo/ir:hlo",

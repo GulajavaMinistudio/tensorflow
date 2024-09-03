@@ -238,7 +238,6 @@ cc_library(
         "//xla/hlo/ir:hlo",
         "//xla/service/llvm_ir:llvm_type_conversion_util",
         "//xla/service/llvm_ir:llvm_util",
-        "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:span",
@@ -702,6 +701,7 @@ cc_library(
         "//xla:util",
         "//xla/hlo/ir:hlo",
         "//xla/service:hlo_module_config",
+        "//xla/stream_executor:semantic_version",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:inlined_vector",
@@ -1406,6 +1406,7 @@ cc_library(
         "//xla/hlo/ir:hlo_module_group",
         "//xla/service/gpu/autotuning:autotuner_util",
         "//xla/service/gpu/autotuning:custom_kernel_fusion_autotuner",
+        "//xla/service/gpu/fusions/triton:triton_support",
         "//xla/service/gpu/model:gpu_cost_model_stats_collection",
         "//xla/service/gpu/model:gpu_hlo_cost_analysis",
         "//xla/service/gpu/runtime:thunk",
@@ -1724,6 +1725,7 @@ cc_library(
         ":target_constants",
         "//xla:autotune_results_proto_cc",
         "//xla:util",
+        "//xla:xla_data_proto_cc",
         "//xla:xla_proto_cc",
         "//xla/hlo/ir:hlo",
         "//xla/pjrt/distributed:key_value_store_interface",
@@ -1769,8 +1771,10 @@ cc_library(
         "//xla/service/llvm_ir:llvm_util",
         "//xla/stream_executor",
         "//xla/stream_executor:dnn",
+        "//xla/stream_executor:semantic_version",
         "//xla/stream_executor/cuda:cuda_asm_compiler",
         "//xla/stream_executor/cuda:cuda_diagnostics",
+        "//xla/stream_executor/cuda:cuda_driver",
         "//xla/stream_executor/cuda:cuda_platform_id",
         "//xla/stream_executor/cuda:nvjitlink",
         "//xla/stream_executor/cuda:nvjitlink_support",
@@ -1904,11 +1908,12 @@ xla_cc_test(
     ]),
     tags = [
         "gpu",
-        "ignore_for_dep=third_party/tensorflow/compiler/xla/service/gpu/amdgpu_compiler.h",
         "no_oss",
         "nomsan",  # Pulls in precompiled NVIDIA libraries which cause false positives in msan.
         "requires-gpu-nvidia",
-    ],
+    ] + if_google([
+        "ignore_for_dep=third_party/tensorflow/compiler/xla/service/gpu/amdgpu_compiler.h",
+    ]),
     deps = if_cuda_is_configured([
         ":nvptx_compiler_impl",
     ]) + if_rocm_is_configured([
@@ -2286,6 +2291,7 @@ cc_library(
         "@local_tsl//tsl/platform:ml_dtypes",
         "@local_tsl//tsl/platform:status",
         "@local_tsl//tsl/platform:statusor",
+        "@local_tsl//tsl/protobuf:dnn_proto_cc",
     ] + if_cuda_is_configured([
         ":stream_executor_util_kernel",
     ]),
@@ -2506,11 +2512,9 @@ xla_cc_test(
 xla_test(
     name = "float_support_test",
     srcs = ["float_support_test.cc"],
-    backend_tags = {"gpu": [
-        "requires-gpu-sm80",
-    ]},
     backends = [
-        "gpu",
+        "gpu_a100",
+        "gpu_h100",
     ],
     deps = [
         ":variant_visitor",

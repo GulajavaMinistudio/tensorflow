@@ -867,7 +867,6 @@ absl::StatusOr<Value> EmitNestedFusion(
                    region_values);
 }
 
-// TODO(b/331332678): Add unit tests to target this function specifically.
 Value EmitTiledBroadcast(
     ImplicitLocOpBuilder& b, const TiledHloInstruction& tiled_broadcast,
     absl::flat_hash_map<const TiledHloInstruction*, Value>& values) {
@@ -943,6 +942,22 @@ Value EmitTiledReshape(ImplicitLocOpBuilder& b,
       .getResult();
 }
 
+Value EmitTiledTranspose(ImplicitLocOpBuilder& b,
+                         const TiledHloInstruction& tiled_transpose,
+                         Value input) {
+  Type input_element_type =
+      mlir::cast<ShapedType>(input.getType()).getElementType();
+  Type output_tensor_type = mlir::RankedTensorType::get(
+      tiled_transpose.tile_sizes(), input_element_type);
+
+  auto transpose =
+      ::xla::Cast<const HloTransposeInstruction>(tiled_transpose.hlo());
+  SmallVector<int32_t> order =
+      llvm::to_vector_of<int32_t>(transpose->dimensions());
+
+  return b.create<mt::TransOp>(output_tensor_type, input, order);
+}
+
 absl::StatusOr<Value> EmitTiledHloInstruction(
     ImplicitLocOpBuilder& b, absl::string_view libdevice_path,
     const se::DeviceDescription& device_info,
@@ -984,11 +999,14 @@ absl::StatusOr<Value> EmitTiledHloInstruction(
     return parameter;
   }
 
-  if (hlo->opcode() == HloOpcode::kConstant &&
-      ShapeUtil::IsEffectiveScalar(hlo->shape())) {
-    TF_ASSIGN_OR_RETURN(Value constant, EmitConstant(b, *hlo));
-    // Splat makes it a tensor to avoid type mismatches.
-    return Splat(b, constant, {});
+  if (hlo->opcode() == HloOpcode::kConstant) {
+    if (ShapeUtil::IsScalar(hlo->shape())) {
+      TF_ASSIGN_OR_RETURN(Value constant, EmitConstant(b, *hlo));
+      // Splat makes it a tensor to avoid type mismatches.
+      return Splat(b, constant, {});
+    }
+    return absl::UnimplementedError(
+        absl::StrCat("Unsupported non-scalar constant ", hlo->ToString()));
   }
 
   if (hlo->opcode() == HloOpcode::kBroadcast) {
@@ -1014,12 +1032,13 @@ absl::StatusOr<Value> EmitTiledHloInstruction(
     return EmitTiledReshape(b, tiled_hlo, values[tiled_hlo.operand(0)]);
   }
 
-  // All these operations are currently supported only as operations on indices
-  // which are pushed to loads and stores. We don't generate any further code
-  // for these operations here.
-  std::vector<HloOpcode> passthrough_opcodes(
-      {HloOpcode::kPad, HloOpcode::kSlice, HloOpcode::kTranspose});
-  if (absl::c_linear_search(passthrough_opcodes, hlo->opcode())) {
+  if (hlo->opcode() == HloOpcode::kTranspose) {
+    return EmitTiledTranspose(b, tiled_hlo, values[tiled_hlo.operand(0)]);
+  }
+
+  // Slice is currently supported only as an operation on indices
+  // which is pushed to loads and stores. We don't generate any further code.
+  if (IsSliceWithUnitStrides(hlo)) {
     return values[tiled_hlo.operand(0)];
   }
 
@@ -2325,6 +2344,44 @@ class Scopes {
   Value pid_n_;
 };
 
+enum MaskExpandDimension { kMajor = 0, kMinor = 1 };
+
+Value EmitMaskOnInput(ImplicitLocOpBuilder& b,
+                      MaskExpandDimension expand_dimension, Value input,
+                      int denom, Value k, int64_t dims_k, int64_t block_k,
+                      Value pid_k) {
+  auto c32 = [&](int64_t v) { return CreateConst(b, b.getI32Type(), v); };
+  int size = block_k / denom;
+  auto elements_in_tile = b.create<ma::SubIOp>(c32(dims_k / denom), k);
+  auto cond =
+      b.create<ma::CmpIOp>(ma::CmpIPredicate::slt, elements_in_tile, c32(size));
+  auto if_op = b.create<mlir::scf::IfOp>(
+      cond, /*thenBranch=*/
+      [&](mlir::OpBuilder& builder, mlir::Location loc) {
+        ImplicitLocOpBuilder b(loc, builder);
+        auto range_k = Range(b, size);
+        if (pid_k != nullptr) {
+          range_k = b.create<ma::AddIOp>(
+              range_k, Splat(b, b.create<ma::MulIOp>(pid_k, c32(size)), size));
+        }
+        auto ty = mlir::cast<mlir::RankedTensorType>(input.getType());
+        TensorValue range_expanded = mlir::cast<TensorValue>(
+            b.create<mt::ExpandDimsOp>(range_k, expand_dimension).getResult());
+        Value mask = b.create<mt::BroadcastOp>(
+            ty.clone(b.getI1Type()),
+            b.create<ma::CmpIOp>(ma::CmpIPredicate::slt, range_expanded,
+                                 Splat(b, elements_in_tile,
+                                       range_expanded.getType().getShape())));
+        auto result = b.create<ma::SelectOp>(mask, input, ZerosLike(b, input));
+        b.create<mlir::scf::YieldOp>(mlir::ValueRange(result));
+      },
+      /*elseBranch=*/
+      [&](mlir::OpBuilder& b, mlir::Location loc) {
+        b.create<mlir::scf::YieldOp>(loc, mlir::ValueRange(input));
+      });
+  return if_op.getResult(0);
+}
+
 }  // namespace
 
 // Variable naming: lhs [m, k] x rhs [k, n] -> out [m, n].
@@ -2498,27 +2555,12 @@ absl::Status EmitMatMul(mlir::OpBuilder builder,
     // the other two get discarded by the masked store at the end.
     const bool need_masking = dims.k % (block_k * split_k) > 0;
     if (need_masking) {
-      auto apply_mask = [&](int64_t dim, Value input, int denom) {
-        auto elements_in_tile = b.create<ma::SubIOp>(c32(dims.k / denom), ki);
-        int size = block_k / denom;
-        auto range_k = Range(b, size);
-        if (scopes.pid_k() != nullptr) {
-          range_k = b.create<ma::AddIOp>(
-              range_k,
-              Splat(b, b.create<ma::MulIOp>(scopes.pid_k(), c32(size)), size));
-        }
-        auto ty = mlir::cast<mlir::RankedTensorType>(input.getType());
-        TensorValue range_expanded = mlir::cast<TensorValue>(
-            b.create<mt::ExpandDimsOp>(range_k, dim).getResult());
-        Value mask = b.create<mt::BroadcastOp>(
-            ty.clone(b.getI1Type()),
-            b.create<ma::CmpIOp>(ma::CmpIPredicate::slt, range_expanded,
-                                 Splat(b, elements_in_tile,
-                                       range_expanded.getType().getShape())));
-        return b.create<ma::SelectOp>(mask, input, ZerosLike(b, input));
-      };
-      dot_input_lhs = apply_mask(0, dot_input_lhs, is_sparse ? 2 : 1);
-      dot_input_rhs = apply_mask(1, dot_input_rhs, 1);
+      dot_input_lhs = EmitMaskOnInput(b, MaskExpandDimension::kMajor,
+                                      dot_input_lhs, is_sparse ? 2 : 1, ki,
+                                      dims.k, block_k, scopes.pid_k());
+      dot_input_rhs =
+          EmitMaskOnInput(b, MaskExpandDimension::kMinor, dot_input_rhs, 1, ki,
+                          dims.k, block_k, scopes.pid_k());
       // Masking the metadata is not necessary, as the inputs are masked
       // (i.e. zeroed out), so the padded metadata can hold any values.
     }
@@ -2648,49 +2690,23 @@ absl::Status EmitMatMul(mlir::OpBuilder builder,
   return absl::OkStatus();
 }
 
-// Computes the base pointer offset for the given tile multi-index and hlo shape
-// taking into account the physical layout of the hlo buffer.
-absl::StatusOr<Value> ComputeBasePtrOffset(
-    ImplicitLocOpBuilder b, ValueRange tile_multi_index,
-    const TiledHloInstruction& tiled_hlo) {
-  const Shape& shape = tiled_hlo.hlo()->shape();
-  Shape linear_shape = ShapeUtil::MakeShape(shape.element_type(),
-                                            {ShapeUtil::ElementsIn(shape)});
-
-  // Bitcast map gives an indexing map from linear index to the parameter shape
-  // index respecting physical layout of the memory.
-  auto bitcast_map = GetBitcastMap(shape, linear_shape, b.getContext());
-
-  TF_ASSIGN_OR_RETURN(IndexingMap tile_offsets_indexing,
-                      tiled_hlo.tile_offsets_indexing());
-
-  auto compose_indexing_maps =
-      ComposeIndexingMaps(tile_offsets_indexing, bitcast_map);
-  compose_indexing_maps.Simplify();
-
-  return b.create<ma::IndexCastUIOp>(
-      b.getI64Type(), mlir_converter::ApplyIndexing(compose_indexing_maps,
-                                                    /*dims=*/tile_multi_index,
-                                                    /*symbols=*/{}, b)[0]);
-}
-
 namespace ir_emitter_triton_internal {
 
 SmallVector<Value, 3> ComputeDelinearizedTileIndex(
-    ImplicitLocOpBuilder& b, const TiledHloComputation& tiled_hlo_computation) {
+    ImplicitLocOpBuilder& b,
+    absl::Span<const int64_t> num_output_tiles_per_dim) {
   Value pid = b.create<ma::IndexCastUIOp>(
       b.getIndexType(), b.create<mt::GetProgramIdOp>(mt::ProgramIDDim::X));
 
   // Delinearize the block id.
   mlir::AffineExpr program_id = mlir::getAffineDimExpr(0, b.getContext());
   auto tile_exprs =
-      DelinearizeIndex(tiled_hlo_computation.num_output_tiles_per_dim(),
-                       program_id, b.getContext());
+      DelinearizeIndex(num_output_tiles_per_dim, program_id, b.getContext());
 
   IndexingMap program_id_to_root_tile_offset = IndexingMap::FromTensorSizes(
       mlir::AffineMap::get(/*dimCount=*/1, /*symbolCount=*/0, tile_exprs,
                            b.getContext()),
-      /*dim_upper_bounds=*/{tiled_hlo_computation.num_output_tiles()},
+      /*dim_upper_bounds=*/{Product(num_output_tiles_per_dim)},
       /*symbol_upper_bounds=*/{});
 
   return mlir_converter::ApplyIndexing(program_id_to_root_tile_offset,
@@ -2700,14 +2716,7 @@ SmallVector<Value, 3> ComputeDelinearizedTileIndex(
 
 absl::StatusOr<MakeTensorPtrOpAndBoundaryChecks> CreateMakeTensorPtrOp(
     ImplicitLocOpBuilder& b, ValueRange tile_multi_index,
-    const TiledHloInstruction& tiled_hlo, Value argument_block) {
-  llvm::SmallVector<Value> sizes;
-  llvm::SmallVector<Value> strides;
-  llvm::SmallVector<Value> offsets;
-  llvm::SmallVector<int32_t> power2_sizes;
-  llvm::SmallVector<int32_t> order;
-  llvm::SmallVector<int32_t> boundary_checks;
-
+    const TiledHloInstruction& tiled_hlo, Value parent_base_ptr) {
   const llvm::SmallVector<int64_t>& tile_strides = tiled_hlo.tile_strides();
   const Shape& shape = tiled_hlo.hlo()->shape();
 
@@ -2716,55 +2725,49 @@ absl::StatusOr<MakeTensorPtrOpAndBoundaryChecks> CreateMakeTensorPtrOp(
   // taking into account physical layout.
   // TODO(b/331332678): Compute indexing maps to physical layout indexing in
   // SymbolicTileAnalysis.
-  llvm::SmallVector<int64_t> physical_strides(tile_strides.size(), 1);
+  llvm::SmallVector<Value> strides(tile_strides.size());
   int64_t current_stride = 1;
   for (int64_t cur_dim : LayoutUtil::MinorToMajor(shape)) {
-    physical_strides[cur_dim] = tile_strides[cur_dim] * current_stride;
+    strides[cur_dim] =
+        CreateConst(b, b.getI64Type(), tile_strides[cur_dim] * current_stride);
     current_stride *= shape.dimensions(cur_dim);
   }
 
-  for (auto [size, stride] :
-       llvm::zip(tiled_hlo.tile_sizes(), physical_strides)) {
-    int dimension_index = sizes.size();
+  TF_ASSIGN_OR_RETURN(IndexingMap tile_offsets_indexing,
+                      tiled_hlo.tile_offsets_indexing());
+  auto tile_offsets_as_indices =
+      mlir_converter::ApplyIndexing(tile_offsets_indexing,
+                                    /*dims=*/tile_multi_index,
+                                    /*symbols=*/{}, b);
 
-    sizes.push_back(CreateConst(b, b.getI64Type(), size));
-    strides.push_back(CreateConst(b, b.getI64Type(), stride));
-    // TODO(b/332649307): Explore using proper offsets instead of manually
-    // computing the block pointer.
-    //
-    // In general, there are two options for computing a block:
-    //   - Output a TensorPtr whose base pointer is the base pointer of the
-    //     TiledHloInstruction and provide the necessary offsets so that Triton
-    //     can compute the pointer to the block specific to the given pid. This
-    //     option yields simpler code, but relies on Triton to correctly handle
-    //     higher-dimensional blocks and degenerate dimensions of size 1, which
-    //     Triton doesn't always do well.
-    //   - Output a TensorPtr that points directly to the tile specific to the
-    //     pid. All offset computation is done here instead of by Triton. Triton
-    //     sees 0 offsets. This is what we do now. It's a bit of extra code to
-    //     compute the right offsets, but it's possible to ensure that we
-    //     generate a block with minimal dimensions (all dimensions of size 1
-    //     are folded into the offset computation).
-    offsets.push_back(CreateConst(b, b.getI32Type(), 0));
+  llvm::SmallVector<Value> parent_shape;
+  llvm::SmallVector<Value> offsets;
+  llvm::SmallVector<int32_t> power2_sizes;
+  llvm::SmallVector<int32_t> order;
+  llvm::SmallVector<int32_t> boundary_checks;
+  for (auto size : tiled_hlo.tile_sizes()) {
+    int dimension_index = offsets.size();
+
+    parent_shape.push_back(
+        CreateConst(b, b.getI64Type(), shape.dimensions(dimension_index)));
+    offsets.push_back(b.create<ma::IndexCastOp>(
+        b.getI32Type(), tile_offsets_as_indices[dimension_index]));
+
     // Triton requires that all block dimensions are a power of 2.
     power2_sizes.push_back(llvm::PowerOf2Ceil(size));
+
     // TODO(b/342989850): Clarify and comment what `order` exactly is. It's not
     // entirely clear from the Triton docs.
     order.insert(order.begin(), dimension_index);
-    if (size != power2_sizes.back()) {
+
+    if (shape.dimensions(dimension_index) % power2_sizes.back() != 0) {
       boundary_checks.push_back(dimension_index);
     }
   }
 
-  // Manually compute pointer offset to avoid materialized fully parallel
-  // dimensions in the tile. Current codegen tried to avoid size-1 dims.
-  TF_ASSIGN_OR_RETURN(Value ptr_offset,
-                      ComputeBasePtrOffset(b, tile_multi_index, tiled_hlo));
-  auto tile_ptr = AddPtr(b, argument_block, ptr_offset);
-
   return MakeTensorPtrOpAndBoundaryChecks{b.create<mt::MakeTensorPtrOp>(
-                                              /*base=*/tile_ptr,
-                                              /*shape=*/sizes,
+                                              /*base=*/parent_base_ptr,
+                                              /*shape=*/parent_shape,
                                               /*strides=*/strides,
                                               /*offsets=*/offsets,
                                               /*tensorShape=*/power2_sizes,
@@ -2784,7 +2787,7 @@ absl::Status EmitGeneric(mlir::OpBuilder builder,
   SymbolicTileAnalysisOrError symbolic_tile_analysis_or =
       SymbolicTileAnalysis::AnalyzeComputation(
           *computation, builder.getContext(),
-          TritonEmitterConstraints::GetBuilder());
+          TritonEmitterConstraints::GetBuilder(device_info));
   if (std::holds_alternative<FusionDecision>(symbolic_tile_analysis_or)) {
     return Internal(
         "Unsupported fusion in EmitGeneric: %s",
@@ -2805,7 +2808,7 @@ absl::Status EmitGeneric(mlir::OpBuilder builder,
 
   SmallVector<Value, 3> tile_multi_index =
       ir_emitter_triton_internal::ComputeDelinearizedTileIndex(
-          b, tiled_hlo_computation);
+          b, tiled_hlo_computation.num_output_tiles_per_dim());
 
   TF_ASSIGN_OR_RETURN(
       Value result,
@@ -2863,20 +2866,10 @@ absl::StatusOr<std::unique_ptr<llvm::Module>> TranslateLLVMToLLVMIR(
   if (!llvmModule) {
     return Internal("Failed to emit LLVM IR.");
   }
-
-  // Link external libraries before performing optimizations.
-  TF_RETURN_IF_ERROR(nvptx::LinkLibdeviceIfNecessary(
-      llvmModule.get(), std::string(libdevice_path)));
-
-  auto optPipeline = mlir::makeOptimizingTransformer(
-      /*optLevel=*/3, /*sizeLevel=*/0,
-      /*targetMachine=*/nullptr);
-
-  if (auto err = optPipeline(llvmModule.get())) {
-    llvm::errs() << err;
-    return Internal("Failed to optimize LLVM IR.");
-  }
-
+  // TODO: b/363203060 - Upstream Triton sets specific flags for the LLVM
+  // optimizer to get best performance. Figure out if we can gain any of it by
+  // propagating these flags to
+  // xla/service/gpu/llvm_gpu_backend/gpu_backend_lib.cc.
   return llvmModule;
 }
 
