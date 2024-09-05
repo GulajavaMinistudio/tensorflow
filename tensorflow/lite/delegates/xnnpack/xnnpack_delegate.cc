@@ -43,6 +43,7 @@ limitations under the License.
 #include "tensorflow/lite/core/c/builtin_op_data.h"
 #include "tensorflow/lite/core/c/common.h"
 #include "tensorflow/lite/core/subgraph.h"
+#include "tensorflow/lite/delegates/xnnpack/file_util.h"
 #include "tensorflow/lite/delegates/xnnpack/flexbuffers_util.h"
 #include "tensorflow/lite/delegates/xnnpack/quantization_util.h"
 #include "tensorflow/lite/delegates/xnnpack/weight_cache.h"
@@ -56,13 +57,6 @@ limitations under the License.
 #include "tensorflow/lite/minimal_logging.h"
 #include "tensorflow/lite/schema/schema_generated.h"
 #include "tensorflow/lite/tools/optimize/reduced_precision_support.h"
-
-// These includes are below the non-system includes because the macro may be
-// defined in lite/delegates/xnnpack/weight_cache.h.
-#if TFLITE_XNNPACK_ENABLE_IN_MEMORY_WEIGHT_CACHE
-#include <sys/syscall.h>
-#include <unistd.h>
-#endif
 
 struct TfLiteXNNPackDelegateWeightsCache;
 
@@ -4243,26 +4237,6 @@ class Subgraph {
         &output_max));
 
     uint32_t dq_quantized_id = XNN_INVALID_VALUE_ID;
-    size_t num_nonbatch_dims = 0;
-    int ic = 1;
-    int input_dims_remaining = NumDimensions(&input_tensor) - 1;
-    // Which input dimensions are part of input_channels.
-    if (dynamically_quantized) {
-      while (ic != input_channels && input_dims_remaining >= 0) {
-        ic *= input_tensor.dims->data[input_dims_remaining];
-        --input_dims_remaining;
-        ++num_nonbatch_dims;
-      }
-      if (ic != input_channels) {
-        TF_LITE_MAYBE_KERNEL_LOG(
-            logging_context,
-            "Could not determine how many input dimensions to use for "
-            "input_channels: %s node #%d",
-            EnumNameBuiltinOperator(BuiltinOperator_FULLY_CONNECTED),
-            node_index);
-        return kTfLiteError;
-      }
-    }
     if (subgraph != nullptr) {
       if (dynamically_quantized) {
         TfLiteAffineQuantization* filter_params =
@@ -4287,8 +4261,8 @@ class Subgraph {
             &input_tensor.dims->data[0],
             &input_tensor.dims->data[NumDimensions(&input_tensor)]);
         xnn_status status = xnn_define_dynamically_quantized_tensor_value(
-            subgraph, xnn_datatype_qdint8, input_dims.size(), num_nonbatch_dims,
-            input_dims.data(), XNN_INVALID_VALUE_ID,
+            subgraph, xnn_datatype_qdint8, input_dims.size(),
+            /*num_non_batch_dims=*/1, input_dims.data(), XNN_INVALID_VALUE_ID,
             /*flags=*/0, &dq_quantized_id);
         if (status != xnn_status_success) {
           TF_LITE_KERNEL_LOG(logging_context,
@@ -8124,15 +8098,7 @@ void TfLiteXNNPackDelegateWeightsCacheDelete(
 }
 
 bool TfLiteXNNPackDelegateCanUseInMemoryWeightCacheProvider() {
-#if TFLITE_XNNPACK_ENABLE_IN_MEMORY_WEIGHT_CACHE
-  // Test if the syscall memfd_create is available.
-  const int test_fd = syscall(SYS_memfd_create, "test fd", 0);
-  if (test_fd != -1) {
-    close(test_fd);
-    return true;
-  }
-#endif
-  return false;
+  return tflite::xnnpack::InMemoryFileDescriptorAvailable();
 }
 
 const char* TfLiteXNNPackDelegateInMemoryFilePath() {

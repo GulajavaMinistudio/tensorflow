@@ -2495,6 +2495,77 @@ void PackOp::getCanonicalizationPatterns(RewritePatternSet& results,
 // SliceOp
 //===----------------------------------------------------------------------===//
 
+OpFoldResult SliceOp::fold(FoldAdaptor adaptor) {
+  if (!getType().hasStaticShape()) {
+    return {};
+  }
+
+  auto input_type = getInput().getType();
+  if (input_type == getType()) {
+    return getInput();
+  }
+
+  auto input = adaptor.getInput();
+  if (!input) {
+    return {};
+  }
+  auto begin = adaptor.getBegin();
+  if (!begin) {
+    return {};
+  }
+  auto size = adaptor.getSize();
+  if (!size) {
+    return {};
+  }
+
+  auto begin_type = getBegin().getType();
+  auto size_type = getSize().getType();
+
+  if (size_type.getRank() != 1 || begin_type.getRank() != 1) {
+    return {};
+  }
+
+  if (begin_type.getDimSize(0) != input_type.getRank() ||
+      size_type.getDimSize(0) != input_type.getRank()) {
+    return {};
+  }
+
+  auto begin_data = dyn_cast_or_null<DenseIntElementsAttr>(begin);
+  if (!begin_data || !begin_data.isSplat() ||
+      !begin_data.getElementType().isSignlessInteger(32)) {
+    return {};
+  }
+  if (begin_data.getSplatValue<int32_t>() != 0) {
+    return {};
+  }
+
+  auto size_data = dyn_cast_or_null<DenseIntElementsAttr>(size);
+  if (!size_data.getElementType().isSignlessInteger(32)) {
+    return {};
+  }
+
+  auto size_vals = size_data.getValues<int32_t>();
+  for (int i = 1; i < input_type.getRank(); ++i) {
+    if (size_vals[i] != input_type.getShape()[i]) {
+      return {};
+    }
+  }
+  if (size_vals[0] == input_type.getShape()[0]) {
+    return adaptor.getInput();
+  }
+
+  auto input_data = dyn_cast_or_null<DenseElementsAttr>(input);
+  if (!input_data) {
+    return {};
+  }
+
+  auto input_begin = input_data.value_begin<Attribute>();
+  std::vector<Attribute> new_data(input_begin,
+                                  input_begin + getType().getNumElements());
+
+  return DenseElementsAttr::get(getType(), new_data);
+}
+
 mlir::LogicalResult SliceOp::verify() {
   SliceOp op = *this;
   auto input_type = mlir::cast<ShapedType>(op.getInput().getType());
@@ -3637,6 +3708,56 @@ OpFoldResult SelectOp::fold(FoldAdaptor adaptor) {
   }
 
   return DenseElementsAttr::get(out_type, results);
+}
+
+//===----------------------------------------------------------------------===//
+// SumOp
+//===----------------------------------------------------------------------===//
+
+// TODO: b/351437662 - Expand for all reductions.
+OpFoldResult SumOp::fold(FoldAdaptor adaptor) {
+  auto input = adaptor.getInput();
+  auto axes = adaptor.getAxes();
+
+  if (!input || !axes) {
+    return {};
+  }
+
+  if (adaptor.getKeepDims()) {
+    return {};
+  }
+
+  auto input_type = getInput().getType();
+
+  if (!input_type.getElementType().isF32()) {
+    return {};
+  }
+
+  const auto input_rank = input_type.getRank();
+  auto axes_data = llvm::cast<DenseIntElementsAttr>(axes);
+  if (axes_data.getNumElements() != input_rank - 1) {
+    return {};
+  }
+
+  if (llvm::any_of(axes_data.getValues<int32_t>(),
+                   [&](int32_t i) { return i == input_rank - 1; })) {
+    return {};
+  }
+
+  llvm::SmallVector<int64_t> out_shape = {input_type.getShape().back()};
+  std::vector<float> out_data(out_shape[0], 0.0);
+
+  auto in_data = llvm::cast<DenseFPElementsAttr>(input);
+
+  size_t flat_ind = 0;
+  for (auto it = in_data.value_begin<float>(); it < in_data.value_end<float>();
+       ++it) {
+    out_data[flat_ind % out_shape[0]] += *it;
+    flat_ind++;
+  }
+
+  return DenseFPElementsAttr::get(
+      RankedTensorType::get(out_shape, input_type.getElementType()), out_data);
 }
 
 //===----------------------------------------------------------------------===//
