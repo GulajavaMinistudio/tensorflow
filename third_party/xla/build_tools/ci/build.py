@@ -50,6 +50,9 @@ _XLA_DEFAULT_TARGET_PATTERNS = (
     "//build_tools/...",
     "@local_tsl//tsl/...",
 )
+_KOKORO_ARTIFACTS_DIR = os.environ.get(
+    "KOKORO_ARTIFACTS_DIR", "$KOKORO_ARTIFACTS_DIR"
+)
 
 
 def sh(args, check=True, **kwargs):
@@ -68,10 +71,13 @@ def _write_to_sponge_config(key, value) -> None:
 
 
 class BuildType(enum.Enum):
+  """Enum representing all types of builds."""
   CPU_X86 = enum.auto()
   CPU_ARM64 = enum.auto()
   GPU = enum.auto()
   GPU_CONTINUOUS = enum.auto()
+
+  MACOS_CPU_X86 = enum.auto()
 
   JAX_CPU = enum.auto()
   JAX_GPU = enum.auto()
@@ -123,7 +129,10 @@ class Build:
   def commands(self) -> List[List[str]]:
     """Returns list of commands for a build."""
     cmds = []
-    cmds.append(["./github/xla/.kokoro/generate_index_html.sh", "index.html"])
+    cmds.append([
+        f"{_KOKORO_ARTIFACTS_DIR}/github/xla/.kokoro/generate_index_html.sh",
+        "index.html",
+    ])
     if self.repo != "openxla/xla":
       _, repo_name = self.repo.split("/")
 
@@ -207,14 +216,13 @@ def nvidia_gpu_build_with_compute_capability(
       test_tag_filters=("-no_oss", "requires-gpu-nvidia", "gpu")
       + extra_gpu_tags,
       build_tag_filters=("-no_oss", "requires-gpu-nvidia", "gpu"),
-      options=dict(
-          run_under="//tools/ci_build/gpu_build:parallel_gpu_execute",
-          repo_env=f"TF_CUDA_COMPUTE_CAPABILITIES={compute_capability/10}",
+      options={
+          "run_under": "//tools/ci_build/gpu_build:parallel_gpu_execute",
+          "repo_env": f"TF_CUDA_COMPUTE_CAPABILITIES={compute_capability/10}",
+          "@cuda_driver//:enable_forward_compatibility": "true",
           **_DEFAULT_BAZEL_OPTIONS,
-      ),
-      extra_setup_commands=(
-          ["nvidia-smi"],
-      ),
+      },
+      extra_setup_commands=(["nvidia-smi"],),
   )
 
 
@@ -257,6 +265,49 @@ _GPU_BUILD = nvidia_gpu_build_with_compute_capability(
     type_=BuildType.GPU,
     configs=("warnings", "rbe_linux_cuda_nvcc"),
     compute_capability=75,
+)
+
+macos_tag_filter = (
+    "-no_oss",
+    "-gpu",
+    "-no_mac",
+    "-mac_excluded",
+    "-requires-gpu-nvidia",
+    "-requires-gpu-amd",
+)
+
+_MACOS_X86_BUILD = Build(
+    type_=BuildType.MACOS_CPU_X86,
+    repo="openxla/xla",
+    image_url=None,
+    configs=("nonccl",),
+    target_patterns=(
+        "//xla/...",
+        "-//xla/hlo/experimental/...",
+        "-//xla/python_api/...",
+        "-//xla/python/...",
+        "-//xla/service/gpu/...",
+    ),
+    options=dict(
+        **_DEFAULT_BAZEL_OPTIONS,
+        macos_minimum_os="10.15",
+        test_tmpdir="/Volumes/BuildData/bazel_output",
+    ),
+    build_tag_filters=macos_tag_filter,
+    test_tag_filters=macos_tag_filter,
+    extra_setup_commands=(
+        [
+            "sudo",
+            "wget",
+            "--no-verbose",
+            "-O",
+            "/usr/local/bin/bazel",
+            "https://github.com/bazelbuild/bazelisk/releases/download/v1.11.0/bazelisk-darwin-amd64",
+        ],
+        ["chmod", "+x", "/usr/local/bin/bazel"],
+        ["bazel", "--version"],  # Sanity check due to strange failures
+        ["mkdir", "-p", "/Volumes/BuildData/bazel_output"],
+    ),
 )
 
 _JAX_CPU_BUILD = Build(
@@ -359,6 +410,7 @@ _KOKORO_JOB_NAME_TO_BUILD_MAP = {
     "tensorflow/xla/linux/github_continuous/arm64/build_cpu": _CPU_ARM64_BUILD,
     "tensorflow/xla/linux/github_continuous/build_gpu": _GPU_BUILD,
     "tensorflow/xla/linux/github_continuous/build_cpu": _CPU_X86_BUILD,
+    "tensorflow/xla/macos/github_continuous/cpu_py39_full": _MACOS_X86_BUILD,
     "tensorflow/xla/jax/cpu/build_cpu": _JAX_CPU_BUILD,
     "tensorflow/xla/jax/gpu/build_gpu": _JAX_GPU_BUILD,
     "tensorflow/xla/tensorflow/cpu/build_cpu": _TENSORFLOW_CPU_BUILD,

@@ -38,6 +38,8 @@ default_visibility = [
     "//tensorflow/cc/saved_model:__subpackages__",
     #internal starburst clustering service,
     "//waymo/ml/deploy/benchmark:__subpackages__",
+    # copybara:uncomment #internal tuning service,
+    # copybara:uncomment "//third_party/odml/experimental:__subpackages__",
 ]
 
 package(
@@ -726,6 +728,7 @@ cc_library(
         "//tensorflow/examples/custom_ops_doc/simple_hash_table:__pkg__",
         "//third_party/py/grain/_src/tensorflow/ops:__pkg__",
         "//waymo/ml/compiler/frontend/kernels:__pkg__",
+        "//waymo/ml/compiler/runtime/alpine/core:__pkg__",
     ],
     deps = [
         "//tensorflow/core/lib/core:refcount",
