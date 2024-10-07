@@ -26,8 +26,8 @@ limitations under the License.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_replace.h"
 #include "absl/types/span.h"
-#include "xla/client/xla_builder.h"
 #include "xla/error_spec.h"
+#include "xla/hlo/builder/xla_builder.h"
 #include "xla/hlo/ir/hlo_computation.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_module.h"
@@ -54,13 +54,13 @@ limitations under the License.
 #include "xla/tests/llvm_irgen_test_base.h"
 #include "xla/tests/test_macros.h"
 #include "xla/tsl/lib/core/status_test_util.h"
+#include "xla/tsl/protobuf/error_codes.pb.h"
 #include "xla/util.h"
 #include "xla/xla_data.pb.h"
 #include "tsl/platform/errors.h"
 #include "tsl/platform/status.h"
 #include "tsl/platform/statusor.h"
 #include "tsl/platform/test_benchmark.h"
-#include "tsl/protobuf/error_codes.pb.h"
 
 namespace xla {
 namespace {

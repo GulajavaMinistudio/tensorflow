@@ -880,6 +880,7 @@ class Subgraph {
       }
 
       switch (registration->builtin_code) {
+        case kTfLiteBuiltinExpandDims:
         case kTfLiteBuiltinMean:
         case kTfLiteBuiltinPad:
         case kTfLiteBuiltinSum:
@@ -1149,9 +1150,26 @@ class Subgraph {
     if (context->profiler) {
       flags |= XNN_FLAG_BASIC_PROFILING;
     }
+
+    if (delegate.weight_cache_provider_.IsActive() &&
+        delegate.weight_cache_provider_.CanStartBuildStep()) {
+      if (!delegate.weight_cache_provider_.StartBuildStep()) {
+        TF_LITE_KERNEL_LOG(
+            context, "XNNPack delegate failed to start cache build step.");
+        return nullptr;
+      }
+    }
     status = xnn_create_runtime_v4(subgraph.get(), delegate.weights_cache(),
                                    delegate.workspace(), delegate.threadpool(),
                                    flags, &runtime_ptr);
+    if (delegate.weight_cache_provider_.IsActive() &&
+        delegate.weight_cache_provider_.CanStartBuildStep()) {
+      if (!delegate.weight_cache_provider_.StopBuildStep()) {
+        TF_LITE_KERNEL_LOG(context,
+                           "XNNPack delegate failed to stop cache build step.");
+        return nullptr;
+      }
+    }
     if (status != xnn_status_success) {
       TF_LITE_KERNEL_LOG(context, "failed to create XNNPACK runtime");
       return nullptr;
@@ -1164,17 +1182,6 @@ class Subgraph {
   TfLiteStatus Prepare(TfLiteContext* context, TfLiteNode* node,
                        bool enable_subgraph_reshaping, Delegate* delegate) {
     std::lock_guard<std::mutex> lock(delegate->workspace_mutex_);
-
-    // The weights cache needs to be finalized only once. Prepare will be called
-    // for each partition after all the partitions have been created (therefore
-    // all the weights are known and have been packed).
-    if (delegate->weight_cache_provider_.IsActive()) {
-      if (!delegate->weight_cache_provider_.Finalize()) {
-        TF_LITE_KERNEL_LOG(context,
-                           "XNNPack delegate failed to finalize cache.");
-        return kTfLiteError;
-      }
-    }
 
     if (enable_subgraph_reshaping) {
       xnn_status status = xnn_status_invalid_state;
@@ -1232,6 +1239,7 @@ class Subgraph {
   TfLiteStatus Invoke(TfLiteContext* context, bool enable_subgraph_reshaping,
                       Delegate* delegate) {
     std::lock_guard<std::mutex> lock(delegate->workspace_mutex_);
+
     bool any_pointers_changed = false;
     for (std::pair<int, void*> io_info : externals_) {
       const TfLiteTensor& tensor = context->tensors[io_info.first];
@@ -2725,6 +2733,10 @@ class Subgraph {
       case kTfLiteBuiltinElu:
         return VisitEluNode(subgraph, delegate, logging_context, node_index,
                             node, context->tensors, input_output_tensors);
+      case kTfLiteBuiltinExpandDims:
+        return VisitExpandDimsNode(subgraph, delegate, logging_context,
+                                   node_index, node, context->tensors,
+                                   input_output_tensors);
       case kTfLiteBuiltinFullyConnected: {
         // FullyConnected with sparse weight has version 8, which cannot be
         // delegated to XNNPack.
@@ -4105,6 +4117,68 @@ class Subgraph {
       if (status != xnn_status_success) {
         TF_LITE_KERNEL_LOG(logging_context, "failed to delegate %s node #%d",
                            EnumNameBuiltinOperator(BuiltinOperator_ELU),
+                           node_index);
+        return kTfLiteError;
+      }
+    }
+
+    return kTfLiteOk;
+  }
+
+  static TfLiteStatus VisitExpandDimsNode(
+      xnn_subgraph_t subgraph, const Delegate& delegate,
+      TfLiteContext* logging_context, int node_index, TfLiteNode* node,
+      const TfLiteTensor* tensors,
+      const std::unordered_map<int, uint32_t>& input_output_tensors) {
+    return kTfLiteError;
+    TF_LITE_ENSURE_STATUS(CheckNumInputsAndOutputs(
+        logging_context, node, 2, 1, BuiltinOperator_EXPAND_DIMS, node_index));
+    const TfLiteTensor& input_tensor = tensors[node->inputs->data[0]];
+    TF_LITE_ENSURE_STATUS(
+        CheckTensorFloat32OrQUInt8Type(delegate, logging_context, input_tensor,
+                                       node->inputs->data[0], node_index));
+    const TfLiteTensor& axis_tensor = tensors[node->inputs->data[1]];
+    TF_LITE_ENSURE_STATUS(CheckTensorStaticAllocation(
+        logging_context, axis_tensor, node->inputs->data[1],
+        BuiltinOperator_EXPAND_DIMS, node_index));
+
+    const size_t num_new_axes = NumElements(&axis_tensor);
+    if (num_new_axes != 1) {
+      TF_LITE_MAYBE_KERNEL_LOG(logging_context,
+                               "unexpected number of axes (%d) in node #%d: "
+                               "TFLite only supports 1 new axes",
+                               num_new_axes, node_index);
+      return kTfLiteError;
+    }
+    const TfLiteTensor& output_tensor = tensors[node->outputs->data[0]];
+    TF_LITE_ENSURE_STATUS(
+        CheckTensorFloat32OrQUInt8Type(delegate, logging_context, output_tensor,
+                                       node->outputs->data[0], node_index));
+
+    size_t axis_value;
+    switch (axis_tensor.type) {
+      case kTfLiteInt32:
+        axis_value = *GetTensorData<int32_t>(&axis_tensor);
+        break;
+      case kTfLiteInt64:
+        axis_value = *GetTensorData<int64_t>(&axis_tensor);
+        break;
+      default:
+        TF_LITE_MAYBE_KERNEL_LOG(logging_context,
+                                 "unexpected axis type (%d) in node #%d: "
+                                 "int32 or int64 are supported",
+                                 axis_tensor.type, node_index);
+        return kTfLiteError;
+    }
+    if (subgraph != nullptr) {
+      const xnn_status status = xnn_define_static_expand_dims(
+          subgraph, /*num_new_axes=*/1, &axis_value,
+          /*input_id=*/input_output_tensors.at(node->inputs->data[0]),
+          /*output_id=*/input_output_tensors.at(node->outputs->data[0]),
+          /*flags=*/0);
+      if (status != xnn_status_success) {
+        TF_LITE_KERNEL_LOG(logging_context, "failed to delegate %s node #%d",
+                           EnumNameBuiltinOperator(BuiltinOperator_EXPAND_DIMS),
                            node_index);
         return kTfLiteError;
       }

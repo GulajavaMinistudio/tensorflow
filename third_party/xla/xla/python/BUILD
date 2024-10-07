@@ -92,6 +92,7 @@ py_strict_library(
         "@absl_py//absl/logging",
         "@absl_py//absl/testing:absltest",
         "@absl_py//absl/testing:parameterized",
+        "@ml_dtypes",
     ] + if_google(["//third_party/py/numpy"]),
 )
 
@@ -114,6 +115,7 @@ py_strict_test(
         "@absl_py//absl/logging",
         "@absl_py//absl/testing:absltest",
         "@absl_py//absl/testing:parameterized",
+        "@ml_dtypes",
     ] + if_google(["//third_party/py/numpy"]) + xla_py_test_deps(),
 )
 
@@ -150,6 +152,7 @@ py_strict_test(
         "@absl_py//absl/logging",
         "@absl_py//absl/testing:absltest",
         "@absl_py//absl/testing:parameterized",
+        "@ml_dtypes",
     ] + if_google(
         [
             ":xla_gpu_extension",
@@ -207,7 +210,7 @@ cc_library(
         "//xla:xla_data_proto_cc",
         "//xla/pjrt:exceptions",
         "//xla/python/ifrt",
-        "//xla/python/pjrt_ifrt",
+        "//xla/python/pjrt_ifrt:pjrt_dtype",
         "//xla/tsl/python/lib/core:numpy",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:inlined_vector",
@@ -402,6 +405,7 @@ cc_library(
         "//xla/python/ifrt/hlo:hlo_program",
         "//xla/python/pjrt_ifrt",
         "//xla/python/pjrt_ifrt:pjrt_attribute_map_util",
+        "//xla/python/pjrt_ifrt:pjrt_dtype",
         "//xla/python/pjrt_ifrt:xla_host_callback_proto_cc",
         "//xla/python/pjrt_ifrt:xla_ifrt",
         "//xla/service:computation_placer_hdr",
@@ -707,6 +711,7 @@ cc_library(
         "//xla/pjrt:pjrt_executable",
         "//xla/python/pjrt_ifrt",
         "//xla/service:computation_placer_hdr",
+        "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/status",
@@ -864,6 +869,7 @@ cc_library(
         "@llvm-project//llvm:Support",
         "@nanobind",
         "//xla:literal",
+        "//xla:shape_util",
         "//xla/client:executable_build_options",
         "//xla/client:xla_builder",
         "//xla/pjrt:status_casters",
@@ -955,6 +961,7 @@ cc_library(
         "@stablehlo//:stablehlo_ops",
         "@stablehlo//:stablehlo_serialization",
         "//xla/client:xla_computation",
+        "//xla/hlo/translate/hlo_to_mhlo:hlo_to_mlir_hlo",
         "//xla/mlir/utils:error_util",
         "//xla/mlir_hlo",
         "//xla/mlir_hlo:all_passes",
@@ -962,7 +969,6 @@ cc_library(
         "//xla/pjrt:status_casters",
         "//xla/service/llvm_ir:llvm_util",
         "//xla/service/spmd/shardy/sdy_round_trip:pipelines",
-        "//xla/translate/hlo_to_mhlo:hlo_to_mlir_hlo",
         "//xla/tsl/framework/mlir:status_scoped_diagnostic_handler",
         "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:logging",
@@ -1106,11 +1112,10 @@ cc_library(
     features = ["-use_header_modules"],
     visibility = ["//visibility:private"],
     deps = [
-        ":nb_helpers",
         # placeholder for index annotation deps
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/cleanup",
-        "@com_google_absl//absl/container:node_hash_map",
+        "@com_google_absl//absl/hash",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/synchronization",
         "@nanobind",
@@ -1393,6 +1398,11 @@ cc_library(
         "//xla/hlo/ir:hlo",
         "//xla/service:hlo_proto_cc",
         "//xla/tsl/profiler/convert:xla_op_utils",
+        "//xla/tsl/profiler/utils:file_system_utils",
+        "//xla/tsl/profiler/utils:tf_xplane_visitor",
+        "//xla/tsl/profiler/utils:xplane_schema",
+        "//xla/tsl/profiler/utils:xplane_utils",
+        "//xla/tsl/profiler/utils:xplane_visitor",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
@@ -1401,11 +1411,6 @@ cc_library(
         "@local_tsl//tsl/platform:types",
         "@local_tsl//tsl/profiler/protobuf:profiled_instructions_proto_cc",
         "@local_tsl//tsl/profiler/protobuf:xplane_proto_cc",
-        "@local_tsl//tsl/profiler/utils:file_system_utils",
-        "@local_tsl//tsl/profiler/utils:tf_xplane_visitor",
-        "@local_tsl//tsl/profiler/utils:xplane_schema",
-        "@local_tsl//tsl/profiler/utils:xplane_utils",
-        "@local_tsl//tsl/profiler/utils:xplane_visitor",
     ],
 )
 
@@ -1418,13 +1423,13 @@ xla_cc_test(
         "//xla/tests:verified_hlo_module",
         "//xla/tsl/profiler/convert:xla_op_utils",
         "//xla/tsl/profiler/rpc/client:save_profile",
+        "//xla/tsl/profiler/utils:file_system_utils",
+        "//xla/tsl/profiler/utils:xplane_builder",
+        "//xla/tsl/profiler/utils:xplane_schema",
         "@local_tsl//tsl/platform:test",
         "@local_tsl//tsl/platform:test_main",
         "@local_tsl//tsl/profiler/protobuf:profiled_instructions_proto_cc_impl",
         "@local_tsl//tsl/profiler/protobuf:xplane_proto_cc",
-        "@local_tsl//tsl/profiler/utils:file_system_utils",
-        "@local_tsl//tsl/profiler/utils:xplane_builder",
-        "@local_tsl//tsl/profiler/utils:xplane_schema",
     ],
 )
 

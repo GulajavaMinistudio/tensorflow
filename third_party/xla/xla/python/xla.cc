@@ -182,6 +182,10 @@ NB_MODULE(xla_extension, m_nb) {
   // Exceptions
   nb::exception<XlaRuntimeError> xla_runtime_error(m_nb, "XlaRuntimeError",
                                                    PyExc_RuntimeError);
+  xla_runtime_error.attr("__doc__") = nb::str(
+      "Runtime errors thrown by the JAX runtime. While the JAX runtime may "
+      "raise other exceptions as well, most exceptions thrown by the runtime "
+      "are instances of this class.");
 
   // Types
   nb::enum_<PrimitiveType>(m_nb, "PrimitiveType", nb::is_arithmetic())
@@ -198,6 +202,9 @@ NB_MODULE(xla_extension, m_nb) {
       .value("U32", U32)
       .value("U64", U64)
       .value("F16", F16)
+      // TODO: Uncomment once the minimum ml_dtypes in JAX is >= 0.5.0.
+      // .value("F8E3M4", F8E3M4)
+      // .value("F8E4M3", F8E4M3)
       .value("F8E4M3FN", F8E4M3FN)
       .value("F8E4M3B11FNUZ", F8E4M3B11FNUZ)
       .value("F8E4M3FNUZ", F8E4M3FNUZ)

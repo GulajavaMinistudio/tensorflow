@@ -299,6 +299,9 @@ class XLAConfigOptions:
       build_and_test_tag_filters.append("-gpu")
 
     elif self.backend == Backend.CUDA:
+      build_and_test_tag_filters.append("-rocm-only")
+      build_and_test_tag_filters.append("-sycl-only")
+
       compiler_pair = self.cuda_compiler, self.host_compiler
 
       if compiler_pair == (CudaCompiler.CLANG, HostCompiler.CLANG):
@@ -307,7 +310,7 @@ class XLAConfigOptions:
             f"build --action_env CLANG_CUDA_COMPILER_PATH={dpav.clang_path}"
         )
       elif compiler_pair == (CudaCompiler.NVCC, HostCompiler.CLANG):
-        rc.append("build --config nvcc_clang")
+        rc.append("build --config cuda_nvcc")
         # This is demanded by cuda_configure.bzl
         rc.append(
             f"build --action_env CLANG_CUDA_COMPILER_PATH={dpav.clang_path}"
@@ -325,8 +328,8 @@ class XLAConfigOptions:
             f"build:cuda --repo_env HERMETIC_CUDA_VERSION={dpav.cuda_version}"
         )
       rc.append(
-          "build:cuda --repo_env"
-          f" HERMETIC_CUDA_COMPUTE_CAPABILITIES={','.join(dpav.cuda_compute_capabilities)}"
+          "build:cuda --repo_env HERMETIC_CUDA_COMPUTE_CAPABILITIES="
+          f"{','.join(dpav.cuda_compute_capabilities)}"
       )
       if dpav.cudnn_version:
         rc.append(
@@ -347,8 +350,12 @@ class XLAConfigOptions:
       if not self.using_nccl:
         rc.append("build --config nonccl")
     elif self.backend == Backend.ROCM:
-      pass
+      build_and_test_tag_filters.append("-cuda-only")
+      build_and_test_tag_filters.append("-sycl-only")
     elif self.backend == Backend.SYCL:
+      build_and_test_tag_filters.append("-cuda-only")
+      build_and_test_tag_filters.append("-rocm-only")
+
       rc.append("build --config sycl")
 
     # Lines that are added for every backend

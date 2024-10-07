@@ -44,6 +44,7 @@ bool IsTritonSupportedDataType(PrimitiveType type,
                                const se::GpuComputeCapability& gpu_version) {
   switch (type) {
     case PRED:
+    case S4:
     case S8:
     case S16:
     case S32:
@@ -106,6 +107,11 @@ absl::flat_hash_set<HloOpcode> TritonSupportedUnaryElementwiseOps(
                                                       HloOpcode::kCeil};
     ret.insert(additional_opcodes.begin(), additional_opcodes.end());
   }
+
+  if (primitive_util::IsFloatingPointType(element_type)) {
+    ret.insert(HloOpcode::kReducePrecision);
+  }
+
   return ret;
 }
 
@@ -117,7 +123,7 @@ CodegenDecision IsTritonSupportedConversion(
   };
 
   auto error_message = [&]() {
-    return CodegenDecision(
+    return CodegenDecision::Forbid(
         absl::StrCat("Unsupported conversion in Triton: ",
                      primitive_util::LowercasePrimitiveTypeName(input), " to ",
                      primitive_util::LowercasePrimitiveTypeName(output)));
@@ -139,7 +145,7 @@ CodegenDecision IsTritonSupportedConversion(
   if (IsTritonSupportedDataType(input, gpu_version) &&
       (IsTritonSupportedDataType(output, gpu_version) ||
        output == PrimitiveType::S4)) {
-    return CodegenDecision{};
+    return CodegenDecision::Allow();
   }
 
   return error_message();
@@ -216,7 +222,8 @@ bool IsTritonSupportedElementwise(HloOpcode opcode, PrimitiveType element_type,
 }
 
 CodegenDecision IsTritonSupportedInstructionImpl(
-    const HloInstruction& instr, const se::GpuComputeCapability& gpu_version);
+    const HloInstruction& instr, const se::GpuComputeCapability& gpu_version,
+    bool is_within_reduction_computation);
 
 // Filters Reduces which can be handled using Triton.
 CodegenDecision CanTritonHandleReduce(
@@ -224,27 +231,38 @@ CodegenDecision CanTritonHandleReduce(
     const se::GpuComputeCapability& gpu_version) {
   if (reduce.shape().element_type() == PrimitiveType::F8E4M3FN ||
       reduce.shape().element_type() == PrimitiveType::F8E5M2) {
-    return "F8E4M3FN and F8E5M2 are not supported for reductions.";
+    return CodegenDecision::Forbid(
+        "F8E4M3FN and F8E5M2 are not supported for reductions.");
   }
 
   bool is_triton_supported_reduction_computation = absl::c_all_of(
       reduce.to_apply()->instructions(), [&](const HloInstruction* instr) {
-        return IsTritonSupportedInstructionImpl(*instr, gpu_version).CanFuse();
+        return IsTritonSupportedInstructionImpl(
+                   *instr, gpu_version,
+                   /*is_within_reduction_computation=*/true)
+            .CanFuse();
       });
   if (!is_triton_supported_reduction_computation) {
-    return "Unsupported reduction computation by Triton.";
+    return CodegenDecision::Forbid(
+        "Unsupported reduction computation by Triton.");
   }
 
   if (reduce.dimensions().size() == 1 && reduce.operand_count() == 2) {
-    return CodegenDecision{};
+    return CodegenDecision::Allow();
   }
-  return "Reduction is not a row-reduction of a single operand.";
+  return CodegenDecision::Forbid(
+      "Reduction is not a row-reduction of a single operand.");
 }
 
 CodegenDecision IsTritonSupportedInstructionImpl(
-    const HloInstruction& instr, const se::GpuComputeCapability& gpu_version) {
+    const HloInstruction& instr, const se::GpuComputeCapability& gpu_version,
+    bool is_within_reduction_computation) {
   if (internal::IsTritonUnsupportedOpcode(instr.opcode())) {
-    return "Unsupported opcode.";
+    return CodegenDecision::Forbid("Unsupported opcode.");
+  }
+
+  if (IsUnsupported0DTensor(instr, is_within_reduction_computation)) {
+    return CodegenDecision::Forbid("Unsupported 0D tensor");
   }
 
   // Special handling for the kConvert instruction, which has a non-standard
@@ -259,7 +277,7 @@ CodegenDecision IsTritonSupportedInstructionImpl(
   bool output_type_is_supported = IsTritonSupportedDataType(type, gpu_version);
 
   if (!output_type_is_supported) {
-    return "Unsupported output data type.";
+    return CodegenDecision::Forbid("Unsupported output data type.");
   }
 
   bool input_types_are_supported =
@@ -269,16 +287,25 @@ CodegenDecision IsTritonSupportedInstructionImpl(
       });
 
   if (!input_types_are_supported) {
-    return "Unsupported input data type.";
+    return CodegenDecision::Forbid("Unsupported input data type.");
   }
 
   // Const is technically an elementwise op, so this check must be before the
   // elementwise check.
   if (instr.opcode() == HloOpcode::kConstant) {
     return ShapeUtil::IsScalar(instr.shape())
-               ? CodegenDecision{}
-               : CodegenDecision{
-                     "Only scalar constants are supported in Triton."};
+               ? CodegenDecision::Allow()
+               : CodegenDecision::Forbid(
+                     "Only scalar constants are supported in Triton.");
+  }
+
+  if (instr.opcode() == HloOpcode::kIota) {
+    PrimitiveType element_type = instr.shape().element_type();
+    return element_type != PrimitiveType::F8E4M3FN &&
+                   element_type != PrimitiveType::F8E5M2
+               ? CodegenDecision::Allow()
+               : CodegenDecision::Forbid(
+                     "F8E4M3FN and F8E5M2 are not supported for iota.");
   }
 
   if (instr.IsElementwise()) {
@@ -289,9 +316,9 @@ CodegenDecision IsTritonSupportedInstructionImpl(
             // operand.
             instr.operand(instr.operand_count() - 1)->shape().element_type(),
             gpu_version)) {
-      return "Unsupported elementwise operation.";
+      return CodegenDecision::Forbid("Unsupported elementwise operation.");
     }
-    return CodegenDecision{};
+    return CodegenDecision::Allow();
   }
 
   // TODO(bchetioui): support kDot, kPad, and kDynamicSlice.
@@ -306,12 +333,12 @@ CodegenDecision IsTritonSupportedInstructionImpl(
     case HloOpcode::kBroadcast:
     case HloOpcode::kBitcast:
     case HloOpcode::kReshape:
-      return CodegenDecision{};
+      return CodegenDecision::Allow();
     default:
       VLOG(2) << "Unsupported instruction: " << instr.ToString();
       break;
   }
-  return "Unsupported opcode.";
+  return CodegenDecision::Forbid("Unsupported opcode.");
 }
 
 }  // namespace
@@ -403,11 +430,25 @@ absl::Status EnsureTritonSupportsComputeCapability(
 
 CodegenDecision IsTritonSupportedInstruction(
     const HloInstruction& instr, const se::GpuComputeCapability& gpu_version) {
-  CodegenDecision decision =
-      IsTritonSupportedInstructionImpl(instr, gpu_version);
+  CodegenDecision decision = IsTritonSupportedInstructionImpl(
+      instr, gpu_version, /*is_within_reduction_computation=*/false);
   VLOG(2) << "IsTritonSupportedInstruction: " << instr.ToString() << " "
           << bool(decision);
   return decision;
+}
+
+CodegenDecision IsTritonSupportedComputation(
+    const HloComputation& computation,
+    const se::GpuComputeCapability& gpu_compute_capability) {
+  for (const auto* instruction : computation.instructions()) {
+    if (CodegenDecision can_codegen =
+            IsTritonSupportedInstruction(*instruction, gpu_compute_capability);
+        !can_codegen) {
+      return can_codegen;
+    }
+  }
+
+  return CodegenDecision::Allow();
 }
 
 bool IsTritonFusedComputation(const HloComputation& computation) {
@@ -418,6 +459,38 @@ bool IsTritonFusedComputation(const HloComputation& computation) {
          fusion->backend_config<gpu::GpuBackendConfig>()
                  ->fusion_backend_config()
                  .kind() == kTritonGemmFusionKind;
+}
+
+bool IsUnsupported0DTensor(const HloInstruction& instr,
+                           bool is_within_reduction_computation) {
+  if (!instr.shape().IsArray() || instr.shape().rank() != 0 ||
+      is_within_reduction_computation ||
+      instr.opcode() == HloOpcode::kConstant) {
+    return false;
+  }
+
+  // At this point we know that the output shape is a 0D tensor.
+
+  // Broadcast has special handling logic to support 0D tensors.
+  if (instr.user_count() > 0 &&
+      absl::c_all_of(instr.users(), [&](const HloInstruction* user) {
+        return user->opcode() == HloOpcode::kBroadcast;
+      })) {
+    return false;
+  }
+
+  // Elementwise ops with both 0D operands and 0D outputs are OK, because
+  // there is no mixing of blocked and non-blocked encodings. The ROOT
+  // still doesn't support 0D outputs, however.
+  if (instr.IsElementwise() && !instr.IsRoot() &&
+      absl::c_all_of(instr.operands(), [&](const HloInstruction* operand) {
+        return operand->shape().IsArray() && operand->shape().rank() == 0;
+      })) {
+    return false;
+  }
+
+  // Nothing else is supported.
+  return true;
 }
 
 }  // namespace gpu
