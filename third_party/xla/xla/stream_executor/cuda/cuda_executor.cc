@@ -55,7 +55,6 @@ limitations under the License.
 #include "xla/stream_executor/cuda/cuda_stream.h"
 #include "xla/stream_executor/cuda/cuda_timer.h"
 #include "xla/stream_executor/cuda/cuda_version_parser.h"
-#include "xla/stream_executor/cuda/delay_kernel.h"
 #include "xla/stream_executor/device_description.h"
 #include "xla/stream_executor/device_memory.h"
 #include "xla/stream_executor/dnn.h"
@@ -65,10 +64,8 @@ limitations under the License.
 #include "xla/stream_executor/gpu/context.h"
 #include "xla/stream_executor/gpu/gpu_command_buffer.h"
 #include "xla/stream_executor/gpu/gpu_driver.h"
-#include "xla/stream_executor/gpu/gpu_event.h"
 #include "xla/stream_executor/gpu/gpu_executor.h"
 #include "xla/stream_executor/gpu/gpu_kernel.h"
-#include "xla/stream_executor/gpu/gpu_semaphore.h"
 #include "xla/stream_executor/gpu/gpu_stream.h"
 #include "xla/stream_executor/gpu/gpu_types.h"
 #include "xla/stream_executor/gpu/read_numa_node.h"
@@ -254,6 +251,15 @@ void UnloadCudaModule(Context* context, CUmodule module) {
                << "; leaking: " << status;
   }
 }
+
+// Returns the integer output of cuDeviceGetAttribute.
+absl::StatusOr<int> GetDeviceAttribute(CUdevice_attribute attribute,
+                                       CUdevice device) {
+  int val;
+  TF_RETURN_IF_ERROR(
+      cuda::ToStatus(cuDeviceGetAttribute(&val, attribute, device)));
+  return val;
+}
 }  // namespace
 
 // Given const GPU memory, returns a libcuda device pointer datatype, suitable
@@ -292,9 +298,9 @@ absl::Status CudaExecutor::Init() {
 absl::StatusOr<bool> CudaExecutor::DelayKernelIsSupported() {
   // Check the assumption that this device supports unified addressing,
   // otherwise skip the delay kernel
-  TF_ASSIGN_OR_RETURN(int status,
-                      GpuDriver::GetDeviceAttribute(
-                          CU_DEVICE_ATTRIBUTE_UNIFIED_ADDRESSING, device_));
+  TF_ASSIGN_OR_RETURN(
+      int status,
+      GetDeviceAttribute(CU_DEVICE_ATTRIBUTE_UNIFIED_ADDRESSING, device_));
 
   return static_cast<bool>(status);
 }
@@ -418,18 +424,15 @@ absl::StatusOr<std::unique_ptr<Kernel>> CudaExecutor::LoadKernel(
 
 absl::StatusOr<std::unique_ptr<EventBasedTimer>>
 CudaExecutor::CreateEventBasedTimer(GpuStream* stream, bool use_delay_kernel) {
-  GpuSemaphore semaphore{};
+  const CudaTimer::TimerType timer_type =
+      (use_delay_kernel && ShouldLaunchDelayKernel() &&
+       delay_kernels_supported_)
+          ? CudaTimer::TimerType::kDelayKernel
+          : CudaTimer::TimerType::kEventBased;
 
-  if (use_delay_kernel && ShouldLaunchDelayKernel() &&
-      delay_kernels_supported_) {
-    TF_ASSIGN_OR_RETURN(semaphore, LaunchDelayKernel(stream));
-  }
-  TF_ASSIGN_OR_RETURN(auto start_event, CreateGpuEvent(/*allow_timing=*/true));
-  TF_ASSIGN_OR_RETURN(auto stop_event, CreateGpuEvent(/*allow_timing=*/true));
-  TF_RETURN_IF_ERROR(stream->RecordEvent(start_event.get()));
-  return std::make_unique<CudaTimer>(gpu_context(), std::move(start_event),
-                                     std::move(stop_event), stream,
-                                     std::move(semaphore));
+  TF_ASSIGN_OR_RETURN(CudaTimer timer,
+                      CudaTimer::Create(gpu_context(), stream, timer_type));
+  return std::make_unique<CudaTimer>(std::move(timer));
 }
 
 bool CudaExecutor::UnloadGpuBinary(const void* gpu_binary) {
@@ -753,8 +756,20 @@ absl::Status CudaExecutor::EnablePeerAccessTo(StreamExecutor* other) {
   return GpuDriver::EnablePeerAccess(gpu_context(), cuda_other->gpu_context());
 }
 
-bool CudaExecutor::DeviceMemoryUsage(int64_t* free, int64_t* total) const {
-  return GpuDriver::GetDeviceMemoryInfo(gpu_context(), free, total);
+bool CudaExecutor::DeviceMemoryUsage(int64_t* free_out,
+                                     int64_t* total_out) const {
+  ScopedActivateContext activation(gpu_context());
+  size_t free = 0;
+  size_t total = 0;
+  auto status = cuda::ToStatus(cuMemGetInfo(&free, &total));
+  if (!status.ok()) {
+    LOG(ERROR) << "failed to query device memory info: " << status;
+    return false;
+  }
+
+  *free_out = free;
+  *total_out = total;
+  return true;
 }
 
 absl::StatusOr<DeviceMemoryBase> CudaExecutor::GetSymbol(
@@ -796,20 +811,15 @@ absl::Status FillBlockDimLimit(GpuDeviceHandle device,
   return absl::OkStatus();
 }
 
-absl::StatusOr<std::unique_ptr<GpuEvent>> CudaExecutor::CreateGpuEvent(
-    bool allow_timing) {
-  auto gpu_event = std::make_unique<CudaEvent>(gpu_context());
-  TF_RETURN_IF_ERROR(gpu_event->Init(allow_timing));
-  return std::move(gpu_event);
-}
-
 absl::StatusOr<std::unique_ptr<Event>> CudaExecutor::CreateEvent() {
-  return CreateGpuEvent(/*allow_timing=*/false);
+  TF_ASSIGN_OR_RETURN(auto event, CudaEvent::Create(gpu_context(), false));
+  return std::make_unique<CudaEvent>(std::move(event));
 }
 
 absl::StatusOr<std::unique_ptr<Stream>> CudaExecutor::CreateStream(
     std::optional<std::variant<StreamPriority, int>> priority) {
-  TF_ASSIGN_OR_RETURN(auto event, CreateGpuEvent(/*allow_timing=*/false));
+  TF_ASSIGN_OR_RETURN(auto event,
+                      CudaEvent::Create(gpu_context(), /*allow_timing=*/false));
   TF_ASSIGN_OR_RETURN(auto stream,
                       CudaStream::Create(this, std::move(event), priority));
   absl::MutexLock l(&alive_gpu_streams_mu_);
@@ -865,26 +875,21 @@ CudaExecutor::CreateDeviceDescription(int device_ordinal) {
 
   {
     desc.set_threads_per_block_limit(
-        GpuDriver::GetDeviceAttribute(CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK,
-                                      device)
+        GetDeviceAttribute(CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK, device)
             .value());
 
     ThreadDim thread_dim_limit;
-    thread_dim_limit.x = GpuDriver::GetDeviceAttribute(
-                             CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_X, device)
-                             .value();
-    thread_dim_limit.y = GpuDriver::GetDeviceAttribute(
-                             CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_Y, device)
-                             .value();
-    thread_dim_limit.z = GpuDriver::GetDeviceAttribute(
-                             CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_Z, device)
-                             .value();
+    thread_dim_limit.x =
+        GetDeviceAttribute(CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_X, device).value();
+    thread_dim_limit.y =
+        GetDeviceAttribute(CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_Y, device).value();
+    thread_dim_limit.z =
+        GetDeviceAttribute(CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_Z, device).value();
     desc.set_thread_dim_limit(thread_dim_limit);
   }
 
   int sm_clock_khz =
-      GpuDriver::GetDeviceAttribute(CU_DEVICE_ATTRIBUTE_CLOCK_RATE, device)
-          .value();
+      GetDeviceAttribute(CU_DEVICE_ATTRIBUTE_CLOCK_RATE, device).value();
   desc.set_clock_rate_ghz(static_cast<float>(sm_clock_khz) / 1e6);
 
   {
@@ -898,13 +903,12 @@ CudaExecutor::CreateDeviceDescription(int device_ordinal) {
   desc.set_device_memory_size(device_memory_size);
 
   int64_t l2_cache_bytes =
-      GpuDriver::GetDeviceAttribute(CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE, device)
-          .value();
+      GetDeviceAttribute(CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE, device).value();
   desc.set_l2_cache_size(l2_cache_bytes);
 
-  absl::StatusOr<int> mem_clock_khz = GpuDriver::GetDeviceAttribute(
-      CU_DEVICE_ATTRIBUTE_MEMORY_CLOCK_RATE, device_ordinal);
-  absl::StatusOr<int> mem_bus_width_bits = GpuDriver::GetDeviceAttribute(
+  absl::StatusOr<int> mem_clock_khz =
+      GetDeviceAttribute(CU_DEVICE_ATTRIBUTE_MEMORY_CLOCK_RATE, device_ordinal);
+  absl::StatusOr<int> mem_bus_width_bits = GetDeviceAttribute(
       CU_DEVICE_ATTRIBUTE_GLOBAL_MEMORY_BUS_WIDTH, device_ordinal);
   if (mem_clock_khz.ok() && mem_bus_width_bits.ok()) {
     // Times 2 because HBM is DDR memory; it gets two data bits per each data
@@ -949,8 +953,8 @@ CudaExecutor::CreateDeviceDescription(int device_ordinal) {
       GpuDriver::GetMaxRegistersPerBlock(device).value());
   desc.set_threads_per_warp(GpuDriver::GetThreadsPerWarp(device).value());
   desc.set_registers_per_core_limit(
-      GpuDriver::GetDeviceAttribute(
-          CU_DEVICE_ATTRIBUTE_MAX_REGISTERS_PER_MULTIPROCESSOR, device)
+      GetDeviceAttribute(CU_DEVICE_ATTRIBUTE_MAX_REGISTERS_PER_MULTIPROCESSOR,
+                         device)
           .value());
 
   auto value_or = [](const auto& status_or, auto default_val) {
