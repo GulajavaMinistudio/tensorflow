@@ -14,7 +14,7 @@
 
 package(
     # copybara:uncomment default_applicable_licenses = ["//tensorflow:license"],
-    default_visibility = ["//tensorflow/lite/experimental/lrt/qnn:__subpackages__"],
+    default_visibility = ["//tensorflow/lite/experimental/lrt/vendors/qualcomm/compiler:__subpackages__"],
 )
 
 cc_library(
@@ -86,6 +86,28 @@ cc_test(
         ":qnn_op",
         "@com_google_googletest//:gtest_main",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/types:span",
+        # copybara:uncomment "//third_party/qairt:qnn_lib_headers",
+        "//tensorflow/lite/experimental/lrt/core:api_internal",
+        "//tensorflow/lite/experimental/lrt/core:graph_tools",
+        "//tensorflow/lite/experimental/lrt/test:common",
+    ],
+)
+
+cc_test(
+    name = "op_compatibility_test",
+    srcs = ["op_compatibility_test.cc"],
+    tags = [
+        # Don't build/test in OS until qnn is available.
+        "nobuilder",
+        "no_oss",
+    ],
+    deps = [
+        ":qnn_op",
+        "@com_google_googletest//:gtest_main",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/types:span",
         # copybara:uncomment "//third_party/qairt:qnn_lib_headers",

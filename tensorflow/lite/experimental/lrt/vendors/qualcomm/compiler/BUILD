@@ -22,7 +22,7 @@ package(
 lite_rt_dynamic_lib(
     name = "qnn_compiler_plugin",
     srcs = ["qnn_compiler_plugin.cc"],
-    hdrs = ["//tensorflow/lite/experimental/lrt/c:lite_rt_compiler_plugin.h"],
+    hdrs = ["//tensorflow/lite/experimental/lrt/vendors/c:lite_rt_compiler_plugin.h"],
     export_lrt_only = True,
     shared_lib_name = "qnn_compiler_plugin_so",
     so_name = "libLrtQnnCompilerPlugin.so",
@@ -37,7 +37,7 @@ lite_rt_dynamic_lib(
         # copybara:uncomment "//third_party/qairt:qnn_lib_headers",
         "//tensorflow/lite/experimental/lrt/core:api_internal",
         "//tensorflow/lite/experimental/lrt/core:graph_tools",
-        "//tensorflow/lite/experimental/lrt/qnn_sdk:qnn_manager",
+        "//tensorflow/lite/experimental/lrt/vendors/qualcomm:qnn_manager",
     ],
 )
 
@@ -65,8 +65,8 @@ lite_rt_test(
         "//tensorflow/lite/experimental/lrt/core:api_internal",
         "//tensorflow/lite/experimental/lrt/core:graph_tools",
         "//tensorflow/lite/experimental/lrt/core:model",
-        "//tensorflow/lite/experimental/lrt/qnn_sdk:qnn_manager",
         "//tensorflow/lite/experimental/lrt/test:common",
+        "//tensorflow/lite/experimental/lrt/vendors/qualcomm:qnn_manager",
     ],
 )
 
@@ -85,8 +85,8 @@ lite_rt_lib(
         "//tensorflow/lite/experimental/lrt/c:lite_rt_c_api",
         "//tensorflow/lite/experimental/lrt/cc:lite_rt_cc_api",
         "//tensorflow/lite/experimental/lrt/core:graph_tools",
-        "//tensorflow/lite/experimental/lrt/qnn/IR:qnn_op",
-        "//tensorflow/lite/experimental/lrt/qnn/IR:qnn_tensor",
-        "//tensorflow/lite/experimental/lrt/qnn_sdk:qnn_manager",
+        "//tensorflow/lite/experimental/lrt/vendors/qualcomm:qnn_manager",
+        "//tensorflow/lite/experimental/lrt/vendors/qualcomm/compiler/IR:qnn_op",
+        "//tensorflow/lite/experimental/lrt/vendors/qualcomm/compiler/IR:qnn_tensor",
     ],
 )

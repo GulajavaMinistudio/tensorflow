@@ -23,16 +23,17 @@
 
 #include "third_party/qairt/include/QNN/HTP/QnnHtpDevice.h"
 #include "tensorflow/lite/experimental/lrt/c/lite_rt_common.h"
-#include "tensorflow/lite/experimental/lrt/c/lite_rt_compiler_plugin.h"
 #include "tensorflow/lite/experimental/lrt/c/lite_rt_model.h"
 #include "tensorflow/lite/experimental/lrt/c/lite_rt_op_code.h"
 #include "tensorflow/lite/experimental/lrt/c/lite_rt_support.h"
 #include "tensorflow/lite/experimental/lrt/cc/lite_rt_support.h"
 #include "tensorflow/lite/experimental/lrt/core/graph_tools.h"
-#include "tensorflow/lite/experimental/lrt/qnn/qnn_compose_graph.h"
-#include "tensorflow/lite/experimental/lrt/qnn_sdk/qnn_manager.h"
+#include "tensorflow/lite/experimental/lrt/vendors/c/lite_rt_compiler_plugin.h"
+#include "tensorflow/lite/experimental/lrt/vendors/qualcomm/compiler/qnn_compose_graph.h"
+#include "tensorflow/lite/experimental/lrt/vendors/qualcomm/qnn_manager.h"
 
-using ::qnn::QnnManager;
+using ::lrt::qnn::QnnManager;
+using ::lrt::qnn::SetupAll;
 
 //
 // Configurations
@@ -181,7 +182,8 @@ LrtStatus LrtPluginCompile(LrtCompilerPlugin compiler_plugin,
   auto opt_soc_model = FindSocModel(soc_model);
 
   QnnManager qnn;
-  LRT_RETURN_STATUS_IF_NOT_OK(qnn::SetupAll(opt_soc_model, qnn));
+  LRT_RETURN_STATUS_IF_NOT_OK(SetupAll(
+      opt_soc_model, qnn, /*load_system=*/false, /*load_context=*/true));
 
   auto result = std::make_unique<LrtCompiledResultT>();
 
