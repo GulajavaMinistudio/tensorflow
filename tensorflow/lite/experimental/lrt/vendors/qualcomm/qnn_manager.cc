@@ -20,12 +20,12 @@
 
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
-#include "third_party/qairt/include/QNN/QnnCommon.h"
-#include "third_party/qairt/include/QNN/QnnInterface.h"
-#include "third_party/qairt/include/QNN/QnnLog.h"
-#include "third_party/qairt/include/QNN/QnnTypes.h"
-#include "third_party/qairt/include/QNN/System/QnnSystemCommon.h"
-#include "third_party/qairt/include/QNN/System/QnnSystemContext.h"
+#include "third_party/qairt/latest/include/QNN/QnnCommon.h"
+#include "third_party/qairt/latest/include/QNN/QnnInterface.h"
+#include "third_party/qairt/latest/include/QNN/QnnLog.h"
+#include "third_party/qairt/latest/include/QNN/QnnTypes.h"
+#include "third_party/qairt/latest/include/QNN/System/QnnSystemCommon.h"
+#include "third_party/qairt/latest/include/QNN/System/QnnSystemContext.h"
 #include "tensorflow/lite/experimental/lrt/c/lite_rt_common.h"
 #include "tensorflow/lite/experimental/lrt/c/lite_rt_support.h"
 #include "tensorflow/lite/experimental/lrt/cc/lite_rt_support.h"
@@ -96,22 +96,6 @@ LrtStatus QnnManager::LoadSystemLib(absl::string_view path) {
   return kLrtStatusOk;
 }
 
-void QnnManager::DumpLibDetails() const {
-  if (lib_so_ == nullptr) {
-    return;
-  }
-  lrt::DumpLibInfo(lib_so_);
-}
-
-void QnnManager::DumpSystemLibDetails() const {
-  if (lib_system_so_ == nullptr) {
-    return;
-  }
-  lrt::DumpLibInfo(lib_system_so_);
-}
-
-void QnnManager::DumpApiDetails() const { DumpInterface(interface_); }
-
 const QnnApi* QnnManager::Api() const {
   if (interface_ == nullptr) {
     return nullptr;
@@ -123,7 +107,7 @@ LrtStatus QnnManager::ResolveApi() {
   if (lib_so_ == nullptr) {
     LITE_RT_LOG(LRT_ERROR, "%s",
                 "Cannot resolve functions: libQnn*.so has not been loaded.\n");
-    return kLrtStatusDynamicLoadErr;
+    return kLrtStatusErrorDynamicLoading;
   }
 
   auto providers = LoadProvidersFromLib(lib_so_);
@@ -145,7 +129,7 @@ LrtStatus QnnManager::ResolveApi() {
 
   if (interface_ == nullptr) {
     LITE_RT_LOG(LRT_ERROR, "%s", "No valid interface was provided\n");
-    return kLrtStatusDynamicLoadErr;
+    return kLrtStatusErrorDynamicLoading;
   }
 
   return kLrtStatusOk;
@@ -155,7 +139,7 @@ LrtStatus QnnManager::ResolveSystemApi() {
   if (lib_so_ == nullptr) {
     LITE_RT_LOG(LRT_ERROR, "%s",
                 "Cannot resolve functions: libQnn*.so has not been loaded.\n");
-    return kLrtStatusDynamicLoadErr;
+    return kLrtStatusErrorDynamicLoading;
   }
 
   auto system_providers = LoadSystemProvidersFromLib(lib_system_so_);
@@ -177,7 +161,7 @@ LrtStatus QnnManager::ResolveSystemApi() {
 
   if (system_interface_ == nullptr) {
     LITE_RT_LOG(LRT_ERROR, "%s", "No valid system interface was provided\n");
-    return kLrtStatusDynamicLoadErr;
+    return kLrtStatusErrorDynamicLoading;
   }
 
   return kLrtStatusOk;
@@ -188,10 +172,6 @@ const QnnSystemApi* QnnManager::SystemApi() const {
     return nullptr;
   }
   return &system_interface_->QNN_SYSTEM_INTERFACE_VER_NAME;
-}
-
-void QnnManager::DumpSystemApiDetails() const {
-  DumpSystemInterface(system_interface_);
 }
 
 LrtStatus QnnManager::FreeSystemContext() {
@@ -274,15 +254,13 @@ LrtStatus QnnManager::GenerateContextBin(std::vector<char>& buffer) {
 
 LrtStatus SetupAll(std::optional<QnnHtpDevice_Arch_t> soc_model,
                    QnnManager& qnn, bool load_system, bool load_context) {
-  LRT_RETURN_STATUS_IF_NOT_OK(qnn.LoadLib(kLibQnnHtpSo));
-  qnn.DumpLibDetails();
-
-  LRT_RETURN_STATUS_IF_NOT_OK(qnn.ResolveApi());
+  {
+    LRT_RETURN_STATUS_IF_NOT_OK(qnn.LoadLib(kLibQnnHtpSo));
+    LRT_RETURN_STATUS_IF_NOT_OK(qnn.ResolveApi());
+  }
 
   if (load_system) {
     LRT_RETURN_STATUS_IF_NOT_OK(qnn.LoadSystemLib(kLibQnnSystemSo));
-    qnn.DumpSystemLibDetails();
-
     LRT_RETURN_STATUS_IF_NOT_OK(qnn.ResolveSystemApi());
 
     if (auto status =
@@ -294,7 +272,7 @@ LrtStatus SetupAll(std::optional<QnnHtpDevice_Arch_t> soc_model,
   }
 
   if (auto status = qnn.Api()->logCreate(GetDefaultStdOutLogger(),
-                                         QNN_LOG_LEVEL_DEBUG, &qnn.LogHandle());
+                                         QNN_LOG_LEVEL_INFO, &qnn.LogHandle());
       status != QNN_SUCCESS) {
     LITE_RT_LOG(LRT_ERROR, "Failed to create QNN logger: %d", status);
     return kLrtStatusErrorRuntimeFailure;

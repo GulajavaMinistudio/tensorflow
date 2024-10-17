@@ -32,6 +32,7 @@ lite_rt_dynamic_lib(
         "//tensorflow/lite/experimental/lrt/c:lite_rt_c_api",
         "//tensorflow/lite/experimental/lrt/cc:lite_rt_cc_api",
         "//tensorflow/lite/experimental/lrt/core:graph_tools",
+        "//tensorflow/lite/experimental/lrt/core:model",
     ],
 )
 
@@ -40,6 +41,7 @@ cc_test(
     srcs = [
         "example_plugin_test.cc",
     ],
+    data = ["//tensorflow/lite/experimental/lrt/test:tflite_test_data"],
     deps = [
         ":example_plugin",  # buildcleaner: keep
         "//tensorflow/lite/experimental/lrt/c:lite_rt_c_api",

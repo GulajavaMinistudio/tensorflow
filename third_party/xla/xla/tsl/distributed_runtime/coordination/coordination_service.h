@@ -225,7 +225,7 @@ class CoordinationServiceInterface {
   //       list of participating tasks.
   //   - FailedPrecondition: Agent is in UNINITIALIZED or ERROR state.
   virtual void BarrierAsync(
-      std::string_view barrier_id, absl::Duration timeout,
+      std::string barrier_id, absl::Duration timeout,
       const tensorflow::CoordinatedTask& task,
       const std::vector<tensorflow::CoordinatedTask>& participating_tasks,
       StatusCallback done) = 0;
@@ -236,7 +236,7 @@ class CoordinationServiceInterface {
   // Possible service errors:
   //   - FailedPrecondition: Barrier has already been passed.
   virtual absl::Status CancelBarrier(
-      std::string_view barrier_id, const tensorflow::CoordinatedTask& task) = 0;
+      std::string barrier_id, const tensorflow::CoordinatedTask& task) = 0;
 
   // Gets error from the coordination service. Block until the service
   // returns an error or the task/service is shutdown. This should never be used

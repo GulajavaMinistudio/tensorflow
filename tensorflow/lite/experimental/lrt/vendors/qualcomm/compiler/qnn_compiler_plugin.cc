@@ -21,7 +21,7 @@
 #include <string>
 #include <vector>
 
-#include "third_party/qairt/include/QNN/HTP/QnnHtpDevice.h"
+#include "third_party/qairt/latest/include/QNN/HTP/QnnHtpDevice.h"
 #include "tensorflow/lite/experimental/lrt/c/lite_rt_common.h"
 #include "tensorflow/lite/experimental/lrt/c/lite_rt_model.h"
 #include "tensorflow/lite/experimental/lrt/c/lite_rt_op_code.h"
@@ -106,7 +106,7 @@ LrtStatus LrtCompiledResultGetCallInfo(LrtCompiledResult compiled_result,
                                        const void** call_info,
                                        size_t* call_info_size) {
   if (call_idx >= compiled_result->graph_names.size()) {
-    return kLrtStatusParamIndexOOB;
+    return kLrtStatusErrorIndexOOB;
   }
 
   *call_info = compiled_result->graph_names.at(call_idx).data();
