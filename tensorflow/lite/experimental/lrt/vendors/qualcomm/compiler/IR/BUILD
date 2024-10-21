@@ -27,13 +27,10 @@ cc_library(
     ],
     deps = [
         "@com_google_absl//absl/log:absl_check",
-        "@com_google_absl//absl/strings:str_format",
-        "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/types:span",
         # copybara:uncomment "//third_party/qairt/latest:qnn_lib_headers",
-        "//tensorflow/lite/experimental/lrt/cc:lite_rt_tensor",
+        "//tensorflow/lite/experimental/lrt/cc:litert_tensor",
         "//tensorflow/lite/experimental/lrt/core:api_internal",
-        "//tensorflow/lite/experimental/lrt/core:graph_tools",
     ],
 )
 
@@ -69,9 +66,8 @@ cc_library(
     ],
     deps = [
         # copybara:uncomment "//third_party/qairt/latest:qnn_lib_headers",
-        "//tensorflow/lite/experimental/lrt/cc:lite_rt_op",
+        "//tensorflow/lite/experimental/lrt/cc:litert_op",
         "//tensorflow/lite/experimental/lrt/core:api_internal",
-        "//tensorflow/lite/experimental/lrt/core:graph_tools",
     ],
 )
 
