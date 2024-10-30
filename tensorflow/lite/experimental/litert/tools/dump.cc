@@ -94,6 +94,30 @@ void Dump(LiteRtOpCode code, std::ostream& out) {
     case kLiteRtOpCodeTflSlice:
       out << "TFL_SLICE";
       break;
+    case kLiteRtOpCodeTflDiv:
+      out << "TFL_DIV";
+      break;
+    case kLiteRtOpCodeTflRsqrt:
+      out << "TFL_RSQRT";
+      break;
+    case kLiteRtOpCodeTflTanh:
+      out << "TFL_TANH";
+      break;
+    case kLiteRtOpCodeTflSub:
+      out << "TFL_SUB";
+      break;
+    case kLiteRtOpCodeTflReshape:
+      out << "TFL_RESHAPE";
+      break;
+    case kLiteRtOpCodeTflBatchMatmul:
+      out << "TFL_BATCH_MATMUL";
+      break;
+    case kLiteRtOpCodeTflSum:
+      out << "TFL_SUM";
+      break;
+    case kLiteRtOpCodeTflConcatenation:
+      out << "TFL_CONCATENATION";
+      break;
     default:
       out << "UKNOWN_OP_CODE: " << code;
       break;
@@ -254,6 +278,10 @@ void Dump(const LiteRtModelT& model, std::ostream& out) {
 }
 
 void DumpOptions(const LiteRtOpT& op, std::ostream& out) {
+  if (op.option.value == nullptr) {
+    out << "null options\n";
+    return;
+  }
   switch (op.op_code) {
     case kLiteRtOpCodeTflAdd:
       out << "fused_activation_function: "
@@ -271,10 +299,10 @@ void DumpOptions(const LiteRtOpT& op, std::ostream& out) {
           << "\n";
       break;
     case kLiteRtOpCodeTflConcatenation:
+      out << "axis: " << op.option.AsConcatenationOptions()->axis << "\n";
       out << "fused_activation_function: "
           << op.option.AsConcatenationOptions()->fused_activation_function
           << "\n";
-      out << "axis: " << op.option.AsConcatenationOptions()->axis << "\n";
       break;
     case kLiteRtOpCodeTflDiv:
       out << "fused_activation_function: "
@@ -324,6 +352,9 @@ void DumpOptions(const LiteRtOpT& op, std::ostream& out) {
           out << new_shape[i] << " ";
         }
       }
+      break;
+    case kLiteRtOpCodeTflSum:
+      out << "keepdims: " << op.option.AsReducerOptions()->keep_dims << "\n";
       break;
     default:
       out << "No options for op code: " << op.op_code;
