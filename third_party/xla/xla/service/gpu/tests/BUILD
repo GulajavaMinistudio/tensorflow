@@ -320,7 +320,7 @@ xla_test(
         "gpu_a100",
         "gpu_v100",
         "gpu_amd_any",
-    ],
+    ] + if_oss(["gpu_b100"]),
     deps = [
         ":gpu_codegen_test",
         "//xla:shape_util",
@@ -404,43 +404,6 @@ xla_test(
         "//xla/tests:hlo_test_base",
         "//xla/tests:verified_hlo_module",
         "@com_google_absl//absl/status",
-        "@local_tsl//tsl/platform:test",
-        "@local_tsl//tsl/platform:test_main",
-    ],
-)
-
-xla_test(
-    name = "concatenate_emitter_test",
-    srcs = ["concatenate_emitter_test.cc"],
-    backends = ["gpu"],
-    deps = [
-        ":gpu_codegen_test",
-        "//xla:error_spec",
-        "//xla/tests:hlo_test_base",
-        "@local_tsl//tsl/platform:test",
-        "@local_tsl//tsl/platform:test_main",
-    ],
-)
-
-xla_test(
-    name = "transpose_emitter_test",
-    srcs = ["transpose_emitter_test.cc"],
-    backends = ["gpu"],
-    deps = [
-        ":gpu_codegen_test",
-        "//xla:error_spec",
-        "@local_tsl//tsl/platform:test",
-        "@local_tsl//tsl/platform:test_main",
-    ],
-)
-
-xla_test(
-    name = "reduction_emitter_test",
-    srcs = ["reduction_emitter_test.cc"],
-    backends = ["gpu"],
-    deps = [
-        ":gpu_codegen_test",
-        "//xla:error_spec",
         "@local_tsl//tsl/platform:test",
         "@local_tsl//tsl/platform:test_main",
     ],
@@ -586,35 +549,14 @@ lit_test_suite(
     name = "hlo_lit_tests",
     srcs = enforce_glob(
         [
-            "add_preds.hlo",
             "calling_convention.hlo",
             "dot_bf16.hlo",
-            "dynamic_update_slice_inplace.hlo",
-            "fused_scatter.hlo",
-            "fused_slice.hlo",
             "kernel_reuse.hlo",
             "pad_to_static.hlo",
-            "reduce_atomic_min.hlo",
-            "reduce_column_layout_change.hlo",
-            "reduce_f64_column.hlo",
-            "reduce_large_row_to_scalar.hlo",
-            "reduce_row_vectorized.hlo",
-            "reduce_to_scalar_vectorized.hlo",
-            "reduce_unnested.hlo",
-            "reduce_variadic_column.hlo",
-            "reduction_vectorization_sm_all.hlo",
             "rng_get_and_update_state.hlo",
-            "scatter.hlo",
-            "scatter_bf16.hlo",
-            "select_and_scatter.hlo",
             "single_instruction.hlo",
             "slice_to_dynamic.hlo",
             "sorting.hlo",
-            "transpose_021.hlo",
-            "transpose_021_extra_output.hlo",
-            "transpose_10.hlo",
-            "transpose_210.hlo",
-            "transpose_210_extra_output.hlo",
             "triton_naming.hlo",
             "zero_clamp_abs_index.hlo",
         ],
@@ -744,7 +686,10 @@ xla_test(
     backends = [
         "gpu_a100",
         "gpu_amd_any",
-    ] + if_oss(["gpu_any"]),
+    ] + if_oss([
+        "gpu_any",
+        "gpu_b100",
+    ]),
     deps = [
         "//xla:error_spec",
         "//xla/tests:hlo_test_base",
@@ -759,7 +704,7 @@ xla_test(
     backends = [
         "gpu_a100",
         "gpu_h100",
-    ],
+    ] + if_oss(["gpu_b100"]),
     tags = ["cuda-only"],
     deps = if_cuda_is_configured(
         [
@@ -803,7 +748,7 @@ xla_test(
     backends = [
         "gpu_a100",
         "gpu_h100",
-    ],
+    ] + if_oss(["gpu_b100"]),
     shard_count = 2,
     deps = [
         ":gpu_codegen_test",

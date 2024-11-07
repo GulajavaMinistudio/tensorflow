@@ -111,7 +111,7 @@ TEST(CompilerPluginTest, PartitionModel) {
 
   auto model = litert::testing::LoadTestFileModel("mul_simple.tflite");
 
-  ASSERT_RESULT_OK_ASSIGN(auto ops, plugins.front().PartitionModel(*model));
+  ASSERT_RESULT_OK_ASSIGN(auto ops, plugins.front().PartitionModel(model));
   EXPECT_EQ(ops.size(), 2);
 }
 
@@ -122,7 +122,8 @@ TEST(CompilerPluginTest, CompileModel) {
   EXPECT_EQ(plugins.front().SocManufacturer(), kTestManufacturer);
 
   auto model = litert::testing::LoadTestFileModel("mul_simple.tflite");
-  ASSERT_RESULT_OK_ASSIGN(auto subgraph, graph_tools::GetSubgraph(model.get()));
+  ASSERT_RESULT_OK_ASSIGN(auto subgraph,
+                          litert::internal::GetSubgraph(model.Get()));
 
   std::ostringstream byte_code_out;
   std::vector<std::string> call_info_out;

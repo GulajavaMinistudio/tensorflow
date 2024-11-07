@@ -85,6 +85,7 @@ cc_library(
         "//xla/service:hlo_module_config",
         "//xla/service:hlo_proto_cc",
         "//xla/service:mapped_ptr_container_sorter",
+        "//xla/service:metrics_proto_cc",
         "//xla/service:name_uniquer",
         "//xla/tsl/lib/gtl:iterator_range",
         "//xla/tsl/lib/gtl:map_util",
@@ -254,7 +255,6 @@ xla_cc_test(
         "//xla:xla_data_proto_cc",
         "//xla/service:hlo_proto_cc",
         "@com_google_googletest//:gtest_main",
-        "@local_tsl//tsl/platform:test",
         "@local_tsl//tsl/platform:test_main",
     ],
 )

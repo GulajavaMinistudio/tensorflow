@@ -396,6 +396,7 @@ if(TFLITE_ENABLE_GPU)
     ${TFLITE_DELEGATES_GPU_COMMON_TRANSFORMATIONS_SRCS}
     ${TFLITE_SOURCE_DIR}/tools/versioning/gpu_compatibility.cc
     ${TFLITE_SOURCE_DIR}/tools/versioning/op_signature.cc
+    ${TF_SOURCE_DIR}/compiler/mlir/lite/tools/versioning/op_signature.cc
   )
   include_directories(
     AFTER
@@ -517,6 +518,11 @@ endif()
 if(TFLITE_ENABLE_XNNPACK)
   find_package(fp16_headers REQUIRED)
   find_package(XNNPACK REQUIRED)
+  set(XNNPACK_NEON_2_SSE "")
+  if (NOT CMAKE_SYSTEM_PROCESSOR OR CMAKE_SYSTEM_PROCESSOR MATCHES "x86")
+    find_package(NEON_2_SSE REQUIRED)
+    list(APPEND XNNPACK_NEON_2_SSE NEON_2_SSE::NEON_2_SSE)
+  endif()
   populate_tflite_source_vars("delegates/xnnpack"
     TFLITE_DELEGATES_XNNPACK_SRCS
     FILTER ".*(_test|_tester)\\.(cc|h)"
@@ -543,6 +549,7 @@ if(TFLITE_ENABLE_XNNPACK)
     flatbuffers::flatbuffers
     gemmlowp::gemmlowp
     ruy::ruy
+    ${XNNPACK_NEON_2_SSE}
     )
 
   list(APPEND TFLITE_TARGET_PUBLIC_OPTIONS "-DTFLITE_KERNEL_USE_XNNPACK")
@@ -686,6 +693,7 @@ set(_ALL_TFLITE_SRCS
   ${TF_SOURCE_DIR}/compiler/mlir/lite/allocation.h
   ${TF_SOURCE_DIR}/compiler/mlir/lite/core/api/error_reporter.cc
   ${TF_SOURCE_DIR}/compiler/mlir/lite/core/api/error_reporter.h
+  ${TF_SOURCE_DIR}/compiler/mlir/lite/core/api/flatbuffer_conversions.cc
   ${TF_SOURCE_DIR}/compiler/mlir/lite/core/api/verifier.h
   ${TF_SOURCE_DIR}/compiler/mlir/lite/core/c/tflite_types.h
   ${TF_SOURCE_DIR}/compiler/mlir/lite/core/macros.h

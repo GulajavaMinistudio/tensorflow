@@ -24,6 +24,7 @@
 #include "absl/types/span.h"
 #include "tensorflow/lite/experimental/litert/c/litert_common.h"
 #include "tensorflow/lite/experimental/litert/c/litert_model.h"
+#include "tensorflow/lite/experimental/litert/cc/litert_model.h"
 #include "tensorflow/lite/experimental/litert/cc/litert_support.h"
 #include "tensorflow/lite/experimental/litert/core/model.h"
 #include "tensorflow/lite/experimental/litert/vendors/c/litert_compiler_plugin.h"
@@ -74,18 +75,21 @@ class CompilerPlugin {
   using ResultT = LiteRtResult<CompilerPlugin>;
   using ResultVecT = LiteRtResult<VecT>;
 
+  // Get the compiler plugin's API version.
+  LiteRtResult<LiteRtApiVersion> ApiVersion() const;
+
   // Get the manufacturer associated with this plugin. NOTE: SocManufacturer
   // string returned by the underlying plugin are expected to have static
   // lifetime.
   absl::string_view SocManufacturer() const {
-    return plugin_api_.soc_manufacturer();
+    return plugin_api_.get_compiler_plugin_soc_manufacturer();
   }
 
   // Get list of unique soc models targetable by this plugin.
   const std::vector<std::string>& SocModels() const { return soc_models_; }
 
   // Selects ops for the plugin to compile.
-  LiteRtResult<std::vector<LiteRtOp>> PartitionModel(const LiteRtModelT& model);
+  LiteRtResult<std::vector<LiteRtOp>> PartitionModel(const Model& model);
 
   // Compile given LiteRtSubgraphs for target "soc_model". Write compiled byte
   // code to the given stream. For each given subgraph, write opaque data about

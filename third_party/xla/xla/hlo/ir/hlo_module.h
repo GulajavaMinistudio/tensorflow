@@ -147,13 +147,11 @@ class HloModule {
   // the names of instructions within the computations are unchanged.
   void MoveComputationsFrom(HloModule* module, bool make_names_unique = false);
 
-  // Returns a deep copy of this module including all computations.
-  std::unique_ptr<HloModule> Clone(const std::string& suffix = "clone") const;
-  std::unique_ptr<HloModule> Clone(const HloModuleConfig& config,
-                                   const std::string& suffix = "clone") const;
+  // Returns a deep copy of this module including all reachable computations.
+  // Optionally, a custom config can be provided.
   std::unique_ptr<HloModule> Clone(
-      std::shared_ptr<const HloModuleConfig> config,
-      const std::string& suffix = "clone") const;
+      const std::string& suffix = "clone",
+      std::optional<const HloModuleConfig> config = std::nullopt) const;
 
   // Performs a deep clone of the computation, by recursively cloning all
   // the called computations as well. If the clone context is specified, it
@@ -651,7 +649,9 @@ class HloModule {
   }
 
   bool has_module_autofdo_profiles() const {
-    return !autofdo_profile_keys_.empty();
+    return !autofdo_profile_keys_.empty() &&
+           // TODO(b/368119768): Remove this check once we rollout Flagnet.
+           !autofdo_profile_keys_.contains(HloModuleProto::INVALID);
   }
 
   void set_relative_speedup(double relative_speedup) {

@@ -321,45 +321,69 @@ ScalarOrTensor Splat(ImplicitLocOpBuilder& b, ScalarOrTensor value,
   return ScalarOrTensor(b.create<mt::SplatOp>(type, value.UnwrapUnsafe()));
 }
 
+bool IsSupportedElementwiseLibdeviceFunction(const HloInstruction& hlo) {
+  auto dev_fn_id = GetTargetDeviceFunctionID(hlo.opcode());
+  if (!dev_fn_id.has_value()) {
+    return false;
+  }
+  PrimitiveType output_type = hlo.shape().element_type();
+  return output_type == PrimitiveType::BF16 ||
+         output_type == PrimitiveType::F16 ||
+         output_type == PrimitiveType::F32 || output_type == PrimitiveType::F64;
+}
+
+absl::StatusOr<Value> EmitElementwiseLibdeviceFunction(
+    ImplicitLocOpBuilder& b, absl::string_view libdevice_path,
+    const se::DeviceDescription& device_info, const HloInstruction& hlo,
+    ValueRange inputs) {
+  auto dev_fn_id = GetTargetDeviceFunctionID(hlo.opcode());
+  if (!dev_fn_id.has_value()) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("No libdevice function for operation ", hlo.ToString()));
+  }
+  PrimitiveType output_type = hlo.shape().element_type();
+  if (output_type != PrimitiveType::BF16 && output_type != PrimitiveType::F16 &&
+      output_type != PrimitiveType::F32 && output_type != PrimitiveType::F64) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("Unsupported elementwise operation ", hlo.ToString()));
+  }
+  llvm::Triple triple("nvptx64-unknown-unknown");
+  if (std::holds_alternative<se::RocmComputeCapability>(
+          device_info.gpu_compute_capability())) {
+    triple.setTriple("amdgcn-unknown-unknown");
+  }
+  llvm::SmallVector<Value, 2> casted_inputs;
+  if (output_type == PrimitiveType::BF16 || output_type == PrimitiveType::F16) {
+    // Upcast the inputs to F32.
+    for (int64_t i = 0; i < inputs.size(); ++i) {
+      casted_inputs.push_back(Cast(b, inputs[i], b.getF32Type()));
+    }
+  } else {
+    casted_inputs.assign(inputs.begin(), inputs.end());
+  }
+  Value res = b.create<mt::ExternElementwiseOp>(
+      casted_inputs[0].getType(), casted_inputs, "libdevice", libdevice_path,
+      ObtainDeviceFunctionName(dev_fn_id.value(), output_type, triple),
+      /*pure=*/true);
+  if (output_type == PrimitiveType::BF16 || output_type == PrimitiveType::F16) {
+    // Downcast back to the original output type.
+    TF_ASSIGN_OR_RETURN(auto dst_ty, TritonType(b, output_type));
+    res = Cast(b, res, dst_ty);
+  }
+  return res;
+}
+
 absl::StatusOr<Value> EmitElementwise(ImplicitLocOpBuilder& b,
                                       absl::string_view libdevice_path,
                                       const se::DeviceDescription& device_info,
                                       const HloInstruction& hlo,
                                       ValueRange inputs) {
-  Type input_type = mlir::getElementTypeOrSelf(inputs[0]);
-  if (input_type.isBF16() || input_type.isF16() || input_type.isF32() ||
-      input_type.isF64()) {
-    auto dev_fn_id = GetTargetDeviceFunctionID(hlo.opcode());
-    if (dev_fn_id.ok()) {
-      llvm::Triple triple("nvptx64-unknown-unknown");
-      if (std::holds_alternative<se::RocmComputeCapability>(
-              device_info.gpu_compute_capability())) {
-        triple.setTriple("amdgcn-unknown-unknown");
-      }
-      PrimitiveType output_type = hlo.shape().element_type();
-      llvm::SmallVector<Value, 2> casted_inputs;
-      if (input_type.isBF16() || input_type.isF16()) {
-        // Upcast the inputs to F32.
-        for (int64_t i = 0; i < inputs.size(); ++i) {
-          casted_inputs.push_back(Cast(b, inputs[i], b.getF32Type()));
-        }
-        output_type = F32;
-      } else {
-        casted_inputs.assign(inputs.begin(), inputs.end());
-      }
-      Value res = b.create<mt::ExternElementwiseOp>(
-          casted_inputs[0].getType(), casted_inputs, "libdevice",
-          libdevice_path,
-          ObtainDeviceFunctionName(dev_fn_id.value(), output_type, triple),
-          /*pure=*/true);
-      if (input_type.isBF16() || input_type.isF16()) {
-        // Downcast back to the original input type.
-        res = Cast(b, res, input_type);
-      }
-      return res;
-    }
+  if (IsSupportedElementwiseLibdeviceFunction(hlo)) {
+    return EmitElementwiseLibdeviceFunction(b, libdevice_path, device_info, hlo,
+                                            inputs);
   }
-  const bool is_integer = mlir::isa<mlir::IntegerType>(input_type);
+  const bool is_integer =
+      mlir::isa<mlir::IntegerType>(getElementTypeOrSelf(inputs[0].getType()));
 
   switch (hlo.opcode()) {
     case HloOpcode::kCopy:

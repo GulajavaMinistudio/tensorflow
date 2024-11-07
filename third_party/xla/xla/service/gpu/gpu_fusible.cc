@@ -214,6 +214,15 @@ bool IsNestableVariadicReduction(const HloInstruction& instr) {
            instr.fused_expression_root()->opcode() == HloOpcode::kReduce));
 }
 
+bool IsNestableVariadicReduceWindow(const HloInstruction& instr) {
+  return instr.shape().IsTuple() &&
+         (instr.opcode() == HloOpcode::kReduceWindow ||
+          (instr.opcode() == HloOpcode::kFusion &&
+           instr.fusion_kind() == HloInstruction::FusionKind::kLoop &&
+           instr.fused_expression_root()->opcode() ==
+               HloOpcode::kReduceWindow));
+}
+
 bool IsInputFusibleTranspose(const HloInstruction& instr) {
   if (instr.opcode() == HloOpcode::kBitcast || instr.IsCustomFusion()) {
     return false;
@@ -1007,11 +1016,6 @@ bool MayPreventVectorization(const HloFusionAdaptor& fusion) {
       case HloOpcode::kReduceWindow:
       case HloOpcode::kSort:
       case HloOpcode::kDot:
-      case HloOpcode::kSin:
-      case HloOpcode::kCos:
-      case HloOpcode::kTan:
-      case HloOpcode::kPower:
-      case HloOpcode::kAtan2:
         return true;
       case HloOpcode::kConcatenate:
         return node.instruction().operand_count() >

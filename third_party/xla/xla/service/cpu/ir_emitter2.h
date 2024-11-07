@@ -32,6 +32,7 @@ limitations under the License.
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Value.h"
+#include "xla/hlo/ir/hlo_computation.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_instructions.h"
 #include "xla/service/buffer_assignment.h"
@@ -149,17 +150,12 @@ class IrEmitter2 {
   absl::StatusOr<KernelInfo> EmitSliceToDynamicHostKernel(
       const HloInstruction* instr);
 
-  // Emits a host kernel for the given select-and-scatter instruction.
-  absl::StatusOr<KernelInfo> EmitSelectAndScatterHostKernel(
-      const HloInstruction* instr);
-
   // Emits a host kernel for the given dynamic-update-slice instruction.
   absl::StatusOr<KernelInfo> EmitDynamicUpdateSliceHostKernel(
       const HloInstruction* instr);
 
   // Emits a comparator function for the given sort instruction.
-  absl::StatusOr<ComparatorInfo> EmitSortComparator(
-      const HloInstruction* instr);
+  absl::StatusOr<ComparatorInfo> EmitSortComparator(HloComputation* comparator);
 
  private:
   class ElementalIrEmitter;

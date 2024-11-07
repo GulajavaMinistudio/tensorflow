@@ -37,6 +37,7 @@ from typing import (
 
 import numpy as np
 
+from . import config
 from . import guard_lib
 from . import ifrt_programs
 from . import ifrt_proxy
@@ -283,6 +284,11 @@ def register_custom_call_partitioner(
 ) -> None: ...
 def encode_inspect_sharding_callback(handler: Any) -> bytes: ...
 
+class AutotuneCacheMode(enum.IntEnum):
+  UNSPECIFIED: AutotuneCacheMode
+  UPDATE: AutotuneCacheMode
+  READ: AutotuneCacheMode
+
 class DebugOptions:
   def __repr__(self) -> str: ...
   xla_cpu_enable_fast_math: bool
@@ -323,6 +329,7 @@ class DebugOptions:
   xla_gpu_kernel_cache_file: str
   xla_gpu_enable_llvm_module_compilation_parallelism: bool
   xla_gpu_per_fusion_autotune_cache_dir: str
+  xla_gpu_experimental_autotune_cache_mode: AutotuneCacheMode
 
 class CompiledMemoryStats:
   generated_code_size_in_bytes: int
@@ -851,7 +858,7 @@ class PmapFunction:
 
 def weakref_lru_cache(
     cache_context_fn: Callable, call: Callable, maxsize=...
-): ...
+) -> WeakrefLRUCache: ...
 
 class DeviceList:
   def __init__(self, device_assignment: Tuple[Device, ...]): ...
@@ -966,6 +973,25 @@ class FlattenCallGraph(HloPassInterface):
 
 class TupleSimplifer(HloPassInterface):
   def __init__(self) -> None: ...
+
+
+class WeakrefLRUCacheInfo:
+  @property
+  def hits(self) -> int: ...
+  @property
+  def misses(self) -> int: ...
+  @property
+  def maxsize(self) -> int: ...
+  @property
+  def currsize(self) -> int: ...
+
+
+class WeakrefLRUCache:
+  def __call__(self, weakref_key: Any, *args, **kwargs) -> Any: ...
+  def cache_keys(self) -> list[Any]: ...
+  def cache_info(self) -> WeakrefLRUCacheInfo: ...
+  def cache_clear(self): ...
+
 
 def is_asan() -> bool: ...
 def is_msan() -> bool: ...

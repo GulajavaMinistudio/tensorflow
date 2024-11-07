@@ -258,8 +258,8 @@ TEST_P(UnaryElementwiseTest, ElementwiseUnaryOpExecutesCorrectly) {
   const std::string kHloTestTemplate = R"(
 triton_computation {
   parameter_0 = $0[33,68]{1,0} parameter(0)
-  f1.1 = $0[33,68]{1,0} $1(parameter_0)
-  ROOT convert = f32[33,68]{1,0} convert(f1.1)
+  output = $0[33,68]{1,0} $1(parameter_0)
+  ROOT convert = f32[33,68]{1,0} convert(output)
 }
 
 ENTRY e {
@@ -276,8 +276,8 @@ ENTRY e {
   const std::string kHloRefTemplate = R"(
 fused_computation {
   param_0.1 = $0[33,68]{1,0} parameter(0)
-  f.1 = $0[33,68]{1,0} $1(param_0.1)
-  ROOT convert = f32[33,68]{1,0} convert(f.1)
+  output = $0[33,68]{1,0} $1(param_0.1)
+  ROOT convert = f32[33,68]{1,0} convert(output)
 }
 
 ENTRY e {
@@ -434,8 +434,8 @@ TEST_P(BinaryElementwiseTest, ElementwiseBinaryOpExecutesCorrectly) {
 triton_computation {
   parameter_0 = $0[11,63]{1,0} parameter(0)
   parameter_1 = $0[11,63]{1,0} parameter(1)
-  f1.1 = $0[11,63]{1,0} $1(parameter_0, parameter_1)
-  ROOT c.1 = f32[11,63]{1,0} convert(f1.1)
+  output = $0[11,63]{1,0} $1(parameter_0, parameter_1)
+  ROOT c.1 = f32[11,63]{1,0} convert(output)
 }
 
 ENTRY e {
@@ -454,8 +454,8 @@ ENTRY e {
 fused_computation {
   p0 = $0[11,63]{1,0} parameter(0)
   p1 = $0[11,63]{1,0} parameter(1)
-  f.1 = $0[11,63]{1,0} $1(p0, p1)
-  ROOT convert.1 = f32[11,63]{1,0} convert(f.1)
+  output = $0[11,63]{1,0} $1(p0, p1)
+  ROOT convert.1 = f32[11,63]{1,0} convert(output)
 }
 
 ENTRY e {

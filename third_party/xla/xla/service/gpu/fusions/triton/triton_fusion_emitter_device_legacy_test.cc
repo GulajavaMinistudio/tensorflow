@@ -162,7 +162,7 @@ TEST_F(TritonGemmTest, RejectDotInt4HLO) {
               StatusIs(tsl::error::INVALID_ARGUMENT));
 }
 
-TEST_F(TritonGemmTest, RejectInt4NegatePlusConvertHLO) {
+TEST_F(TritonGemmTest, Int4NegatePlusConvertHLO) {
   constexpr std::string_view kHloText = R"(
     HloModule t
 
@@ -178,8 +178,8 @@ TEST_F(TritonGemmTest, RejectInt4NegatePlusConvertHLO) {
           rhs_batch_dims={0}
     }
   )";
-  EXPECT_THAT(GetOptimizedModule(kHloText).status(),
-              StatusIs(tsl::error::INVALID_ARGUMENT));
+  EXPECT_TRUE(RunAndCompareNoHloPasses(
+      kHloText, ErrorSpec{/*aabs=*/1e-3, /*arel=*/1e-3}));
 }
 
 TEST_F(TritonGemmTest, RejectTritonFusionForInt4WithMinorBatchDim) {
@@ -846,7 +846,7 @@ ENTRY e {
 CHECK: %[[LHS:[0-9]+]] = tt.load
 CHECK: %[[RHS:[0-9]+]] = tt.load
 CHECK: %[[META:[0-9]+]] = tt.load
-CHECK: triton_gpu.sparse_dot %[[LHS]], %[[RHS]], %{{[^:]+}}, %[[META]] :
+CHECK: triton_xla.sparse_dot %[[LHS]], %[[RHS]], %{{[^:]+}}, %[[META]] :
     )"));
 }
 
@@ -883,7 +883,7 @@ CHECK: arith.cmpi slt, %{{.+}}, %[[C24]] :
 CHECK: %[[LHS_MASKED:[0-9]+]] = arith.select %{{.+}}, %[[LHS]],
 CHECK: arith.cmpi slt, %{{.+}}, %[[C48]] :
 CHECK: %[[RHS_MASKED:[0-9]+]] = arith.select %{{.+}}, %[[RHS]],
-CHECK: triton_gpu.sparse_dot %[[LHS_MASKED]], %[[RHS_MASKED]], %{{[^:]+}}, %[[META]] :
+CHECK: triton_xla.sparse_dot %[[LHS_MASKED]], %[[RHS_MASKED]], %{{[^:]+}}, %[[META]] :
     )"));
 }
 
@@ -920,7 +920,7 @@ CHECK: %[[T1:[0-9]+]] = tt.load %[[PTR:.+]] :
 CHECK: tt.advance %[[PTR]], [%[[TWO]]]
 CHECK: %[[T2:[0-9]+]] = tt.expand_dims %[[T1]]
 CHECK: %[[META:[0-9]+]] = tt.broadcast %[[T2]]
-CHECK: triton_gpu.sparse_dot %[[LHS]], %[[RHS]], %{{[^:]+}}, %[[META]] :
+CHECK: triton_xla.sparse_dot %[[LHS]], %[[RHS]], %{{[^:]+}}, %[[META]] :
     )"));
 }
 

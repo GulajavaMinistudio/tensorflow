@@ -22,6 +22,7 @@ load(
     "xla_cc_test",
     "xla_internal",
 )
+load("//xla/tests:build_defs.bzl", "xla_test")
 load("//xla/tsl:tsl.bzl", "internal_visibility", "tf_openmp_copts", "tsl_copts")
 load("//xla/tsl:tsl.default.bzl", "filegroup", "get_compatible_with_portable")
 load(
@@ -226,6 +227,7 @@ cc_library(
         ":ir_emission_utils",
         ":ir_emitter",
         ":ir_emitter2",
+        ":metrics",
         ":onednn_contraction_rewriter",
         ":onednn_ops_rewriter",
         ":parallel_task_assignment",
@@ -440,6 +442,32 @@ cc_library(
         "@llvm-project//llvm:Target",
     ],
     alwayslink = True,  # Contains compiler registration
+)
+
+xla_test(
+    name = "cpu_compiler_test",
+    srcs = ["cpu_compiler_test.cc"],
+    backends = [
+        "cpu",
+    ],
+    tags = [
+        "test_hlo_pjrt_runner",
+    ],
+    deps = [
+        "//xla:shape_util",
+        "//xla/pjrt:pjrt_client",
+        "//xla/service:hlo_runner",
+        "//xla/service:hlo_runner_interface",
+        "//xla/service:hlo_runner_pjrt",
+        "//xla/service:platform_util",
+        "//xla/tests:new_hlo_test_base",
+        "//xla/tests:pjrt_client_registry",
+        "//xla/tests:xla_internal_test_main",
+        "//xla/tsl/lib/monitoring:collected_metrics",
+        "//xla/tsl/lib/monitoring:collection_registry",
+        "@local_tsl//tsl/platform:statusor",
+        "@local_tsl//tsl/platform:test",
+    ],
 )
 
 tf_proto_library(
@@ -862,6 +890,7 @@ cc_library(
         ":ir_emission_utils",
         ":ir_emitter2",
         ":target_machine_features",
+        "//xla:comparison_util",
         "//xla:cpu_function_runtime",
         "//xla:shape_util",
         "//xla:status_macros",
@@ -895,6 +924,7 @@ cc_library(
         "//xla/service:collective_ops_utils",
         "//xla/service:hlo_module_config",
         "//xla/service:hlo_proto_cc",
+        "//xla/service:pattern_matcher",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/status",
@@ -1091,10 +1121,7 @@ cc_library(
         ":runtime_lightweight_check",
         "//xla:executable_run_options",
         "//xla/backends/cpu/runtime:convolution_thunk_internal",
-        "//xla/tsl/framework/contraction:eigen_contraction_kernel",
-        "//xla/tsl/framework/convolution:eigen_helpers",
         "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/base:dynamic_annotations",
         "@eigen_archive//:eigen3",
         "@local_tsl//tsl/platform:mutex",  # build_cleaner: keep
     ],
@@ -2064,4 +2091,28 @@ cc_library(
     name = "cpu_executable_run_options",
     hdrs = ["cpu_executable_run_options.h"],
     deps = [":collectives_interface"],
+)
+
+cc_library(
+    name = "metrics",
+    srcs = ["metrics.cc"],
+    hdrs = ["metrics.h"],
+    deps = [
+        "//xla/tsl/lib/monitoring:counter",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+        "@local_tsl//tsl/platform:stacktrace",
+    ],
+)
+
+xla_cc_test(
+    name = "metrics_test",
+    srcs = ["metrics_test.cc"],
+    deps = [
+        ":metrics",
+        "//xla/tests:xla_internal_test_main",
+        "//xla/tsl/lib/monitoring:collected_metrics",
+        "//xla/tsl/lib/monitoring:collection_registry",
+        "@local_tsl//tsl/platform:test",
+    ],
 )

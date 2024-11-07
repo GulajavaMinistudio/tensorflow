@@ -168,6 +168,23 @@ gpu_only_cc_library(
     ),
 )
 
+cc_library(
+    name = "scoped_update_mode",
+    hdrs = [
+        "scoped_update_mode.h",
+    ],
+)
+
+cc_library(
+    name = "scoped_gpu_graph_exec",
+    hdrs = [
+        "scoped_gpu_graph_exec.h",
+    ],
+    deps = [
+        ":scoped_update_mode",
+    ],
+)
+
 gpu_only_cc_library(
     name = "gpu_command_buffer",
     srcs = ["gpu_command_buffer.cc"],
@@ -175,9 +192,9 @@ gpu_only_cc_library(
         "gpu_command_buffer.h",
     ],
     deps = [
-        ":gpu_driver_header",
         ":gpu_executor_header",
         ":gpu_types_header",
+        ":scoped_update_mode",
         "//xla/stream_executor:bit_pattern",
         "//xla/stream_executor:command_buffer",
         "//xla/stream_executor:device_memory",
@@ -311,15 +328,6 @@ tsl_gpu_library(
         "@local_tsl//tsl/platform:logging",
     ],
     alwayslink = True,
-)
-
-gpu_only_cc_library(
-    name = "gpu_kernel_header",
-    hdrs = ["gpu_kernel.h"],
-    deps = [
-        ":gpu_types_header",
-        "//xla/stream_executor:kernel",
-    ],
 )
 
 gpu_only_cc_library(
@@ -621,7 +629,9 @@ gpu_kernel_library(
     srcs = ["gpu_test_kernels.cu.cc"],
     hdrs = ["gpu_test_kernels.h"],
     tags = ["gpu"],
-    deps = if_cuda_is_configured([
+    deps = [
+        "//xla/stream_executor:kernel_spec",
+    ] + if_cuda_is_configured([
         "@local_config_cuda//cuda:cuda_headers",
     ]) + if_rocm_is_configured([
         "@local_config_rocm//rocm:rocm_headers",
@@ -712,9 +722,7 @@ xla_test(
     backends = ["gpu"],
     deps = [
         ":gpu_command_buffer",
-        ":gpu_driver_header",
         ":gpu_test_kernels",
-        ":gpu_types_header",
         "//xla/service:platform_util",
         "//xla/stream_executor:command_buffer",
         "//xla/stream_executor:device_memory",
@@ -736,8 +744,10 @@ xla_test(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:span",
+        "@com_google_googletest//:gtest",
         "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:status",
+        "@local_tsl//tsl/platform:status_matchers",
         "@local_tsl//tsl/platform:statusor",
         "@local_tsl//tsl/platform:test",
         "@local_tsl//tsl/platform:test_benchmark",
@@ -753,13 +763,10 @@ xla_test(
     name = "memcpy_test",
     srcs = ["memcpy_test.cc"],
     backends = ["gpu"],
-    local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]) + if_rocm_is_configured([
-        "TENSORFLOW_USE_ROCM=1",
-    ]),
     deps = [
+        "//xla/service:platform_util",
         "//xla/stream_executor:device_memory",
         "//xla/stream_executor:platform",
-        "//xla/stream_executor:platform_manager",
         "//xla/stream_executor:stream",
         "//xla/stream_executor:stream_executor_h",
         "//xla/tsl/lib/core:status_test_util",
@@ -778,12 +785,9 @@ xla_test(
     size = "small",
     srcs = ["stream_search_test.cc"],
     backends = ["gpu"],
-    local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]) + if_rocm_is_configured([
-        "TENSORFLOW_USE_ROCM=1",
-    ]),
     deps = [
+        "//xla/service:platform_util",
         "//xla/stream_executor:platform",
-        "//xla/stream_executor:platform_manager",
         "//xla/stream_executor:stream",
         "//xla/stream_executor:stream_executor_h",
         "//xla/stream_executor:stream_finder",
