@@ -22,8 +22,10 @@ limitations under the License.
 #include "absl/container/flat_hash_set.h"
 #include "mlir/Pass/Pass.h"  // from @llvm-project
 #include "mlir/Pass/PassRegistry.h"  // from @llvm-project  // IWYU pragma: keep
+#include "tensorflow/compiler/mlir/lite/transforms/canonicalize_boundary_value_pass.h"
 #include "tensorflow/compiler/mlir/lite/transforms/optimize_pass.h"
 #include "tensorflow/compiler/mlir/lite/transforms/pass_registry_utils.h"
+#include "tensorflow/compiler/mlir/lite/transforms/push_transpose_through_ewise_pass.h"
 #include "tensorflow/compiler/mlir/lite/transforms/unfreeze_global_constants.h"
 #include "tensorflow/compiler/mlir/quantization/common/quantization_lib/quantization_config.h"
 
@@ -251,12 +253,16 @@ std::unique_ptr<OperationPass<ModuleOp>> CreateLegalizeTensorListPass();
 // tensor are within the range of the reduced precision.
 std::unique_ptr<OperationPass<ModuleOp>> CreateReduceTypePrecisionPass();
 
-// Convervatively pushes transposes through elementwise ops to prepare
-// so redudant ones may be grouped and removed.
-std::unique_ptr<OperationPass<ModuleOp>> CreatePushTransposeThroughEwisePass();
+// Conservatively pushes transposes through element-wise ops to prepare
+// so redundant ones may be grouped and removed.
+inline std::unique_ptr<mlir::Pass> CreatePushTransposeThroughEwisePass() {
+  return Create<PushTransposeThroughEwisePass>();
+}
 
 // Create a pass that canonicalize the boundary values.
-std::unique_ptr<OperationPass<ModuleOp>> CreateCanonicalizeBoundaryValuePass();
+inline std::unique_ptr<mlir::Pass> CreateCanonicalizeBoundaryValuePass() {
+  return Create<CanonicalizeBoundaryValuePass>();
+}
 
 // Creates a pass that brings operations into the same order as graph_info.cc.
 std::unique_ptr<OperationPass<func::FuncOp>>
@@ -304,6 +310,8 @@ inline void registerTensorFlowLitePasses() {
   // Register TFLite Converter Passes
   Register<OptimizePass, OptimizePassOptions>();
   Register<UnfreezeMutableGlobalTensorsPass>();
+  Register<PushTransposeThroughEwisePass>();
+  Register<CanonicalizeBoundaryValuePass>();
 }
 
 }  // namespace TFL

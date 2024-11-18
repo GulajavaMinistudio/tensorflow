@@ -803,6 +803,7 @@ xla_cc_test(
     srcs = ["hlo_instruction_test.cc"],
     tags = ["not_run:arm"],
     deps = [
+        ":hlo_proto_cc",
         ":pattern_matcher",
         ":pattern_matcher_gmock",
         "//xla:comparison_util",
@@ -822,6 +823,7 @@ xla_cc_test(
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings:string_view",
+        "@local_tsl//tsl/platform:protobuf",
         "@local_tsl//tsl/platform:statusor",
     ],
 )
@@ -2120,6 +2122,7 @@ cc_library(
         "//xla/hlo/transforms:op_expander_pass",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/types:span",
         "@local_tsl//tsl/platform:logging",
         "@local_tsl//tsl/platform:statusor",
     ],
@@ -4286,6 +4289,7 @@ xla_test(
         "//xla:types",
         "//xla/hlo/ir:hlo",
         "//xla/service/llvm_ir:ir_array",
+        "//xla/service/llvm_ir:llvm_util",
         "//xla/tests:hlo_test_base",
         "//xla/tests:test_macros_header",
         "//xla/tests:xla_internal_test_main",
@@ -5345,11 +5349,27 @@ cc_library(
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/numeric:bits",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/time",
         "@local_tsl//tsl/platform:env",
+    ],
+)
+
+xla_cc_test(
+    name = "slow_operation_alarm_test",
+    srcs = ["slow_operation_alarm_test.cc"],
+    deps = [
+        ":slow_operation_alarm",
+        "//xla/tests:xla_internal_test_main",
+        "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
+        "@com_google_googletest//:gtest",
+        "@local_tsl//tsl/platform:test",
     ],
 )
 
@@ -5820,7 +5840,11 @@ cc_library(
         "//xla:util",
         "//xla/hlo/ir:hlo",
         "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/types:span",
+        "@local_tsl//tsl/platform:statusor",
     ],
 )
 

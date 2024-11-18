@@ -37,7 +37,6 @@ limitations under the License.
 #include "xla/stream_executor/command_buffer.h"
 #include "xla/stream_executor/device_memory.h"
 #include "xla/stream_executor/gpu/gpu_command_buffer.h"
-#include "xla/stream_executor/gpu/gpu_executor.h"
 #include "xla/stream_executor/gpu/gpu_stream.h"
 #include "xla/stream_executor/gpu/scoped_update_mode.h"
 #include "xla/stream_executor/kernel.h"
@@ -45,6 +44,7 @@ limitations under the License.
 #include "xla/stream_executor/rocm/rocm_driver_wrapper.h"
 #include "xla/stream_executor/rocm/rocm_kernel.h"
 #include "xla/stream_executor/rocm/rocm_status.h"
+#include "xla/stream_executor/stream_executor.h"
 #include "tsl/platform/casts.h"
 #include "tsl/platform/env.h"
 #include "tsl/platform/errors.h"
@@ -94,7 +94,7 @@ GraphNodeHandle FromHipGraphHandle(hipGraphNode_t handle) {
 }  // namespace
 
 absl::StatusOr<std::unique_ptr<RocmCommandBuffer>> RocmCommandBuffer::Create(
-    Mode mode, GpuExecutor* parent) {
+    Mode mode, StreamExecutor* parent) {
   TF_ASSIGN_OR_RETURN(hipGraph_t graph, CreateGraph());
   return std::unique_ptr<RocmCommandBuffer>(
       new RocmCommandBuffer(mode, parent, graph,
@@ -146,7 +146,6 @@ absl::StatusOr<GraphNodeHandle> RocmCommandBuffer::CreateMemsetNode(
           << "; dst: " << destination.opaque()
           << "; bit_pattern: " << bit_pattern.ToString()
           << "; num_elements: " << num_elements
-          << "; context: " << parent_->gpu_context()
           << "; deps: " << dependencies.size();
 
   hipMemsetParams params{};
@@ -194,8 +193,7 @@ absl::StatusOr<GraphNodeHandle> RocmCommandBuffer::CreateMemcpyD2DNode(
     DeviceMemoryBase source, uint64_t size) {
   VLOG(2) << "Add memcpy d2d node to a graph " << graph_
           << "; dst: " << destination.opaque() << "; src: " << source.opaque()
-          << "; size: " << size << "; context: " << parent_->gpu_context()
-          << "; deps: " << dependencies.size();
+          << "; size: " << size << "; deps: " << dependencies.size();
 
   std::vector<hipGraphNode_t> deps = ToHipGraphHandles(dependencies);
 

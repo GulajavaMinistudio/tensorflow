@@ -77,7 +77,7 @@ bool HasValidGeneralTopology(LiteRtSubgraph subgraph) {
 TEST(TestPartitionsFromFlatList, SimpleMultiOp) {
   auto model = litert::testing::LoadTestFileModel("simple_multi_op.tflite");
   auto subgraph = model.MainSubgraph();
-  EXPECT_TRUE(subgraph.ok());
+  EXPECT_TRUE(subgraph);
 
   auto ops = subgraph->Ops();
 
@@ -148,7 +148,7 @@ TEST(TestPartitionsFromFlatList, SimpleMultiOp) {
 TEST(TestSliceSubgraphSimpleMultiOp, OnePartition) {
   auto model = litert::testing::LoadTestFileModel("simple_multi_op.tflite");
   auto subgraph = model.MainSubgraph();
-  EXPECT_TRUE(subgraph.ok());
+  EXPECT_TRUE(subgraph);
 
   auto ops = subgraph->Ops();
 
@@ -200,8 +200,8 @@ TEST(TestSliceSubgraphSimpleMultiOp, OnePartition) {
     ASSERT_EQ(sliced_subgraph_inputs.size(), 1);
 
     ASSERT_TRUE(MatchUses(sliced_subgraph_inputs.front(),
-                          {UseInfo(sliced_subgraph_ops.front().Code(), 0),
-                           UseInfo(sliced_subgraph_ops.front().Code(), 0)}));
+                          {UseInfo{sliced_subgraph_ops.front().Code(), 0},
+                           UseInfo{sliced_subgraph_ops.front().Code(), 0}}));
     ASSERT_TRUE(sliced_subgraph_inputs.front().IsSubgraphInput());
   }
 
@@ -211,8 +211,8 @@ TEST(TestSliceSubgraphSimpleMultiOp, OnePartition) {
     const auto& hal_call_out = hal_call_outs.front();
 
     ASSERT_TRUE(MatchUses(hal_call_out,
-                          {UseInfo(edited_subgraph_ops.back().Code(), 0),
-                           UseInfo(edited_subgraph_ops.back().Code(), 1)}));
+                          {UseInfo{edited_subgraph_ops.back().Code(), 0},
+                           UseInfo{edited_subgraph_ops.back().Code(), 1}}));
 
     auto sliced_subgraph_outputs = sliced_graph.Outputs();
 
@@ -229,7 +229,7 @@ TEST(TestSliceSubgraphSimpleMultiOp, OnePartition) {
 TEST(TestSliceSubgraphSimpleMultiOp, TwoPartitions) {
   auto model = litert::testing::LoadTestFileModel("simple_multi_op.tflite");
   auto subgraph = model.MainSubgraph();
-  EXPECT_TRUE(subgraph.ok());
+  EXPECT_TRUE(subgraph);
 
   auto ops = subgraph->Ops();
 

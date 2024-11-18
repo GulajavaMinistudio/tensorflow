@@ -1,4 +1,4 @@
-/* Copyright 2022 The OpenXLA Authors.
+/* Copyright 2024 The OpenXLA Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -13,29 +13,29 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include <memory>
 #include <utility>
 
-#include "xla/pjrt/cpu/cpu_client.h"
-#include "xla/python/ifrt/test_util.h"
-#include "xla/python/pjrt_ifrt/pjrt_client.h"
+#include <gtest/gtest.h>
+#include "xla/hlo/builder/xla_builder.h"
+#include "xla/literal_util.h"
+#include "xla/tests/client_library_test_base.h"
 
 namespace xla {
-namespace ifrt {
 namespace {
 
-const bool kUnused =
-    (test_util::RegisterClientFactory(
-         []() -> absl::StatusOr<std::shared_ptr<Client>> {
-           CpuClientOptions options;
-           options.cpu_device_count = 4;
-           TF_ASSIGN_OR_RETURN(auto pjrt_client,
-                               xla::GetTfrtCpuClient(std::move(options)));
-           return std::shared_ptr<Client>(
-               PjRtClient::Create(std::move(pjrt_client)));
-         }),
-     true);
+using NumericTest = ClientLibraryTestBase;
+
+TEST_F(NumericTest, Remainder) {
+  XlaBuilder builder("remainder");
+  auto x_literal =
+      LiteralUtil::CreateR1<float>({2.9375, 2.9375, -2.9375, -2.9375});
+  auto y_literal =
+      LiteralUtil::CreateR1<float>({2.9375, -2.9375, 2.9375, -2.9375});
+  auto x = Parameter(&builder, 0, x_literal.shape(), "x");
+  auto y = Parameter(&builder, 1, y_literal.shape(), "y");
+  Rem(x, y);
+  ComputeAndCompare(&builder, {std::move(x_literal), std::move(y_literal)});
+}
 
 }  // namespace
-}  // namespace ifrt
 }  // namespace xla

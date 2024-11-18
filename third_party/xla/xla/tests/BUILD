@@ -593,37 +593,6 @@ xla_test(
 )
 
 xla_test(
-    name = "xla_hlo_profile_test",
-    srcs = ["xla_hlo_profile_test.cc"],
-    backends = [
-        # Hlo profiles are only supported on CPU/GPU.
-        "cpu",
-        "gpu",
-    ],
-    tags = ["not_run:arm"],
-    deps = [
-        ":client_library_test_base",
-        ":test_macros_header",
-        ":test_utils",
-        "//xla:array2d",
-        "//xla:shape_util",
-        "//xla:util",
-        "//xla/client:local_client",
-        "//xla/hlo/builder:xla_builder",
-        "//xla/hlo/builder:xla_computation",
-        "//xla/service:platform_util",
-        "//xla/service:stream_pool",
-        "//xla/tsl/lib/core:status_test_util",
-        "@com_google_absl//absl/algorithm:container",
-        "@com_google_absl//absl/container:flat_hash_map",
-        "@com_google_absl//absl/status",
-        "@com_google_absl//absl/strings",
-        "@local_tsl//tsl/platform:regexp",
-        "@local_tsl//tsl/platform:test",
-    ],
-)
-
-xla_test(
     name = "axpy_simple_test",
     srcs = ["axpy_simple_test.cc"],
     tags = ["test_xla_cpu_thunks"],
@@ -939,7 +908,7 @@ xla_test(
         ":xla_internal_test_main",
         "//xla:error_spec",
         "@com_google_absl//absl/strings",
-        "@com_google_googletest//:gtest_main",
+        "@com_google_googletest//:gtest",
         "@local_tsl//tsl/platform:test",
     ],
 )
@@ -1007,7 +976,7 @@ xla_test(
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:span",
-        "@com_google_googletest//:gtest_main",
+        "@com_google_googletest//:gtest",
         "@eigen_archive//:eigen3",
         "@local_tsl//tsl/platform:ml_dtypes",
         "@local_tsl//tsl/platform:statusor",
@@ -1231,7 +1200,7 @@ xla_test(
         "//xla/hlo/builder:xla_builder",
         "//xla/hlo/builder/lib:constants",
         "//xla/tsl/lib/core:status_test_util",
-        "@com_google_googletest//:gtest_main",
+        "@com_google_googletest//:gtest",
         "@local_tsl//tsl/platform:ml_dtypes",
         "@local_tsl//tsl/platform:test",
     ],
@@ -1547,7 +1516,7 @@ xla_test(
         ":xla_internal_test_main",
         "//xla:test",
         "//xla/hlo/builder:xla_builder",
-        "@com_google_googletest//:gtest_main",
+        "@com_google_googletest//:gtest",
         "@local_tsl//tsl/platform:ml_dtypes",
     ],
 )
@@ -1793,7 +1762,7 @@ xla_test_library(
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:span",
-        "@com_google_googletest//:gtest_main",
+        "@com_google_googletest//:gtest",
         "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:statusor",
         "@local_tsl//tsl/platform:test",
@@ -1866,7 +1835,7 @@ xla_test(
         "//xla/service:platform_util",
         "//xla/stream_executor:platform",
         "@com_google_absl//absl/types:span",
-        "@com_google_googletest//:gtest_main",
+        "@com_google_googletest//:gtest",
         "@local_tsl//tsl/platform:test",
     ],
 )
@@ -1904,7 +1873,7 @@ xla_test(
         "//xla:error_spec",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
-        "@com_google_googletest//:gtest_main",
+        "@com_google_googletest//:gtest",
     ],
 )
 
@@ -1917,7 +1886,7 @@ xla_test(
         ":test_macros_header",
         ":xla_internal_test_main",
         "//xla:error_spec",
-        "@com_google_googletest//:gtest_main",
+        "@com_google_googletest//:gtest",
     ],
 )
 
@@ -1933,7 +1902,7 @@ xla_test(
         ":xla_internal_test_main",
         "//xla:literal",
         "//xla:literal_util",
-        "@com_google_googletest//:gtest_main",
+        "@com_google_googletest//:gtest",
         "@local_tsl//tsl/platform:statusor",
     ],
 )
@@ -2224,7 +2193,7 @@ xla_test(
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/types:span",
-        "@com_google_googletest//:gtest_main",
+        "@com_google_googletest//:gtest",
         "@local_tsl//tsl/platform:ml_dtypes",
         "@local_tsl//tsl/platform:statusor",
     ],
@@ -2470,13 +2439,16 @@ xla_test(
     ],
     deps = [
         ":hlo_test_base",
+        ":literal_test_util",
         ":xla_internal_test_main",
         "//xla:literal",
+        "//xla:literal_util",
         "//xla/hlo/testlib:verified_hlo_module",
         "//xla/service:hlo_module_config",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/types:span",
+        "@com_google_googletest//:gtest",
         "@local_tsl//tsl/platform:statusor",
     ],
 )
@@ -2529,7 +2501,7 @@ xla_test(
         "//xla/service:collective_pipeliner",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
-        "@com_google_googletest//:gtest_main",
+        "@com_google_googletest//:gtest",
     ],
 )
 
@@ -2628,7 +2600,7 @@ xla_test(
         "//xla/service:hlo_proto_cc",
         "//xla/tsl/lib/core:status_test_util",
         "@com_google_absl//absl/status",
-        "@com_google_googletest//:gtest_main",
+        "@com_google_googletest//:gtest",
         "@local_tsl//tsl/platform:env",
         "@local_tsl//tsl/platform:status",
         "@local_tsl//tsl/platform:statusor",
@@ -3151,7 +3123,7 @@ xla_test(
         "//xla:xla_data_proto_cc",
         "//xla/hlo/builder:xla_builder",
         "@com_google_absl//absl/log:check",
-        "@com_google_googletest//:gtest_main",
+        "@com_google_googletest//:gtest",
         "@local_tsl//tsl/platform:ml_dtypes",
     ],
 )
@@ -3344,7 +3316,7 @@ xla_test(
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:span",
-        "@com_google_googletest//:gtest_main",
+        "@com_google_googletest//:gtest",
         "@local_tsl//tsl/platform:status",
         "@local_tsl//tsl/platform:statusor",
         "@local_tsl//tsl/platform:test",
@@ -3398,4 +3370,52 @@ bzl_library(
         "//xla/stream_executor:build_defs_bzl",
         "@local_tsl//tsl/platform:build_config_root_bzl",
     ] + tests_build_defs_bzl_deps(),
+)
+
+xla_test(
+    name = "atan2_test",
+    srcs = ["atan2_test.cc"],
+    deps = [
+        ":client_library_test_base",
+        "//xla:error_spec",
+        "//xla/hlo/builder:xla_builder",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+xla_test(
+    name = "remainder_test",
+    srcs = ["remainder_test.cc"],
+    deps = [
+        ":client_library_test_base",
+        "//xla:error_spec",
+        "//xla:literal_util",
+        "//xla/hlo/builder:xla_builder",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+xla_test(
+    name = "two_plus_two_simple_test",
+    srcs = ["two_plus_two_simple_test.cc"],
+    deps = [
+        "//xla:error_spec",
+        "//xla:literal",
+        "//xla:literal_util",
+        "//xla:shape_util",
+        "//xla:xla_data_proto_cc",
+        "//xla/client:global_data",
+        "//xla/client:local_client",
+        "//xla/hlo/builder:xla_builder",
+        "//xla/service",
+        "//xla/tests:client_library_test_base",
+        "//xla/tests:literal_test_util",
+        "//xla/tests:xla_internal_test_main",
+        "//xla/tsl/lib/core:status_test_util",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_googletest//:gtest_main",
+        "@local_tsl//tsl/platform:env",
+        "@local_tsl//tsl/platform:path",
+    ],
 )
