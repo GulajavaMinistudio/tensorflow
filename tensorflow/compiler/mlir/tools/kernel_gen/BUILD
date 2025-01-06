@@ -3,12 +3,12 @@ load(
     "if_rocm_is_configured",
 )
 load(
-    "@local_tsl//tsl/platform/default:cuda_build_defs.bzl",
-    "if_cuda_is_configured",
-)
-load(
     "@local_xla//xla/stream_executor:build_defs.bzl",
     "if_gpu_is_configured",
+)
+load(
+    "@local_xla//xla/tsl/platform/default:cuda_build_defs.bzl",
+    "if_cuda_is_configured",
 )
 load(
     "//tensorflow:tensorflow.bzl",
@@ -119,7 +119,9 @@ tf_cc_binary(
         "//tensorflow/compiler/mlir:init_mlir",
         "//tensorflow/compiler/mlir/tensorflow",
         "//tensorflow/core:lib",
+        "@com_google_absl//absl/log",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@llvm-project//llvm:Analysis",
         "@llvm-project//llvm:CodeGen",

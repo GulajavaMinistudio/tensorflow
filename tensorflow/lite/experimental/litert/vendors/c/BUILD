@@ -33,6 +33,7 @@ cc_library(
         ":litert_compiler_plugin",
         "//tensorflow/lite/experimental/litert/c:litert_common",
         "//tensorflow/lite/experimental/litert/c:litert_model",
+        "@com_google_absl//absl/strings:string_view",
     ],
 )
 
@@ -43,10 +44,25 @@ cc_library(
         "litert_dispatch_api.h",
     ],
     deps = [
+        "//tensorflow/lite/experimental/litert/c:litert_any",
         "//tensorflow/lite/experimental/litert/c:litert_common",
+        "//tensorflow/lite/experimental/litert/c:litert_event",
         "//tensorflow/lite/experimental/litert/c:litert_model",
         "//tensorflow/lite/experimental/litert/c:litert_tensor_buffer",
         "//tensorflow/lite/experimental/litert/runtime/dispatch",
+    ],
+)
+
+# This test verifies that the C API header files can build via C compiler.
+cc_test(
+    name = "litert_vendor_c_api_common_test",
+    srcs = ["litert_vendor_c_api_common_test.c"],
+    copts = ["--std=c11"],
+    linkopts = ["-ldl"],
+    deps = [
+        ":litert_compiler_plugin",
+        ":litert_compiler_plugin_api",
+        ":litert_dispatch_c_api",
     ],
 )
 

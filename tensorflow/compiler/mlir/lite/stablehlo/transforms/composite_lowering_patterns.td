@@ -57,7 +57,7 @@ def LegalizeTorchUpsampleBlinear2dComposite: Pat<
         (TFL_TransposeOp $input,
           (Arith_ConstantOp
             ConstantAttr<RankedI32ElementsAttr<[4]>,"{0, 2, 3, 1}">)),
-        (Arith_ConstantOp:$output_size (GetI32DenseAttr (GetAsVectorAttr<"output"> $attrs))),
+        (Arith_ConstantOp:$output_size (GetI32DenseAttr (GetAsVectorAttr<"size"> $attrs))),
         (GetCompositeAttributeAs<"align_corners", "BoolAttr"> $attrs),
         ConstBoolAttrTrue,
         (returnType (GetNhwcReturnTypeFromNchw $old_val))),
@@ -126,6 +126,13 @@ def LegalizeCompositeApproximateAtenGELU : Pat<
         (TFL_GeluOp $inputs, ConstBoolAttrTrue),
         [(IsStrCompositeAttribute<"approximate", "tanh"> $attrs)]>;
 
+def LegalizeCompositeGELU : Pat<
+        (MHLO_CompositeOp:$composite
+          (variadic $inputs),
+          ConstantStrAttr<StrAttr, "tfl.gelu">, $attrs, $_, $_),
+        (TFL_GeluOp $inputs,
+          (GetCompositeAttributeAs<"approximate", "BoolAttr"> $attrs))>;
+
 def LegalizeCompositeOdmlEmbeddingLookup : Pat<
         (MHLO_CompositeOp:$composite
           (variadic $indices, $table),
@@ -143,3 +150,19 @@ def LegalizeCompositeOdmlEmbeddingLookupDynamicShaped : Pat<
         [(HasRank<1> $indices),
         (I32ElementsVal $indices),
         (HasRankAtLeast<2> $table)]>;
+
+def LegalizeCompositeOdmlRandomUniform : Pat<
+        (MHLO_CompositeOp:$composite
+          (variadic $shape),
+          ConstantStrAttr<StrAttr, "odml.random_uniform">, $attrs, $_, $_),
+        (TFL_RandomUniformOp $shape,
+          (GetCompositeAttributeAs<"seed", "IntegerAttr"> $attrs),
+          (GetCompositeAttributeAs<"seed2", "IntegerAttr"> $attrs))>;
+
+def LegalizeCompositeOdmlRandomStandardNormal : Pat<
+        (MHLO_CompositeOp:$composite
+          (variadic $shape),
+          ConstantStrAttr<StrAttr, "odml.random_standard_normal">, $attrs, $_, $_),
+        (TFL_RandomStandardNormalOp $shape,
+          (GetCompositeAttributeAs<"seed", "IntegerAttr"> $attrs),
+          (GetCompositeAttributeAs<"seed2", "IntegerAttr"> $attrs))>;

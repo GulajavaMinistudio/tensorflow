@@ -26,11 +26,11 @@
 #include "tensorflow/lite/experimental/litert/c/litert_event.h"
 #include "tensorflow/lite/experimental/litert/c/litert_model.h"
 #include "tensorflow/lite/experimental/litert/c/litert_tensor_buffer.h"
+#include "tensorflow/lite/experimental/litert/cc/litert_event.h"
 #include "tensorflow/lite/experimental/litert/cc/litert_expected.h"
 #include "tensorflow/lite/experimental/litert/core/util/tensor_type_util.h"
 #include "tensorflow/lite/experimental/litert/runtime/ahwb_buffer.h"
 #include "tensorflow/lite/experimental/litert/runtime/dmabuf_buffer.h"
-#include "tensorflow/lite/experimental/litert/runtime/event.h"
 #include "tensorflow/lite/experimental/litert/runtime/fastrpc_buffer.h"
 #include "tensorflow/lite/experimental/litert/runtime/ion_buffer.h"
 
@@ -40,7 +40,7 @@ using litert::Unexpected;
 namespace {
 
 template <typename T>
-void Copy(size_t array_size, const T*& array, std::vector<T>& vec) {
+void Copy(size_t array_size, const T* array, std::vector<T>& vec) {
   vec.clear();
   vec.reserve(array_size);
   std::copy(array, array + array_size, std::back_inserter(vec));
@@ -402,10 +402,9 @@ Expected<void*> LiteRtTensorBufferT::Lock(LiteRtEvent event) {
     // Only AHWB supports waiting on an input sync fence when locking the
     // buffer. For all other buffer types we wait here.
     if (buffer_type() != kLiteRtTensorBufferTypeAhwb) {
-      if (auto status = event->Wait(/*timeout_in_ms*/ -1);
-          status != kLiteRtStatusOk) {
-        return Unexpected(kLiteRtStatusErrorRuntimeFailure,
-                          "Failed to wait on input event");
+      litert::Event e(event, /*owned=*/false);
+      if (auto status = e.Wait(/*timeout_in_ms=*/-1); !status) {
+        return status.Error();
       }
     }
   }

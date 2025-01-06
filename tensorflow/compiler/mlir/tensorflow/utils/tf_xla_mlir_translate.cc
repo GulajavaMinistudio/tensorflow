@@ -148,7 +148,7 @@ mlir::LogicalResult PrintHloModuleText(
   return mlir::success();
 }
 
-Status ParseArgumentShapes(
+absl::Status ParseArgumentShapes(
     absl::string_view input_shapes_str,
     llvm::SmallVectorImpl<TensorOrResourceShape>& arg_shapes) {
   arg_shapes.clear();
@@ -168,8 +168,8 @@ Status ParseArgumentShapes(
   return absl::OkStatus();
 }
 
-Status ParseDataTypes(absl::string_view data_types_str,
-                      llvm::SmallVectorImpl<DataType>& data_types) {
+absl::Status ParseDataTypes(absl::string_view data_types_str,
+                            llvm::SmallVectorImpl<DataType>& data_types) {
   data_types.clear();
   std::vector<std::string> input_dtypes_vector;
   TF_RETURN_IF_ERROR(ParseNodeDataTypes(data_types_str, input_dtypes_vector));
@@ -191,7 +191,7 @@ Status ParseDataTypes(absl::string_view data_types_str,
   return absl::OkStatus();
 }
 
-Status ParseArgumentKinds(
+absl::Status ParseArgumentKinds(
     absl::string_view input_types_str,
     llvm::SmallVectorImpl<XlaArgument::Kind>& argument_kinds) {
   argument_kinds.clear();
@@ -216,10 +216,10 @@ Status ParseArgumentKinds(
   return absl::OkStatus();
 }
 
-Status ParseXlaArguments(absl::string_view input_shapes_str,
-                         absl::string_view input_dtypes_str,
-                         absl::string_view arg_kinds_str,
-                         llvm::SmallVectorImpl<XlaArgument>& xla_arguments) {
+absl::Status ParseXlaArguments(
+    absl::string_view input_shapes_str, absl::string_view input_dtypes_str,
+    absl::string_view arg_kinds_str,
+    llvm::SmallVectorImpl<XlaArgument>& xla_arguments) {
   xla_arguments.clear();
   std::vector<std::optional<std::vector<int>>> input_shapes_vector;
   TF_RETURN_IF_ERROR(
@@ -270,7 +270,7 @@ Status ParseXlaArguments(absl::string_view input_shapes_str,
 // Test BuildHloFromTf. BuildHloFromTf only performs part of the conversion, so
 // to make this test comparable to other compile tests, the test implements
 // the remaining parts of the conversion.
-Status CompileMlirToXlaHloViaBuilder(
+absl::Status CompileMlirToXlaHloViaBuilder(
     mlir::ModuleOp module_op, llvm::ArrayRef<TensorOrResourceShape> arg_shapes,
     llvm::StringRef device_type, XlaCompilationResult* compilation_result,
     llvm::MutableArrayRef<std::unique_ptr<mlir::Pass>>
@@ -342,17 +342,16 @@ static mlir::LogicalResult MlirTfToHloTextTranslateFunctionImpl(
       custom_legalization_passes{};
   XlaCompilationResult compilation_result;
   auto compilation_status =
-      via_builder
-          ? CompileMlirToXlaHloViaBuilder(module_op, arg_shapes, device_type,
-                                          &compilation_result,
-                                          custom_legalization_passes)
-          : CompileMlirToXlaHlo(module_op, arg_shapes, device_type,
-                                emit_use_tuple_arg,
-                                /*analyse_graph=*/false, emit_return_tuple,
-                                /*use_resource_updates_for_aliases=*/true,
-                                /*shape_determination_fns=*/{},
-                                &compilation_result, custom_legalization_passes)
-                .status();
+      via_builder ? CompileMlirToXlaHloViaBuilder(
+                        module_op, arg_shapes, device_type, &compilation_result,
+                        custom_legalization_passes)
+                  : CompileMlirToXlaHloAndSerialize(
+                        module_op, arg_shapes, device_type, emit_use_tuple_arg,
+                        /*enable_op_fallback=*/false, emit_return_tuple,
+                        /*use_resource_updates_for_aliases=*/true,
+                        /*shape_determination_fns=*/{}, &compilation_result,
+                        custom_legalization_passes)
+                        .status();
   if (!compilation_status.ok()) {
     LOG(ERROR) << "TF/XLA compilation failed: " << compilation_status;
     return mlir::failure();

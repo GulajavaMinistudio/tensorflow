@@ -17,16 +17,23 @@
 #include <utility>
 #include <vector>
 
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "absl/log/absl_log.h"
 #include "absl/log/log.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "tensorflow/lite/c/c_api_opaque.h"
 #include "tensorflow/lite/c/common.h"
 #include "tensorflow/lite/experimental/litert/c/litert_common.h"
+#include "tensorflow/lite/experimental/litert/c/litert_compiled_model_options.h"
 #include "tensorflow/lite/experimental/litert/c/litert_dispatch_delegate.h"
 #include "tensorflow/lite/experimental/litert/c/litert_tensor_buffer.h"
+#include "tensorflow/lite/experimental/litert/cc/litert_compiled_model.h"
+#include "tensorflow/lite/experimental/litert/cc/litert_model.h"
 #include "tensorflow/lite/experimental/litert/cc/litert_tensor_buffer.h"
+#include "tensorflow/lite/experimental/litert/core/model/model_buffer.h"
+#include "tensorflow/lite/experimental/litert/core/util/flatbuffer_tools.h"
 #include "tensorflow/lite/experimental/litert/runtime/external_litert_buffer_context.h"
 #include "tensorflow/lite/experimental/litert/test/common.h"
 #include "tensorflow/lite/experimental/litert/test/testdata/simple_model_test_vectors.h"
@@ -36,17 +43,20 @@
 namespace litert {
 namespace {
 
+using ::litert::testing::MakeRuntimeFromTestFileWithNpuModel;
+using ::testing::FloatNear;
+using ::testing::Pointwise;
+
 static constexpr absl::string_view kNpuFile = kGoogleTensorModelFileName;
 static constexpr absl::string_view kTfliteFile = "simple_model_npu.tflite";
 
 TEST(DispatchDelegate, GoogleTensorCpuBuffer) {
-  auto runtime =
-      testing::TflRuntime::CreateFromTflFileWithByteCode(kTfliteFile, kNpuFile);
+  auto runtime = MakeRuntimeFromTestFileWithNpuModel(kTfliteFile, kNpuFile);
   ASSERT_TRUE(runtime) << "Failed to initialize tflite interpreter";
   auto& rt = **runtime;
-  auto& interpreter = rt.Interp();
+  auto& interpreter = rt.Interpreter();
 
-  litert::internal::ExternalLiteRtBufferContext buffer_context;
+  internal::ExternalLiteRtBufferContext buffer_context;
   interpreter.SetExternalContext(kTfLiteLiteRtBufferContext, &buffer_context);
 
   EXPECT_EQ(interpreter.nodes_size(), 1);
@@ -56,7 +66,7 @@ TEST(DispatchDelegate, GoogleTensorCpuBuffer) {
 
   auto dispatch_delegate_options = CreateDispatchDelegateOptionsPtr();
   LiteRtDispatchDelegateAddAllocBaseOption(dispatch_delegate_options.get(),
-                                           rt.AllocBase());
+                                           rt.Flatbuffer().Buf().Data());
   auto dispatch_delegate =
       CreateDispatchDelegatePtr(std::move(dispatch_delegate_options));
 
@@ -70,7 +80,7 @@ TEST(DispatchDelegate, GoogleTensorCpuBuffer) {
 
   // Get the list of signatures and check it.
   auto signature_defs = interpreter.signature_keys();
-  ASSERT_EQ(signature_defs.size(), 0);
+  ASSERT_EQ(signature_defs.size(), 1);
 
   tflite::impl::SignatureRunner* runner =
       interpreter.GetSignatureRunner(/*signature_key=*/nullptr);
@@ -97,23 +107,20 @@ TEST(DispatchDelegate, GoogleTensorCpuBuffer) {
   ASSERT_STREQ(runner->output_names()[0], "tfl.custom");
   auto output_tensor = runner->output_tensor("tfl.custom");
   ASSERT_NE(output_tensor, nullptr);
-  auto* output = output_tensor->data.f;
+  auto output = absl::MakeSpan(output_tensor->data.f, kTestOutputSize);
   for (auto i = 0; i < kTestOutputSize; ++i) {
     ABSL_LOG(INFO) << output[i] << "\t" << kTestOutputTensor[i];
   }
-  for (auto i = 0; i < kTestOutputSize; ++i) {
-    EXPECT_NEAR(output[i], kTestOutputTensor[i], 1e-5);
-  }
+  EXPECT_THAT(output, Pointwise(::testing::FloatNear(1e-5), kTestOutputTensor));
 }
 
 TEST(DispatchDelegate, GoogleTensorHwBuffer) {
-  auto runtime =
-      testing::TflRuntime::CreateFromTflFileWithByteCode(kTfliteFile, kNpuFile);
+  auto runtime = MakeRuntimeFromTestFileWithNpuModel(kTfliteFile, kNpuFile);
   ASSERT_TRUE(runtime) << "Failed to initialize tflite interpreter";
   auto& rt = **runtime;
-  auto& interpreter = rt.Interp();
+  auto& interpreter = rt.Interpreter();
 
-  litert::internal::ExternalLiteRtBufferContext buffer_context;
+  internal::ExternalLiteRtBufferContext buffer_context;
   interpreter.SetExternalContext(kTfLiteLiteRtBufferContext, &buffer_context);
 
   EXPECT_EQ(interpreter.nodes_size(), 1);
@@ -123,7 +130,7 @@ TEST(DispatchDelegate, GoogleTensorHwBuffer) {
 
   auto dispatch_delegate_options = CreateDispatchDelegateOptionsPtr();
   LiteRtDispatchDelegateAddAllocBaseOption(dispatch_delegate_options.get(),
-                                           rt.AllocBase());
+                                           rt.Flatbuffer().Buf().Data());
   auto dispatch_delegate =
       CreateDispatchDelegatePtr(std::move(dispatch_delegate_options));
 
@@ -146,7 +153,7 @@ TEST(DispatchDelegate, GoogleTensorHwBuffer) {
               kLiteRtTensorBufferTypeAhwb);
     auto input_buffer =
         buffer_context.CreateBufferForTensor(interpreter.input_tensor(i));
-    ASSERT_TRUE(input_buffer.HasValue());
+    ASSERT_TRUE(input_buffer);
     ASSERT_TRUE(input_buffer->IsOwned());
     ASSERT_EQ(*input_buffer->BufferType(), kLiteRtTensorBufferTypeAhwb);
     auto duplicate_buffer = (*input_buffer).Duplicate();
@@ -161,7 +168,7 @@ TEST(DispatchDelegate, GoogleTensorHwBuffer) {
   for (int i = 0; i < interpreter.outputs().size(); ++i) {
     auto output_buffer_requirements =
         buffer_context.GetBufferRequirement(interpreter.output_tensor(i));
-    ASSERT_TRUE(output_buffer_requirements.HasValue());
+    ASSERT_TRUE(output_buffer_requirements);
     ASSERT_EQ((*output_buffer_requirements)->SupportedTypes().Value()[0],
               kLiteRtTensorBufferTypeAhwb);
     auto output_buffer =
@@ -179,7 +186,7 @@ TEST(DispatchDelegate, GoogleTensorHwBuffer) {
 
   // Get the list of signatures and check it.
   auto signature_defs = interpreter.signature_keys();
-  ASSERT_EQ(signature_defs.size(), 0);
+  ASSERT_EQ(signature_defs.size(), 1);
 
   tflite::impl::SignatureRunner* runner =
       interpreter.GetSignatureRunner(/*signature_key=*/nullptr);
@@ -190,37 +197,88 @@ TEST(DispatchDelegate, GoogleTensorHwBuffer) {
   // Fill model inputs.
   ASSERT_STREQ(runner->input_names()[0], "arg0");
   auto& input_0_buffer = input_buffers[0];
-  {
-    auto lock_and_addr = litert::TensorBufferScopedLock::Create(input_0_buffer);
-    ASSERT_TRUE(lock_and_addr);
-    std::memcpy(lock_and_addr->second, kTestInput0Tensor,
-                sizeof(kTestInput0Tensor));
-  }
+  input_0_buffer.Write<float>(
+      absl::MakeConstSpan(kTestInput0Tensor, kTestInput0Size));
+
   ASSERT_STREQ(runner->input_names()[1], "arg1");
   auto& input_1_buffer = input_buffers[1];
-  {
-    auto lock_and_addr = litert::TensorBufferScopedLock::Create(input_1_buffer);
-    ASSERT_TRUE(lock_and_addr);
-    std::memcpy(lock_and_addr->second, kTestInput1Tensor,
-                sizeof(kTestInput1Tensor));
-  }
+  input_1_buffer.Write<float>(
+      absl::MakeConstSpan(kTestInput1Tensor, kTestInput1Size));
 
   EXPECT_EQ(runner->Invoke(), kTfLiteOk);
 
   // Check model output.
   ASSERT_STREQ(runner->output_names()[0], "tfl.custom");
   auto& output_buffer = output_buffers[0];
-  {
-    auto lock_and_addr = litert::TensorBufferScopedLock::Create(output_buffer);
-    ASSERT_TRUE(lock_and_addr);
-    const float* output = reinterpret_cast<const float*>(lock_and_addr->second);
-    for (auto i = 0; i < kTestOutputSize; ++i) {
-      ABSL_LOG(INFO) << "Result: " << output[i] << "\t" << kTestOutputTensor[i];
-    }
-    for (auto i = 0; i < kTestOutputSize; ++i) {
-      EXPECT_NEAR(output[i], kTestOutputTensor[i], 1e-5);
-    }
+  float output_buffer_data[kTestOutputSize];
+  auto output_span = absl::MakeSpan(output_buffer_data, kTestOutputSize);
+  auto read_success = output_buffer.Read<float>(output_span);
+  ASSERT_TRUE(read_success);
+  for (auto i = 0; i < kTestOutputSize; ++i) {
+    ABSL_LOG(INFO) << "Result: " << output_span.at(i) << "\t"
+                   << kTestOutputTensor[i];
   }
+  EXPECT_THAT(output_span, Pointwise(FloatNear(1e-5), kTestOutputTensor));
+}
+
+TEST(DispatchDelegate, CompiledModel) {
+  auto model_with_byte_code =
+      internal::GetModelBufWithByteCode(testing::GetTestFilePath(kTfliteFile),
+                                        testing::GetTestFilePath(kNpuFile));
+  ASSERT_TRUE(model_with_byte_code);
+  auto model = Model::CreateFromBuffer(*model_with_byte_code);
+  ASSERT_TRUE(model);
+
+#if !defined(__ANDROID__)
+  GTEST_SKIP() << "The rest of this test is specific to Android devices with a "
+                  "GoogleTensor eTPU";
+#endif
+
+  auto res_compiled_model = CompiledModel::Create(*model);
+  ASSERT_TRUE(res_compiled_model) << "Failed to initialize CompiledModel";
+  auto& compiled_model = *res_compiled_model;
+
+  auto signatures = model->GetSignatures();
+  ASSERT_TRUE(signatures);
+  EXPECT_EQ(signatures->size(), 1);
+  auto& signature = signatures->at(0);
+  auto signature_key = signature.Key();
+  EXPECT_EQ(signature_key, Model::DefaultSignatureKey());
+  size_t signature_index = 0;
+
+  auto input_buffers_res = compiled_model.CreateInputBuffers(signature_index);
+  EXPECT_TRUE(input_buffers_res);
+  auto& input_buffers = *input_buffers_res;
+
+  auto output_buffers_res = compiled_model.CreateOutputBuffers(signature_index);
+  EXPECT_TRUE(output_buffers_res);
+  auto& output_buffers = *output_buffers_res;
+
+  // Fill model inputs.
+  auto input_names = signature.InputNames();
+  EXPECT_EQ(input_names.size(), 2);
+  EXPECT_EQ(input_names.at(0), "arg0");
+  EXPECT_EQ(input_names.at(1), "arg1");
+  ASSERT_TRUE(input_buffers[0].Write<float>(
+      absl::MakeConstSpan(kTestInput0Tensor, kTestInput0Size)));
+  ASSERT_TRUE(input_buffers[1].Write<float>(
+      absl::MakeConstSpan(kTestInput1Tensor, kTestInput1Size)));
+
+  // Execute model.
+  compiled_model.Run(signature_index, input_buffers, output_buffers);
+
+  // Check model output.
+  auto output_names = signature.OutputNames();
+  EXPECT_EQ(output_names.size(), 1);
+  EXPECT_EQ(output_names.at(0), "tfl.custom");
+  float output_buffer_data[kTestOutputSize];
+  auto output_span = absl::MakeSpan(output_buffer_data, kTestOutputSize);
+  ASSERT_TRUE(output_buffers[0].Read(output_span));
+  for (auto i = 0; i < kTestOutputSize; ++i) {
+    ABSL_LOG(INFO) << "Result: " << output_span.at(i) << "\t"
+                   << kTestOutputTensor[i];
+  }
+  EXPECT_THAT(output_span, Pointwise(FloatNear(1e-5), kTestOutputTensor));
 }
 
 }  // namespace

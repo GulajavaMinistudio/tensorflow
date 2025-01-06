@@ -29,16 +29,15 @@ cc_library(
         ":outstream",
         ":tool_display",
         "//tensorflow/lite/experimental/litert/c:litert_common",
+        "//tensorflow/lite/experimental/litert/c:litert_logging",
         "//tensorflow/lite/experimental/litert/c:litert_model",
         "//tensorflow/lite/experimental/litert/cc:litert_buffer_ref",
         "//tensorflow/lite/experimental/litert/cc:litert_detail",
         "//tensorflow/lite/experimental/litert/cc:litert_expected",
         "//tensorflow/lite/experimental/litert/cc:litert_macros",
         "//tensorflow/lite/experimental/litert/cc:litert_model",
-        "//tensorflow/lite/experimental/litert/compiler/plugin:algo",
         "//tensorflow/lite/experimental/litert/compiler/plugin:compiler_plugin",
         "//tensorflow/lite/experimental/litert/core:byte_code_util",
-        "//tensorflow/lite/experimental/litert/core/model:model_load",
         "//tensorflow/lite/experimental/litert/core/model:model_serialize",
         "//tensorflow/lite/experimental/litert/core/util:flatbuffer_tools",
         "@com_google_absl//absl/log:absl_check",
@@ -52,7 +51,7 @@ cc_test(
     name = "apply_plugin_test",
     srcs = ["apply_plugin_test.cc"],
     data = [
-        "//tensorflow/lite/experimental/litert/test:tflite_test_data",
+        "//tensorflow/lite/experimental/litert/test:mlir_test_data",
         "//tensorflow/lite/experimental/litert/vendors/examples:example_plugin_so",
     ],
     tags = [
@@ -66,9 +65,9 @@ cc_test(
         "//tensorflow/lite/experimental/litert/c:litert_model",
         "//tensorflow/lite/experimental/litert/c:litert_op_code",
         "//tensorflow/lite/experimental/litert/cc:litert_buffer_ref",
+        "//tensorflow/lite/experimental/litert/cc:litert_model",
         "//tensorflow/lite/experimental/litert/core:byte_code_util",
         "//tensorflow/lite/experimental/litert/core/model",
-        "//tensorflow/lite/experimental/litert/core/model:model_load",
         "//tensorflow/lite/experimental/litert/test:common",
         "@com_google_absl//absl/log:absl_check",
         "@com_google_absl//absl/strings:string_view",
@@ -143,7 +142,7 @@ cc_library(
 cc_test(
     name = "tool_display_test",
     srcs = ["tool_display_test.cc"],
-    data = ["//tensorflow/lite/experimental/litert/test:tflite_test_data"],
+    data = ["//tensorflow/lite/experimental/litert/test:mlir_test_data"],
     deps = [
         ":tool_display",
         "@com_google_absl//absl/strings:str_format",
@@ -169,7 +168,7 @@ cc_library(
 cc_test(
     name = "dump_test",
     srcs = ["dump_test.cc"],
-    data = ["//tensorflow/lite/experimental/litert/test:tflite_test_data"],
+    data = ["//tensorflow/lite/experimental/litert/test:mlir_test_data"],
     deps = [
         ":dump",
         "//tensorflow/lite/experimental/litert/core/model",

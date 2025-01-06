@@ -4,7 +4,7 @@ load(
     "if_rocm_is_configured",
 )
 load(
-    "@local_tsl//tsl/platform/default:cuda_build_defs.bzl",
+    "@local_xla//xla/tsl/platform/default:cuda_build_defs.bzl",
     "if_cuda_is_configured",
 )
 load("//tensorflow:tensorflow.default.bzl", "get_compatible_with_portable")
@@ -172,6 +172,7 @@ cc_library(
         "@local_xla//xla/stream_executor/cuda:cuda_asm_compiler",
     ]) + if_rocm_is_configured([
         "@local_xla//xla/stream_executor/gpu:asm_compiler",
+        "@local_xla//xla/service/gpu/llvm_gpu_backend:amdgpu_backend",
         "//tensorflow/core/platform:rocm_rocdl_path",
     ]),
 )

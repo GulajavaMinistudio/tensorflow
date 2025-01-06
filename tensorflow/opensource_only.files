@@ -360,14 +360,12 @@ tf_staging/third_party/systemlibs/boringssl.BUILD:
 tf_staging/third_party/systemlibs/build_defs.bzl.tpl:
 tf_staging/third_party/systemlibs/curl.BUILD:
 tf_staging/third_party/systemlibs/cython.BUILD:
-tf_staging/third_party/systemlibs/double_conversion.BUILD:
 tf_staging/third_party/systemlibs/gif.BUILD:
 tf_staging/third_party/systemlibs/google_cloud_cpp.BUILD:
 tf_staging/third_party/systemlibs/google_cloud_cpp.google.cloud.bigtable.BUILD:
 tf_staging/third_party/systemlibs/grpc.BUILD:
 tf_staging/third_party/systemlibs/jsoncpp.BUILD:
 tf_staging/third_party/systemlibs/lmdb.BUILD:
-tf_staging/third_party/systemlibs/nsync.BUILD:
 tf_staging/third_party/systemlibs/png.BUILD:
 tf_staging/third_party/systemlibs/protobuf.BUILD:
 tf_staging/third_party/systemlibs/protobuf.bzl:

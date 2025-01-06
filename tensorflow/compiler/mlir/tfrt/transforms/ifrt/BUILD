@@ -1,6 +1,6 @@
 load("@llvm-project//mlir:tblgen.bzl", "gentbl_cc_library")
 load(
-    "@local_tsl//tsl/platform:build_config.bzl",
+    "@local_xla//xla/tsl/platform:build_config.bzl",
     "tf_proto_library",
 )
 load("//tensorflow:tensorflow.bzl", "if_google", "tf_cc_test")
@@ -220,11 +220,10 @@ tf_cc_test(
         "@llvm-project//mlir:IR",
         "@llvm-project//mlir:Parser",
         "@local_tsl//tsl/platform:protobuf",
-        "@local_tsl//tsl/platform:status_matchers",
-        "@local_tsl//tsl/platform:statusor",
+        "@local_xla//xla/pjrt:pjrt_client",
         "@local_xla//xla/pjrt:pjrt_compiler",
-        "@local_xla//xla/pjrt/cpu:cpu_client",
         "@local_xla//xla/pjrt/gpu:se_gpu_pjrt_client",
+        "@local_xla//xla/pjrt/plugin/xla_cpu:cpu_topology_description",
         "@local_xla//xla/python/ifrt",
         "@local_xla//xla/python/ifrt:mock",
         "@local_xla//xla/python/ifrt:test_util",
