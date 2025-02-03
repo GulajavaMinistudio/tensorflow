@@ -1276,6 +1276,7 @@ cc_library(
         "@eigen_archive//:eigen3",
         "@ml_dtypes//:float8",
         "@ml_dtypes//:intn",
+        "@ml_dtypes//:mxfloat",
     ] + if_static([":lib_internal_impl"]),
 )
 
@@ -1304,6 +1305,7 @@ cc_library(
         "@eigen_archive//:eigen3",
         "@ml_dtypes//:float8",
         "@ml_dtypes//:intn",
+        "@ml_dtypes//:mxfloat",
     ],
 )
 
@@ -1452,6 +1454,7 @@ cc_library(
         "@local_xla//xla/tsl/lib/math:math_util",
         "@ml_dtypes//:float8",
         "@ml_dtypes//:intn",
+        "@ml_dtypes//:mxfloat",
         "@snappy",
         "@zlib",
     ] + select({
@@ -1486,6 +1489,7 @@ cc_library(
         "@local_xla//xla/service/gpu:backend_configs_cc_impl",
         "@local_xla//xla/service/gpu/model:hlo_op_profile_proto_cc_impl",
         "@local_xla//xla/stream_executor:device_description_proto_cc_impl",
+        "@local_xla//xla/stream_executor/cuda:cuda_compute_capability_proto_cc_impl",
         "//tensorflow/lite/toco:toco_flags_proto_cc_impl",
         "//tensorflow/lite/toco:model_flags_proto_cc_impl",
         "//tensorflow/lite/toco:types_proto_cc_impl",
@@ -1874,7 +1878,7 @@ cc_library(
 # Main program for tests
 alias(
     name = "test_main",
-    actual = "@local_tsl//tsl/platform:test_main",
+    actual = "@com_google_googletest//:gtest_main",
     visibility = ["//tensorflow:internal"],
 )
 

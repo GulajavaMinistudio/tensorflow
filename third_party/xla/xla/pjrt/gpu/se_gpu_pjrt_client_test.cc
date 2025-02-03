@@ -28,6 +28,7 @@ limitations under the License.
 #include <utility>
 #include <vector>
 
+#include <gtest/gtest.h>
 #include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -42,6 +43,7 @@ limitations under the License.
 #include "xla/ffi/ffi_api.h"
 #include "xla/hlo/builder/xla_computation.h"
 #include "xla/hlo/parser/hlo_parser.h"
+#include "xla/hlo/testlib/test.h"
 #include "xla/layout.h"
 #include "xla/literal.h"
 #include "xla/literal_util.h"
@@ -61,11 +63,12 @@ limitations under the License.
 #include "xla/shape.h"
 #include "xla/shape_util.h"
 #include "xla/status_macros.h"
+#include "xla/stream_executor/cuda/cuda_compute_capability.h"
 #include "xla/stream_executor/device_memory.h"
 #include "xla/stream_executor/stream.h"
-#include "xla/test.h"
 #include "xla/tests/literal_test_util.h"
 #include "xla/tsl/lib/core/status_test_util.h"
+#include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/platform/subprocess.h"
 #include "xla/types.h"
 #include "xla/util.h"
@@ -841,7 +844,7 @@ TEST(StreamExecutorGpuClientTest, CopyRawToHostFullBuffer) {
   auto literal = xla::LiteralUtil::CreateR1<float>({41.0f, 42.0f});
   TF_ASSERT_OK_AND_ASSIGN(
       std::unique_ptr<PjRtBuffer> buffer,
-      client->BufferFromHostLiteral(literal, client->addressable_devices()[0]));
+      client->BufferFromHostLiteral(literal, client->memory_spaces()[0]));
 
   TF_ASSERT_OK_AND_ASSIGN(int64_t size, buffer->GetOnDeviceSizeInBytes());
   void* dst =
@@ -862,7 +865,7 @@ TEST(StreamExecutorGpuClientTest, CopyRawToHostSubBuffer) {
 
   TF_ASSERT_OK_AND_ASSIGN(
       std::unique_ptr<PjRtBuffer> buffer,
-      client->BufferFromHostLiteral(literal, client->addressable_devices()[0]));
+      client->BufferFromHostLiteral(literal, client->memory_spaces()[0]));
   TF_ASSERT_OK_AND_ASSIGN(int64_t size, buffer->GetOnDeviceSizeInBytes());
   void* dst =
       tsl::port::AlignedMalloc(size, tsl::Allocator::kAllocatorAlignment);
@@ -881,7 +884,7 @@ TEST(StreamExecutorGpuClientTest, CopyRawToHostOutOfRange) {
 
   TF_ASSERT_OK_AND_ASSIGN(
       std::unique_ptr<PjRtBuffer> buffer,
-      client->BufferFromHostLiteral(literal, client->addressable_devices()[0]));
+      client->BufferFromHostLiteral(literal, client->memory_spaces()[0]));
   TF_ASSERT_OK_AND_ASSIGN(int64_t size, buffer->GetOnDeviceSizeInBytes());
   void* dst =
       tsl::port::AlignedMalloc(size, tsl::Allocator::kAllocatorAlignment);
@@ -898,7 +901,7 @@ TEST(StreamExecutorGpuClientTest, CopyRawToHostFuture) {
   auto literal = xla::LiteralUtil::CreateR1<float>({41.0f, 42.0f});
   TF_ASSERT_OK_AND_ASSIGN(
       std::unique_ptr<PjRtBuffer> buffer,
-      client->BufferFromHostLiteral(literal, client->addressable_devices()[0]));
+      client->BufferFromHostLiteral(literal, client->memory_spaces()[0]));
 
   auto dst_promise = xla::PjRtFuture<void*>::CreatePromise();
   xla::PjRtFuture<void*> dst_future(dst_promise);
@@ -1072,8 +1075,10 @@ TEST(StreamExecutorGpuClientTest, GetAllocatorStatsTest) {
 
   for (auto device : client->addressable_devices()) {
     const xla::Literal literal = xla::LiteralUtil::CreateR0<int32_t>(0);
-    TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<PjRtBuffer> buffer,
-                            client->BufferFromHostLiteral(literal, device));
+    TF_ASSERT_OK_AND_ASSIGN(auto* memory_space, device->default_memory_space())
+    TF_ASSERT_OK_AND_ASSIGN(
+        std::unique_ptr<PjRtBuffer> buffer,
+        client->BufferFromHostLiteral(literal, memory_space));
 
     auto stats = device->GetAllocatorStats();
     TF_ASSERT_OK(stats.status());
@@ -1183,7 +1188,8 @@ TEST(StreamExecutorGpuClientTest, MockNcclClientWithGpuTopologyExecuteTest) {
             data.data(), shape.element_type(), shape.dimensions(),
             /*byte_strides=*/std::nullopt,
             PjRtClient::HostBufferSemantics::kImmutableOnlyDuringCall,
-            /*on_done_with_host_buffer=*/nullptr, device));
+            /*on_done_with_host_buffer=*/nullptr,
+            *device->default_memory_space(), /*device_layout=*/nullptr));
     input_ptrs.push_back({input.get()});
     inputs.push_back(std::move(input));
   }
@@ -1239,7 +1245,7 @@ TEST(StreamExecutorGpuClientTest, CopyToPinnedHostMemorySpace) {
           data.data(), shape.element_type(), shape.dimensions(),
           /*byte_strides=*/std::nullopt,
           PjRtClient::HostBufferSemantics::kImmutableOnlyDuringCall, nullptr,
-          device));
+          *device->default_memory_space(), /*device_layout=*/nullptr));
 
   EXPECT_EQ(buffer->memory_space()->kind(), "device");
 
@@ -1269,7 +1275,7 @@ TEST(StreamExecutorGpuClientTest, CopyToPinnedHostMemorySpaceInt4) {
           data.data(), shape.element_type(), shape.dimensions(),
           /*byte_strides=*/std::nullopt,
           PjRtClient::HostBufferSemantics::kImmutableOnlyDuringCall, nullptr,
-          device));
+          *device->default_memory_space(), /*device_layout=*/nullptr));
 
   EXPECT_EQ(buffer->memory_space()->kind(), "device");
 
@@ -1354,11 +1360,13 @@ absl::StatusOr<std::unique_ptr<PjRtBuffer>> CreateDeviceBufferForTest(
   std::vector<int32_t> data{1, 2, 3, 4};
   Shape shape = ShapeUtil::MakeShapeWithDenseLayout(S32, {4}, {0});
   TF_ASSIGN_OR_RETURN(
-      auto input, client->BufferFromHostBuffer(
-                      data.data(), shape.element_type(), shape.dimensions(),
-                      /*byte_strides=*/std::nullopt,
-                      PjRtClient::HostBufferSemantics::kImmutableOnlyDuringCall,
-                      /*on_done_with_host_buffer=*/nullptr, device));
+      auto input,
+      client->BufferFromHostBuffer(
+          data.data(), shape.element_type(), shape.dimensions(),
+          /*byte_strides=*/std::nullopt,
+          PjRtClient::HostBufferSemantics::kImmutableOnlyDuringCall,
+          /*on_done_with_host_buffer=*/nullptr, *device->default_memory_space(),
+          /*device_layout=*/nullptr));
   EXPECT_EQ(input->memory_space()->kind(), "device");
   return input;
 }
@@ -1492,11 +1500,13 @@ TEST(StreamExecutorGpuClientTest,
   auto device = client->addressable_devices()[0];
   TF_EXPECT_OK(device->default_memory_space());
   TF_ASSERT_OK_AND_ASSIGN(
-      auto input, client->BufferFromHostBuffer(
-                      data.data(), shape.element_type(), shape.dimensions(),
-                      /*byte_strides=*/std::nullopt,
-                      PjRtClient::HostBufferSemantics::kImmutableOnlyDuringCall,
-                      /*on_done_with_host_buffer=*/nullptr, device));
+      auto input,
+      client->BufferFromHostBuffer(
+          data.data(), shape.element_type(), shape.dimensions(),
+          /*byte_strides=*/std::nullopt,
+          PjRtClient::HostBufferSemantics::kImmutableOnlyDuringCall,
+          /*on_done_with_host_buffer=*/nullptr, *device->default_memory_space(),
+          /*device_layout=*/nullptr));
   EXPECT_EQ(input->memory_space()->kind(), "device");
 
   TF_ASSERT_OK_AND_ASSIGN(auto memory_kinds,
@@ -1616,6 +1626,25 @@ TEST(StreamExecutorGpuClientTest, MlirResultHostMemorySpaceIsSetInHlo) {
   auto result_layout =
       modules[0]->entry_computation_layout().result_layout().layout();
   EXPECT_EQ(result_layout.memory_space(), Layout::kHostMemorySpace);
+}
+
+TEST(StreamExecutorGpuClientTest, ProfileExecution) {
+  static constexpr char const* kProgram = R"(
+    HloModule profiled
+      ENTRY main {
+      c0 = f32[] constant(20)
+      c1 = f32[] constant(21)
+      ROOT res = f32[] add(c0, c1)
+    })";
+  TF_ASSERT_OK_AND_ASSIGN(auto client,
+                          GetStreamExecutorGpuClient(GpuClientOptions()));
+  TF_ASSERT_OK_AND_ASSIGN(auto executable,
+                          CompileExecutable(kProgram, *client));
+  ExecutionProfile profile;
+  ExecuteOptions opts;
+  opts.execution_profile = &profile;
+  TF_ASSERT_OK(executable->Execute(/*argument_handles=*/{{}}, opts));
+  EXPECT_GT(profile.compute_time_ns(), 0);
 }
 
 TEST(StreamExecutorGpuClientTest, MlirAutoResultLayoutIsSet) {
@@ -1853,9 +1882,11 @@ TEST_P(ShardedAutotuningTest, ShardedAutotuningWorks) {
   int num_active_nodes;
   std::tie(use_xla_computation, num_active_nodes) = GetParam();
 
-  tsl::SubProcess child[ShardedAutotuningTest::kNumNodes];
-  for (int node_id = 0; node_id < ShardedAutotuningTest::kNumNodes; ++node_id) {
+  tsl::setenv("TF_CPP_VMODULE", "gemm_fusion_autotuner=1", /*overwrite=*/true);
+  tsl::SubProcess child[kNumNodes];
+  for (int node_id = 0; node_id < kNumNodes; ++node_id) {
     std::vector<std::string> argv;
+    argv.reserve(4);
     argv.push_back(test_binary_name);
     argv.push_back(absl::StrFormat("--node_id=%d", node_id));
     argv.push_back(
@@ -1866,7 +1897,7 @@ TEST_P(ShardedAutotuningTest, ShardedAutotuningWorks) {
     child[node_id].SetChannelAction(tsl::CHAN_STDERR, tsl::ACTION_PIPE);
     ASSERT_TRUE(child[node_id].Start()) << "node " << node_id;
   }
-  for (int node_id = 0; node_id < ShardedAutotuningTest::kNumNodes; ++node_id) {
+  for (int node_id = 0; node_id < kNumNodes; ++node_id) {
     std::string stdout_str;
     std::string stderr_str;
     int child_status =
@@ -1879,6 +1910,14 @@ TEST_P(ShardedAutotuningTest, ShardedAutotuningWorks) {
     EXPECT_EQ(child_status, 0) << " node " << node_id << "\nstdout:\n"
                                << stdout_str << "\nstderr:\n"
                                << stderr_str;
+    if (node_id < num_active_nodes) {
+      EXPECT_THAT(stderr_str,
+                  HasSubstr(absl::StrFormat(
+                      "Shard %d / %d: autotuning %d / 1 fusions", node_id + 1,
+                      num_active_nodes, (node_id == 0) ? 1 : 0)));
+    } else {
+      EXPECT_THAT(stderr_str, Not(HasSubstr("autotuning")));
+    }
   }
 }
 
@@ -1909,11 +1948,12 @@ absl::Status ShardedAutotuningWorksTestBody(const int node_id,
   TF_ASSIGN_OR_RETURN(std::unique_ptr<PjRtClient> client,
                       GetStreamExecutorGpuClient(options));
   TF_RET_CHECK(client->platform_name() == "cuda");
-  if (!se::CudaComputeCapability(
-           std::get<std::string>(
-               client->addressable_devices().front()->Attributes().at(
-                   "compute_capability")))
-           .IsAtLeastAmpere()) {
+  TF_ASSIGN_OR_RETURN(
+      se::CudaComputeCapability cc,
+      se::CudaComputeCapability::FromString(std::get<std::string>(
+          client->addressable_devices().front()->Attributes().at(
+              "compute_capability"))));
+  if (!cc.IsAtLeastAmpere()) {
     return absl::FailedPreconditionError("Ampere+ GPU required");
   }
   TF_RET_CHECK(client->addressable_device_count() == 1);
@@ -1925,6 +1965,7 @@ absl::Status ShardedAutotuningWorksTestBody(const int node_id,
   }
 
   CompileOptions compile_options;
+  compile_options.executable_build_options.set_num_replicas(num_active_nodes);
   DebugOptions* debug_options =
       compile_options.executable_build_options.mutable_debug_options();
   debug_options->set_xla_gpu_shard_autotuning(true);

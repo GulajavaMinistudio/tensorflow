@@ -1,4 +1,3 @@
-load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
 load("@local_config_cuda//cuda:build_defs.bzl", "if_cuda")
 load("@local_config_rocm//rocm:build_defs.bzl", "if_rocm")
 load("//xla:pytype.default.bzl", "pytype_strict_library")
@@ -311,6 +310,7 @@ cc_library(
         "py_program.cc",
         "py_values.cc",
         "sharding.cc",
+        "to_ifrt_sharding.cc",
     ],
     hdrs = [
         "py_array.h",
@@ -325,15 +325,13 @@ cc_library(
         "py_values.h",
         "sharded_device_array.h",
         "sharding.h",
+        "to_ifrt_sharding.h",
     ],
     compatible_with = [],
     copts = [
         "-fexceptions",
         "-fno-strict-aliasing",
     ],
-    defines = if_cuda(["GOOGLE_CUDA=1"]) + if_rocm([
-        "TENSORFLOW_USE_ROCM=1",
-    ]),
     features = ["-use_header_modules"],
     deps = [
         ":aggregate_profile",
@@ -423,6 +421,7 @@ cc_library(
         "//xla/tsl/concurrency:ref_count",
         "//xla/tsl/framework:allocator",
         "//xla/tsl/framework/mlir:status_scoped_diagnostic_handler",
+        "//xla/tsl/platform:statusor",
         "//xla/tsl/python/lib/core:numpy",
         "@local_tsl//tsl/platform:casts",
         "@local_tsl//tsl/platform:errors",
@@ -467,6 +466,7 @@ cc_library(
         "//xla/pjrt:host_callback",
         "//xla/pjrt:transpose",
         "//xla/service:custom_call_status",
+        "//xla/tsl/platform:statusor",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/container:inlined_vector",
         "@com_google_absl//absl/status",
@@ -475,7 +475,6 @@ cc_library(
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/types:span",
         "@local_config_python//:python_headers",  # buildcleaner: keep
-        "@local_tsl//tsl/platform:statusor",
         "@nanobind",
     ],
 )
@@ -588,6 +587,7 @@ cc_library(
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:inlined_vector",
         "@com_google_absl//absl/hash",
+        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
@@ -910,8 +910,10 @@ cc_library(
     deps = [
         ":refine_polymorphic_shapes",
         # placeholder for index annotation deps
+        "@com_google_absl//absl/log",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:BytecodeWriter",
         "@llvm-project//mlir:FuncDialect",
@@ -1167,20 +1169,6 @@ tf_proto_library(
     srcs = ["py_host_callback.proto"],
 )
 
-# If this flag is enabled, it sets RPATH on the xla_extension to values that are suitable for
-# finding NVIDIA's CUDA libraries when they are installed as pip packages.
-bool_flag(
-    name = "jax_cuda_pip_rpaths",
-    build_setting_default = False,
-)
-
-config_setting(
-    name = "use_jax_cuda_pip_rpaths",
-    flag_values = {
-        ":jax_cuda_pip_rpaths": "True",
-    },
-)
-
 cc_library(
     name = "logging",
     srcs = ["logging.cc"],
@@ -1231,9 +1219,12 @@ tsl_pybind_extension(
         ":gpu_support",
         ":logging",
         ":py_client",
-        # placeholder for index annotation deps
+        # placeholder for index annotation deps  # buildcleaner: keep
+        "@com_google_absl//absl/strings:string_view",
         "@nanobind",
         "@local_config_python//:python_headers",  # buildcleaner: keep
+        "//xla/pjrt:status_casters",
+        "//xla/pjrt:triton",
     ],
 )
 
@@ -1245,18 +1236,6 @@ tsl_pybind_extension(
         "-fno-strict-aliasing",
     ],
     features = ["-use_header_modules"],
-    linkopts = select({
-        ":use_jax_cuda_pip_rpaths": [
-            "-Wl,-rpath,$$ORIGIN/../nvidia/cuda_cupti/lib",
-            "-Wl,-rpath,$$ORIGIN/../nvidia/cuda_runtime/lib",
-            "-Wl,-rpath,$$ORIGIN/../nvidia/cublas/lib",
-            "-Wl,-rpath,$$ORIGIN/../nvidia/cufft/lib",
-            "-Wl,-rpath,$$ORIGIN/../nvidia/cudnn/lib",
-            "-Wl,-rpath,$$ORIGIN/../nvidia/cusolver/lib",
-            "-Wl,-rpath,$$ORIGIN/../nvidia/nccl/lib",
-        ],
-        "//conditions:default": [],
-    }),
     pytype_deps = [
         "//third_party/py/numpy",
     ],
@@ -1307,6 +1286,7 @@ tsl_pybind_extension(
         "//xla:shape_util",
         "//xla:types",
         "//xla:util",
+        "//xla/backends/cpu/collectives:cpu_collectives",
         "//xla/ffi:ffi_api",
         "//xla/pjrt:exceptions",
         "//xla/pjrt:mlir_to_hlo",
@@ -1333,7 +1313,6 @@ tsl_pybind_extension(
         "//xla/python/pjrt_ifrt",
         "//xla/python/pjrt_ifrt:pjrt_attribute_map_util",
         "//xla/python/pjrt_ifrt:xla_ifrt",
-        "//xla/service/cpu:collectives_interface",
         "//xla/tsl/concurrency:ref_count",
         "//xla/tsl/distributed_runtime/preemption:preemption_sync_manager",
         "//xla/tsl/platform/cloud:gcs_file_system",
@@ -1345,21 +1324,22 @@ tsl_pybind_extension(
     ] + select({
         # gloo tcp transport only builds on linux
         "//xla/tsl:macos": [
-            "//xla/pjrt/cpu:gloo_collectives",
-            "//xla/pjrt/cpu:gloo_kv_store",
+            "//xla/backends/cpu/collectives:gloo_collectives",
+            "//xla/backends/cpu/collectives:gloo_kv_store",
             "@gloo//:transport_uv",
         ],
         "//xla/tsl:windows": [],
         "//conditions:default": [
-            "//xla/pjrt/cpu:gloo_collectives",
-            "//xla/pjrt/cpu:gloo_kv_store",
+            "//xla/backends/cpu/collectives:gloo_collectives",
+            "//xla/backends/cpu/collectives:gloo_kv_store",
+            "//xla/python/transfer:py_socket_transfer",
             "@gloo//:transport_tcp",
         ],
     }) + select({
         # mpitrampoline does not build on windows
         "//xla/tsl:windows": [],
         # we support MPI collectives only in OSS builds
-        "//conditions:default": if_oss(["//xla/pjrt/cpu:mpi_collectives"]),
+        "//conditions:default": if_oss(["//xla/backends/cpu/collectives:mpi_collectives"]),
     }),
 )
 
@@ -1400,8 +1380,8 @@ xla_cc_test(
         "//xla/tsl/profiler/utils:file_system_utils",
         "//xla/tsl/profiler/utils:xplane_builder",
         "//xla/tsl/profiler/utils:xplane_schema",
+        "@com_google_googletest//:gtest_main",
         "@local_tsl//tsl/platform:test",
-        "@local_tsl//tsl/platform:test_main",
         "@local_tsl//tsl/profiler/protobuf:profiled_instructions_proto_cc_impl",
         "@local_tsl//tsl/profiler/protobuf:xplane_proto_cc",
     ],
@@ -1511,8 +1491,8 @@ xla_cc_test(
     deps = [
         ":aggregate_profile",
         "@com_google_absl//absl/types:span",
+        "@com_google_googletest//:gtest_main",
         "@local_tsl//tsl/platform:test",
-        "@local_tsl//tsl/platform:test_main",
         "@local_tsl//tsl/profiler/protobuf:profiled_instructions_proto_cc",
         "@local_tsl//tsl/profiler/protobuf:profiled_instructions_proto_cc_impl",
     ],

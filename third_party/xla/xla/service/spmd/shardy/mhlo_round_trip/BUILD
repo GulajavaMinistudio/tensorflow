@@ -26,11 +26,13 @@ cc_library(
     deps = [
         "//xla:array",
         "//xla:shape_util",
+        "//xla:xla_data_proto_cc",
         "//xla/hlo/ir:hlo",
         "//xla/hlo/translate/mhlo_to_hlo:type_to_shape",
         "//xla/mlir_hlo",
         "//xla/service/spmd/shardy:constants",
         "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/log:check",
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:FuncDialect",
         "@llvm-project//mlir:IR",
@@ -84,10 +86,27 @@ cc_library(
 )
 
 cc_library(
+    name = "export_callback_custom_calls",
+    srcs = ["export_callback_custom_calls.cc"],
+    hdrs = ["export_callback_custom_calls.h"],
+    deps = [
+        "//xla/service/spmd/shardy:constants",
+        "//xla/service/spmd/shardy:utils",
+        "@llvm-project//llvm:Support",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Pass",
+        "@llvm-project//mlir:Support",
+        "@shardy//shardy/dialect/sdy/ir:dialect",
+        "@stablehlo//:stablehlo_ops",
+    ],
+)
+
+cc_library(
     name = "mhlo_export",
     srcs = ["mhlo_export.cc"],
     hdrs = ["mhlo_export.h"],
     deps = [
+        ":export_callback_custom_calls",
         ":export_ops",
         ":export_shardings",
         ":shard_map_export",

@@ -94,10 +94,6 @@ limitations under the License.
 #include "tsl/platform/status.h"
 #include "tsl/platform/statusor.h"
 
-#if GOOGLE_CUDA || TENSORFLOW_USE_ROCM || TENSORFLOW_USE_SYCL
-#include "xla/python/py_client_gpu.h"
-#endif  // GOOGLE_CUDA || TENSORFLOW_USE_ROCM || TENSORFLOW_USE_SYCL
-
 namespace xla {
 
 namespace nb = nanobind;
@@ -277,7 +273,8 @@ absl::Status PyClient::Defragment() {
     TmpBuffer& tmp_buffer = it.second;
     std::unique_ptr<PjRtBuffer> new_copy =
         pjrt_client()
-            ->BufferFromHostLiteral(*tmp_buffer.host_copy, pjrt_buf->device())
+            ->BufferFromHostLiteral(*tmp_buffer.host_copy,
+                                    pjrt_buf->memory_space())
             .value();
     TF_CHECK_OK(new_copy->GetReadyFuture().Await());
 

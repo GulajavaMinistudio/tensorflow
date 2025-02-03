@@ -20,6 +20,7 @@ limitations under the License.
 #include <vector>
 
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "xla/hlo/builder/xla_builder.h"
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/types.h"
@@ -76,16 +77,16 @@ struct ConvNDOpAttrs {
 
 // Creates a new XLA forward or backward convolution with the given inputs and
 // attributes.
-absl::StatusOr<xla::XlaOp> MakeXlaForwardConvOp(StringPiece type_string,
+absl::StatusOr<xla::XlaOp> MakeXlaForwardConvOp(absl::string_view type_string,
                                                 xla::XlaOp conv_input,
                                                 xla::XlaOp filter,
                                                 const ConvOpAttrs& attrs);
 absl::StatusOr<xla::XlaOp> MakeXlaBackpropInputConvOp(
-    StringPiece type_string, const xla::Shape& input_shape, xla::XlaOp filter,
-    xla::XlaOp out_backprop, const ConvOpAttrs& attrs,
+    absl::string_view type_string, const xla::Shape& input_shape,
+    xla::XlaOp filter, xla::XlaOp out_backprop, const ConvOpAttrs& attrs,
     xla::XlaOp* input_sizes = nullptr);
 absl::StatusOr<xla::XlaOp> MakeXlaBackpropFilterConvOp(
-    StringPiece type_string, xla::XlaOp activations,
+    absl::string_view type_string, xla::XlaOp activations,
     const xla::Shape& filter_shape, xla::XlaOp gradients,
     const ConvOpAttrs& attrs);
 

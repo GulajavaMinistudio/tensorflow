@@ -2089,9 +2089,9 @@ absl::Status AlgebraicSimplifierVisitor::HandleConstant(
         LiteralUtil::GetFirstScalarLiteral(constant->literal()));
     HloInstruction* scalar = constant->AddInstruction(
         simplifier_->CreateConstantWithLayoutUpdated(std::move(unique_scalar)));
-    return ReplaceWithNewInstruction(
-        constant,
+    HloInstruction* broadcast = constant->AddInstruction(
         HloInstruction::CreateBroadcast(constant->shape(), scalar, {}));
+    return ReplaceInstruction(constant, broadcast);
   }
 
   // If a literal is an increasing sequence from zero, replace it with an iota.
@@ -4507,11 +4507,16 @@ absl::Status AlgebraicSimplifierVisitor::HandleMaximum(
   if (primitive_util::IsIntegralType(ty) ||
       (primitive_util::IsFloatingPointType(ty) &&
        options_.minmax_propagate_nan())) {
-    Literal min_val = LiteralUtil::MinValue(ty);
-    if (IsAll(lhs, min_val)) {
+    // Note that `lhs` and `rhs` can have a different element type than
+    // `maximum` if we are dealing with floating point types.
+    PrimitiveType lhs_ty = lhs->shape().element_type();
+    PrimitiveType rhs_ty = rhs->shape().element_type();
+    Literal min_val_lhs = LiteralUtil::MinValue(lhs_ty);
+    if (rhs_ty == ty && IsAll(lhs, min_val_lhs)) {
       return ReplaceInstruction(maximum, rhs);
     }
-    if (IsAll(rhs, min_val)) {
+    Literal min_val_rhs = LiteralUtil::MinValue(rhs_ty);
+    if (lhs_ty == ty && IsAll(rhs, min_val_rhs)) {
       return ReplaceInstruction(maximum, lhs);
     }
   }
@@ -4612,11 +4617,16 @@ absl::Status AlgebraicSimplifierVisitor::HandleMinimum(
   if (primitive_util::IsIntegralType(ty) ||
       (primitive_util::IsFloatingPointType(ty) &&
        options_.minmax_propagate_nan())) {
-    Literal max_val = LiteralUtil::MaxValue(ty);
-    if (IsAll(lhs, max_val)) {
+    // Note that `lhs` and `rhs` can have a different element type than
+    // `minimum` if we are dealing with floating point types.
+    PrimitiveType lhs_ty = lhs->shape().element_type();
+    PrimitiveType rhs_ty = rhs->shape().element_type();
+    Literal max_val_lhs = LiteralUtil::MaxValue(lhs_ty);
+    if (rhs_ty == ty && IsAll(lhs, max_val_lhs)) {
       return ReplaceInstruction(minimum, rhs);
     }
-    if (IsAll(rhs, max_val)) {
+    Literal max_val_rhs = LiteralUtil::MaxValue(rhs_ty);
+    if (lhs_ty == ty && IsAll(rhs, max_val_rhs)) {
       return ReplaceInstruction(minimum, lhs);
     }
   }
@@ -5939,8 +5949,9 @@ AlgebraicSimplifierVisitor::TryToSinkBroadcastAfterOpWithUniqueNonScalarOperand(
         new_operands.push_back(operand);
       }
     }
-    VLOG(4) << "Sinking broadcast after user:" << "\n  old broadcast: "
-            << broadcast->ToString() << "\n  old user: " << user->ToString();
+    VLOG(4) << "Sinking broadcast after user:"
+            << "\n  old broadcast: " << broadcast->ToString()
+            << "\n  old user: " << user->ToString();
     changed_shape = ShapeUtil::ChangeElementType(operand->shape(),
                                                  user->shape().element_type());
     simplifier_->UpdateLayout(&changed_shape);
@@ -8230,6 +8241,24 @@ absl::Status AlgebraicSimplifierVisitor::HandleReduce(HloInstruction* hlo) {
     }
   }
 
+  return absl::OkStatus();
+}
+
+absl::Status AlgebraicSimplifierVisitor::HandleReducePrecision(
+    HloInstruction* hlo) {
+  HloReducePrecisionInstruction* reduce_precision =
+      Cast<HloReducePrecisionInstruction>(hlo);
+  PrimitiveType element_type =
+      reduce_precision->operand(0)->shape().element_type();
+  if (options_.enable_remove_no_op_reduce_precision() &&
+      reduce_precision->exponent_bits() ==
+          primitive_util::ExponentWidth(element_type) &&
+      reduce_precision->mantissa_bits() + 1 ==
+          primitive_util::SignificandWidth(element_type)) {
+    return ReplaceInstruction(
+        /*old_instruction=*/hlo,
+        /*new_instruction=*/reduce_precision->mutable_operand(0));
+  }
   return absl::OkStatus();
 }
 

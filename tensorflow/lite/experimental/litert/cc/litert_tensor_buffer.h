@@ -91,6 +91,34 @@ class TensorBuffer
     return TensorBuffer(tensor_buffer);
   }
 
+  // Creates a TensorBuffer object that wraps an Android Hardware Buffer. Note
+  // that the provided AHardwareBuffer is not owned by the TensorBuffer object
+  // and must outlive the TensorBuffer object. The `ahwb_offset` parameter
+  // specifies the offset in bytes from the start of the AHardwareBuffer where
+  // the tensor data starts.
+  static Expected<TensorBuffer> CreateFromAhwb(
+      const RankedTensorType& tensor_type, AHardwareBuffer* ahwb,
+      size_t ahwb_offset) {
+#if LITERT_HAS_AHWB_SUPPORT
+    LiteRtTensorBuffer tensor_buffer;
+    auto litert_tensor_type = static_cast<LiteRtRankedTensorType>(tensor_type);
+
+    if (auto status = LiteRtCreateTensorBufferFromAhwb(
+            &litert_tensor_type, ahwb, ahwb_offset,
+            /*deallocator=*/nullptr, &tensor_buffer);
+        status != kLiteRtStatusOk) {
+      return Unexpected(
+          status,
+          "Failed to create tensor buffer from Android Hardware Buffer");
+    }
+    return TensorBuffer(tensor_buffer);
+#else
+    return litert::Unexpected(
+        kLiteRtStatusErrorRuntimeFailure,
+        "AHardwareBuffer is not supported on this platform");
+#endif
+  }
+
   litert::Expected<AHardwareBuffer*> GetAhwb() const {
 #if LITERT_HAS_AHWB_SUPPORT
     AHardwareBuffer* ahwb;
@@ -105,6 +133,27 @@ class TensorBuffer
     return litert::Unexpected(
         kLiteRtStatusErrorRuntimeFailure,
         "AHardwareBuffer is not supported on this platform");
+#endif
+  }
+
+  struct DmaBuf {
+    void* addr;
+    int fd;
+  };
+
+  litert::Expected<DmaBuf> GetDmaBuf() const {
+#if LITERT_HAS_DMABUF_SUPPORT
+    DmaBuf dma_buf;
+    if (LiteRtGetTensorBufferDmaBufBuffer(Get(), &dma_buf.addr, &dma_buf.fd) ==
+        kLiteRtStatusOk) {
+      return dma_buf;
+    } else {
+      return litert::Unexpected(kLiteRtStatusErrorRuntimeFailure,
+                                "Failed to get DMA-BUF from tensor buffer");
+    }
+#else
+    return litert::Unexpected(kLiteRtStatusErrorRuntimeFailure,
+                              "DMA-BUF is not supported on this platform");
 #endif
   }
 
@@ -159,8 +208,13 @@ class TensorBuffer
     return Event(event, /*owned=*/false);
   }
 
-  Expected<void> SetEvent(Event e) {
-    if (auto status = LiteRtSetTensorBufferEvent(Get(), e.Get());
+  // The function takes ownership of the passed event e.
+  Expected<void> SetEvent(Event&& e) {
+    if (!e.IsOwned()) {
+      return Error(kLiteRtStatusErrorInvalidArgument,
+                   "Expected an owned event");
+    }
+    if (auto status = LiteRtSetTensorBufferEvent(Get(), e.Release());
         status != kLiteRtStatusOk) {
       return Error(status, "Failed to set tensor buffer event");
     }
@@ -175,9 +229,9 @@ class TensorBuffer
     return {};
   }
 
-  Expected<void*> Lock(LiteRtEvent event = nullptr) {
+  Expected<void*> Lock() {
     void* host_mem_addr;
-    if (auto status = LiteRtLockTensorBuffer(Get(), &host_mem_addr, event);
+    if (auto status = LiteRtLockTensorBuffer(Get(), &host_mem_addr);
         status != kLiteRtStatusOk) {
       return Unexpected(status, "Failed to lock the tensor buffer");
     }
@@ -252,16 +306,15 @@ class TensorBufferScopedLock {
 
   template <typename T = void>
   static Expected<std::pair<TensorBufferScopedLock, T*>> Create(
-      TensorBuffer& tensor_buffer, LiteRtEvent event = nullptr) {
-    return Create<T>(tensor_buffer.Get(), event);
+      TensorBuffer& tensor_buffer) {
+    return Create<T>(tensor_buffer.Get());
   }
 
   template <typename T = void>
   static Expected<std::pair<TensorBufferScopedLock, T*>> Create(
-      LiteRtTensorBuffer tensor_buffer, LiteRtEvent event = nullptr) {
+      LiteRtTensorBuffer tensor_buffer) {
     void* host_mem_addr;
-    if (auto status =
-            LiteRtLockTensorBuffer(tensor_buffer, &host_mem_addr, event);
+    if (auto status = LiteRtLockTensorBuffer(tensor_buffer, &host_mem_addr);
         status != kLiteRtStatusOk) {
       return Unexpected(status, "Failed to lock the tensor buffer");
     }

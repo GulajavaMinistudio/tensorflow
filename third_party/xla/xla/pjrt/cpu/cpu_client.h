@@ -38,6 +38,7 @@ limitations under the License.
 #include "absl/types/span.h"
 #include "unsupported/Eigen/CXX11/Tensor"
 #include "mlir/IR/BuiltinOps.h"
+#include "xla/backends/cpu/collectives/cpu_collectives.h"
 #include "xla/executable_run_options.h"
 #include "xla/hlo/builder/xla_computation.h"
 #include "xla/hlo/ir/hlo_module.h"
@@ -57,7 +58,6 @@ limitations under the License.
 #include "xla/pjrt/transpose.h"
 #include "xla/service/buffer_assignment.h"
 #include "xla/service/computation_placer.h"
-#include "xla/service/cpu/collectives_interface.h"
 #include "xla/service/cpu/cpu_event.h"
 #include "xla/service/executable.h"
 #include "xla/service/hlo.pb.h"
@@ -77,8 +77,8 @@ class TfrtCpuClient final : public PjRtClient {
  public:
   TfrtCpuClient(
       int process_index, std::vector<std::unique_ptr<TfrtCpuDevice>> devices,
-      std::shared_ptr<cpu::CollectivesInterface> collectives,
-      size_t num_threads, bool asynchronous,
+      std::shared_ptr<cpu::CpuCollectives> collectives, size_t num_threads,
+      bool asynchronous,
       std::function<void(HloModuleConfig&)> customize_hlo_module_config);
   ~TfrtCpuClient() override;
 
@@ -139,13 +139,10 @@ class TfrtCpuClient final : public PjRtClient {
                            const LoadOptions& load_options) override;
 
   absl::StatusOr<std::unique_ptr<PjRtBuffer>> CreateErrorBuffer(
-      absl::Status error, const Shape& shape, PjRtDevice* device) override;
-
-  absl::StatusOr<std::unique_ptr<PjRtBuffer>> CreateErrorBuffer(
       absl::Status error, const Shape& shape, PjRtMemorySpace* memory) override;
 
   absl::StatusOr<std::unique_ptr<PjRtBuffer>> CreateUninitializedBuffer(
-      const Shape& shape, PjRtDevice* device) override;
+      const Shape& shape, PjRtMemorySpace* device) override;
 
   absl::StatusOr<std::unique_ptr<PjRtClient::AsyncHostToDeviceTransferManager>>
   CreateBuffersForAsyncHostToDevice(absl::Span<const Shape> shapes,
@@ -154,6 +151,18 @@ class TfrtCpuClient final : public PjRtClient {
   absl::StatusOr<std::unique_ptr<PjRtClient::AsyncHostToDeviceTransferManager>>
   CreateBuffersForAsyncHostToDevice(absl::Span<const Shape> shapes,
                                     PjRtMemorySpace* memory_space) override;
+
+  absl::StatusOr<std::unique_ptr<PjRtClient::AsyncHostToDeviceTransferManager>>
+  CreateBuffersForAsyncHostToDevice(
+      absl::Span<const PjRtClient::ShapeSpec> shape_specs,
+      std::optional<absl::Span<const std::optional<Layout>>> device_layouts,
+      PjRtMemorySpace* memory_space) override;
+
+  absl::StatusOr<std::unique_ptr<PjRtClient::AsyncHostToDeviceTransferManager>>
+  CreateBuffersForAsyncHostToDevice(
+      absl::Span<const PjRtClient::ShapeSpec> shape_specs,
+      std::optional<absl::Span<const std::optional<Layout>>> device_layouts,
+      PjRtDevice* device) override;
 
   absl::StatusOr<std::unique_ptr<PjRtBuffer>> BufferFromHostBuffer(
       const void* data, PrimitiveType type, absl::Span<int64_t const> dims,
@@ -177,9 +186,6 @@ class TfrtCpuClient final : public PjRtClient {
       PjRtMemorySpace* memory_space, const Layout* device_layout) override;
 
   absl::StatusOr<std::unique_ptr<PjRtBuffer>> BufferFromHostLiteral(
-      const LiteralSlice& literal, PjRtDevice* device) override;
-
-  absl::StatusOr<std::unique_ptr<PjRtBuffer>> BufferFromHostLiteral(
       const LiteralSlice& literal, PjRtMemorySpace* memory_space) override;
 
   absl::StatusOr<std::vector<std::unique_ptr<PjRtBuffer>>>
@@ -198,16 +204,9 @@ class TfrtCpuClient final : public PjRtClient {
   }
 
   absl::StatusOr<std::unique_ptr<PjRtBuffer>> CreateViewOfDeviceBuffer(
-      void* device_ptr, const Shape& shape, PjRtDevice* device,
+      void* device_ptr, const Shape& shape, PjRtMemorySpace* memory_space,
       std::function<void()> on_delete_callback,
       std::optional<std::intptr_t> stream) override;
-
-  absl::StatusOr<ChannelHandle> CreateChannelHandle() override {
-    return Unimplemented("CreateChannelHandle not implemented.");
-  }
-  absl::StatusOr<ChannelHandle> CreateDeviceToHostChannelHandle() override {
-    return Unimplemented("CreateDeviceToHostChannelHandle not implemented.");
-  }
 
   absl::Status Defragment() override {
     return Unimplemented("Defragment not implemented.");
@@ -250,6 +249,12 @@ class TfrtCpuClient final : public PjRtClient {
 
  private:
   friend class TfrtCpuExecutable;
+
+  absl::StatusOr<std::unique_ptr<PjRtLoadedExecutable>> CompileInternal(
+      const XlaComputation& computation,
+      const std::vector<const Shape*>& argument_layout_pointers,
+      LayoutCanonicalizationCallback layout_canonicalization_callback,
+      CompileOptions options);
 
   int process_index_;
   // Includes all devices, including non-addressable devices.
@@ -295,7 +300,7 @@ class TfrtCpuClient final : public PjRtClient {
   absl::Mutex transpose_mu_;
   TransposePlanCache transpose_cache_ ABSL_GUARDED_BY(transpose_mu_);
 
-  std::shared_ptr<cpu::CollectivesInterface> collectives_;
+  std::shared_ptr<cpu::CpuCollectives> collectives_;
 
   xla::CpuTopologyDescription topology_;
 
@@ -330,6 +335,9 @@ class TfrtCpuBuffer final : public AbstractTfrtCpuBuffer {
   PjRtMemorySpace* memory_space() const override { return memory_space_; }
   TfrtCpuDevice* device() const override { return device_; }
   TfrtCpuClient* client() const override { return client_; }
+
+  PjRtFuture<> CopyRawToHost(void* dst, int64_t offset,
+                             int64_t transfer_size) override;
 
   using PjRtBuffer::ToLiteralSync;
   PjRtFuture<> ToLiteral(MutableLiteralBase* literal) override;

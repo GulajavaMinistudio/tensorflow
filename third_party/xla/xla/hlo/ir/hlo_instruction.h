@@ -66,9 +66,9 @@ limitations under the License.
 #include "xla/shape.h"
 #include "xla/shape_util.h"
 #include "xla/tsl/lib/gtl/iterator_range.h"
+#include "xla/tsl/platform/errors.h"
+#include "xla/tsl/platform/logging.h"  // IWYU pragma: keep
 #include "xla/xla_data.pb.h"
-#include "tsl/platform/errors.h"
-#include "tsl/platform/logging.h"  // IWYU pragma: keep
 #include "tsl/platform/protobuf.h"
 
 namespace xla {
@@ -118,7 +118,8 @@ class HloPrintOptions {
         print_extra_attributes_(true),
         syntax_sugar_async_ops_(true),
         print_name_after_closing_brace_(false),
-        print_full_replica_group_list_(false) {}
+        print_full_replica_group_list_(false),
+        print_parameter_number_(true) {}
   // Static reference to a default construction HloPrintOptions, to avoid
   // constructing a new one each time default is needed.
   static const HloPrintOptions& Default() {
@@ -400,6 +401,12 @@ class HloPrintOptions {
     return *this;
   }
 
+  // If true, prints the parameter number of a parameter instruction.
+  HloPrintOptions& set_print_parameter_number(bool value) {
+    print_parameter_number_ = value;
+    return *this;
+  }
+
   bool print_large_constants() const { return print_large_constants_; }
   bool print_only_essential_constants() const {
     return print_only_essential_constants_;
@@ -445,6 +452,7 @@ class HloPrintOptions {
   bool print_full_replica_group_list() const {
     return print_full_replica_group_list_;
   }
+  bool print_parameter_number() const { return print_parameter_number_; }
 
  private:
   // The interval between the /*index=*/ annotated operands. 0 means never print
@@ -476,6 +484,7 @@ class HloPrintOptions {
   bool syntax_sugar_async_ops_;
   bool print_name_after_closing_brace_;
   bool print_full_replica_group_list_;
+  bool print_parameter_number_;
 };
 
 // For canonical string output, we need to have a canonical way to rename
@@ -512,7 +521,7 @@ class HloInstructionInfo {
   HloOpcode opcode() const { return opcode_; }
   HloInstruction* inst() const { return inst_; }
 
- private:  // TODO: Make private and provide accessors?
+ private:
   friend class HloComputation;
   HloOpcode opcode_;
   HloInstruction* inst_;
@@ -1152,6 +1161,10 @@ class HloInstruction {
       const Shape& shape, HloInstruction* operand,
       const std::vector<std::pair<int64_t, int64_t>>& source_target_pairs,
       const std::optional<int64_t>& channel_id);
+  static std::unique_ptr<HloInstruction> CreateCollectivePermute(
+      const Shape& shape, absl::Span<HloInstruction* const> operands,
+      const std::vector<std::pair<int64_t, int64_t>>& source_target_pairs,
+      const std::optional<int64_t>& channel_id);
 
   static std::unique_ptr<HloInstruction> CreateCollectivePermute(
       const Shape& shape, HloInstruction* input, HloInstruction* output,
@@ -1164,6 +1177,10 @@ class HloInstruction {
   // CollectivePermute.
   static std::unique_ptr<HloInstruction> CreateCollectivePermuteStart(
       const Shape& shape, HloInstruction* operand,
+      const std::vector<std::pair<int64_t, int64_t>>& source_target_pairs,
+      const std::optional<int64_t>& channel_id);
+  static std::unique_ptr<HloInstruction> CreateCollectivePermuteStart(
+      const Shape& shape, absl::Span<HloInstruction* const> operands,
       const std::vector<std::pair<int64_t, int64_t>>& source_target_pairs,
       const std::optional<int64_t>& channel_id);
 
@@ -1561,7 +1578,6 @@ class HloInstruction {
   static bool IsThreadIncluded(
       absl::string_view execution_thread,
       const absl::flat_hash_set<absl::string_view>& execution_threads_set);
-
 
   // Returns the opcode for this instruction.
   HloOpcode opcode() const { return opcode_; }
@@ -2098,6 +2114,16 @@ class HloInstruction {
       const Shape& shape, absl::Span<HloInstruction* const> new_operands,
       const std::string& suffix, HloCloneContext* context = nullptr) const;
 
+  // Implementation for non-common logic of CloneWithNewOperands.
+  // CloneWithNewOperands forwards to this method for some of the intstruction
+  // types.
+  virtual std::unique_ptr<HloInstruction> CloneWithNewOperandsImpl(
+      const Shape& shape, absl::Span<HloInstruction* const> new_operands,
+      HloCloneContext* context) const {
+    // TODO(b/80131774): This should be pure virtual.
+    LOG(FATAL) << "Unimplemented method.";
+  }
+
   // Returns the computations this instruction directly calls (if any).
   const PtrVec<HloComputation*>& called_computations() const {
     return rare()->called_computations;
@@ -2219,8 +2245,6 @@ class HloInstruction {
   // if no id has been assigned yet).
   int unique_id() const { return unique_id_; }
 
-  bool preserve_layout() const { return metadata_->preserve_layout(); }
-
   bool has_backend_config() const { return !backend_config_.empty(); }
 
   void clear_backend_config() { backend_config_ = BackendConfigWrapper(); }
@@ -2229,6 +2253,7 @@ class HloInstruction {
     backend_config_ = BackendConfigWrapper(other->backend_config_);
   }
 
+  // Replaces the frontend attributes with the provided argument.
   void set_frontend_attributes(FrontendAttributes frontend_attributes) {
     if (!has_rare() && frontend_attributes.map().empty()) {
       return;
@@ -2236,14 +2261,28 @@ class HloInstruction {
     mutable_rare()->frontend_attributes = std::move(frontend_attributes);
   }
 
-  // Appends the given frontend attributes to the existing ones. If existing
-  // frontend attributes are empty, then create it and set it to the provided
-  // one.
+  // Adds attributes only if they not already present in the HloInstruction.
+  // Skips all atributes already present in the HloInstruction.
   void add_frontend_attributes(FrontendAttributes frontend_attributes) {
     if (!frontend_attributes.map().empty()) {
       mutable_rare()->frontend_attributes.mutable_map()->insert(
           frontend_attributes.map().begin(), frontend_attributes.map().end());
     }
+  }
+
+  // Adds a single attribute only if it not already present in the
+  // HloInstruction. Returns false if the attribute was already present.
+  bool add_frontend_attribute(const std::string& key,
+                              const std::string& value) {
+    auto it =
+        mutable_rare()->frontend_attributes.mutable_map()->insert({key, value});
+    return it.second;
+  }
+
+  // Adds or overrides a single attribute in the HloInstruction.
+  void set_frontend_attribute(const std::string& key,
+                              const std::string& value) {
+    (*mutable_rare()->frontend_attributes.mutable_map())[key] = value;
   }
 
   bool has_frontend_attributes() const {
@@ -2252,6 +2291,15 @@ class HloInstruction {
 
   const FrontendAttributes& frontend_attributes() const {
     return rare()->frontend_attributes;
+  }
+
+  std::optional<std::string> get_frontend_attribute(
+      const std::string& key) const {
+    auto it = rare()->frontend_attributes.map().find(key);
+    if (it == rare()->frontend_attributes.map().end()) {
+      return std::nullopt;
+    }
+    return it->second;
   }
 
   void set_is_composite(bool is_composite) {
@@ -2371,9 +2419,6 @@ class HloInstruction {
   }
   void set_metadata_deduplicated_name(std::string deduplicated_name) {
     metadata_->set_deduplicated_name(std::move(deduplicated_name));
-  }
-  void set_metadata_preserve_layout(bool preserve_layout) {
-    metadata_->set_preserve_layout(preserve_layout);
   }
   void set_metadata_scheduling_name(absl::string_view name) {
     metadata_->set_scheduling_name(std::string(name));
@@ -2720,9 +2765,10 @@ class HloInstruction {
       std::vector<std::pair<ShapeIndex, std::pair<int64_t, ShapeIndex>>>
           aliasing);
 
-  // Appends operand to the list of operands and adds this instruction as a user
-  // of the operand.
+  // Appends operand(s) to the list of operands and adds this instruction as a
+  // user of the operand.
   void AppendOperand(HloInstruction* operand);
+  void AppendOperands(absl::Span<HloInstruction* const> operands);
 
   // Old methods kept for smooth subclassing transition END.
 
@@ -2785,14 +2831,6 @@ class HloInstruction {
       bool layout_sensitive, bool sharding_sensitive,
       bool ignore_channel_id_values,
       bool ignore_commutative_operand_order) const;
-
-  // Implementation for non-common logic of CloneWithNewOperands.
-  virtual std::unique_ptr<HloInstruction> CloneWithNewOperandsImpl(
-      const Shape& shape, absl::Span<HloInstruction* const> new_operands,
-      HloCloneContext* context) const {
-    // TODO(b/80131774): This should be pure virtual.
-    LOG(FATAL) << "Unimplemented method.";
-  }
 
   // Implementation for non-common logic of PrintExtraAttributes.
   virtual void PrintExtraAttributesImpl(AttributePrinter& printer,

@@ -17,7 +17,9 @@
 #include <dlfcn.h>
 
 #ifndef __ANDROID__
+#if __has_include(<link.h>)
 #include <link.h>
+#endif
 #endif
 
 #include <cstdint>
@@ -162,6 +164,15 @@ void Dump(LiteRtOpCode code, std::ostream& out) {
     case kLiteRtOpCodeTflGelu:
       out << "TFL_GELU";
       break;
+    case kLiteRtOpCodeTflDynamicUpdateSlice:
+      out << "TFL_DYNAMIC_UPDATE_SLICE";
+      break;
+    case kLiteRtOpCodeTflPack:
+      out << "TFL_PACK";
+      break;
+    case kLiteRtOpCodeTflQuantize:
+      out << "TFL_QUANTIZE";
+      break;
     default:
       out << "UKNOWN_OP_CODE: " << code;
       break;
@@ -269,7 +280,7 @@ void Dump(const CompilerPlugin& plugin, std::ostream& out) {
 }
 
 void DumpDLL(void* lib_handle, std::ostream& out) {
-#ifndef __ANDROID__
+#if !defined(__ANDROID__) && !defined(__APPLE__)
   out << "\n--- Lib Info ---\n";
   if (lib_handle == nullptr) {
     out << "Handle is nullptr\n";
@@ -393,6 +404,9 @@ void DumpOptions(const LiteRtOpT& op, std::ostream& out) {
       break;
     case kLiteRtOpCodeTflSum:
       out << "keepdims: " << opts.AsReducerOptions()->keep_dims << "\n";
+      break;
+    case kLiteRtOpCodeTflPack:
+      out << "axis: " << opts.AsPackOptions()->axis << "\n";
       break;
     default:
       out << "No options for op code: " << op.OpCode();

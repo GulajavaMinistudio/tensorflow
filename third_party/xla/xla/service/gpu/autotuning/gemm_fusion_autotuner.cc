@@ -97,18 +97,17 @@ limitations under the License.
 #include "xla/stream_executor/stream.h"
 #include "xla/tools/hlo_decomposer.h"
 #include "xla/tsl/lib/core/bits.h"
+#include "xla/tsl/platform/env.h"
 #include "xla/tsl/platform/errors.h"
+#include "xla/tsl/platform/status.h"
+#include "xla/tsl/platform/statusor.h"
+#include "xla/tsl/platform/threadpool.h"
 #include "xla/tsl/util/proto/proto_utils.h"
 #include "xla/util.h"
 #include "xla/xla.pb.h"
 #include "xla/xla_data.pb.h"
-#include "tsl/platform/env.h"
-#include "tsl/platform/errors.h"
 #include "tsl/platform/path.h"
 #include "tsl/platform/protobuf.h"
-#include "tsl/platform/status.h"
-#include "tsl/platform/statusor.h"
-#include "tsl/platform/threadpool.h"
 #include "tsl/profiler/lib/scoped_annotation.h"
 
 // Log levels used in this file:
@@ -803,6 +802,31 @@ GemmFusionAutotunerImpl::GenerateConfigs(const HloFusionInstruction& fusion) {
   return configs;
 }
 
+void ModifyPotentiallyFailingConfig(TritonGemmConfig& config, int minBitWidth,
+                                    int kLdmatrixGranularity) {
+  // TODO(b/337839570): Triton currently has a limitation where it crashes
+  // on small block_k values depending on the bit-width of the inputs to the
+  // dot. The logic below accounts for this limitation.
+  // We don't do this for predicates now because as of
+  // https://github.com/triton-lang/triton/commit/d9facf3a6edbc819c80d58b87e689bc0c2632756,
+  // this leads to registers spilling (see b/388714585). Bug filed upstream:
+  // https://github.com/triton-lang/triton/issues/5572. While it used to work
+  // previously, it is quite limiting for predicates as the smallest acceptable
+  // block_k value would be 256.
+  if (minBitWidth > 1) {
+    config.block_k =
+        std::max(config.block_k, kLdmatrixGranularity / minBitWidth);
+  }
+
+  // Additionally, there are further issues happening on 8 bit types and
+  // predicates that require additional restriction on block_m when num_warps
+  // > 8 (see b/378660935). It's unclear if the issue extends beyond these
+  // cases, so restrictions here are conservative to these.
+  if (minBitWidth <= 8 && config.num_warps > 8) {
+    config.block_m = std::max(config.block_m, 32);
+  }
+}
+
 absl::StatusOr<std::vector<TritonGemmConfig>>
 GemmFusionAutotunerImpl::GenerateTritonConfigs(const HloDotInstruction& dot) {
   // Retrieve the minimum bit-width participating in the dot. This is needed
@@ -871,20 +895,10 @@ GemmFusionAutotunerImpl::GenerateTritonConfigs(const HloDotInstruction& dot) {
     }
     config.split_k = std::min(config.split_k, max_split_k);
 
-    // TODO(b/337839570): Triton currently has a limitation where it crashes
-    // on small block_k values depending on the bit-width of the inputs to the
-    // dot. The logic below accounts for this limitation.
     constexpr int kLdmatrixGranularity = 256;
-    config.block_k =
-        std::max(config.block_k, kLdmatrixGranularity / minBitWidth);
-
-    // Additionally, there are further issues happening on 8 bit types and
-    // predicates that require additional restriction on block_m when num_warps
-    // > 8 (see b/378660935). It's unclear if the issue extends beyond these
-    // cases, so restrictions here are conservative to these.
-    if (minBitWidth <= 8 && config.num_warps > 8) {
-      config.block_m = std::max(config.block_m, 32);
-    }
+    // Unfortunately, we need to apply corrections to configurations that are
+    // potentially failing due to Triton limitations/bugs.
+    ModifyPotentiallyFailingConfig(config, minBitWidth, kLdmatrixGranularity);
 
     // Sparse meta should have at least one element per thread.
     // Note: only 2:4 structured sparsity is currently supported.
@@ -1016,11 +1030,11 @@ GemmFusionAutotunerImpl::CompileAll(AutotunerCompileUtil& compile_util,
               << " with config '" << ConfigToString(config)
               << "'\nFused HLO computation:\n"
               << fusion->fused_instructions_computation()->ToString();
+          log(*executable != nullptr);
           if (*executable != nullptr) {
             absl::MutexLock lock(&results_mu);
             results[fusion].push_back({config, std::move(*executable)});
           }
-          log(*executable != nullptr);
           counter.DecrementCount();
         });
       }
@@ -1047,10 +1061,10 @@ GemmFusionAutotunerImpl::CompileAll(AutotunerCompileUtil& compile_util,
         TF_ASSIGN_OR_RETURN(
             std::unique_ptr<Executable> executable,
             compile(fusion, config, gemm_config_set.size() > 1));
+        log(executable != nullptr);
         if (executable != nullptr) {
           results[fusion].push_back({config, std::move(executable)});
         }
-        log(executable != nullptr);
       }
     }
   }

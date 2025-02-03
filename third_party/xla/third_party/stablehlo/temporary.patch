@@ -1,154 +1,106 @@
-diff --ruN a/stablehlo/build_tools/math/generate_ChloDecompositionPatternsMath.py b/stablehlo/build_tools/math/generate_ChloDecompositionPatternsMath.py
---- stablehlo/build_tools/math/generate_ChloDecompositionPatternsMath.py
-+++ stablehlo/build_tools/math/generate_ChloDecompositionPatternsMath.py
-@@ -71,8 +71,15 @@
+diff --ruN a/stablehlo/stablehlo/conversions/tosa/tests/unary.mlir b/stablehlo/stablehlo/conversions/tosa/tests/unary.mlir
+--- stablehlo/stablehlo/conversions/tosa/tests/unary.mlir
++++ stablehlo/stablehlo/conversions/tosa/tests/unary.mlir
+@@ -79,7 +79,9 @@
  
-   output_file = os.path.relpath(
-       os.path.normpath(
--          os.path.join(os.path.dirname(__file__), "..", "..", "stablehlo",
--                       "transforms", output_filename)),
-+          os.path.join(
-+              os.path.dirname(__file__),
-+              "..",
-+              "..",
-+              "stablehlo",
-+              "transforms",
-+              output_filename,
-+          )
-+      ),
-       os.getcwd(),
-   )
+ // CHECK-LABEL: @slice
+ func.func @slice(%arg : tensor<4x3xf32>) -> tensor<2x2xf32> {
+-  // CHECK: tosa.slice %arg0 {size = array<i64: 2, 2>, start = array<i64: 2, 1>}
++  // CHECK: %[[SIZE:.*]] = tosa.const_shape {value = dense<[2, 1]> : tensor<2xindex>} : () -> !tosa.shape<2>
++  // CHECK: %[[START:.*]] = tosa.const_shape {value = dense<2> : tensor<2xindex>} : () -> !tosa.shape<2>
++  // CHECK: tosa.slice %arg0, %[[SIZE]], %[[START]]
+   %0 = "stablehlo.slice"(%arg) {
+     start_indices = array<i64: 2, 1>,
+     limit_indices = array<i64: 4, 3>,
+diff --ruN a/stablehlo/stablehlo/conversions/tosa/transforms/StablehloLegalizeToTosa.cpp b/stablehlo/stablehlo/conversions/tosa/transforms/StablehloLegalizeToTosa.cpp
+--- stablehlo/stablehlo/conversions/tosa/transforms/StablehloLegalizeToTosa.cpp
++++ stablehlo/stablehlo/conversions/tosa/transforms/StablehloLegalizeToTosa.cpp
+@@ -23,6 +23,7 @@
+ #include "mlir/Dialect/PDL/IR/PDL.h"
+ #include "mlir/Dialect/PDLInterp/IR/PDLInterp.h"
+ #include "mlir/Dialect/Tosa/IR/TosaOps.h"
++#include "mlir/Dialect/Tosa/Utils/ConversionUtils.h"
+ #include "mlir/IR/Attributes.h"
+ #include "mlir/IR/Block.h"
+ #include "mlir/IR/BuiltinAttributes.h"
+@@ -435,8 +436,8 @@
  
-@@ -105,7 +112,8 @@
-     func = getattr(fa.algorithms, fname, None)
-     if func is None:
-       warnings.warn(
--          f"{fa.algorithms.__name__} does not define {fname}. Skipping.")
-+          f"{fa.algorithms.__name__} does not define {fname}. Skipping."
-+      )
-       continue
-     ctx = fa.Context(paths=[fa.algorithms],
-                      parameters=dict(rewrite_keep_integer_literals=True))
-@@ -116,14 +124,15 @@
-     sources[-1] += src
-   source = "\n\n".join(sources) + "\n"
+     rewriter.replaceOpWithNewOp<tosa::SliceOp>(
+         op, op.getType(), op.getOperand(),
+-        rewriter.getDenseI64ArrayAttr(startIndicesI64),
+-        rewriter.getDenseI64ArrayAttr(size));
++        getTosaConstShape(rewriter, op.getLoc(), startIndicesI64),
++        getTosaConstShape(rewriter, op.getLoc(), size));
+     return success();
+   }
+ };
+diff --ruN a/stablehlo/stablehlo/conversions/tosa/transforms/StablehloLegalizeToTosa.pdll b/stablehlo/stablehlo/conversions/tosa/transforms/StablehloLegalizeToTosa.pdll
+--- stablehlo/stablehlo/conversions/tosa/transforms/StablehloLegalizeToTosa.pdll
++++ stablehlo/stablehlo/conversions/tosa/transforms/StablehloLegalizeToTosa.pdll
+@@ -16,6 +16,32 @@
+ #include "stablehlo/dialect/StablehloOps.td"
  
--  if chloname.startswith('StableHLO_'):
-+  if chloname.startswith("StableHLO_"):
-     # an ugly hack to fix the definition of stablehlo complex math
-     # functions. TODO(pearu): add the corresponding feature to
-     # functional_algorithms stablehlo printer
--    NameOp = chloname.split('_', 1)[1]
-+    NameOp = chloname.split("_", 1)[1]
-     source = source.replace(
--        f'def : Pat<({chloname}',
--        f'def {NameOp}_ComplexElementType_ComplexMathExpander : Pat<({chloname}'
-+        f"def : Pat<({chloname}",
-+        f"def {NameOp}_ComplexElementType_ComplexMathExpander :"
-+        f" Pat<({chloname}",
-     )
- 
-   if os.path.isfile(output_file):
-diff --ruN a/stablehlo/build_tools/math/generate_tests.py b/stablehlo/build_tools/math/generate_tests.py
---- stablehlo/build_tools/math/generate_tests.py
-+++ stablehlo/build_tools/math/generate_tests.py
-@@ -64,10 +64,12 @@
-     dict(name="acosh", mpmath_name="arccosh"),
-     dict(name="atanh", mpmath_name="arctanh"),
-     dict(name="square", mpmath_name="square"),
--    dict(name="log_plus_one",
--         mpmath_name="log1p",
--         namespace="stablehlo",
--         passes="--stablehlo-complex-math-expander"),
-+    dict(
-+        name="log_plus_one",
-+        mpmath_name="log1p",
-+        namespace="stablehlo",
-+        passes="--stablehlo-complex-math-expander",
-+    ),
- ]
- 
- 
-@@ -138,13 +140,16 @@
-       params = fa.utils.function_validation_parameters(opname, dtype)
-       max_ulp_difference = op.get(
-           "max_ulp_difference",
--          params.get("max_valid_ulp_count", default_max_ulp_difference))
-+          params.get("max_valid_ulp_count", default_max_ulp_difference),
-+      )
- 
-       nmp = fa.utils.numpy_with_mpmath(
-           extra_prec_multiplier=op.get(
-               "extra_prec_multiplier",
--              params.get("extra_prec_multiplier",
--                         default_extra_prec_multiplier)),
-+              params.get(
-+                  "extra_prec_multiplier", default_extra_prec_multiplier
-+              ),
-+          ),
-           flush_subnormals=flush_subnormals,
-       )
- 
-@@ -208,8 +213,10 @@
-           continue
- 
-       f = open(fname, "w")
--      f.write(f"// RUN: stablehlo-opt {passes} %s |"
--              " stablehlo-translate --interpret\n")
-+      f.write(
-+          f"// RUN: stablehlo-opt {passes} %s |"
-+          " stablehlo-translate --interpret\n"
-+      )
-       f.write(
-           "// This file is generated, see build_tools/math/README.md for more"
-           " information.\n")
-diff --ruN a/stablehlo/stablehlo/conversions/linalg/transforms/TypeConversion.cpp b/stablehlo/stablehlo/conversions/linalg/transforms/TypeConversion.cpp
---- stablehlo/stablehlo/conversions/linalg/transforms/TypeConversion.cpp
-+++ stablehlo/stablehlo/conversions/linalg/transforms/TypeConversion.cpp
-@@ -107,6 +107,8 @@
- 
- LinalgTypeConverter::LinalgTypeConverter() : RemoveSignTypeConverter() {
-   addArgumentMaterialization(scalarToTensor);
-+  addSourceMaterialization(scalarToTensor);
-+  addTargetMaterialization(scalarToTensor);
- }
- 
- }  // namespace mlir::stablehlo
-diff --ruN a/stablehlo/stablehlo/tests/chlo/chlo_legalize_to_stablehlo.mlir b/stablehlo/stablehlo/tests/chlo/chlo_legalize_to_stablehlo.mlir
---- stablehlo/stablehlo/tests/chlo/chlo_legalize_to_stablehlo.mlir
-+++ stablehlo/stablehlo/tests/chlo/chlo_legalize_to_stablehlo.mlir
-@@ -440,7 +440,6 @@
- }
- 
- // -----
--
- 
- // CHECK-LABEL:   func.func @asinh_f64(
- // CHECK-SAME:                         %[[VAL_0:.*]]: tensor<f64>) -> tensor<f64> {
-@@ -2788,7 +2787,6 @@
- 
- // -----
- 
--
- // CHECK-LABEL: @sinh_f32
- // CHECK-SAME: (%[[X:.*]]: tensor<f32>)
- func.func @sinh_f32(%x : tensor<f32>) -> tensor<f32> {
-@@ -3891,6 +3889,8 @@
-   return
- }
- 
-+// -----
+ // Helper functions.
++Rewrite changeElementTypeToI1(type: Type) -> Type [{
++  auto tensorType = llvm::cast<mlir::RankedTensorType>(type);
++  return RankedTensorType::get(tensorType.getShape(), rewriter.getI1Type());
++}];
 +
- // CHECK-LABEL:   @square_complex_f32(
- // CHECK-SAME:                                  %[[VAL_0:.*]]: tensor<complex<f32>>) -> tensor<complex<f32>> {
- // CHECK:           %[[VAL_1:.*]] = stablehlo.real %[[VAL_0]] : (tensor<complex<f32>>) -> tensor<f32>
-@@ -3916,6 +3916,8 @@
-   func.return %result : tensor<complex<f32>>
- }
- 
-+// -----
++Rewrite changeElementTypeToI8(type: Type) -> Type [{
++  auto tensorType = llvm::cast<mlir::RankedTensorType>(type);
++  return RankedTensorType::get(tensorType.getShape(), rewriter.getI8Type());
++}];
 +
- // CHECK-LABEL:   @square_f32(
- // CHECK-SAME:                          %[[VAL_0:.*]]: tensor<f32>) -> tensor<f32> {
- // CHECK:           %[[VAL_1:.*]] = stablehlo.multiply %[[VAL_0]], %[[VAL_0]] : tensor<f32>
++Rewrite zerosLike(op: Op, type: Type) -> Op [{
++  auto elementType = llvm::cast<mlir::TensorType>(type).getElementType();
++  llvm::SmallVector<mlir::Attribute, 4> outputValue;
++
++  if (elementType.isF16() || elementType.isF32() || elementType.isBF16()) {
++    outputValue.push_back(rewriter.getFloatAttr(elementType, 0));
++  } else {
++    outputValue.push_back(rewriter.getIntegerAttr(elementType, 0));
++  }
++
++  return rewriter.create<mlir::tosa::ConstOp>(
++      op->getLoc(), type,
++      mlir::DenseElementsAttr::get(
++        llvm::cast<mlir::ShapedType>(type), outputValue));
++}];
++
+ Rewrite onesLike(op: Op, type: Type) -> Op [{
+   auto elementType = llvm::cast<mlir::TensorType>(type).getElementType();
+   llvm::SmallVector<mlir::Attribute, 4> outputValue;
+@@ -45,11 +71,6 @@
+       op->getLoc(), type,
+       mlir::DenseElementsAttr::get(
+         llvm::cast<mlir::ShapedType>(type), outputValue));
+-}];
+-
+-Rewrite changeElementTypeToI1(type: Type) -> Type [{
+-  auto tensorType = llvm::cast<mlir::RankedTensorType>(type);
+-  return RankedTensorType::get(tensorType.getShape(), rewriter.getI1Type());
+ }];
+ 
+ // Nullary ops.
+@@ -134,10 +155,16 @@
+   replace op<stablehlo.minimum>(input0 : Value<_: Tosa_Tensor>,
+                            input1 : Value<_: Tosa_Tensor>)
+      with op<tosa.minimum>(input0, input1);
+-Pattern =>
+-  replace op<stablehlo.multiply>(input0 : Value<_: Tosa_Tensor>,
+-                            input1 : Value<_: Tosa_Tensor>)
+-     with op<tosa.mul>(input0, input1) {shift = attr<"0 : i8">};
++Pattern {
++  let root = op<stablehlo.multiply>(input0 : Value<inputType: Tosa_Tensor>,
++                            input1 : Value<_: Tosa_Tensor>);
++  rewrite root with {
++    let typei8 = changeElementTypeToI8(inputType);
++    let zeros = zerosLike(root, typei8);
++    let mulResult = op<tosa.mul>(input0, input1, zeros) -> (inputType);
++    replace root with mulResult;
++  };
++}
+ Pattern =>
+   replace op<stablehlo.or>(input0 : Value<_: Tosa_Tensor>,
+                       input1 : Value<_: Tosa_Tensor>)
 

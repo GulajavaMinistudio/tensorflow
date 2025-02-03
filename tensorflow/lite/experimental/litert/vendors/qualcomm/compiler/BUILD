@@ -67,23 +67,34 @@ litert_test(
         # Sanitizer runtime doesn't work with anything that loads libQnnHtp.so.
         "nosan",
     ],
+    # This test can be run only on Android and Linux.
+    target_compatible_with = select({
+        "@platforms//os:android": [],
+        "@platforms//os:linux": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
     use_sys_malloc = True,
     deps = [
         ":qnn_compiler_plugin",  # buildcleaner: keep
         "@com_google_absl//absl/log:absl_check",
         "@com_google_absl//absl/strings:string_view",
         # copybara:uncomment "//third_party/qairt/latest:qnn_lib_headers",
+        "//tensorflow/lite/experimental/litert/c:litert_common",
         "//tensorflow/lite/experimental/litert/c:litert_logging",
         "//tensorflow/lite/experimental/litert/c:litert_op_code",
         "//tensorflow/lite/experimental/litert/cc:litert_expected",
         "//tensorflow/lite/experimental/litert/cc:litert_macros",
+        "//tensorflow/lite/experimental/litert/cc:litert_model",
         "//tensorflow/lite/experimental/litert/cc:litert_model_predicates",
         "//tensorflow/lite/experimental/litert/core/model",
         "//tensorflow/lite/experimental/litert/test:common",
-        "//tensorflow/lite/experimental/litert/test:test_macros",
+        "//tensorflow/lite/experimental/litert/test:matchers_oss",
         "//tensorflow/lite/experimental/litert/test:test_models",
         "//tensorflow/lite/experimental/litert/vendors/cc:litert_compiler_plugin",
         "//tensorflow/lite/experimental/litert/vendors/qualcomm:qnn_manager",
+        "//tensorflow/lite/experimental/litert/vendors/qualcomm/compiler/IR:qnn_op",
+        "//tensorflow/lite/experimental/litert/vendors/qualcomm/compiler/IR:qnn_tensor",
+        "//tensorflow/lite/experimental/litert/vendors/qualcomm/compiler/legalizations:quantize_op_legalization",
     ],
 )
 
@@ -117,6 +128,7 @@ litert_lib(
         "//tensorflow/lite/experimental/litert/vendors/qualcomm/compiler/legalizations:concatenation_op_legalization",
         "//tensorflow/lite/experimental/litert/vendors/qualcomm/compiler/legalizations:cos_op_legalization",
         "//tensorflow/lite/experimental/litert/vendors/qualcomm/compiler/legalizations:div_op_legalization",
+        "//tensorflow/lite/experimental/litert/vendors/qualcomm/compiler/legalizations:dynamic_update_slice_op_legalization",
         "//tensorflow/lite/experimental/litert/vendors/qualcomm/compiler/legalizations:embedding_lookup_op_legalization",
         "//tensorflow/lite/experimental/litert/vendors/qualcomm/compiler/legalizations:fully_connected_op_legalization",
         "//tensorflow/lite/experimental/litert/vendors/qualcomm/compiler/legalizations:gelu_op_legalization",
@@ -125,6 +137,8 @@ litert_lib(
         "//tensorflow/lite/experimental/litert/vendors/qualcomm/compiler/legalizations:less_op_legalization",
         "//tensorflow/lite/experimental/litert/vendors/qualcomm/compiler/legalizations:logical_and_op_legalization",
         "//tensorflow/lite/experimental/litert/vendors/qualcomm/compiler/legalizations:mul_op_legalization",
+        "//tensorflow/lite/experimental/litert/vendors/qualcomm/compiler/legalizations:pack_op_legalization",
+        "//tensorflow/lite/experimental/litert/vendors/qualcomm/compiler/legalizations:quantize_op_legalization",
         "//tensorflow/lite/experimental/litert/vendors/qualcomm/compiler/legalizations:reshape_op_legalization",
         "//tensorflow/lite/experimental/litert/vendors/qualcomm/compiler/legalizations:rsqrt_op_legalization",
         "//tensorflow/lite/experimental/litert/vendors/qualcomm/compiler/legalizations:select_op_legalization",

@@ -23,46 +23,47 @@ limitations under the License.
 #include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/types/span.h"
+#include "llvm/IR/DataLayout.h"
+#include "llvm/Support/CodeGen.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetOptions.h"
+#include "xla/backends/cpu/codegen/ir_compiler.h"
 #include "xla/backends/cpu/codegen/jit_compiler.h"
-#include "xla/backends/cpu/codegen/llvm_ir_kernel_spec.h"
 #include "xla/backends/cpu/runtime/function_library.h"
 #include "xla/backends/cpu/runtime/kernel.h"
 #include "xla/backends/cpu/runtime/kernel_c_api.h"
+#include "xla/codegen/kernel_definition.h"
 #include "xla/codegen/kernel_spec.h"
 #include "xla/codegen/llvm_ir_kernel_source.h"
 #include "xla/service/cpu/runtime_symbol_generator.h"
 #include "xla/tsl/platform/errors.h"
-#include "tsl/platform/errors.h"
-#include "tsl/platform/statusor.h"
+#include "xla/tsl/platform/statusor.h"
 
 namespace xla::cpu {
 
 absl::StatusOr<KernelRunner> KernelRunner::Create(
-    std::unique_ptr<KernelSpec> kernel_spec) {
+    KernelDefinition kernel_definition, JitCompiler compiler) {
+  const auto [kernel_spec, kernel_source] =
+      std::move(kernel_definition).release();
+
   // Use dynamic_cast rather than tsl::down_cast to allow for future
   // creation of KernelRunner from different kernel spec types.
-  if (auto* llvm_kernel_spec =
-          dynamic_cast<LlvmIrKernelSpec*>(kernel_spec.get())) {
-    TF_ASSIGN_OR_RETURN(JitCompiler compiler, CreateJitCompiler());
-    return Create(std::move(*llvm_kernel_spec), std::move(compiler));
+  if (auto* llvm_kernel_source =
+          dynamic_cast<LlvmIrKernelSource*>(kernel_source.get())) {
+    return Create(kernel_spec, std::move(*llvm_kernel_source),
+                  std::move(compiler));
   }
 
   return absl::InvalidArgumentError("Unrecognised kernel spec type");
 }
 
-absl::StatusOr<KernelRunner> KernelRunner::Create(LlvmIrKernelSpec kernel_spec,
-                                                  JitCompiler compiler) {
-  LlvmIrKernelSource& kernel_source = kernel_spec.kernel_source();
+absl::StatusOr<KernelRunner> KernelRunner::Create(
+    const KernelSpec& kernel_spec, LlvmIrKernelSource llvm_ir_kernel_source,
+    JitCompiler compiler) {
+  TF_RETURN_IF_ERROR(compiler.AddModule(
+      std::move(llvm_ir_kernel_source).thread_safe_module()));
 
-  // Intentional copy as we need to use the kernel name after consuming
-  // (std::move) the kernel source.
-  std::string kernel_name = kernel_source.kernel_name();
-
-  TF_RETURN_IF_ERROR(
-      compiler.AddModule(std::move(kernel_source).thread_safe_module()));
-
+  const std::string& kernel_name = kernel_spec.name();
   TF_ASSIGN_OR_RETURN(std::unique_ptr<FunctionLibrary> library,
                       std::move(compiler).Compile(
                           {FunctionLibrary::Sym<XLA_CPU_Kernel>(kernel_name)}));
@@ -89,17 +90,34 @@ absl::Status KernelRunner::Call(absl::Span<const Argument> arguments) {
   return kernel_.Launch(thread_dim_, kernel_args);
 }
 
-absl::StatusOr<JitCompiler> KernelRunner::CreateJitCompiler() {
+absl::StatusOr<JitCompiler> KernelRunner::CreateJitCompiler(int opt_level) {
   llvm::TargetOptions target_options;
   target_options.AllowFPOpFusion = llvm::FPOpFusion::Fast;
 
   // Needed to resolve symbols such as built in intrinsics (sin, cos etc).
   JitCompiler::Options jit_compiler_options;
   jit_compiler_options.definition_generator =
-      [](llvm::TargetMachine* target_machine) {
-        return std::make_unique<RuntimeSymbolGenerator>(
-            target_machine->createDataLayout());
+      [](const llvm::DataLayout& data_layout) {
+        return std::make_unique<RuntimeSymbolGenerator>(data_layout);
       };
+
+  auto& ir_compiler_options = jit_compiler_options.ir_compiler_options;
+  switch (opt_level) {
+    case 0:
+      ir_compiler_options.opt_level = llvm::CodeGenOptLevel::None;
+      break;
+    case 1:
+      ir_compiler_options.opt_level = llvm::CodeGenOptLevel::Less;
+      break;
+    case 2:
+      ir_compiler_options.opt_level = llvm::CodeGenOptLevel::Default;
+      break;
+    case 3:
+      ir_compiler_options.opt_level = llvm::CodeGenOptLevel::Aggressive;
+      break;
+    default:
+      return absl::InvalidArgumentError("Invalid optimization level");
+  }
 
   return JitCompiler::Create(target_options, jit_compiler_options);
 }

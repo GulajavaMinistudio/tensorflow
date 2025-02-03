@@ -14,7 +14,10 @@
 
 package(
     # copybara:uncomment default_applicable_licenses = ["//tensorflow:license"],
-    default_visibility = ["//tensorflow/lite/experimental/litert:__subpackages__"],
+    default_visibility = [
+        # copybara:uncomment "//third_party/mediapipe/calculators/tensor:__subpackages__",
+        "//tensorflow/lite/experimental/litert:__subpackages__",
+    ],
 )
 
 # TODO: b/365295276 - Make custom rule and move to `.sh`.
@@ -54,12 +57,12 @@ cc_library(
         "common.h",
     ],
     deps = [
-        ":test_macros",
         "//tensorflow/lite:framework",
         "//tensorflow/lite/c:c_api_opaque",
         "//tensorflow/lite/c:common",
         "//tensorflow/lite/core:cc_api_stable",
         "//tensorflow/lite/experimental/litert/c:litert_common",
+        "//tensorflow/lite/experimental/litert/c:litert_logging",
         "//tensorflow/lite/experimental/litert/cc:litert_expected",
         "//tensorflow/lite/experimental/litert/cc:litert_model",
         "//tensorflow/lite/experimental/litert/cc:litert_model_predicates",
@@ -67,7 +70,10 @@ cc_library(
         "//tensorflow/lite/experimental/litert/core/model:model_buffer",
         "//tensorflow/lite/experimental/litert/core/util:flatbuffer_tools",
         "//tensorflow/lite/kernels:builtin_ops",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/synchronization",
         "@local_tsl//tsl/platform",
     ],
 )
@@ -119,4 +125,41 @@ cc_library(
     name = "test_macros",
     hdrs = ["test_macros.h"],
     deps = ["//tensorflow/lite/experimental/litert/c:litert_common"],
+)
+
+cc_library(
+    name = "matchers",
+    testonly = True,
+    hdrs = ["matchers.h"],
+    deps = [
+        "//tensorflow/lite/experimental/litert/c:litert_common",
+        "//tensorflow/lite/experimental/litert/cc:litert_expected",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_googletest//:gtest",
+    ],
+)
+
+cc_test(
+    name = "matchers_test",
+    srcs = ["matchers_test.cc"],
+    deps = [
+        ":matchers",
+        "//tensorflow/lite/experimental/litert/c:litert_common",
+        "//tensorflow/lite/experimental/litert/cc:litert_expected",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+# Use this library if you want to enforce an OSS environment for your test.
+cc_library(
+    name = "matchers_oss",
+    testonly = True,
+    hdrs = ["matchers.h"],
+    tags = ["avoid_dep"],
+    deps = [
+        "//tensorflow/lite/experimental/litert/c:litert_common",
+        "//tensorflow/lite/experimental/litert/cc:litert_expected",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_googletest//:gtest",
+    ],
 )

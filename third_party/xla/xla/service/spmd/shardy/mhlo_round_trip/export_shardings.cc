@@ -25,6 +25,7 @@ limitations under the License.
 #include <vector>
 
 #include "absl/algorithm/container.h"
+#include "absl/log/check.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/MapVector.h"
@@ -64,6 +65,7 @@ limitations under the License.
 #include "xla/service/spmd/shardy/constants.h"
 #include "xla/shape.h"
 #include "xla/shape_util.h"
+#include "xla/xla_data.pb.h"
 
 namespace xla {
 namespace sdy {
@@ -85,6 +87,8 @@ using ::mlir::StringRef;
 using ::mlir::success;
 using ::mlir::SymbolTable;
 using ::mlir::func::FuncOp;
+
+using ::mlir::stablehlo::CustomCallOp;
 
 using ::mlir::sdy::AxisRefAttr;
 using ::mlir::sdy::DimensionShardingAttr;
@@ -197,6 +201,7 @@ class ExportMhloShardingsPass
 
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
+
     mlir::SymbolTableCollection symbolTableCollection;
     SymbolTable& symbolTable = symbolTableCollection.getSymbolTable(moduleOp);
 
@@ -208,10 +213,10 @@ class ExportMhloShardingsPass
       }
     }
 
-    // StableHLO doesn't have an equivalent of `erf` and `topk` ops.
-    // If they have a sharding annotation, we need to move it into
-    // `mhlo.attributes`, which StableHLO->MHLO conversion would lift back up.
-    moduleOp.walk([&](mlir::stablehlo::CustomCallOp customCall) {
+    moduleOp.walk([&](CustomCallOp customCall) {
+      // StableHLO doesn't have an equivalent of `erf` and `topk` ops.
+      // If they have a sharding annotation, we need to move it into
+      // `mhlo.attributes`, which StableHLO->MHLO conversion would lift back up.
       StringRef callTargetName = customCall.getCallTargetName();
       if (callTargetName != "mhlo.erf" && callTargetName != "mhlo.topk") {
         return;
@@ -347,8 +352,11 @@ StringAttr convertToHloShardingAttr(
     std::function<MeshAttr(TensorShardingAttr)> getMeshAttr,
     std::function<StringAttr(const HloSharding&)> getStringAttr,
     ArrayRef<StringAttr> manualAxes) {
-  assert(shardings.size() == op->getNumResults());
-  if (op->getNumResults() == 1) {
+  // TODO(bartchr): pass through a symbol table to `getMesh(...)` below.
+  bool isNoResultMaximal = op->getNumResults() == 0 && shardings.size() == 1 &&
+                           shardings.front().getMesh(op).isMaximal();
+  CHECK(shardings.size() == op->getNumResults() || isNoResultMaximal);
+  if (op->getNumResults() == 1 || isNoResultMaximal) {
     return getStringAttr(
         convertToHloSharding(shardings.front(), getMeshAttr, manualAxes));
   }

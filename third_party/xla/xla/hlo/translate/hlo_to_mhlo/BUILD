@@ -75,8 +75,10 @@ cc_library(
     srcs = ["stack_location_utils.cc"],
     hdrs = ["stack_location_utils.h"],
     deps = [
+        ":hlo_utils",
         "//xla/hlo/ir:hlo",
         "//xla/service:hlo_proto_cc",
+        "@llvm-project//llvm:Support",
         "@llvm-project//mlir:IR",
         "@llvm-project//mlir:Support",
     ],
@@ -117,6 +119,7 @@ cc_library(
         "@llvm-project//mlir:Support",
         "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:statusor",
+        "@stablehlo//:base",
     ],
 )
 
@@ -195,16 +198,15 @@ xla_cc_test(
         "//xla:literal",
         "//xla:literal_util",
         "//xla:shape_util",
-        "//xla:test",
         "//xla:types",
         "//xla:xla_data_proto_cc",
         "//xla/mlir_hlo",
         "//xla/tsl/lib/core:status_test_util",
         "@com_google_googletest//:gtest",
+        "@com_google_googletest//:gtest_main",
         "@llvm-project//mlir:IR",
         "@llvm-project//mlir:Support",
         "@local_tsl//tsl/platform:statusor",
-        "@local_tsl//tsl/platform:test_main",
     ],
 )
 
@@ -214,6 +216,7 @@ cc_library(
     hdrs = ["location_importer.h"],
     deps = [
         "stack_location_utils",
+        ":hlo_utils",
         "//xla/hlo/ir:hlo",
         "@llvm-project//mlir:IR",
         "@llvm-project//mlir:Support",

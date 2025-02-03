@@ -726,27 +726,6 @@ absl::Status LayoutAssignment::AddMandatoryConstraints(
           }
         }
       }
-    } else if (IsLayoutConstrainedCustomCall(instruction)) {
-      const HloCustomCallInstruction* custom_call =
-          DynCast<HloCustomCallInstruction>(instruction);
-
-      TF_RETURN_IF_ERROR(SetInstructionLayout(custom_call->shape(), custom_call,
-                                              /*mandatory=*/true, /*dfs=*/true,
-                                              /*allow_alias=*/true));
-      if (custom_call->IsCustomCall("LayoutConstraint")) {
-        TF_RETURN_IF_ERROR(
-            SetOperandLayout(custom_call->shape(), custom_call, 0));
-      } else {
-        for (int64_t i = 0; i < custom_call->operand_count(); ++i) {
-          if (AnyOperandBufferForwarded(custom_call, i)) {
-            TF_RET_CHECK(AllOperandBuffersForwarded(custom_call, i))
-                << "Partial alias of an operand is not supported";
-          } else {
-            TF_RETURN_IF_ERROR(SetOperandLayout(
-                custom_call->operand_shapes_with_layout()[i], custom_call, i));
-          }
-        }
-      }
     } else if (IsLayoutConstrainedCollective(instruction)) {
       TF_RETURN_IF_ERROR(
           SetInstructionLayout(instruction->shape(), instruction));
@@ -776,10 +755,6 @@ absl::Status LayoutAssignment::AddMandatoryConstraints(
           get_channel_constraints(instruction)
               ->LayoutShapeForChannel(buffer_shape, channel_id);
       TF_RETURN_IF_ERROR(SetInstructionLayout(new_buffer_shape, instruction));
-    } else if (instruction->preserve_layout()) {
-      TF_RETURN_IF_ERROR(SetInstructionLayout(instruction->shape(), instruction,
-                                              /*mandatory=*/true, /*dfs=*/true,
-                                              /*allow_alias=*/true));
     }
   }
 
@@ -2418,8 +2393,7 @@ absl::Status LayoutAssignment::ClearComputationLayouts(
     // Some instructions carry mandatory layouts in their shape.
     if (instruction->opcode() != HloOpcode::kInfeed &&
         !IsLayoutConstrainedCustomCall(instruction) &&
-        !IsLayoutConstrainedCollective(instruction) &&
-        !instruction->preserve_layout()) {
+        !IsLayoutConstrainedCollective(instruction)) {
       LayoutUtil::ClearLayout(instruction->mutable_shape());
     }
   }
@@ -2455,6 +2429,33 @@ absl::Status LayoutAssignment::RunOnComputation(
 
   // Add any backend-specific constraints.
   TF_RETURN_IF_ERROR(AddBackendConstraints(constraints));
+
+  for (HloInstruction* instruction :
+       constraints->computation()->MakeInstructionPostOrder()) {
+    if (!IsLayoutConstrainedCustomCall(instruction)) {
+      continue;
+    }
+    const HloCustomCallInstruction* custom_call =
+        DynCast<HloCustomCallInstruction>(instruction);
+
+    TF_RETURN_IF_ERROR(SetInstructionLayout(custom_call->shape(), custom_call,
+                                            /*mandatory=*/true, /*dfs=*/true,
+                                            /*allow_alias=*/true));
+    if (custom_call->IsCustomCall("LayoutConstraint")) {
+      TF_RETURN_IF_ERROR(
+          SetOperandLayout(custom_call->shape(), custom_call, 0));
+    } else {
+      for (int64_t i = 0; i < custom_call->operand_count(); ++i) {
+        if (AnyOperandBufferForwarded(custom_call, i)) {
+          TF_RET_CHECK(AllOperandBuffersForwarded(custom_call, i))
+              << "Partial alias of an operand is not supported";
+        } else {
+          TF_RETURN_IF_ERROR(SetOperandLayout(
+              custom_call->operand_shapes_with_layout()[i], custom_call, i));
+        }
+      }
+    }
+  }
 
   // Propagates layouts from mandatory and backend constraints.
   TF_RETURN_IF_ERROR(PropagateConstraints(constraints));

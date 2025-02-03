@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <filesystem>  // NOLINT
 #include <fstream>
+#include <string>
 #include <vector>
 
 #include "absl/strings/string_view.h"
@@ -90,7 +91,7 @@ Expected<OwningBufferRef<uint8_t>> LoadBinaryFile(absl::string_view path) {
   }
 
   OwningBufferRef<uint8_t> buf(StdSize(std_path));
-  LITERT_EXPECT_OK(StdIFRead(std_path, buf.StrData(), buf.Size()));
+  LITERT_RETURN_IF_ERROR(StdIFRead(std_path, buf.StrData(), buf.Size()));
 
   return buf;
 }
