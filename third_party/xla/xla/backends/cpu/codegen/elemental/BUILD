@@ -1,5 +1,5 @@
-load("//xla:strict.default.bzl", "py_strict_test")
-load("//xla:xla.bzl", "xla_cc_test")
+load("//xla:py_strict.bzl", "py_strict_test")
+load("//xla:xla.default.bzl", "xla_cc_test")
 load("//xla/tsl/platform:rules_cc.bzl", "cc_library")
 
 package(
@@ -48,8 +48,6 @@ cc_library(
 py_strict_test(
     name = "concatenate_kernel_emitter_test",
     srcs = ["concatenate_kernel_emitter_test.py"],
-    python_version = "PY3",
-    srcs_version = "PY3",
     tags = [
         "no_oss",
     ],
@@ -83,7 +81,6 @@ cc_library(
         "//xla/service/cpu:elemental_ir_emitter",
         "//xla/service/cpu:ir_emitter",
         "//xla/service/cpu:parallel_loop_emitter",
-        "//xla/service/cpu:shape_partition",
         "//xla/service/llvm_ir:ir_array",
         "//xla/service/llvm_ir:llvm_util",
         "//xla/service/llvm_ir:loop_emitter",
@@ -95,7 +92,6 @@ cc_library(
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:span",
-        "@llvm-project//llvm:JITLink",
         "@llvm-project//llvm:ir_headers",
     ],
 )
@@ -105,17 +101,19 @@ xla_cc_test(
     srcs = ["elemental_kernel_emitter_test.cc"],
     deps = [
         ":elemental_kernel_emitter",
+        "//xla:shape_util",
         "//xla:xla_data_proto_cc",
         "//xla/codegen:kernel_definition",
-        "//xla/codegen:kernel_spec",
         "//xla/hlo/analysis:hlo_ordering",
         "//xla/hlo/ir:hlo",
         "//xla/hlo/parser:hlo_parser",
         "//xla/hlo/testlib:filecheck",
+        "//xla/hlo/testlib:hlo_hardware_independent_test_base",
         "//xla/service:buffer_assignment",
+        "//xla/service:buffer_value",
         "//xla/service:logical_buffer",
+        "//xla/service/cpu:cpu_executable",
         "//xla/service/cpu:target_machine_features_stub",
-        "//xla/tests:hlo_test_base",
         "//xla/tsl/platform:statusor",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",

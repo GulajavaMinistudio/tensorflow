@@ -132,6 +132,7 @@ IMAGE_DEPS = [
     "//tensorflow/core:lib",
     "//tensorflow/core:lib_internal",
     "//tensorflow/core/lib/png:png_io",
+    "//tensorflow/core/lib/webp:webp_io",
     "//tensorflow/core:protos_all_cc",
     "//tensorflow/core/framework:bounds_check",
     "//tensorflow/core/kernels:eigen_helpers",
@@ -317,7 +318,10 @@ tf_kernel_library(
 tf_kernel_library(
     name = "sample_distorted_bounding_box_op",
     prefix = "sample_distorted_bounding_box_op",
-    deps = IMAGE_DEPS + ["//tensorflow/core/kernels:stateless_random_ops"],
+    deps = IMAGE_DEPS + [
+        "//tensorflow/core/kernels:stateless_random_ops",
+        "@com_google_absl//absl/log:check",
+    ],
 )
 
 tf_kernel_library(
@@ -411,8 +415,8 @@ tf_cc_test(
     deps = [
         ":scale_and_translate_op",
         "@com_google_benchmark//:benchmark",
-        "@com_google_googletest//:gtest_main",
         "@local_tsl//tsl/platform:test_benchmark",
+        "@local_xla//xla/tsl/platform:test_main",
     ] + IMAGE_TEST_DEPS,
 )
 
@@ -461,6 +465,7 @@ cc_library(
         "//tensorflow/core/framework:types_proto_cc",
         "//tensorflow/core/lib/core:status",
         "//tensorflow/core/lib/png:png_io",
+        "//tensorflow/core/lib/webp:webp_io",
         "//tensorflow/core/platform:byte_order",
         "//tensorflow/core/platform:errors",
         "@com_google_absl//absl/strings",

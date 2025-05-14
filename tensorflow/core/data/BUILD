@@ -283,7 +283,8 @@ tf_cc_test(
         "//tensorflow/core:test_main",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
-        "@com_google_googletest//:gtest_main",
+        "@com_google_googletest//:gtest",
+        "@local_xla//xla/tsl/platform:test_main",
         "@local_xla//xla/tsl/protobuf:error_codes_proto_impl_cc",
     ],
 )
@@ -662,6 +663,7 @@ tf_cc_test(
     # copybara:uncomment extra_copts = ["-Wthread-safety-analysis"],
     deps = [
         ":standalone",
+        "//tensorflow/core:framework",
         "//tensorflow/core:test",
         "//tensorflow/core:test_main",
     ] + tf_protos_all(),

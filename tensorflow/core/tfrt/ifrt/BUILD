@@ -4,13 +4,9 @@ load("//tensorflow/core/platform:build_config.bzl", "tf_proto_library")
 package(
     # copybara:uncomment default_applicable_licenses = ["//tensorflow:license"],
     default_visibility = [
-        # copybara:uncomment "//learning/brain/experimental/tfrt:__subpackages__",
         # copybara:uncomment "//learning/brain/tfrt:__subpackages__",
-        # copybara:uncomment "//learning/infra/mira/distributed:__subpackages__",
-        # copybara:uncomment "//learning/serving/servables/tfrt:__subpackages__",
+        # copybara:uncomment "//learning/infra/mira/experimental/orbax_model/serving/sidecar:__subpackages__",
         "//tensorflow/compiler/mlir/tfrt:__subpackages__",
-        "//tensorflow/compiler/mlir/tfrt/transforms/mlrt:__subpackages__",
-        "//tensorflow/compiler/mlir/tfrt/translate/mlrt:__subpackages__",
         "//tensorflow/core/tfrt:__subpackages__",
         "//tensorflow/core/tfrt/mlrt:__subpackages__",
     ],
@@ -269,6 +265,14 @@ cc_library(
     name = "ifrt_model_context",
     srcs = ["ifrt_model_context.cc"],
     hdrs = ["ifrt_model_context.h"],
+    visibility = [
+        "//learning/brain/tfrt:__subpackages__",
+        "//learning/infra/mira/experimental/orbax_model/serving/sidecar:__pkg__",
+        "//learning/serving/servables/tfrt:__subpackages__",
+        "//tensorflow/compiler/mlir/tfrt:__subpackages__",
+        "//tensorflow/core/tfrt:__subpackages__",
+        "//tensorflow/core/tfrt/mlrt:__subpackages__",
+    ],
     deps = [
         ":ifrt_config_proto_cc",
         ":ifrt_executable_registry",

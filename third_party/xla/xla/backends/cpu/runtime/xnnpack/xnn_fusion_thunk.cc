@@ -18,6 +18,7 @@ limitations under the License.
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <ostream>
 #include <utility>
 #include <vector>
 
@@ -29,6 +30,7 @@ limitations under the License.
 #include "absl/memory/memory.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_format.h"
+#include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "pthreadpool.h"
 #include "xla/backends/cpu/runtime/parallel_loop_runner.h"
@@ -43,9 +45,9 @@ limitations under the License.
 #include "xla/tsl/platform/statusor.h"
 
 namespace xla::cpu {
-
 namespace {
-enum class ParallelizationMode { kInline, kParallelLoopRunner, kPThreadPool };
+
+enum class ParallelizationMode { kInline, kParallelLoopRunner };
 
 template <typename Sink>
 void AbslStringify(Sink& sink, ParallelizationMode m) {
@@ -56,13 +58,25 @@ void AbslStringify(Sink& sink, ParallelizationMode m) {
     case ParallelizationMode::kParallelLoopRunner:
       sink.Append("kParallelLoopRunner");
       break;
-    case ParallelizationMode::kPThreadPool:
-      sink.Append("kPThreadPool");
-      break;
   }
 }
 
 }  // namespace
+
+absl::string_view XnnFusionThunk::XnnFusionKindToString(XnnFusionKind kind) {
+  switch (kind) {
+    case XnnFusionKind::kFusion:
+      return "xnn-fusion";
+    case XnnFusionKind::kDot:
+      return "xnn-dot";
+    case XnnFusionKind::kConvolution:
+      return "xnn-convolution";
+  }
+}
+
+std::ostream& operator<<(std::ostream& os, XnnFusionThunk::XnnFusionKind kind) {
+  return os << XnnFusionThunk::XnnFusionKindToString(kind);
+}
 
 // XNNPACK runtime instantiated for the fusion operation.
 struct XnnFusionThunk::XnnRuntime {
@@ -154,19 +168,16 @@ void XnnFusionThunk::XnnRuntime::Destroy() {
   if (runtime != nullptr) XNN_LOG_IF_ERROR(xnn_delete_runtime(runtime));
   if (subgraph != nullptr) XNN_LOG_IF_ERROR(xnn_delete_subgraph(subgraph));
   if (workspace != nullptr) XNN_LOG_IF_ERROR(xnn_release_workspace(workspace));
-
-  bool owned_threadpool = threadpool != nullptr && IsCustomPthreadpoolEnabled();
-  if (owned_threadpool) pthreadpool_destroy(threadpool);
+  if (threadpool) DestroyCustomPthreadpool(threadpool);
 }
 
 absl::StatusOr<XnnFusionThunk::XnnRuntime> XnnFusionThunk::CreateXnnRuntime(
     const Eigen::ThreadPoolDevice* device, bool one_use,
     absl::FunctionRef<absl::StatusOr<xnn_subgraph_t>()> builder) {
   ParallelizationMode parallelization_mode =
-      options_.use_threadpool ? (device && IsCustomPthreadpoolEnabled()
-                                     ? ParallelizationMode::kParallelLoopRunner
-                                     : ParallelizationMode::kPThreadPool)
-                              : ParallelizationMode::kInline;
+      options_.use_threadpool && device
+          ? ParallelizationMode::kParallelLoopRunner
+          : ParallelizationMode::kInline;
 
   VLOG(3) << absl::StreamFormat(
       "Create %s XNN runtime for `%s` operation: num_created=%d, "
@@ -185,8 +196,6 @@ absl::StatusOr<XnnFusionThunk::XnnRuntime> XnnFusionThunk::CreateXnnRuntime(
   if (parallelization_mode == ParallelizationMode::kParallelLoopRunner) {
     runtime.runner = std::make_unique<ParallelLoopRunner>(device);
     runtime.threadpool = CreateCustomPthreadpool(runtime.runner.get());
-  } else if (parallelization_mode == ParallelizationMode::kPThreadPool) {
-    runtime.threadpool = DefaultPthreadpool();
   }
 
   XNN_RETURN_IF_ERROR(xnn_create_workspace(&runtime.workspace));
@@ -206,8 +215,8 @@ absl::StatusOr<std::unique_ptr<XnnFusionThunk>> XnnFusionThunk::Create(
   TF_RETURN_IF_ERROR(InitializeXnnPack());
 
   return absl::WrapUnique(new XnnFusionThunk(
-      std::move(options), std::move(info), std::move(arguments),
-      std::move(results), std::move(builder)));
+      XnnFusionKind::kFusion, std::move(options), std::move(info),
+      std::move(arguments), std::move(results), std::move(builder)));
 }
 
 absl::StatusOr<std::unique_ptr<XnnFusionThunk>> XnnFusionThunk::Create(
@@ -218,12 +227,12 @@ absl::StatusOr<std::unique_ptr<XnnFusionThunk>> XnnFusionThunk::Create(
   TF_RETURN_IF_ERROR(InitializeXnnPack());
 
   return absl::WrapUnique(new XnnFusionThunk(
-      std::move(options), std::move(info), std::move(arguments),
-      std::move(results), std::move(one_use_builder), value_arguments,
-      value_results));
+      XnnFusionKind::kFusion, std::move(options), std::move(info),
+      std::move(arguments), std::move(results), std::move(one_use_builder),
+      value_arguments, value_results));
 }
 
-XnnFusionThunk::XnnFusionThunk(Options options, Info info,
+XnnFusionThunk::XnnFusionThunk(XnnFusionKind kind, Options options, Info info,
                                std::vector<Argument> arguments,
                                std::vector<Result> results, Builder builder)
     : Thunk(Kind::kXnnFusion, std::move(info)),
@@ -231,13 +240,14 @@ XnnFusionThunk::XnnFusionThunk(Options options, Info info,
       arguments_(std::move(arguments)),
       results_(std::move(results)),
       builder_(std::move(builder)),
+      xnn_fusion_kind_(kind),
       xnn_runtime_pool_([this](const Eigen::ThreadPoolDevice* device) {
         return CreateXnnRuntime(device, /*one_use=*/false, [this] {
           return builder_(arguments_, results_);
         });
       }) {}
 
-XnnFusionThunk::XnnFusionThunk(Options options, Info info,
+XnnFusionThunk::XnnFusionThunk(XnnFusionKind kind, Options options, Info info,
                                std::vector<Argument> arguments,
                                std::vector<Result> results,
                                OneUseBuilder one_use_builder,
@@ -248,6 +258,7 @@ XnnFusionThunk::XnnFusionThunk(Options options, Info info,
       arguments_(std::move(arguments)),
       results_(std::move(results)),
       one_use_builder_(std::move(one_use_builder)),
+      xnn_fusion_kind_(kind),
       by_value_arguments_(by_value_arguments.begin(), by_value_arguments.end()),
       by_value_results_(by_value_results.begin(), by_value_results.end()),
       xnn_runtime_pool_(nullptr) {}

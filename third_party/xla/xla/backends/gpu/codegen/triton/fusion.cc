@@ -33,6 +33,7 @@ limitations under the License.
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/IRBuilder.h"
+#include "llvm/IR/Metadata.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/Casting.h"
 #include "mlir/IR/MLIRContext.h"
@@ -64,6 +65,30 @@ limitations under the License.
 namespace xla {
 namespace gpu {
 
+// Since we are creating the kernel and splicing the impl_fn into it, we
+// need to manually annotate the kernel with the nvvm.annotations.
+static void PopulateNvvmAnnotations(
+    llvm::Module* llvm_module, llvm::Function* kernel,
+    TritonWrapperResult& triton_wrapper_result) {
+  llvm::NamedMDNode* dest_nvvm_annotations =
+      llvm_module->getOrInsertNamedMetadata("nvvm.annotations");
+  for (auto md : triton_wrapper_result.nvvm_annotations) {
+    if (auto node = llvm::dyn_cast<llvm::MDNode>(md)) {
+      if (node->getNumOperands() >= 1) {
+        std::vector<llvm::Metadata*> new_operands;
+        new_operands.reserve(node->getNumOperands());
+        new_operands.push_back(llvm::ValueAsMetadata::get(kernel));
+        for (unsigned i = 1; i < node->getNumOperands(); ++i) {
+          new_operands.push_back(node->getOperand(i));
+        }
+        llvm::MDNode* new_node =
+            llvm::MDNode::get(llvm_module->getContext(), new_operands);
+        dest_nvvm_annotations->addOperand(new_node);
+      }
+    }
+  }
+}
+
 absl::StatusOr<TritonWrapperResult>
 TritonFusion::GenerateTritonKernelAndWrapper(
     const HloFusionInstruction& fusion, absl::string_view impl_fn_name,
@@ -75,7 +100,8 @@ TritonFusion::GenerateTritonKernelAndWrapper(
   absl::string_view fusion_kind = backend_config.kind();
   TritonWrapperResult triton_wrapper_result;
 
-  if (fusion_kind == kTritonFusionKind) {
+  if (fusion_kind == kTritonFusionKind ||
+      fusion_kind == kTritonNestedGemmFusionKind) {
     std::optional<LaunchConfig> launch_config = this->launch_config();
     if (!launch_config.has_value()) {
       return absl::InvalidArgumentError(absl::StrCat(
@@ -145,7 +171,8 @@ absl::StatusOr<FusionEmissionResult> TritonFusion::Emit(
     absl::string_view fusion_kind = backend_config.kind();
 
     LaunchDimensions launch_dimensions;
-    if (fusion_kind == kTritonFusionKind) {
+    if (fusion_kind == kTritonFusionKind ||
+        fusion_kind == kTritonNestedGemmFusionKind) {
       std::optional<LaunchConfig> launch_config = this->launch_config();
       // This check should be enforced by `GenerateTritonKernelWrapper`.
       CHECK(launch_config.has_value());
@@ -193,9 +220,12 @@ absl::StatusOr<FusionEmissionResult> TritonFusion::Emit(
     std::vector<llvm_ir::IrArray> outputs;
     TF_ASSIGN_OR_RETURN(
         std::tie(kernel, inputs, outputs),
-        BuildKernelPrototype(ir_emitter_context, suggested_kernel_name,
-                             kernel_arguments.args(), impl_fn->arg_size(),
-                             launch_dimensions, &builder));
+        BuildKernelPrototype(ir_emitter_context, impl_fn_name,
+                             suggested_kernel_name, kernel_arguments.args(),
+                             impl_fn->arg_size(), launch_dimensions, &builder));
+
+    PopulateNvvmAnnotations(ir_emitter_context.llvm_module(), kernel,
+                            triton_wrapper_result);
 
     // Move function body into kernel prototype.
     llvm::Function* prototype_func = builder.GetInsertBlock()->getParent();
@@ -234,17 +264,32 @@ absl::StatusOr<FusionEmissionResult> TritonFusion::Emit(
   return result;
 }
 
+namespace {
+int64_t GetNumberOfBlocks(absl::Span<const int64_t> dimensions,
+                          absl::Span<const int64_t> tile_sizes) {
+  int64_t num_blocks = 1;
+  for (auto [dim_size, dim_tile_size] : llvm::zip(dimensions, tile_sizes)) {
+    num_blocks *= (dim_size + dim_tile_size - 1) / dim_tile_size;
+  }
+  return num_blocks;
+}
+}  // namespace
+
 std::optional<TritonFusion::LaunchConfig> TritonFusion::launch_config() const {
   if (analysis_.fusion_backend_config().has_block_level_fusion_config()) {
     BlockLevelParameters block_level_parameters =
         BlockLevelParameters::FromBlockLevelFusionConfig(
             analysis_.fusion_backend_config().block_level_fusion_config());
 
-    int64_t num_blocks = 1;
-    for (auto [dim_size, dim_tile_size] :
-         llvm::zip(analysis_.fusion_root(0).shape().dimensions(),
-                   block_level_parameters.output_tile_sizes)) {
-      num_blocks *= (dim_size + dim_tile_size - 1) / dim_tile_size;
+    // We expect all roots to have the same number of blocks. Otherwise we
+    // cannot codegen it.
+    int64_t num_blocks =
+        GetNumberOfBlocks(analysis_.fusion_root(0).shape().dimensions(),
+                          block_level_parameters.output_tile_sizes[0]);
+    for (int64_t i = 1; i < analysis_.fusion_root_count(); ++i) {
+      CHECK_EQ(GetNumberOfBlocks(analysis_.fusion_root(i).shape().dimensions(),
+                                 block_level_parameters.output_tile_sizes[i]),
+               num_blocks);
     }
 
     LaunchConfig launch_config;

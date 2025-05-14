@@ -102,7 +102,7 @@ std::unique_ptr<PjRtLoadedExecutable> MakeIncrementProgram(
   CompileOptions options;
   options.parameter_is_tupled_arguments = tuplize_arg;
   options.executable_build_options.set_device_assignment(assignment);
-  return client->Compile(computation, options).value();
+  return client->CompileAndLoad(computation, options).value();
 }
 
 class PjRtClientTest
@@ -248,14 +248,16 @@ TEST_P(PjRtClientTest, ExecuteWithDonationAbort) {
       MakeIncrementProgram(client.get(), /*alias=*/true, /*device=*/0);
 
   std::vector<int32_t> data(4, 0);
+  auto shared_data = std::make_shared<std::vector<int32_t>>(data);
   Shape shape = ShapeUtil::MakeShape(S32, {4});
   TF_ASSERT_OK_AND_ASSIGN(
       auto buffer,
       client->BufferFromHostBuffer(
-          data.data(), shape.element_type(), shape.dimensions(),
+          shared_data->data(), shape.element_type(), shape.dimensions(),
           /*byte_strides=*/std::nullopt,
-          PjRtClient::HostBufferSemantics::kImmutableZeroCopy, nullptr,
-          client->memory_spaces()[0], /*device_layout=*/nullptr));
+          PjRtClient::HostBufferSemantics::kImmutableZeroCopy,
+          [shared_data]() {}, client->memory_spaces()[0],
+          /*device_layout=*/nullptr));
 
   auto external_reference = buffer->AcquireExternalReference();
 
@@ -402,7 +404,8 @@ TEST(PjRtClientTest, CopyToDevice) {
 
   auto* device_1 = client->addressable_devices()[1];
 
-  TF_ASSERT_OK_AND_ASSIGN(auto result, buffer->CopyToDevice(device_1));
+  TF_ASSERT_OK_AND_ASSIGN(auto result, buffer->CopyToMemorySpace(
+                                           *device_1->default_memory_space()));
 
   TF_ASSERT_OK_AND_ASSIGN(auto literal, result->ToLiteralSync());
 
@@ -434,7 +437,8 @@ TEST(PjRtClientTest, CopyToDeviceAsync) {
   constexpr int kConcurrentCopy = 16;
   std::vector<std::unique_ptr<PjRtBuffer>> results(kConcurrentCopy);
   for (int i = 0; i < kConcurrentCopy; ++i) {
-    TF_ASSERT_OK_AND_ASSIGN(results[i], buffer->CopyToDevice(device_1));
+    TF_ASSERT_OK_AND_ASSIGN(results[i], buffer->CopyToMemorySpace(
+                                            *device_1->default_memory_space()));
   }
 
   // The destructor of TfrtCpuBuffer should wait for outstanding copy.
@@ -480,7 +484,8 @@ TEST(PjRtClientTest, CopyToDeviceAsyncExternalCpuOnly) {
   constexpr int kConcurrentCopy = 16;
   std::vector<std::unique_ptr<PjRtBuffer>> results(kConcurrentCopy);
   for (int i = 0; i < kConcurrentCopy; ++i) {
-    TF_ASSERT_OK_AND_ASSIGN(results[i], buffer->CopyToDevice(device_1));
+    TF_ASSERT_OK_AND_ASSIGN(results[i], buffer->CopyToMemorySpace(
+                                            *device_1->default_memory_space()));
   }
 
   // The destructor of TfrtCpuBuffer should wait for outstanding copy.
@@ -555,7 +560,7 @@ ENTRY DuplicateDonationError() -> (f32[2, 2], f32[2, 2]) {
                           ParseAndReturnUnverifiedModule(kProgram, {}));
   XlaComputation xla_computation(hlo_module->ToProto());
   TF_ASSERT_OK_AND_ASSIGN(auto pjrt_executable,
-                          client->Compile(xla_computation, {}));
+                          client->CompileAndLoad(xla_computation, {}));
 
   std::vector<float> data(4, 0);
   TF_ASSERT_OK_AND_ASSIGN(auto buffer0,
@@ -565,6 +570,8 @@ ENTRY DuplicateDonationError() -> (f32[2, 2], f32[2, 2]) {
   TF_ASSERT_OK_AND_ASSIGN(auto buffer2,
                           MakeFloatBuffer(client.get(), data, {2, 2}));
 
+  xla::ExecuteOptions options;
+  options.untuple_result = true;
   {
     auto result = pjrt_executable->Execute(/*argument_handles=*/{{
                                                buffer0.get(),
@@ -572,7 +579,7 @@ ENTRY DuplicateDonationError() -> (f32[2, 2], f32[2, 2]) {
                                                buffer1.get(),
                                                buffer0.get(),
                                            }},
-                                           /*options=*/{});
+                                           /*options=*/options);
     ASSERT_FALSE(result.ok());
     EXPECT_THAT(result.status().message(),
                 ::testing::HasSubstr("f(donate(a), donate(a))"));
@@ -584,7 +591,7 @@ ENTRY DuplicateDonationError() -> (f32[2, 2], f32[2, 2]) {
                                                buffer2.get(),
                                                buffer0.get(),
                                            }},
-                                           /*options=*/{});
+                                           /*options=*/options);
     ASSERT_FALSE(result.ok());
     EXPECT_THAT(result.status().message(),
                 ::testing::HasSubstr("f(a, donate(a))"));
@@ -596,7 +603,7 @@ ENTRY DuplicateDonationError() -> (f32[2, 2], f32[2, 2]) {
                                                buffer2.get(),
                                                buffer2.get(),
                                            }},
-                                           /*options=*/{});
+                                           /*options=*/options);
     ASSERT_FALSE(result.ok());
     EXPECT_THAT(result.status().message(),
                 ::testing::HasSubstr("f(donate(a), a)"));

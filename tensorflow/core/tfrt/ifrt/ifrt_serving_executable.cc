@@ -30,6 +30,7 @@ limitations under the License.
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
@@ -135,8 +136,8 @@ absl::StatusOr<std::vector<DtypeAndShape>> BuildDtypeAndShape(
 
 // Returns the device assignment from the given IFRT devices list.
 absl::StatusOr<xla::DeviceAssignment> GetRuntimeXlaDeviceAssignment(
-    const tsl::RCReference<xla::ifrt::DeviceList>& device_list,
-    int num_replicas, int num_cores_per_replica) {
+    const xla::ifrt::DeviceListRef& device_list, int num_replicas,
+    int num_cores_per_replica) {
   const int num_devices = num_replicas * num_cores_per_replica;
   const absl::Span<xla::ifrt::Device* const> devices = device_list->devices();
   if (devices.size() != num_devices) {
@@ -247,23 +248,19 @@ IfrtServingExecutable::Create(
                          original_compile_metadata.num_cores_per_replica()));
 
   auto executable = absl::WrapUnique(new IfrtServingExecutable(
-      program_id, model_name, signature_name, std::move(module),
-      std::move(client), thread_pool, ifrt_loaded_variable_registry,
-      ifrt_restore, checkpoint_loader_queue, device_mgr,
-      std::move(shape_representation_fn), ifrt_serving_core_selector,
-      std::move(original_compile_metadata),
-      xla::ifrt::BasicDeviceList::Create(xla::ifrt::BasicDeviceList::Devices(
-          assigned_devices.begin(), assigned_devices.end())),
-      compilation_environment_proto, tf_to_hlo_compiler,
-      persistent_compilation_cache));
+      program_id, model_name, signature_name, std::move(module), client,
+      thread_pool, ifrt_loaded_variable_registry, ifrt_restore,
+      checkpoint_loader_queue, device_mgr, std::move(shape_representation_fn),
+      ifrt_serving_core_selector, std::move(original_compile_metadata),
+      client->MakeDeviceList(assigned_devices), compilation_environment_proto,
+      tf_to_hlo_compiler, persistent_compilation_cache));
 
   return executable;
 }
 
-absl::StatusOr<tsl::RCReference<xla::ifrt::Array>>
-IfrtServingExecutable::ConvertTensorToArray(
+absl::StatusOr<xla::ifrt::ArrayRef> IfrtServingExecutable::ConvertTensorToArray(
     const tensorflow::Tensor& tensor,
-    const tsl::RCReference<xla::ifrt::DeviceList>& device_list,
+    const xla::ifrt::DeviceListRef& device_list,
     const xla::OpSharding& sharding) {
   xla::ifrt::Shape input_shape = ToIfrtShape(tensor.shape());
   VLOG(2) << "Converting tensor of shape " << input_shape;
@@ -433,7 +430,9 @@ IfrtServingExecutable::CreateExecutableSynchronously(
       .platform_name = ifrt_client_->platform_name(),
   };
 
-  if (tf2hlo_arg.platform_name != xla::CudaName()) {
+  // Only get device topology for clients that implement GetTopologyForDevices.
+  if (tf2hlo_arg.platform_name != xla::CudaName() &&
+      !absl::StartsWith(ifrt_client_->runtime_type(), "proxy/")) {
     TF_ASSIGN_OR_RETURN(
         tf2hlo_arg.topology,
         ifrt_client_->GetTopologyForDevices(assigned_device_list_));
@@ -447,7 +446,9 @@ IfrtServingExecutable::CreateExecutableSynchronously(
   TF_ASSIGN_OR_RETURN(
       mlir::OwningOpRef<mlir::ModuleOp> mlir_hlo_module,
       xla::ConvertHloToMlirHlo(*module_copy->getContext(),
-                               &tf2hlo_result.hlo_module_proto));
+                               &tf2hlo_result.hlo_module_proto,
+                               /*import_all_computations=*/false,
+                               /*flatten_computation_args_result=*/true));
 
   if (VLOG_IS_ON(1)) {
     tensorflow::DumpMlirOpToFile("ifrt_after_bridge_phase2",
@@ -512,19 +513,18 @@ IfrtServingExecutable::CreateExecutableSynchronously(
   }
   auto hlo_program =
       std::make_unique<xla::ifrt::HloProgram>(mlir_hlo_module.get());
-  std::unique_ptr<xla::ifrt::LoadedExecutable> ifrt_executable;
   SharedCachedExecutableBundle executable_bundle =
       std::make_shared<CachedExecutableBundle>();
 
   TF_ASSIGN_OR_RETURN(
-      ifrt_executable,
+      xla::ifrt::LoadedExecutableRef ifrt_executable,
       persistent_compilation_cache_->LookupLoadedExecutableOrCreate(
           std::move(hlo_program), assigned_device_list_, xla_compile_options,
           loaded_host_callbacks, ifrt_client_.get(),
           [&](std::unique_ptr<xla::ifrt::Program> program,
               std::unique_ptr<xla::ifrt::CompileOptions> options)
-              -> absl::StatusOr<std::unique_ptr<xla::ifrt::LoadedExecutable>> {
-            return ifrt_client_->GetDefaultCompiler()->Compile(
+              -> absl::StatusOr<xla::ifrt::LoadedExecutableRef> {
+            return ifrt_client_->GetDefaultCompiler()->CompileAndLoad(
                 std::move(program), std::move(options));
           }));
 
@@ -641,7 +641,7 @@ absl::StatusOr<std::vector<tensorflow::Tensor>> IfrtServingExecutable::Execute(
 
   // `device_reservation` should be alive before the end of the execution.
   tsl::DeviceReservation device_reservation(kNoCoreSelectedIndex, nullptr);
-  tsl::RCReference<xla::ifrt::DeviceList> device_list;
+  xla::ifrt::DeviceListRef device_list;
   if (UsePortableExecution(compile_metadata)) {
     device_reservation =
         ifrt_serving_core_selector_->ReserveDevice(program_id_);
@@ -651,8 +651,7 @@ absl::StatusOr<std::vector<tensorflow::Tensor>> IfrtServingExecutable::Execute(
     TF_ASSIGN_OR_RETURN(xla::ifrt::Device * device,
                         ifrt_client_->LookupDevice(xla::ifrt::DeviceId(
                             device_reservation.device_index())));
-    device_list = xla::ifrt::BasicDeviceList::Create(
-        xla::ifrt::BasicDeviceList::Devices({device}));
+    device_list = ifrt_client_->MakeDeviceList({device});
   } else {
     device_list = assigned_device_list_;
   }
@@ -680,7 +679,7 @@ absl::StatusOr<std::vector<tensorflow::Tensor>> IfrtServingExecutable::Execute(
 
   VLOG(2) << "Completed AsyncLoadIfrtArray";
 
-  std::vector<tsl::RCReference<xla::ifrt::Array>> args;
+  std::vector<xla::ifrt::ArrayRef> args;
   args.reserve(inputs.size());
   int variable_index = 0;
   for (int i = 0; i < inputs.size(); i++) {
@@ -703,7 +702,7 @@ absl::StatusOr<std::vector<tensorflow::Tensor>> IfrtServingExecutable::Execute(
       TF_ASSIGN_OR_RETURN(
           auto loaded_variable,
           ifrt_loaded_variable_registry_.GetLoadedVariable(key));
-      TF_ASSIGN_OR_RETURN(tsl::RCReference<xla::ifrt::Array> single_array,
+      TF_ASSIGN_OR_RETURN(xla::ifrt::ArrayRef single_array,
                           loaded_variable.array.Await());
       args.push_back(std::move(single_array));
       variable_index++;
@@ -733,7 +732,7 @@ absl::StatusOr<std::vector<tensorflow::Tensor>> IfrtServingExecutable::Execute(
 
   VLOG(2) << "Start Execution";
 
-  std::optional<tsl::RCReference<xla::ifrt::DeviceList>> execution_device_list;
+  std::optional<xla::ifrt::DeviceListRef> execution_device_list;
   if (UsePortableExecution(compile_metadata)) {
     execution_device_list = device_list;
   }
@@ -757,8 +756,7 @@ absl::StatusOr<std::vector<tensorflow::Tensor>> IfrtServingExecutable::Execute(
   output_futures.reserve(execution_result.outputs.size());
   for (int i = 0; i < execution_result.outputs.size(); ++i) {
     tensorflow::TensorShape tensor_shape;
-    const tsl::RCReference<xla::ifrt::Array>& array_for_copy =
-        execution_result.outputs[i];
+    const xla::ifrt::ArrayRef& array_for_copy = execution_result.outputs[i];
     const tpu::TPUCompileMetadataProto::Retval& metadata_retval =
         executable_bundle->compile_metadata.retvals()[i];
 
@@ -786,7 +784,7 @@ absl::Status IfrtServingExecutable::AsyncLoadIfrtArray(
     absl::Span<const tensorflow::Tensor> inputs,
     absl::Span<const int> variable_arg_indices,
     const CachedExecutableBundle& executable_bundle,
-    const tsl::RCReference<xla::ifrt::DeviceList>& devices) {
+    const xla::ifrt::DeviceListRef& devices) {
   for (const int i : variable_arg_indices) {
     if (inputs[i].dtype() != tensorflow::DT_STRING ||
         !tensorflow::TensorShapeUtils::IsScalar(inputs[i].shape())) {

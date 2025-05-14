@@ -10,6 +10,7 @@ lit_test_suite(
     srcs = enforce_glob(
         [
             "attributes.hlo",
+            "auto_layout.hlo",
             "bool_compare.hlo",
             "call.hlo",
             "case_conditional.hlo",
@@ -21,13 +22,16 @@ lit_test_suite(
             "fusion.hlo",
             "if_conditional.hlo",
             "import.hlo",
+            "import_locs.hlo",
             "import_async.hlo",
             "import_bounded_dynamism.hlo",
             "import_entry_computation_layout.hlo",
+            "import_emit_stablehlo.hlo",
             "layouts_and_names.hlo",
             "location.hlo",
             "module_attributes.hlo",
             "module_config.hlo",
+            "operand_convert_for_convolution.hlo",
             "ragged_dot.hlo",
             "simple.hlo",
             "spmd_module_sharding.hlo",
@@ -35,6 +39,7 @@ lit_test_suite(
             "stacktrace_to_location.hlo",
             "types.hlo",
             "while.hlo",
+            "result_accuracy.hlo",
         ],
         include = [
             "*.hlo",

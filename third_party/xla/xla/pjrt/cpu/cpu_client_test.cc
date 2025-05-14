@@ -52,6 +52,7 @@ limitations under the License.
 #include "xla/tsl/platform/env.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/file_system.h"
+#include "xla/tsl/platform/logging.h"
 #include "xla/tsl/platform/status_matchers.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/platform/test.h"
@@ -86,7 +87,40 @@ XLA_FFI_REGISTER_HANDLER(ffi::GetXlaFfiApi(), "__xla_test$$TestError", "Host",
                          kTestError);
 
 TEST(TfrtCpuClientTest, MemorySpace) {
-  TF_ASSERT_OK_AND_ASSIGN(auto client, GetTfrtCpuClient(CpuClientOptions()));
+  CpuClientOptions options;
+  options.legacy_memory_space_behavior = false;
+  TF_ASSERT_OK_AND_ASSIGN(auto client, GetTfrtCpuClient(std::move(options)));
+  ASSERT_GE(client->devices().size(), 1);
+
+  ASSERT_EQ(client->memory_spaces().size(),
+            client->addressable_devices().size() * 3);
+  for (auto* device : client->devices()) {
+    TF_ASSERT_OK_AND_ASSIGN(auto* default_memory_space,
+                            device->default_memory_space());
+    EXPECT_EQ(default_memory_space->kind(), CpuDeviceMemorySpace::kKind);
+    EXPECT_EQ(default_memory_space->kind_id(), CpuDeviceMemorySpace::kKindId);
+    EXPECT_THAT(device->memory_space_by_kind(CpuDeviceMemorySpace::kKind),
+                IsOkAndHolds(default_memory_space));
+
+    TF_ASSERT_OK_AND_ASSIGN(
+        auto cpu_device_memory_space,
+        device->memory_space_by_kind(CpuDeviceMemorySpace::kKind));
+    TF_ASSERT_OK_AND_ASSIGN(
+        auto unpinned_host_memory_space,
+        device->memory_space_by_kind(UnpinnedHostMemorySpace::kKind));
+    TF_ASSERT_OK_AND_ASSIGN(
+        auto pinned_host_memory_space,
+        device->memory_space_by_kind(PinnedHostMemorySpace::kKind));
+    device->memory_spaces(),
+        ElementsAre(cpu_device_memory_space, unpinned_host_memory_space,
+                    pinned_host_memory_space);
+  }
+}
+
+TEST(TfrtCpuClientTest, LegacyMemorySpace) {
+  CpuClientOptions options;
+  options.legacy_memory_space_behavior = true;
+  TF_ASSERT_OK_AND_ASSIGN(auto client, GetTfrtCpuClient(std::move(options)));
   ASSERT_GE(client->devices().size(), 1);
 
   ASSERT_EQ(client->memory_spaces().size(),
@@ -122,7 +156,7 @@ ENTRY DonationWithExecutionError() -> f32[2, 2] {
                           ParseAndReturnUnverifiedModule(kProgram, {}));
   XlaComputation xla_computation(hlo_module->ToProto());
   TF_ASSERT_OK_AND_ASSIGN(auto pjrt_executable,
-                          client->Compile(xla_computation, {}));
+                          client->CompileAndLoad(xla_computation, {}));
 
   TF_ASSERT_OK_AND_ASSIGN(auto fingerprint,
                           pjrt_executable->FingerprintExecutable());
@@ -173,7 +207,7 @@ TEST(TfrtCpuClientTest, HloSnapshot) {
   debug_opts->set_xla_dump_hlo_snapshots(true);
   XlaComputation xla_computation(hlo_module->ToProto());
   TF_ASSERT_OK_AND_ASSIGN(auto pjrt_executable,
-                          client->Compile(xla_computation, options));
+                          client->CompileAndLoad(xla_computation, options));
 
   std::vector<float> data1{1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
   std::vector<float> data2{10.0, 20.0, 30.0, 40.0, 50.0, 60.0};
@@ -224,7 +258,7 @@ TEST(TfrtCpuClientTest, AsyncTransferRawData) {
   xla::Shape shape = ShapeUtil::MakeShape(U32, {3, 2});
   TF_ASSERT_OK_AND_ASSIGN(auto transfer_manager,
                           client->CreateBuffersForAsyncHostToDevice(
-                              {shape}, client->addressable_devices()[0]));
+                              {shape}, client->memory_spaces()[0]));
   auto buffer = transfer_manager->RetrieveBuffer(0);
   auto ready_future = buffer->GetReadyFuture();
   EXPECT_THAT(ready_future.IsReady(), IsFalse());
@@ -244,8 +278,8 @@ TEST(TfrtCpuClientTest, AsyncTransferWithSpecs) {
   PjRtClient::ShapeSpec shape_spec{U32, {3, 2}};
   TF_ASSERT_OK_AND_ASSIGN(
       auto transfer_manager,
-      client->CreateBuffersForAsyncHostToDevice(
-          {shape_spec}, std::nullopt, client->addressable_devices()[0]));
+      client->CreateBuffersForAsyncHostToDevice({shape_spec}, std::nullopt,
+                                                client->memory_spaces()[0]));
   auto buffer = transfer_manager->RetrieveBuffer(0);
   auto ready_future = buffer->GetReadyFuture();
   EXPECT_THAT(ready_future.IsReady(), IsFalse());
@@ -265,7 +299,7 @@ TEST(TfrtCpuClientTest, AsyncTransferLiteral) {
   xla::Shape shape = xla::ShapeUtil::MakeShape(F32, {128, 256});
   TF_ASSERT_OK_AND_ASSIGN(auto transfer_manager,
                           client->CreateBuffersForAsyncHostToDevice(
-                              {shape}, client->addressable_devices()[0]));
+                              {shape}, client->memory_spaces()[0]));
   auto buffer = transfer_manager->RetrieveBuffer(0);
   auto ready_future = buffer->GetReadyFuture();
   EXPECT_THAT(ready_future.IsReady(), IsFalse());
@@ -281,7 +315,7 @@ TEST(TfrtCpuClientTest, AsyncTransferLiteralInt4) {
   xla::Shape shape = xla::ShapeUtil::MakeShape(S4, {128, 256});
   TF_ASSERT_OK_AND_ASSIGN(auto transfer_manager,
                           client->CreateBuffersForAsyncHostToDevice(
-                              {shape}, client->addressable_devices()[0]));
+                              {shape}, client->memory_spaces()[0]));
   auto buffer = transfer_manager->RetrieveBuffer(0);
   auto ready_future = buffer->GetReadyFuture();
   EXPECT_THAT(ready_future.IsReady(), IsFalse());
@@ -304,12 +338,26 @@ TEST(TfrtCpuClientTest, BufferFromLiteralInt4) {
               ElementsAreArray(literal.data<s4>()));
 }
 
+TEST(TfrtCpuClientTest, CopyToMemorySpace) {
+  TF_ASSERT_OK_AND_ASSIGN(auto client, GetTfrtCpuClient(CpuClientOptions()));
+  xla::Shape shape = xla::ShapeUtil::MakeShape(S32, {128, 256});
+  TF_ASSERT_OK_AND_ASSIGN(auto literal, xla::MakeFakeLiteral(shape));
+  TF_ASSERT_OK_AND_ASSIGN(
+      auto buffer,
+      client->BufferFromHostLiteral(literal, client->memory_spaces()[0]));
+  TF_ASSERT_OK_AND_ASSIGN(buffer,
+                          buffer->CopyToMemorySpace(buffer->memory_space()));
+  TF_ASSERT_OK_AND_ASSIGN(auto received_literal, buffer->ToLiteralSync());
+  EXPECT_THAT(received_literal->data<int32_t>(),
+              ElementsAreArray(literal.data<int32_t>()));
+}
+
 TEST(TfrtCpuClientTest, AsyncTransferCallsOnDone) {
   TF_ASSERT_OK_AND_ASSIGN(auto client, GetTfrtCpuClient(CpuClientOptions()));
   xla::Shape shape = ShapeUtil::MakeShape(F32, {3, 2});
   TF_ASSERT_OK_AND_ASSIGN(auto transfer_manager,
                           client->CreateBuffersForAsyncHostToDevice(
-                              {shape}, client->addressable_devices()[0]));
+                              {shape}, client->memory_spaces()[0]));
   auto buffer = transfer_manager->RetrieveBuffer(0);
   auto ready_future = buffer->GetReadyFuture();
   EXPECT_THAT(ready_future.IsReady(), IsFalse());
@@ -327,7 +375,7 @@ TEST(TfrtCpuClientTest, AsyncTransferNeverTransferred) {
   xla::Shape shape = ShapeUtil::MakeShape(U32, {3, 2});
   TF_ASSERT_OK_AND_ASSIGN(auto transfer_manager,
                           client->CreateBuffersForAsyncHostToDevice(
-                              {shape}, client->addressable_devices()[0]));
+                              {shape}, client->memory_spaces()[0]));
   auto buffer = transfer_manager->RetrieveBuffer(0);
   transfer_manager.reset();
   EXPECT_THAT(
@@ -342,11 +390,11 @@ TEST(TfrtCpuClientTest, AsyncTransferBufferCount) {
   xla::Shape shape = ShapeUtil::MakeShape(U32, {3, 2});
   TF_ASSERT_OK_AND_ASSIGN(auto transfer_manager,
                           client->CreateBuffersForAsyncHostToDevice(
-                              {shape}, client->addressable_devices()[0]));
+                              {shape}, client->memory_spaces()[0]));
   EXPECT_EQ(transfer_manager->buffer_count(), 1);
-  TF_ASSERT_OK_AND_ASSIGN(
-      transfer_manager, client->CreateBuffersForAsyncHostToDevice(
-                            {shape, shape}, client->addressable_devices()[0]));
+  TF_ASSERT_OK_AND_ASSIGN(transfer_manager,
+                          client->CreateBuffersForAsyncHostToDevice(
+                              {shape, shape}, client->memory_spaces()[0]));
   EXPECT_EQ(transfer_manager->buffer_count(), 2);
 }
 
@@ -355,7 +403,7 @@ TEST(TfrtCpuClientTest, AsyncTransferBufferSize) {
   xla::Shape shape = ShapeUtil::MakeShape(U32, {3, 2});
   TF_ASSERT_OK_AND_ASSIGN(auto transfer_manager,
                           client->CreateBuffersForAsyncHostToDevice(
-                              {shape}, client->addressable_devices()[0]));
+                              {shape}, client->memory_spaces()[0]));
   EXPECT_EQ(transfer_manager->buffer_size(0), 3 * 2 * 4);
 }
 
@@ -363,9 +411,9 @@ TEST(TfrtCpuClientTest, AsyncTransferDevice) {
   TF_ASSERT_OK_AND_ASSIGN(auto client, GetTfrtCpuClient(CpuClientOptions()));
   xla::Shape shape = ShapeUtil::MakeShape(U32, {3, 2});
   auto* device = client->addressable_devices()[0];
-  TF_ASSERT_OK_AND_ASSIGN(
-      auto transfer_manager,
-      client->CreateBuffersForAsyncHostToDevice({shape}, device));
+  TF_ASSERT_OK_AND_ASSIGN(auto transfer_manager,
+                          client->CreateBuffersForAsyncHostToDevice(
+                              {shape}, *device->default_memory_space()));
   EXPECT_EQ(transfer_manager->device(), device);
 }
 
@@ -374,7 +422,7 @@ TEST(TfrtCpuClientTest, AsyncTransferSetBufferError) {
   xla::Shape shape = ShapeUtil::MakeShape(U32, {3, 2});
   TF_ASSERT_OK_AND_ASSIGN(auto transfer_manager,
                           client->CreateBuffersForAsyncHostToDevice(
-                              {shape}, client->addressable_devices()[0]));
+                              {shape}, client->memory_spaces()[0]));
   auto buffer = transfer_manager->RetrieveBuffer(0);
   transfer_manager->SetBufferError(0, Internal("foobar"));
   EXPECT_THAT(
@@ -398,7 +446,7 @@ TEST(TfrtCpuClientTest, AsyncTransferRawDataToSubBuffer) {
   xla::Shape shape = ShapeUtil::MakeShape(U32, {3, 2});
   TF_ASSERT_OK_AND_ASSIGN(auto transfer_manager,
                           client->CreateBuffersForAsyncHostToDevice(
-                              {shape}, client->addressable_devices()[0]));
+                              {shape}, client->memory_spaces()[0]));
   auto buffer = transfer_manager->RetrieveBuffer(0);
   auto ready_future = buffer->GetReadyFuture();
   EXPECT_THAT(ready_future.IsReady(), IsFalse());
@@ -431,7 +479,7 @@ ENTRY Identity() -> f32[2, 2] {
                           ParseAndReturnUnverifiedModule(kProgram, {}));
   XlaComputation xla_computation(hlo_module->ToProto());
   TF_ASSERT_OK_AND_ASSIGN(auto pjrt_executable,
-                          client->Compile(xla_computation, {}));
+                          client->CompileAndLoad(xla_computation, {}));
 
   TF_ASSERT_OK_AND_ASSIGN(auto fingerprint,
                           pjrt_executable->FingerprintExecutable());
@@ -469,19 +517,16 @@ ENTRY Identity() -> f32[2, 2] {
                           ParseAndReturnUnverifiedModule(kProgram, {}));
   XlaComputation xla_computation(hlo_module->ToProto());
   TF_ASSERT_OK_AND_ASSIGN(auto pjrt_executable,
-                          client->Compile(xla_computation, {}));
+                          client->CompileAndLoad(xla_computation, {}));
 
   TF_ASSERT_OK_AND_ASSIGN(auto fingerprint,
                           pjrt_executable->FingerprintExecutable());
   ASSERT_TRUE(!fingerprint.empty());
 
   Shape shape = ShapeUtil::MakeShape(F32, {2, 2});
-  TF_ASSERT_OK_AND_ASSIGN(
-      auto* memory_space,
-      client->addressable_devices()[0]->default_memory_space());
-  TF_ASSERT_OK_AND_ASSIGN(
-      auto transfer_manager,
-      client->CreateBuffersForAsyncHostToDevice({shape}, memory_space));
+  TF_ASSERT_OK_AND_ASSIGN(auto transfer_manager,
+                          client->CreateBuffersForAsyncHostToDevice(
+                              {shape}, client->memory_spaces()[0]));
   auto buffer = transfer_manager->RetrieveBuffer(0);
   transfer_manager->SetBufferError(0, Internal("foobar"));
 
@@ -514,7 +559,7 @@ ENTRY Identity() -> f32[2, 2] {
                           ParseAndReturnUnverifiedModule(kProgram, {}));
   XlaComputation xla_computation(hlo_module->ToProto());
   TF_ASSERT_OK_AND_ASSIGN(auto pjrt_executable,
-                          client->Compile(xla_computation, {}));
+                          client->CompileAndLoad(xla_computation, {}));
 
   TF_ASSERT_OK_AND_ASSIGN(auto fingerprint,
                           pjrt_executable->FingerprintExecutable());
@@ -561,6 +606,70 @@ ENTRY Identity() -> f32[2, 2] {
   }
 }
 
+TEST(TfrtCpuClientTest, PoisonExecution) {
+  static constexpr char kProgram[] =
+      R"(
+HloModule Identity
+ENTRY Identity() -> f32[2, 2] {
+    ROOT %result = f32[2, 2] parameter(0)
+})";
+
+  TF_ASSERT_OK_AND_ASSIGN(auto client, GetTfrtCpuClient(CpuClientOptions()));
+
+  TF_ASSERT_OK_AND_ASSIGN(auto hlo_module,
+                          ParseAndReturnUnverifiedModule(kProgram, {}));
+  XlaComputation xla_computation(hlo_module->ToProto());
+  TF_ASSERT_OK_AND_ASSIGN(auto pjrt_executable,
+                          client->CompileAndLoad(xla_computation, {}));
+
+  TF_ASSERT_OK_AND_ASSIGN(auto fingerprint,
+                          pjrt_executable->FingerprintExecutable());
+  ASSERT_TRUE(!fingerprint.empty());
+
+  Shape shape = ShapeUtil::MakeShape(F32, {2, 2});
+  TF_ASSERT_OK_AND_ASSIGN(auto transfer_manager,
+                          client->CreateBuffersForAsyncHostToDevice(
+                              {shape}, client->memory_spaces()[0]));
+  auto buffer = transfer_manager->RetrieveBuffer(0);
+
+  const int32_t kLaunchId = 123;
+  ExecuteOptions opts;
+  opts.launch_id = kLaunchId;
+  // PoisonExecution only works for asynchronous executions. Synchronous
+  // executions are executed inline and will not be poisonable.
+  opts.execution_mode = ExecuteOptions::ExecutionMode::kAsynchronous;
+
+  auto result =
+      pjrt_executable->Execute(/*argument_handles=*/{{buffer.get()}}, opts);
+  TF_ASSERT_OK(result);
+
+  // Poisoning the execution should succeed because the execution has not
+  // started with the input buffer not defined yet.
+  auto poison_result = client->addressable_devices().front()->PoisonExecution(
+      kLaunchId, Internal("foobar1"));
+  EXPECT_THAT(poison_result, IsOkAndHolds(true));
+
+  // The buffer is expected to be poisoned with the error.
+  ASSERT_EQ(result->size(), 1);
+  ASSERT_EQ(result->at(0).size(), 1);
+  EXPECT_THAT(
+      result->at(0).at(0)->ToLiteralSync(),
+      tsl::testing::StatusIs(tsl::error::INTERNAL, HasSubstr("foobar1")));
+
+  // A later error (propagated from the input buffer) would not affect the
+  // already poisoned output buffer.
+  transfer_manager->SetBufferError(0, Internal("foobar2"));
+
+  EXPECT_THAT(
+      result->at(0).at(0)->ToLiteralSync(),
+      tsl::testing::StatusIs(tsl::error::INTERNAL, HasSubstr("foobar1")));
+
+  // Attempting to poison a non-existent execution should fail.
+  poison_result = client->addressable_devices().front()->PoisonExecution(
+      kLaunchId + 12, Internal("foobar3"));
+  EXPECT_THAT(poison_result, IsOkAndHolds(false));
+}
+
 // User-defined data type to be passed to FFI handler via the execute context
 // side channel.
 struct MemsetValue {
@@ -600,7 +709,7 @@ TEST(TfrtCpuClientTest, ForwardUserDataToFfiHandler) {
                           ParseAndReturnUnverifiedModule(kProgram, {}));
   XlaComputation xla_computation(hlo_module->ToProto());
   TF_ASSERT_OK_AND_ASSIGN(auto executable,
-                          client->Compile(xla_computation, {}));
+                          client->CompileAndLoad(xla_computation, {}));
 
   ExecuteContext context;
   TF_ASSERT_OK(context.ffi_context().Emplace<MemsetValue>(42.0f));
@@ -649,7 +758,7 @@ TEST(TfrtCpuClientTest, PassAttrToFfiHandler) {
                           ParseAndReturnUnverifiedModule(kProgram, {}));
   XlaComputation xla_computation(hlo_module->ToProto());
   TF_ASSERT_OK_AND_ASSIGN(auto executable,
-                          client->Compile(xla_computation, {}));
+                          client->CompileAndLoad(xla_computation, {}));
 
   ExecuteOptions opts;
   auto result = executable->Execute(/*argument_handles=*/{{}}, opts);
@@ -665,7 +774,7 @@ TEST(TfrtCpuClientTest, CopyRawToHost) {
   xla::Shape shape = ShapeUtil::MakeShape(U32, {3, 2});
   TF_ASSERT_OK_AND_ASSIGN(auto transfer_manager,
                           client->CreateBuffersForAsyncHostToDevice(
-                              {shape}, client->addressable_devices()[0]));
+                              {shape}, client->memory_spaces()[0]));
   auto buffer = transfer_manager->RetrieveBuffer(0);
   auto ready_future = buffer->GetReadyFuture();
   EXPECT_THAT(ready_future.IsReady(), IsFalse());

@@ -27,6 +27,7 @@ limitations under the License.
 
 #include "absl/base/casts.h"
 #include "absl/cleanup/cleanup.h"
+#include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
@@ -133,10 +134,10 @@ absl::Status FixTupleTableAsync(se::Stream* stream,
 // "bounded_shape".
 bool DynamicShapeIsCompatible(const xla::Shape& dynamic_shape,
                               const xla::Shape& bounded_shape) {
-  if (dynamic_shape.rank() != bounded_shape.rank()) {
+  if (dynamic_shape.dimensions().size() != bounded_shape.dimensions().size()) {
     return false;
   }
-  for (int64_t i = 0; i < dynamic_shape.rank(); ++i) {
+  for (int64_t i = 0; i < dynamic_shape.dimensions().size(); ++i) {
     if (dynamic_shape.dimensions(i) > bounded_shape.dimensions(i)) {
       return false;
     }

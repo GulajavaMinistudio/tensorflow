@@ -19,13 +19,16 @@ limitations under the License.
 #include <cstdint>
 #include <memory>
 #include <utility>
+#include <vector>
 
 #include "absl/base/thread_annotations.h"
 #include "absl/container/flat_hash_map.h"
+#include "absl/container/inlined_vector.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/synchronization/mutex.h"
 #include "xla/backends/gpu/runtime/thunk.h"
+#include "xla/backends/gpu/runtime/thunk.pb.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/service/buffer_assignment.h"
 #include "xla/stream_executor/event.h"
@@ -95,6 +98,8 @@ class CopyThunk : public Thunk {
   }
   uint64_t size_bytes() const { return mem_size_; }
 
+  absl::StatusOr<ThunkProto> ToProto() const override;
+
  private:
   const BufferAllocation::Slice source_buffer_;
   const BufferAllocation::Slice destination_buffer_;
@@ -121,6 +126,8 @@ class DeviceToHostCopyThunk : public CopyThunk {
                         const HloInstruction* instr);
   absl::Status ExecuteOnStream(const ExecuteParams& params) override;
 
+  absl::StatusOr<ThunkProto> ToProto() const override;
+
  private:
   std::shared_ptr<CopyThunk::AsyncEvents> async_events_;
   const HloInstruction* instr_;
@@ -146,6 +153,8 @@ class HostToDeviceCopyThunk : public CopyThunk {
                         const HloInstruction* instr);
   absl::Status ExecuteOnStream(const ExecuteParams& params) override;
 
+  absl::StatusOr<ThunkProto> ToProto() const override;
+
  private:
   std::shared_ptr<CopyThunk::AsyncEvents> async_events_;
   const HloInstruction* instr_;
@@ -166,6 +175,57 @@ class CopyDoneThunk : public Thunk {
  private:
   std::shared_ptr<CopyThunk::AsyncEvents> async_events_;
   const HloInstruction* copy_start_instr_;
+};
+
+//===----------------------------------------------------------------------===//
+// DynamicMemcpyThunk
+//===----------------------------------------------------------------------===//
+
+class DynamicMemcpyThunk : public Thunk {
+ public:
+  struct MemcpyDescriptor {
+    struct DynamicOffset {
+      // The while loop whose induction variable defines the offset.
+      const HloInstruction* while_loop;
+      const HloInstruction* induction_variable;
+
+      // See documentation for ResolveFunctionalDependencyOnInductionVariable.
+      absl::flat_hash_map<const HloComputation*, absl::InlinedVector<bool, 1>>
+          required_parameters;
+
+      // All dependencies of `offset` must end in `induction_variable` or
+      // constants only.
+      const HloInstruction* offset;
+
+      // The size of the dimension that this offset corresponds to. As per HLO
+      // semantics, values of `offset` will be clamped to one less than this.
+      int64_t dimension_size;
+
+      // The stride with which to multiply the induction variable's value.
+      int64_t byte_stride;
+    };
+
+    std::vector<DynamicOffset> src_dynamic_offsets;
+    int64_t src_byte_static_offset = 0;
+
+    std::vector<DynamicOffset> dst_dynamic_offsets;
+    int64_t dst_byte_static_offset = 0;
+  };
+
+  DynamicMemcpyThunk(ThunkInfo thunk_info,
+                     const BufferAllocation::Slice& source_buffer,
+                     const BufferAllocation::Slice& destination_buffer,
+                     uint64_t mem_size, MemcpyDescriptor descriptor);
+  DynamicMemcpyThunk(const DynamicMemcpyThunk&) = delete;
+  DynamicMemcpyThunk& operator=(const DynamicMemcpyThunk&) = delete;
+
+  absl::Status ExecuteOnStream(const ExecuteParams& params) override;
+
+ private:
+  const BufferAllocation::Slice source_buffer_;
+  const BufferAllocation::Slice destination_buffer_;
+  const uint64_t mem_size_;
+  MemcpyDescriptor descriptor_;
 };
 
 }  // namespace gpu

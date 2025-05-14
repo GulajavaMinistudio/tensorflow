@@ -15,16 +15,23 @@ limitations under the License.
 
 #include "tensorflow/compiler/aot/codegen.h"
 
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <iterator>
 #include <memory>
+#include <numeric>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include "absl/memory/memory.h"
+#include "absl/algorithm/container.h"
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/str_replace.h"
 #include "absl/strings/str_split.h"
+#include "absl/strings/string_view.h"
 #include "absl/strings/substitute.h"
 #include "absl/types/span.h"
 #include "tensorflow/compiler/aot/embedded_protocol_buffers.h"
@@ -33,7 +40,9 @@ limitations under the License.
 #include "xla/cpu_function_runtime.h"
 #include "xla/service/compiler.h"
 #include "xla/service/cpu/buffer_info_util.h"
+#include "xla/shape.h"
 #include "xla/shape_util.h"
+#include "xla/tsl/platform/statusor.h"
 #include "xla/xla_data.pb.h"
 #include "tensorflow/core/lib/core/errors.h"
 
@@ -135,12 +144,12 @@ absl::Status AddRewritesForShape(
   std::vector<string> dim_vars;
   string dim_sizes, indices;
   int count = 1;
-  if (shape.rank() == 0 ||
-      (shape.dimensions_size() == 1 && shape.dimensions(0) == 1)) {
+  if (shape.dimensions_size() == 0 ||
+      (shape.dimensions().size() == 1 && shape.dimensions(0) == 1)) {
     dim_sizes = "[1]";
     indices = "[0]";
   } else {
-    for (int dim = 0; dim < shape.dimensions_size(); ++dim) {
+    for (int dim = 0; dim < shape.dimensions().size(); ++dim) {
       dim_vars.push_back(absl::StrCat("size_t dim", dim));
       dim_sizes += absl::StrCat("[", shape.dimensions(dim), "]");
       indices += absl::StrCat("[dim", dim, "]");
@@ -518,6 +527,7 @@ absl::Status GenerateHeader(const CodegenOpts& opts,
   TF_RETURN_IF_ERROR(
       CheckEqual(ps.result().tuple_shapes_size(), result_index_table.size(),
                  "Result number mismatch, proto vs. result_index_table"));
+  TF_ASSIGN_OR_RETURN(auto program_shape, xla::ProgramShape::FromProto(ps));
   const size_t arg_bytes_aligned =
       xla::cpu_function_runtime::AlignedBufferBytes(
           buffer_infos_for_args.data(), buffer_infos_for_args.size(),
@@ -838,7 +848,7 @@ class {{CLASS}} final : public tensorflow::XlaCompiledCpuFunction {
       {"{{METHODS_VARIABLE}}\n", methods_variable},
       {"{{NS_END}}\n", ns_end},
       {"{{NS_START}}\n", ns_start},
-      {"{{PROGRAM_SHAPE}}", xla::ShapeUtil::HumanString(xla::ProgramShape(ps))},
+      {"{{PROGRAM_SHAPE}}", xla::ShapeUtil::HumanString(program_shape)},
       {"{{PROGRAM_SHAPE_SHIM_EXPRESSION}}",
        metadata_result.program_shape_access_shim},
       {"{{VARIABLE_NAMES_CODE}}", variable_names_code},

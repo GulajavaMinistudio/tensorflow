@@ -233,25 +233,17 @@ HloFusionAnalysis::EmitterFusionKind HloFusionAnalysis::GetEmitterFusionKind()
   }
 
   if (fusion_backend_config_.kind() == kTritonFusionKind ||
-      fusion_backend_config_.kind() == kTritonGemmFusionKind) {
+      fusion_backend_config_.kind() == kTritonGemmFusionKind ||
+      fusion_backend_config_.kind() == kTritonNestedGemmFusionKind) {
     return EmitterFusionKind::kTriton;
+  }
+
+  if (fusion_backend_config_.kind() == kDynamicMemcpyFusionKind) {
+    return EmitterFusionKind::kDynamicMemcpy;
   }
 
   if (fusion_backend_config_.kind() == kCuDnnFusionKind) {
     return EmitterFusionKind::kCuDnn;
-  }
-
-  if (input_output_info_.smallest_input_dtype_bits < 8 ||
-      input_output_info_.smallest_output_dtype_bits < 8) {
-    // Only loop and input slice fusions currently can handle packed
-    // inputs/outputs, due to the special handling with IrArray needed to deal
-    // with multiple values occupying a single byte.
-    if (fusion_roots_.size() > 1 &&
-        IsInputFusibleNonStridedSlices(fusion_roots_) &&
-        AllSliceInputsAreCompatible(fusion_roots_)) {
-      return EmitterFusionKind::kInputSlices;
-    }
-    return EmitterFusionKind::kLoop;
   }
 
   std::optional<HloInstructionAdaptor> first_reduce_hero;
