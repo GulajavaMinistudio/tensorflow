@@ -24,11 +24,11 @@ limitations under the License.
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "xla/comparison_util.h"
-#include "xla/hlo/ir/collective_device_list.h"
 #include "xla/hlo/ir/hlo_computation.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_module.h"
 #include "xla/hlo/ir/hlo_opcode.h"
+#include "xla/hlo/ir/replica_group.h"
 #include "xla/hlo/testlib/hlo_hardware_independent_test_base.h"
 #include "xla/hlo/testlib/test.h"
 #include "xla/hlo/testlib/test_helpers.h"
@@ -1249,6 +1249,29 @@ ENTRY main {
 
   HloInstruction* dus = module->entry_computation()->GetInstructionWithName(
       "dynamic-update-slice");
+  EXPECT_FALSE(OutputsBF16(dus));
+}
+
+TEST_F(BFloat16PropagationTest, DynamicSliceWithHostMemory) {
+  // In the case of dynamic-slice from host memory, we should not propagate
+  // bf16.
+  const std::string module_str = R"(
+  HloModule Module
+
+  ENTRY main {
+    param = f32[128,128]{1,0:S(5)} parameter(0)
+    constant.3 = s32[] constant(0)
+    dynamic-slice = f32[128,8] dynamic-slice(param, constant.3, constant.3), dynamic_slice_sizes={128,8}
+    ROOT dot = f32[128,128] dot(dynamic-slice, dynamic-slice), lhs_contracting_dims={1}, rhs_contracting_dims={1}
+  }
+  )";
+
+  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
+                          ParseAndReturnVerifiedModule(module_str));
+  EXPECT_FALSE(PropagatePrecision(module.get()));
+
+  HloInstruction* dus =
+      module->entry_computation()->GetInstructionWithName("dynamic-slice");
   EXPECT_FALSE(OutputsBF16(dus));
 }
 

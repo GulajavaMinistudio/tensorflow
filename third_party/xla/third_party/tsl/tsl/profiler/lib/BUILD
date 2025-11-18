@@ -1,4 +1,4 @@
-load("@local_xla//xla/tsl:tsl.bzl", "if_not_android", "if_oss", "internal_visibility", "nvtx_headers")
+load("@local_xla//xla/tsl:tsl.bzl", "if_not_android", "internal_visibility", "nvtx_headers")
 load("@local_xla//xla/tsl:tsl.default.bzl", "filegroup", "get_compatible_with_portable")
 load("@local_xla//xla/tsl/platform:build_config.bzl", "tsl_cc_test")
 load("@local_xla//xla/tsl/platform:build_config_root.bzl", "if_static")
@@ -287,13 +287,12 @@ cc_library(
         ["nvtx_utils_stub.cc"],
     ),
     hdrs = ["nvtx_utils.h"],
-    local_defines = if_oss(["NVTX_VERSION_3_1=1"]),
     visibility = ["//visibility:public"],
     deps = if_cuda_is_configured(nvtx_headers()),
 )
 
 cc_library(
-    name = "nvtx_utils_libtpu",
+    name = "nvtx_utils_external",
     srcs = ["nvtx_utils_stub.cc"],
     hdrs = ["nvtx_utils.h"],
     visibility = ["//visibility:public"],
@@ -311,7 +310,8 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = select({
         # Remove this once we clean up all the CUDA specific deps.
-        "libtpu_on_gce": [":nvtx_utils_libtpu"],
+        "libtpu_on_gce": [":nvtx_utils_external"],
+        # Place holder for internal dependencies
         "//conditions:default": [":nvtx_utils_impl"],
     }),
 )
@@ -370,6 +370,7 @@ cc_library(
         "@local_xla//xla/backends/profiler/plugin:__pkg__",
         "//learning/brain/tfrc/executor/stream_executor:__pkg__",
         "@local_xla//xla/backends/profiler/cpu:__pkg__",
+        "@local_xla//xla/backends/profiler/subprocess:__pkg__",
     ]),
     deps = [
         ":profiler_interface",
@@ -385,5 +386,6 @@ cc_library(
     hdrs = ["scoped_memory_debug_annotation.h"],
     visibility = ["//visibility:public"],
     deps = [
+        "@com_google_absl//absl/strings:string_view",
     ],
 )

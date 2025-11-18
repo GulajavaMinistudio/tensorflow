@@ -20,11 +20,11 @@ limitations under the License.
 #include <functional>
 
 #include "absl/synchronization/mutex.h"
+#include "absl/synchronization/notification.h"
 #include "xla/tsl/lib/gtl/flatmap.h"
 #include "xla/tsl/platform/status.h"
 #include "xla/tsl/platform/types.h"
 #include "tsl/platform/hash.h"
-#include "tsl/platform/notification.h"
 #include "tsl/platform/stringpiece.h"
 #include "tsl/platform/thread_annotations.h"
 
@@ -168,7 +168,7 @@ class CancellationManager {
   };
 
   struct State {
-    Notification cancelled_notification;
+    absl::Notification cancelled_notification;
     gtl::FlatMap<CancellationToken, CallbackConfiguration> callbacks;
 
     // If this CancellationManager has any children, this member points to the

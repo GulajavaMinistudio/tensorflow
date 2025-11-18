@@ -34,7 +34,7 @@ namespace internal {
 // rendezvous is ready, false if the timeout is exceeded.
 static bool WaitForReadyWithTimeout(RendezvousStateSynchronization& state,
                                     absl::Duration timeout) {
-  absl::MutexLock lock(&state.mutex);
+  absl::MutexLock lock(state.mutex);
 
   // Keep checking if the rendezvous is ready inside a loop and update TraceMe
   // annotation to track the rendezvous progress.
@@ -127,8 +127,9 @@ void AwaitAndLogIfStuck(RendezvousStateSynchronization& state, int32_t id,
     LOG(FATAL) << absl::StreamFormat(
         "[id=%d] Termination timeout for `%s` of %d seconds exceeded. Exiting "
         "to ensure a consistent program state. Expected %d threads to join the "
-        "rendezvous, but not all of them arrived on time.",
-        id, name, absl::ToInt64Seconds(terminate_timeout), state.num_threads);
+        "rendezvous, but only %d of them arrived on time.",
+        id, name, absl::ToInt64Seconds(terminate_timeout), state.num_threads,
+        state.ack.load());
   }
 }
 

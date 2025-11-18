@@ -38,6 +38,7 @@ limitations under the License.
 #include "absl/synchronization/mutex.h"
 #include "absl/types/span.h"
 #include "xla/client/executable_build_options.h"
+#include "xla/future.h"
 #include "xla/hlo/ir/hlo_module.h"
 #include "xla/hlo/parser/hlo_parser.h"
 #include "xla/literal.h"
@@ -46,10 +47,9 @@ limitations under the License.
 #include "xla/pjrt/c/pjrt_c_api_helpers.h"
 #include "xla/pjrt/c/pjrt_c_api_memory_descriptions_extension.h"
 #include "xla/pjrt/c/pjrt_c_api_test_base.h"
-#include "xla/pjrt/compile_options.pb.h"
 #include "xla/pjrt/pjrt_client.h"
 #include "xla/pjrt/pjrt_device_description.h"
-#include "xla/pjrt/pjrt_future.h"
+#include "xla/pjrt/proto/compile_options.pb.h"
 #include "xla/service/computation_placer.h"
 #include "xla/service/hlo.pb.h"
 #include "xla/shape.h"
@@ -88,7 +88,7 @@ class TestCApiFactory {
  public:
   void Register(std::function<const PJRT_Api*()> factory,
                 absl::string_view platform_name) {
-    absl::MutexLock lock(&mu_);
+    absl::MutexLock lock(mu_);
     CHECK(!factory_);
     factory_ = std::move(factory);
     CHECK(platform_name_.empty()) << "Platform name already provided";
@@ -97,13 +97,13 @@ class TestCApiFactory {
   }
 
   std::function<const PJRT_Api*()> Get() const {
-    absl::MutexLock lock(&mu_);
+    absl::MutexLock lock(mu_);
     CHECK(factory_) << "Test didn't call RegisterPjRtCApiTestFactory()";
     return factory_;
   }
 
   std::string GetPlatformName() const {
-    absl::MutexLock lock(&mu_);
+    absl::MutexLock lock(mu_);
     CHECK(!platform_name_.empty())
         << "Test didn't call RegisterPjRtCApiTestFactory()";
     return platform_name_;
@@ -581,26 +581,15 @@ class PjrtCApiBufferTest : public PjrtCApiTest {
  protected:
   void SetUp() override {
     PjrtCApiTest::SetUp();
-    auto buffer_and_event = create_buffer();
-    buffer_ = std::move(buffer_and_event.first);
-    event_ = buffer_and_event.second;
+    buffer_ = create_buffer();
   }
 
   void TearDown() override {
-    // event_ need to complete before the client is destroyed; otherwise there
-    // is a data race between destroying the client and trying to access the
-    // host context in the client for the callback after host to device transfer
-    // is completed.
-    TF_CHECK_OK(event_.Await());
-    // buffer_ must be destroyed before the client is destroyed or else the
-    // unique_ptr for buffer_ will go out of scope causing heap-use-after-free
-    // error.
     buffer_.reset(nullptr);
     PjrtCApiTest::TearDown();
   }
 
   std::unique_ptr<PJRT_Buffer, ::pjrt::PJRT_BufferDeleter> buffer_;
-  xla::PjRtFuture<> event_;
 };
 
 TEST_F(PjrtCApiBufferTest, IsDeleted) {
@@ -674,10 +663,13 @@ TEST_F(PjrtCApiBufferTest, ReadyEvent) {
 }
 
 TEST_F(PjrtCApiBufferTest, ToHostBufferNoHostLayout) {
+  auto [buffer, buffer_future] = create_iota_buffer();
+  TF_CHECK_OK(buffer_future.Await());
+
   PJRT_Buffer_ToHostBuffer_Args args;
   args.struct_size = PJRT_Buffer_ToHostBuffer_Args_STRUCT_SIZE;
   args.extension_start = nullptr;
-  args.src = buffer_.get();
+  args.src = buffer.get();
   xla::Shape host_shape = xla::ShapeUtil::MakeShape(xla::F32, {4});
   auto literal = std::make_shared<xla::Literal>(host_shape);
   args.host_layout = nullptr;
@@ -686,7 +678,7 @@ TEST_F(PjrtCApiBufferTest, ToHostBufferNoHostLayout) {
   args.event = nullptr;
 
   PJRT_Error* error = api_->PJRT_Buffer_ToHostBuffer(&args);
-  xla::PjRtFuture<> transfer_to_host =
+  xla::Future<> transfer_to_host =
       ::pjrt::ConvertCEventToCppFuture(args.event, api_);
   TF_CHECK_OK(transfer_to_host.Await());
 
@@ -936,6 +928,22 @@ FieldOffsetsAndSizesForVersion(int major_version, int minor_version) {
     if (minor_version >= 67) {
       add_field("PJRT_Client_DmaMap", kFnPtrSize);
       add_field("PJRT_Client_DmaUnmap", kFnPtrSize);
+    }
+    if (minor_version >= 68) {
+      add_field("PJRT_Client_CreateUninitializedBuffer", kFnPtrSize);
+    }
+    if (minor_version >= 73) {
+      add_field("PJRT_Client_UpdateGlobalProcessInfo", kFnPtrSize);
+    }
+    if (minor_version >= 75) {
+      add_field("PJRT_TopologyDescription_Deserialize", kFnPtrSize);
+    }
+    if (minor_version >= 77) {
+      add_field("PJRT_Client_CreateAliasBuffer", kFnPtrSize);
+      add_field("PJRT_Client_FulfillAliasBuffer", kFnPtrSize);
+    }
+    if (minor_version >= 79) {
+      add_field("PJRT_LoadedExecutable_GetDeviceAssignment", kFnPtrSize);
     }
     return version_offsets_and_sizes;
   }
@@ -1310,6 +1318,24 @@ TEST_F(PjrtCAbiTestBase, FieldOffsetsAndSizes) {
           {"PJRT_Client_DmaUnmap",
            {offsetof(PJRT_Api, PJRT_Client_DmaUnmap),
             sizeof(PJRT_Api::PJRT_Client_DmaUnmap)}},
+          {"PJRT_Client_CreateUninitializedBuffer",
+           {offsetof(PJRT_Api, PJRT_Client_CreateUninitializedBuffer),
+            sizeof(PJRT_Api::PJRT_Client_CreateUninitializedBuffer)}},
+          {"PJRT_Client_UpdateGlobalProcessInfo",
+           {offsetof(PJRT_Api, PJRT_Client_UpdateGlobalProcessInfo),
+            sizeof(PJRT_Api::PJRT_Client_UpdateGlobalProcessInfo)}},
+          {"PJRT_TopologyDescription_Deserialize",
+           {offsetof(PJRT_Api, PJRT_TopologyDescription_Deserialize),
+            sizeof(PJRT_Api::PJRT_TopologyDescription_Deserialize)}},
+          {"PJRT_Client_CreateAliasBuffer",
+           {offsetof(PJRT_Api, PJRT_Client_CreateAliasBuffer),
+            sizeof(PJRT_Api::PJRT_Client_CreateAliasBuffer)}},
+          {"PJRT_Client_FulfillAliasBuffer",
+           {offsetof(PJRT_Api, PJRT_Client_FulfillAliasBuffer),
+            sizeof(PJRT_Api::PJRT_Client_FulfillAliasBuffer)}},
+          {"PJRT_LoadedExecutable_GetDeviceAssignment",
+           {offsetof(PJRT_Api, PJRT_LoadedExecutable_GetDeviceAssignment),
+            sizeof(PJRT_Api::PJRT_LoadedExecutable_GetDeviceAssignment)}},
       };
   ASSERT_EQ(api_->pjrt_api_version.major_version, PJRT_API_MAJOR);
   ASSERT_EQ(api_->pjrt_api_version.minor_version, PJRT_API_MINOR);

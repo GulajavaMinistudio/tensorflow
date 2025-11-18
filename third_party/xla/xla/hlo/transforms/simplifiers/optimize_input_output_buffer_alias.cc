@@ -60,7 +60,7 @@ absl::StatusOr<bool> OptimizeInputOutputBufferAlias::Build(
     VLOG(1) << "input_shape: " << input_shape.ToString();
     ShapeUtil::ForEachSubshape(input_shape, [&](const Shape& subshape,
                                                 const ShapeIndex& index) {
-      if (!LayoutUtil::IsDenseArray(subshape) || subshape.is_dynamic()) {
+      if (!subshape.IsArray() || subshape.is_dynamic()) {
         return;
       }
       if (alias_config->ParameterHasAlias(param_number, index)) {
@@ -86,7 +86,7 @@ absl::StatusOr<bool> OptimizeInputOutputBufferAlias::Build(
   VLOG(1) << "output_shape: " << output_shape.ToString();
   ShapeUtil::ForEachSubshape(
       output_shape, [&](const Shape& subshape, const ShapeIndex& index) {
-        if (!LayoutUtil::IsDenseArray(subshape)) {
+        if (!subshape.IsArray()) {
           return;
         }
         if (alias_config->OutputHasAlias(index)) {
@@ -142,7 +142,7 @@ absl::StatusOr<bool> OptimizeInputOutputBufferAlias::Build(
   return changed;
 }
 
-absl::StatusOr<bool> OptimizeInputOutputBufferAlias::Run(
+absl::StatusOr<bool> OptimizeInputOutputBufferAlias::RunImpl(
     HloModule* module,
     const absl::flat_hash_set<absl::string_view>& execution_threads) {
   // We exactly follow HloInputOutputAliasConfig::Verify to create input_shapes

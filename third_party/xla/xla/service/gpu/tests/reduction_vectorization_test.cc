@@ -17,11 +17,12 @@ limitations under the License.
 #include <string>
 #include <utility>
 
-#include "absl/strings/str_replace.h"
+#include <gtest/gtest.h>
 #include "xla/error_spec.h"
 #include "xla/hlo/parser/hlo_parser.h"
 #include "xla/service/gpu/tests/gpu_codegen_test.h"
 #include "xla/stream_executor/device_description.h"
+#include "xla/xla.pb.h"
 #include "tsl/platform/statusor.h"
 #include "tsl/platform/test.h"
 
@@ -88,18 +89,18 @@ ENTRY %cluster {
   TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<VerifiedHloModule> optimized_module,
                           ParseAndReturnVerifiedModule(hlo_text));
   std::string expected = R"(
-CHECK: ld.global.nc.v2.f32
-CHECK: st.global.v2.f32
-CHECK: st.global.v2.f32
-CHECK: ld.global.nc.v2.f32
-CHECK: st.global.v2.f32
-CHECK: st.global.v2.f32
-CHECK: ld.global.nc.v2.f32
-CHECK: st.global.v2.f32
-CHECK: st.global.v2.f32
-CHECK: ld.global.nc.v2.f32
-CHECK: st.global.v2.f32
-CHECK: st.global.v2.f32
+CHECK: ld.global.nc.v2.b32
+CHECK: st.global.v2.b32
+CHECK: st.global.v2.b32
+CHECK: ld.global.nc.v2.b32
+CHECK: st.global.v2.b32
+CHECK: st.global.v2.b32
+CHECK: ld.global.nc.v2.b32
+CHECK: st.global.v2.b32
+CHECK: st.global.v2.b32
+CHECK: ld.global.nc.v2.b32
+CHECK: st.global.v2.b32
+CHECK: st.global.v2.b32
 )";
   CompileAndOptionallyVerifyPtx(std::move(optimized_module), expected);
 

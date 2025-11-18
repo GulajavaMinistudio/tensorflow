@@ -30,9 +30,11 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/str_format.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/types/span.h"
-#include "xla/cpu_function_runtime.h"
+#include "xla/backends/cpu/alignment.h"
+#include "xla/future.h"
 #include "xla/layout.h"
 #include "xla/layout_util.h"
 #include "xla/literal.h"
@@ -42,7 +44,7 @@ limitations under the License.
 #include "xla/pjrt/cpu/tracked_cpu_device_buffer.h"
 #include "xla/pjrt/device_event.h"
 #include "xla/pjrt/pjrt_client.h"
-#include "xla/pjrt/pjrt_future.h"
+#include "xla/pjrt/raw_buffer.h"
 #include "xla/pjrt/transpose.h"
 #include "xla/pjrt/utils.h"
 #include "xla/primitive_util.h"
@@ -53,6 +55,7 @@ limitations under the License.
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xla/util.h"
+#include "xla/xla_data.pb.h"
 #include "tsl/platform/casts.h"
 #include "tsl/profiler/lib/connected_traceme.h"
 #include "tsl/profiler/lib/traceme.h"
@@ -63,14 +66,18 @@ constexpr size_t kSmallDataTransferByteSize = 102400;  // 100 KiB
 
 void CpuTrackedDeviceEventPromise::Set(
     tsl::RCReference<PjRtDeviceEvent> event) {
-  auto tpu_event =
+  auto cpu_event =
       tensorflow::down_cast<CpuTrackedDeviceEvent*>(event.get())->event();
-  av_->ForwardTo(std::move(tpu_event));
+  av_->ForwardTo(std::move(cpu_event));
 }
 
-PjRtFuture<> CpuTrackedDeviceEvent::GetReadyFuture() {
-  PjRtFuture<>::Promise promise = PjRtFuture<>::CreatePromise();
-  event_.AndThen([promise, event = event_]() mutable {
+void CpuTrackedDeviceEventPromise::SetReady() {
+  av_->ForwardTo(tsl::MakeAvailableAsyncValueRef<CpuEvent>());
+}
+
+Future<> CpuTrackedDeviceEvent::GetReadyFuture() {
+  auto [promise, future] = Future<>::MakePromise();
+  event_.AndThen([promise = std::move(promise), event = event_]() mutable {
     if (auto* error = event.GetErrorIfPresent()) {
       promise.Set(*error);
     } else {
@@ -78,31 +85,28 @@ PjRtFuture<> CpuTrackedDeviceEvent::GetReadyFuture() {
     }
   });
 
-  return PjRtFuture<>(
-      promise,
+  return FutureHelpers::WithProfiling(
+      std::move(future),
       /*on_block_start=*/
-      [ready_event = FormRef(promise.async_value()),
-       callee_method = callee_method_, callee_type = callee_type_]() {
+      [callee_method = callee_method_, callee_type = callee_type_]() {
         tsl::profiler::TraceMeProducer traceme(
             [&] { return absl::StrCat(callee_type, "::", callee_method); });
-        return PjRtFutureHelpers::ProfilingKeys({traceme.GetContextId()});
+        return FutureHelpers::ProfilingKeys({traceme.GetContextId()});
       },
       /*on_block_end=*/
       [callee_method = callee_method_,
-       callee_type = callee_type_](PjRtFutureHelpers::ProfilingKeys keys) {
+       callee_type = callee_type_](FutureHelpers::ProfilingKeys keys) {
         tsl::profiler::TraceMeConsumer traceme(
             [&] { return absl::StrCat(callee_type, "::", callee_method); },
             keys.traceme_context_id);
       });
 }
 
-void CpuTrackedDeviceEvent::AndThen(absl::AnyInvocable<void() &&> cb) {
-  event_.AndThen(std::move(cb));
-}
-
 /*static*/ absl::StatusOr<tsl::RCReference<CpuRawBuffer>>
-CpuRawBuffer::Allocate(PjRtMemorySpace* memory_space, size_t size_bytes) {
-  TF_ASSIGN_OR_RETURN(auto memory, CpuDeviceMemory::Allocate(size_bytes));
+CpuRawBuffer::Allocate(PjRtMemorySpace* memory_space, size_t size_bytes,
+                       const CpuDeviceMemory::Allocator& allocator) {
+  TF_ASSIGN_OR_RETURN(auto memory,
+                      CpuDeviceMemory::Allocate(size_bytes, allocator));
   return tsl::MakeRef<CpuRawBuffer>(memory_space, std::move(memory));
 }
 
@@ -110,13 +114,11 @@ CpuRawBuffer::Allocate(PjRtMemorySpace* memory_space, size_t size_bytes) {
 CpuRawBuffer::ImportForeignMemory(
     void* data, absl::AnyInvocable<void() &&> on_delete_callback,
     size_t on_device_bytes_count, PjRtMemorySpace* memory_space) {
-  if ((absl::bit_cast<std::uintptr_t>(data) &
-       (cpu_function_runtime::MinAlign() - 1)) != 0) {
+  if ((absl::bit_cast<std::uintptr_t>(data) & (cpu::MinAlign() - 1)) != 0) {
     return InvalidArgument(
         "Can't create a view of buffer with unaligned data, ptr: %#x is not "
         "aligned to %d bytes. ",
-        reinterpret_cast<std::uintptr_t>(data),
-        cpu_function_runtime::MinAlign());
+        reinterpret_cast<std::uintptr_t>(data), cpu::MinAlign());
   }
   return tsl::MakeRef<CpuRawBuffer>(
       memory_space,
@@ -151,15 +153,14 @@ CpuRawBuffer::CopyRawHostToDeviceAndReturnEvent(const void* src, int64_t offset,
       tsl::MakeAvailableAsyncValueRef<CpuEvent>());
 }
 
-PjRtFuture<> CpuRawBuffer::CopyRawDeviceToHost(void* dst, int64_t offset,
-                                               int64_t transfer_size) {
-  auto s = ValidateSlice(offset, transfer_size);
-  if (!s.ok()) {
-    return PjRtFuture<>(s);
-  }
+absl::StatusOr<tsl::RCReference<PjRtDeviceEvent>>
+CpuRawBuffer::CopyRawDeviceToHostAndReturnEvent(void* dst, int64_t offset,
+                                                int64_t transfer_size) {
+  TF_RETURN_IF_ERROR(ValidateSlice(offset, transfer_size));
   std::memcpy(dst, static_cast<uint8_t*>(GetHostPointer()) + offset,
               transfer_size);
-  return PjRtFuture<>(absl::OkStatus());
+  return tsl::MakeRef<CpuTrackedDeviceEvent>(
+      tsl::MakeAvailableAsyncValueRef<CpuEvent>());
 }
 
 absl::StatusOr<tsl::RCReference<PjRtDeviceEvent>> CpuRawBuffer::CopyFromLiteral(
@@ -229,7 +230,7 @@ CpuRawBuffer::CopyFromHostBuffer(
       if (byte_strides) {
         options.input_layout = TransposePlan::Striding{*byte_strides};
       }
-      absl::MutexLock lock(transpose_mu);
+      absl::MutexLock lock(*transpose_mu);
       TF_ASSIGN_OR_RETURN(transpose, transpose_cache->GetOrCreate(options));
     }
     if (!is_packed) {
@@ -314,10 +315,79 @@ absl::StatusOr<xla::Shape> MakeDefaultCpuBufferShape(
   return shape;
 }
 
+void CpuRawBuffer::ReadDynamicShape(tsl::AsyncValueRef<xla::Shape> output_shape,
+                                    xla::Shape shape) {
+  size_t offset = xla::ShapeUtil::ByteSizeOf(shape, sizeof(void*));
+  // Each dynamic dimension size is represented as a S32.
+  int64_t metadata_size = sizeof(int32_t) * shape.dimensions().size();
+  auto metadata_buffer = reinterpret_cast<const int32_t*>(
+      reinterpret_cast<const uint8_t*>(buffer_->untyped_data()) + offset);
+  if (buffer_->size_bytes() != metadata_size + offset) {
+    output_shape.SetError(absl::InvalidArgumentError(absl::StrFormat(
+        "Raw buffer size (%d) incompatible with original shape (%s)",
+        buffer_->size_bytes(), shape.ToString(true))));
+    return;
+  }
+  output_shape->clear_dynamic_dimensions();
+  for (size_t i = 0; i < shape.dimensions().size(); ++i) {
+    output_shape->set_dimensions(i, metadata_buffer[i]);
+  }
+  if (!ShapeUtil::DynamicShapeIsCompatible(output_shape.get(), shape)) {
+    output_shape.SetError(absl::InvalidArgumentError(absl::StrFormat(
+        "Output dynamic shape (%s) incompatible with original shape (%s)",
+        output_shape->ToString(true), shape.ToString(true))));
+    return;
+  }
+  output_shape.SetStateConcrete();
+}
+
 absl::StatusOr<tsl::RCReference<PjRtDeviceEvent>>
 CpuRawBuffer::MakeAllocationReadyEvent() {
   return tsl::MakeRef<CpuTrackedDeviceEvent>(
       tsl::MakeAvailableAsyncValueRef<CpuEvent>());
+}
+
+void CpuRawBuffer::CopyToLiteralAsync(
+    Promise<> promise, tsl::RCReference<PjRtDeviceEventPromise> device_promise,
+    MutableLiteralBase* literal, xla::Shape shape) {
+  absl::Span<const char> input_span{
+      static_cast<const char*>(buffer_->untyped_data()), buffer_->size_bytes()};
+  size_t output_size =
+      static_cast<size_t>(ShapeUtil::ByteSizeOf(literal->shape()));
+  absl::Span<char> output_span{static_cast<char*>(literal->untyped_data()),
+                               output_size};
+  if (primitive_util::IsSubByteNonPredType(shape.element_type())) {
+    primitive_util::UnpackIntN(shape.element_type(), input_span, output_span);
+  } else {
+    std::memcpy(output_span.data(), input_span.data(), output_size);
+  }
+  device_promise->Set(tsl::MakeRef<CpuTrackedDeviceEvent>(
+      tsl::MakeAvailableAsyncValueRef<CpuEvent>()));
+  promise.Set(absl::OkStatus());
+}
+
+void CpuRawBuffer::CopyTo(
+    tsl::RCReference<CommonPjRtRawBuffer> dst_raw_buffer,
+    tsl::RCReference<PjRtDeviceEventPromise> definition_event_promise,
+    tsl::RCReference<PjRtDeviceEventPromise> src_usage_event_promise,
+    ::tsl::AsyncValueRef<bool> allocation_event) {
+  if (allocation_event) {
+    allocation_event.SetStateConcrete();
+  }
+  auto other_event = dst_raw_buffer->CopyRawHostToDeviceAndReturnEvent(
+      GetHostPointer(), 0, GetOnDeviceSizeInBytes());
+  if (!other_event.ok()) {
+    definition_event_promise->SetError(other_event.status());
+    src_usage_event_promise->SetError(other_event.status());
+    return;
+  }
+  (*other_event)
+      ->AndThen([src_usage_event_promise = std::move(src_usage_event_promise),
+                 src_buffer = tsl::FormRef(this)]() {
+        src_usage_event_promise->Set(tsl::MakeRef<CpuTrackedDeviceEvent>(
+            tsl::MakeAvailableAsyncValueRef<CpuEvent>()));
+      });
+  definition_event_promise->Set(*std::move(other_event));
 }
 
 }  // namespace xla

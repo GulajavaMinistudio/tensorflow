@@ -236,7 +236,7 @@ class RendezvousMap {
   using State = RendezvousState<R, V>;
 
   std::shared_ptr<State> Join(const K& key, size_t num_threads) {
-    absl::MutexLock lock(&mutex_);
+    absl::MutexLock lock(mutex_);
 
     // Erase expired rendezvous from the map.
     absl::erase_if(state_, [](const auto& e) { return e.second.expired(); });
@@ -254,7 +254,7 @@ class RendezvousMap {
   }
 
   void Complete(const K& key) {
-    absl::MutexLock lock(&mutex_);
+    absl::MutexLock lock(mutex_);
     state_.erase(key);
   }
 
@@ -313,8 +313,8 @@ absl::StatusOr<std::shared_ptr<R>> Rendezvous(
   // rendezvous sharing the same key running concurrently.
   int64_t id = state->ack.fetch_add(1);
   CHECK_LT(id, num_threads)  // NOLINT
-      << "Id can't be larger than the number of participating threads"
-      << "; id=" << id << "; num_threads=" << num_threads;
+      << "Id can't be larger than the number of participating threads: "
+      << "id=" << id << ", num_threads=" << num_threads << ", name=" << name;
 
   tsl::profiler::TraceMe trace([&] {
     return tsl::profiler::TraceMeEncode(
@@ -353,7 +353,8 @@ absl::StatusOr<std::shared_ptr<R>> Rendezvous(
     absl::Span<const V*> values(state->values.data(), num_threads);
 
     // Check that we have have exactly the number of participants we expect.
-    CHECK_EQ(state.use_count(), num_threads);  // NOLINT
+    CHECK_EQ(state.use_count(), num_threads)
+        << "Unexpected number of participants: " << name;
 
     // Publish rendezvous result to all participants.
     state->result = InvokeRendezvous<R, V>(std::move(fn), values);

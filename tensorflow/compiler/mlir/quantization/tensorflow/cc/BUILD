@@ -1,3 +1,4 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load(
     "//tensorflow:tensorflow.bzl",
     "tf_cc_test",
@@ -53,6 +54,7 @@ tf_cc_test(
         "//tensorflow/core/util/tensor_bundle",
         "@com_google_absl//absl/cleanup",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_matchers",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
@@ -149,47 +151,6 @@ cc_library(
         "@llvm-project//mlir:Pass",
         "@local_xla//xla/tsl/platform:errors",
         "@local_xla//xla/tsl/platform:statusor",
-    ],
-)
-
-cc_library(
-    name = "tf_constant_fold",
-    srcs = [
-        "tf_constant_fold.cc",
-    ],
-    hdrs = [
-        "tf_constant_fold.h",
-    ],
-    compatible_with = get_compatible_with_portable(),
-    deps = [
-        "//tensorflow/compiler/mlir/quantization/common:tf_lift_as_function_call",
-        "//tensorflow/compiler/mlir/tensorflow",
-        "//tensorflow/compiler/mlir/tensorflow/transforms:constant_fold_utils",
-        "@com_google_absl//absl/container:flat_hash_set",
-        "@llvm-project//llvm:Support",
-        "@llvm-project//mlir:IR",
-        "@llvm-project//mlir:Support",
-        "@llvm-project//mlir:TransformUtils",
-    ],
-)
-
-tf_cc_test(
-    name = "tf_constant_fold_test",
-    srcs = ["tf_constant_fold_test.cc"],
-    deps = [
-        ":tf_constant_fold",
-        "//tensorflow/compiler/mlir/quantization/common:tf_attrs_and_constraints",
-        "//tensorflow/compiler/mlir/quantization/common:tf_test_base",
-        "//tensorflow/compiler/mlir/tensorflow",
-        "//tensorflow/core:tensorflow",
-        "//tensorflow/core:test",
-        "//tensorflow/core:test_main",
-        "@com_google_absl//absl/strings:string_view",
-        "@com_google_googletest//:gtest",
-        "@llvm-project//mlir:FuncDialect",
-        "@llvm-project//mlir:IR",
-        "@llvm-project//mlir:Support",
-        "@llvm-project//mlir:TransformUtils",
     ],
 )
 

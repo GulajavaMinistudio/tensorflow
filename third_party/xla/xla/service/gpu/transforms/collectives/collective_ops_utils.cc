@@ -19,17 +19,22 @@ limitations under the License.
 #include <cstddef>
 #include <cstdint>
 #include <optional>
-#include <variant>
+#include <utility>
 #include <vector>
 
 #include "absl/algorithm/container.h"
 #include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
-#include "xla/hlo/ir/collective_device_list.h"
+#include "xla/hlo/ir/hlo_casting_utils.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_instructions.h"
+#include "xla/hlo/ir/hlo_module.h"
+#include "xla/hlo/ir/replica_group.h"
 #include "xla/service/gpu/backend_configs.pb.h"
 #include "xla/service/hlo_module_config.h"
 #include "xla/stream_executor/cuda/cuda_compute_capability.h"
@@ -39,11 +44,29 @@ limitations under the License.
 
 namespace xla {
 namespace gpu {
-
 namespace {
 
-struct CommunicationMetadata {
-  absl::flat_hash_map<int64_t, size_t> node_to_participant_count;
+// Computes a map from source partition ID to a set of target partition IDs for
+// a collective-permute instruction. A partition ID is computed by dividing the
+// device (replica) ID by the number of devices per host.
+absl::flat_hash_map<int64_t, absl::flat_hash_set<int64_t>>
+GetSourceToTargetsNodeMap(const HloCollectivePermuteInstruction& instr,
+                          int num_devices_per_partition) {
+  absl::flat_hash_map<int64_t, absl::flat_hash_set<int64_t>>
+      source_to_targets_partition_map;
+  for (const auto& [source, target] : instr.source_target_pairs()) {
+    int64_t source_partition = source / num_devices_per_partition;
+    int64_t target_partition = target / num_devices_per_partition;
+    source_to_targets_partition_map[source_partition].insert(target_partition);
+  }
+  return source_to_targets_partition_map;
+}
+
+struct CollectiveMetadata {
+  // map for ops with `replica_groups`, e.g. all-gather.
+  absl::flat_hash_map<int64_t, size_t> partition_to_participant_count;
+  int num_devices_per_partition;
+  int64_t replica_count;
 };
 
 bool SameParticipantCounts(const absl::flat_hash_map<int64_t, size_t>& lhs,
@@ -63,48 +86,146 @@ bool SameParticipantCounts(const absl::flat_hash_map<int64_t, size_t>& lhs,
   return lhs_counts == rhs_counts;
 }
 
-absl::StatusOr<CommunicationMetadata> CommunicationContext(
-    const CollectiveDeviceList& device_list, int num_devices_per_host) {
-  absl::flat_hash_map<int64_t, size_t> node_to_participant_count;
-  for (const ReplicaGroup& replica_group : device_list.replica_groups()) {
+absl::StatusOr<CollectiveMetadata> CommunicationContext(
+    const HloCollectiveInstruction& instr, int num_devices_per_partition) {
+  absl::flat_hash_map<int64_t, size_t> partition_to_participant_count;
+
+  for (const ReplicaGroup& replica_group :
+       instr.device_list().replica_groups()) {
     absl::flat_hash_map<int64_t, size_t> buffer;
     for (int64_t rank : replica_group.replica_ids()) {
-      int64_t node_id = rank / num_devices_per_host;
-      buffer[node_id]++;
+      int64_t partition_id = rank / num_devices_per_partition;
+      buffer[partition_id]++;
     }
-    if (!node_to_participant_count.empty() &&
-        !SameParticipantCounts(buffer, node_to_participant_count)) {
+    if (!partition_to_participant_count.empty() &&
+        !SameParticipantCounts(buffer, partition_to_participant_count)) {
       return absl::FailedPreconditionError(absl::StrCat(
-          "Non homogenous replica group: ", device_list.ToString()));
+          "Non homogenous replica group: ", instr.device_list().ToString()));
     }
-    if (node_to_participant_count.empty()) {
-      node_to_participant_count = buffer;
+    if (partition_to_participant_count.empty()) {
+      partition_to_participant_count = buffer;
+    }
+  }
+  return CollectiveMetadata{partition_to_participant_count,
+                            num_devices_per_partition,
+                            instr.GetModule()->config().replica_count()};
+}
+
+bool IsSingleHost(const CollectiveMetadata& pattern) {
+  if (pattern.partition_to_participant_count.size() == 1) {
+    return true;
+  }
+  return pattern.replica_count > 0 &&
+         pattern.partition_to_participant_count.empty() &&
+         pattern.replica_count <= pattern.num_devices_per_partition;
+}
+
+bool IsWorldLevelCommunication(const CollectiveMetadata& pattern) {
+  if (!IsSingleHost(pattern) &&
+      pattern.partition_to_participant_count.empty()) {
+    return true;
+  }
+  return absl::c_all_of(
+      pattern.partition_to_participant_count, [&pattern](const auto& elem) {
+        const auto& [partition_id, participant_count] = elem;
+        return participant_count == pattern.num_devices_per_partition;
+      });
+}
+
+bool IsNonWorldLevelCommunication(const CollectiveMetadata& pattern) {
+  return !IsSingleHost(pattern) && !IsWorldLevelCommunication(pattern);
+}
+
+// Properties of a collective-permute instruction, categorizing its
+// communication pattern.
+struct CollectivePermuteProperty {
+  std::vector<std::pair<int64_t, int64_t>> intra_partition_source_target_pairs;
+  std::vector<std::pair<int64_t, int64_t>> inter_partition_source_target_pairs;
+  // If true, at least one device both sends and receives data. If false, every
+  // device involved in the collective-permute either only sends or only
+  // receives data.
+  bool has_devices_with_two_edges = false;
+  // True if for every pair (s,t) in source_target_pairs, the pair (t,s) is
+  // also present in source_target_pairs.
+  bool is_all_mutual = false;
+};
+
+// TODO(b/460155942): remove the optional wrapper once the HLO verifier stop
+// supporting empty source-target pairs.
+std::optional<CollectivePermuteProperty> GetCollectivePermuteProperty(
+    const HloCollectivePermuteInstruction& instr,
+    int64_t num_devices_per_partition) {
+  if (instr.source_target_pairs().empty()) {
+    return std::nullopt;
+  }
+
+  CollectivePermuteProperty property;
+  absl::flat_hash_set<int64_t> sources, targets;
+  absl::flat_hash_set<std::pair<int64_t, int64_t>> pairs_set;
+  absl::c_for_each(instr.source_target_pairs(),
+                   [&](const auto& pair) { pairs_set.insert(pair); });
+
+  property.is_all_mutual = true;
+
+  for (const auto& [source, target] : instr.source_target_pairs()) {
+    sources.insert(source);
+    targets.insert(target);
+
+    bool is_intra_partition = (source / num_devices_per_partition ==
+                               target / num_devices_per_partition);
+
+    if (is_intra_partition) {
+      property.intra_partition_source_target_pairs.push_back({source, target});
+    } else {
+      property.inter_partition_source_target_pairs.push_back({source, target});
+    }
+    // If anyone of the pair (t,s) is not present in source_target_pairs, the
+    // communication pattern is not all-mutual.
+    if (property.is_all_mutual && !pairs_set.contains({target, source})) {
+      property.is_all_mutual = false;
     }
   }
 
-  return CommunicationMetadata{node_to_participant_count};
-}
+  // If any source device is a target device, then it has two edges.
+  for (int64_t source : sources) {
+    if (targets.contains(source)) {
+      property.has_devices_with_two_edges = true;
+      break;
+    }
+  }
 
-bool IsSingleHost(const CommunicationMetadata& pattern) {
-  return pattern.node_to_participant_count.size() == 1;
-}
-
-bool IsRailAligned(const CommunicationMetadata& pattern,
-                   int num_devices_per_host) {
-  return absl::c_all_of(pattern.node_to_participant_count,
-                        [num_devices_per_host](const auto& elem) {
-                          const auto& [node_id, participant_count] = elem;
-                          return participant_count == num_devices_per_host;
-                        });
-}
-
-bool IsNonRailAligned(const CommunicationMetadata& pattern,
-                      int num_devices_per_host) {
-  return !IsSingleHost(pattern) &&
-         !IsRailAligned(pattern, num_devices_per_host);
+  return property;
 }
 
 }  // namespace
+
+CollectivePermuteCostModelType GetCollectivePermuteCostModelType(
+    const HloCollectivePermuteInstruction& instr,
+    int64_t num_devices_per_partition) {
+  std::optional<CollectivePermuteProperty> property =
+      GetCollectivePermuteProperty(instr, num_devices_per_partition);
+  if (!property) {
+    return CollectivePermuteCostModelType::kUnknown;
+  }
+
+  if (!property->inter_partition_source_target_pairs.empty()) {
+    if (property->has_devices_with_two_edges) {
+      return property->is_all_mutual ? CollectivePermuteCostModelType::
+                                           kInterPartitionTwoWayAllMutual
+                                     : CollectivePermuteCostModelType::
+                                           kInterPartitionTwoWayHasNonMutual;
+    }
+    return CollectivePermuteCostModelType::kInterPartitionOneWay;
+  }
+
+  if (property->has_devices_with_two_edges) {
+    return property->is_all_mutual
+               ? CollectivePermuteCostModelType::kIntraPartitionTwoWayAllMutual
+               : CollectivePermuteCostModelType::
+                     kIntraPartitionTwoWayHasNonMutual;
+  }
+  return CollectivePermuteCostModelType::kIntraPartitionOneWay;
+}
 
 bool IsGPUSyncCollective(const HloInstruction& instr) {
   auto backend_config = instr.backend_config<GpuBackendConfig>();
@@ -115,55 +236,55 @@ bool IsGPUSyncCollective(const HloInstruction& instr) {
 }
 
 absl::StatusOr<GPUCommunicationType> CommunicationType(
-    const HloCollectiveInstruction& instr,
+    int num_devices_per_partition, const HloChannelInstruction& instr,
     const se::GpuComputeCapability& gpu_version) {
-  auto iota = instr.device_list().iota_replica_group_list();
-
-  if (!std::holds_alternative<se::CudaComputeCapability>(gpu_version)) {
+  if (!gpu_version.IsCuda()) {
     return absl::FailedPreconditionError("Only CUDA is supported.");
   }
 
-  auto cuda_compute_capability =
-      std::get<se::CudaComputeCapability>(gpu_version);
-  if (!cuda_compute_capability.IsHopper()) {
+  if (const auto* collective = DynCast<HloCollectiveInstruction>(&instr)) {
+    TF_ASSIGN_OR_RETURN(
+        CollectiveMetadata comm,
+        CommunicationContext(*collective, num_devices_per_partition));
+    if (IsSingleHost(comm)) {
+      return GPUCommunicationType::SINGLE_PARTITION;
+    }
+    if (IsWorldLevelCommunication(comm)) {
+      return GPUCommunicationType::MULTI_HOST_WORLD_LEVEL;
+    }
+    if (IsNonWorldLevelCommunication(comm)) {
+      return GPUCommunicationType::MULTI_HOST_NON_WORLD_LEVEL;
+    }
+  } else if (const auto* collective_permute =
+                 DynCast<HloCollectivePermuteInstruction>(&instr)) {
+    const auto source_to_targets_partition_map = GetSourceToTargetsNodeMap(
+        *collective_permute, num_devices_per_partition);
+    for (const auto& [source_partition, target_partition_set] :
+         source_to_targets_partition_map) {
+      if (target_partition_set.size() > 1) {
+        return GPUCommunicationType::MULTI_HOST_NON_WORLD_LEVEL;
+      }
+      CHECK_EQ(target_partition_set.size(), 1);
+      if (source_partition != *target_partition_set.begin()) {
+        return GPUCommunicationType::MULTI_HOST_NON_WORLD_LEVEL;
+      }
+    }
+    return GPUCommunicationType::SINGLE_PARTITION;
+  } else {
     return absl::FailedPreconditionError(
-        "Only Hopper is supported to get communication type");
-  }
-
-  // We assume no topology was provided to the compiler and no
-  // `CUDA_VISIBLE_DEVICES` env var has been set.
-  // For now we only support H100 and assume 8GPUs per host.
-  int num_devices_per_host = 8;
-
-  TF_ASSIGN_OR_RETURN(
-      CommunicationMetadata comm,
-      CommunicationContext(instr.device_list(), num_devices_per_host));
-  if (IsSingleHost(comm)) {
-    return GPUCommunicationType::SINGLE_HOST;
-  }
-  if (IsRailAligned(comm, num_devices_per_host)) {
-    return GPUCommunicationType::RAIL_ALIGNED;
-  }
-  if (IsNonRailAligned(comm, num_devices_per_host)) {
-    return GPUCommunicationType::NON_RAIL_ALIGNED;
+        "Cannot determine communication type for non-collective channel "
+        "instruction");
   }
 
   return GPUCommunicationType::UNDEFINED;
 }
 
-std::optional<bool> IsMultiHostTopology(
-    const HloModuleConfig& config,
-    const se::DeviceDescription& device_description) {
-  se::CudaComputeCapability cc = device_description.cuda_compute_capability();
-  // TODO: b/390095346 - Use topology information once available at compile
-  // time.
-  if (cc.IsHopper()) {
-    return config.num_partitions() * config.replica_count() > 8;
-  }
-  if (cc.IsAmpere()) {
-    return config.num_partitions() * config.replica_count() > 16;
-  }
-  return std::nullopt;
+bool IsIntraNVLinkDomain(const HloModuleConfig& config, int64_t slice_size) {
+  int device_count = config.num_partitions() * config.replica_count();
+  bool is_intra = device_count <= slice_size;
+  VLOG(1) << "IsIntraNVLinkDomain: device_count=" << device_count
+          << " slice_size=" << slice_size << " is_intra=" << is_intra;
+  return is_intra;
 }
 
 }  // namespace gpu

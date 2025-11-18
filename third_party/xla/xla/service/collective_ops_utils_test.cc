@@ -32,16 +32,18 @@ limitations under the License.
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "xla/array2d.h"
-#include "xla/hlo/ir/collective_device_list.h"
 #include "xla/hlo/ir/hlo_computation.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_opcode.h"
+#include "xla/hlo/ir/replica_group.h"
 #include "xla/hlo/parser/hlo_parser.h"
+#include "xla/literal.h"
 #include "xla/literal_util.h"
 #include "xla/service/collective_permute_cycle.h"
 #include "xla/service/computation_placer.h"
 #include "xla/service/global_device_id.h"
 #include "xla/service/hlo_module_config.h"
+#include "xla/service/source_target_pairs.h"
 #include "xla/shape.h"
 #include "xla/shape_util.h"
 #include "xla/tsl/lib/core/status_test_util.h"
@@ -69,9 +71,10 @@ std::vector<ReplicaGroup> CreateReplicaGroups(
 
 TEST(CollectiveOpsUtilsTest, GetParticipatingIDs_NoReplicaGroups) {
   std::vector<int> actual =
-      GetParticipatingIDs(CollectiveOpGroupMode::kFlattenedID,
-                          /*current_id=*/0, /*total_participant_count=*/3,
-                          /*groups=*/{})
+      GetParticipatingIDs(
+          CollectiveOpGroupMode::COLLECTIVE_OP_GROUP_MODE_FLATTENED_ID,
+          /*current_id=*/0, /*total_participant_count=*/3,
+          /*groups=*/{})
           .value();
   std::vector<int> expected = {0, 1, 2};
   EXPECT_EQ(actual, expected);
@@ -87,10 +90,10 @@ TEST(CollectiveOpsUtilsTest, GetParticipatingIDs_ReplicaGroups) {
   replica_groups[2].add_replica_ids(3);
 
   std::vector<int> actual =
-      GetParticipatingIDs(CollectiveOpGroupMode::kFlattenedID,
-                          /*current_id=*/1,
-                          /*total_participant_count=*/std::nullopt,
-                          replica_groups)
+      GetParticipatingIDs(
+          CollectiveOpGroupMode::COLLECTIVE_OP_GROUP_MODE_FLATTENED_ID,
+          /*current_id=*/1,
+          /*total_participant_count=*/std::nullopt, replica_groups)
           .value();
   std::vector<int> expected = {1, 5};
   EXPECT_EQ(actual, expected);
@@ -160,7 +163,8 @@ TEST(CollectiveOpsUtilsTest, CollectiveWithChannelId2) {
   HloInstruction *instr =
       builder.AddInstruction(HloInstruction::CreateAllGather(
           ShapeUtil::MakeShape(BF16, {1, 4096, 4096}), {param_0}, 1,
-          CollectiveDeviceList({group}), true, 231, true));
+          CollectiveDeviceList(std::vector<ReplicaGroup>({group})), true, 231,
+          true));
   auto computation = builder.Build(
       builder.AddInstruction(HloInstruction::CreateTuple({instr})));
   auto fusion =
@@ -187,27 +191,6 @@ TEST(CollectiveOpsUtilsTest, CollectiveWithChannelId2) {
   EXPECT_EQ(IsOrHasCollectiveWithChannelId(fusion2.get()), nullptr);
 }
 
-TEST(CollectiveOpsUtilsTest, GetForwardCycleIndices) {
-  auto res_one_cycle = GetCycleTypeAndIndices({{0, 1}, {1, 2}, {2, 3}, {3, 0}});
-  EXPECT_EQ(res_one_cycle.first, CycleType::kForward);
-  EXPECT_THAT(res_one_cycle.second, testing::UnorderedElementsAreArray({3}));
-  auto res_two_cycles =
-      GetCycleTypeAndIndices({{0, 1}, {1, 2}, {2, 3}, {3, 0}, {4, 1}});
-  EXPECT_EQ(res_two_cycles.first, CycleType::kForward);
-  EXPECT_THAT(res_two_cycles.second,
-              testing::UnorderedElementsAreArray({3, 4}));
-}
-
-TEST(CollectiveOpsUtilsTest, GetBackwardCycleIndices) {
-  auto res_one_cycle = GetCycleTypeAndIndices({{0, 3}, {1, 0}, {2, 1}, {3, 2}});
-  EXPECT_EQ(res_one_cycle.first, CycleType::kBackward);
-  EXPECT_THAT(res_one_cycle.second, testing::UnorderedElementsAreArray({0}));
-  auto res_two_cycles =
-      GetCycleTypeAndIndices({{0, 3}, {1, 4}, {2, 1}, {3, 2}, {4, 3}, {3, 0}});
-  EXPECT_EQ(res_two_cycles.first, CycleType::kBackward);
-  EXPECT_THAT(res_two_cycles.second,
-              testing::UnorderedElementsAreArray({0, 1}));
-}
 
 TEST(IsExclusivelyCrossModuleTest, CrossReplicaNoChannelSet) {
   int64_t num_replicas = 4;
@@ -531,6 +514,25 @@ TEST(IsExclusivelyCrossReplicaTest, CrossModuleWithGlobalIds) {
       IsExclusivelyCrossReplica(replica_groups, /*use_global_ids=*/true,
                                 /*has_channel_id=*/true, device_assignment));
 }
+
+TEST(HasDuplicateSourcesOrTargetsTest, NoDuplicates) {
+  SourceTargetPairs pairs =
+      SourceTargetPairs::FromString("{{0, 1}, {2, 3}, {4, 5}}").value();
+  EXPECT_FALSE(HasDuplicateSourcesOrTargets(pairs));
+}
+
+TEST(HasDuplicateSourcesOrTargetsTest, DuplicateSources) {
+  SourceTargetPairs pairs =
+      SourceTargetPairs::FromString("{{0, 1}, {0, 3}, {4, 5}}").value();
+  EXPECT_TRUE(HasDuplicateSourcesOrTargets(pairs));
+}
+
+TEST(HasDuplicateSourcesOrTargetsTest, DuplicateTargets) {
+  SourceTargetPairs pairs =
+      SourceTargetPairs::FromString("{{0, 1}, {2, 1}, {4, 5}}").value();
+  EXPECT_TRUE(HasDuplicateSourcesOrTargets(pairs));
+}
+
 }  // namespace
 
 // Tests for GetCollectOpGroupMode
@@ -555,12 +557,19 @@ std::vector<TestCase> GetTestCases() {
   const std::vector<TestCase> test_cases = {
       // clang-format off
       // has_channel_id, use_global_device_ids, expected mode
-      {false, std::nullopt, CollectiveOpGroupMode::kCrossReplica},
-      {false, false,         CollectiveOpGroupMode::kCrossReplica},
-      {false, true,          std::nullopt},
-      {true,  std::nullopt, CollectiveOpGroupMode::kCrossPartition},
-      {true,  false,         CollectiveOpGroupMode::kCrossReplicaAndPartition},
-      {true,  true,          CollectiveOpGroupMode::kFlattenedID},
+      // No channel id, no global device ids.
+      {false, std::nullopt,
+       CollectiveOpGroupMode::COLLECTIVE_OP_GROUP_MODE_CROSS_REPLICA},
+      {false, false,
+       CollectiveOpGroupMode::COLLECTIVE_OP_GROUP_MODE_CROSS_REPLICA},
+      {false, true, std::nullopt},
+      {true, std::nullopt,
+       CollectiveOpGroupMode::COLLECTIVE_OP_GROUP_MODE_CROSS_PARTITION},
+      {true, false,
+       CollectiveOpGroupMode::
+           COLLECTIVE_OP_GROUP_MODE_CROSS_REPLICA_AND_PARTITION},
+      {true, true,
+       CollectiveOpGroupMode::COLLECTIVE_OP_GROUP_MODE_FLATTENED_ID},
       // clang-format on
   };
   return test_cases;
@@ -594,32 +603,36 @@ struct TestCaseForInstruction {
 std::vector<TestCaseForInstruction> GetTestCasesForInstruction() {
   return std::vector<TestCaseForInstruction>{
       //  opcode, has_channel_id, use_global_device_ids, expected_group_mode
-      {HloOpcode::kAllGather, true, true, CollectiveOpGroupMode::kFlattenedID},
+      {HloOpcode::kAllGather, true, true,
+       CollectiveOpGroupMode::COLLECTIVE_OP_GROUP_MODE_FLATTENED_ID},
       {HloOpcode::kAllGather, true, false,
-       CollectiveOpGroupMode::kCrossReplicaAndPartition},
+       CollectiveOpGroupMode::
+           COLLECTIVE_OP_GROUP_MODE_CROSS_REPLICA_AND_PARTITION},
       {HloOpcode::kAllGather, false, false,
-       CollectiveOpGroupMode::kCrossReplica},
-      {HloOpcode::kAllReduce, true, true, CollectiveOpGroupMode::kFlattenedID},
+       CollectiveOpGroupMode::COLLECTIVE_OP_GROUP_MODE_CROSS_REPLICA},
+      {HloOpcode::kAllReduce, true, true,
+       CollectiveOpGroupMode::COLLECTIVE_OP_GROUP_MODE_FLATTENED_ID},
       {HloOpcode::kAllReduce, true, false,
-       CollectiveOpGroupMode::kCrossReplicaAndPartition},
+       CollectiveOpGroupMode::
+           COLLECTIVE_OP_GROUP_MODE_CROSS_REPLICA_AND_PARTITION},
       {HloOpcode::kAllReduce, false, false,
-       CollectiveOpGroupMode::kCrossReplica},
+       CollectiveOpGroupMode::COLLECTIVE_OP_GROUP_MODE_CROSS_REPLICA},
       {HloOpcode::kAllToAll, true, std::nullopt,
-       CollectiveOpGroupMode::kCrossPartition},
+       CollectiveOpGroupMode::COLLECTIVE_OP_GROUP_MODE_CROSS_PARTITION},
       {HloOpcode::kAllToAll, false, std::nullopt,
-       CollectiveOpGroupMode::kCrossReplica},
+       CollectiveOpGroupMode::COLLECTIVE_OP_GROUP_MODE_CROSS_REPLICA},
       {HloOpcode::kCollectiveBroadcast, true, std::nullopt,
-       CollectiveOpGroupMode::kCrossPartition},
+       CollectiveOpGroupMode::COLLECTIVE_OP_GROUP_MODE_CROSS_PARTITION},
       {HloOpcode::kCollectiveBroadcast, false, std::nullopt,
-       CollectiveOpGroupMode::kCrossReplica},
+       CollectiveOpGroupMode::COLLECTIVE_OP_GROUP_MODE_CROSS_REPLICA},
       {HloOpcode::kCollectivePermute, true, std::nullopt,
-       CollectiveOpGroupMode::kCrossPartition},
+       CollectiveOpGroupMode::COLLECTIVE_OP_GROUP_MODE_CROSS_PARTITION},
       {HloOpcode::kCollectivePermute, false, std::nullopt,
-       CollectiveOpGroupMode::kCrossReplica},
+       CollectiveOpGroupMode::COLLECTIVE_OP_GROUP_MODE_CROSS_REPLICA},
       {HloOpcode::kRaggedAllToAll, true, std::nullopt,
-       CollectiveOpGroupMode::kCrossPartition},
+       CollectiveOpGroupMode::COLLECTIVE_OP_GROUP_MODE_CROSS_PARTITION},
       {HloOpcode::kRaggedAllToAll, false, std::nullopt,
-       CollectiveOpGroupMode::kCrossReplica}};
+       CollectiveOpGroupMode::COLLECTIVE_OP_GROUP_MODE_CROSS_REPLICA}};
 }
 
 class GetCollectOpGroupModeTestForInstruction
@@ -1097,18 +1110,20 @@ TEST_P(GetParticipatingTest, Test) {
               testing::UnorderedElementsAreArray(expect_device_groups));
 
   // Test GetParticipatingFlattenedIdGroups.
-  absl::StatusOr<std::vector<ReplicaGroup>> actual_flattened_id_groups =
-      GetParticipatingFlattenedIdGroups(device_assignment, replica_groups,
-                                        *group_mode);
-  if (!actual_flattened_id_groups.ok()) {
+  absl::StatusOr<CollectiveDeviceList> collective_device_list =
+      GetParticipatingFlattenedIdGroups(
+          device_assignment, CollectiveDeviceList(replica_groups), *group_mode);
+  if (!collective_device_list.ok()) {
     EXPECT_TRUE(tc.expected_failure);
     return;
   }
+  const std::vector<ReplicaGroup> &actual_flattened_id_groups =
+      collective_device_list.value().replica_groups();
 
   std::vector<std::vector<int64_t>> actual_flattened_id_groups_int;
-  actual_flattened_id_groups_int.reserve(actual_flattened_id_groups->size());
+  actual_flattened_id_groups_int.reserve(actual_flattened_id_groups.size());
 
-  for (auto subgroup : *actual_flattened_id_groups) {
+  for (auto subgroup : actual_flattened_id_groups) {
     std::vector<int64_t> replica_group;
     for (int id : subgroup.replica_ids()) {
       replica_group.push_back(id);
@@ -1208,7 +1223,7 @@ std::vector<TestCase> GetTestCases() {
       {
           "CrossReplicaEmptyGroup",
           {},
-          CollectiveOpGroupMode::kCrossReplica,
+          CollectiveOpGroupMode::COLLECTIVE_OP_GROUP_MODE_CROSS_REPLICA,
           8,
           1,
           {8},
@@ -1216,7 +1231,7 @@ std::vector<TestCase> GetTestCases() {
       {
           "CrossReplicaWithPartitions",
           {{0, 1}, {2, 3}},
-          CollectiveOpGroupMode::kCrossReplica,
+          CollectiveOpGroupMode::COLLECTIVE_OP_GROUP_MODE_CROSS_REPLICA,
           4,
           2,
           {2, 2, 2, 2},
@@ -1224,7 +1239,8 @@ std::vector<TestCase> GetTestCases() {
       {
           "CrossReplicaAndPartition",
           {{0, 1}, {2, 3}},
-          CollectiveOpGroupMode::kCrossReplicaAndPartition,
+          CollectiveOpGroupMode::
+              COLLECTIVE_OP_GROUP_MODE_CROSS_REPLICA_AND_PARTITION,
           4,
           2,
           {4, 4},
@@ -1232,7 +1248,7 @@ std::vector<TestCase> GetTestCases() {
       {
           "FlattenedID",
           {{0}, {1}, {2}, {3}, {4}, {5}, {6}, {7}},
-          CollectiveOpGroupMode::kFlattenedID,
+          CollectiveOpGroupMode::COLLECTIVE_OP_GROUP_MODE_FLATTENED_ID,
           4,
           2,
           {1, 1, 1, 1, 1, 1, 1, 1},
@@ -1247,6 +1263,14 @@ INSTANTIATE_TEST_SUITE_P(
         GetPariticipantCountsForReplicaGroupsTest::ParamType> &info) {
       return info.param.test_name;
     });
+
+TEST(GetReductionIdentity, NoCrashForComplexType) {
+  std::optional<Literal> identity =
+      GetReductionIdentity(ReductionKind::MIN, C64);
+  EXPECT_FALSE(identity.has_value());
+  identity = GetReductionIdentity(ReductionKind::MAX, C128);
+  EXPECT_FALSE(identity.has_value());
+}
 
 }  // namespace GetPariticipantCountsForReplicaGroupsTest
 }  // namespace xla

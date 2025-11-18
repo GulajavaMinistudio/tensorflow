@@ -24,8 +24,12 @@ limitations under the License.
 #include "absl/base/const_init.h"
 #include "absl/cleanup/cleanup.h"
 #include "absl/container/flat_hash_map.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/synchronization/mutex.h"
+#include "absl/synchronization/notification.h"
 #include "xla/literal.h"
 #include "xla/service/compiler.h"
 #include "xla/service/maybe_owning_device_memory.h"
@@ -36,6 +40,7 @@ limitations under the License.
 #include "xla/stream_executor/platform.h"
 #include "xla/stream_executor/stream.h"
 #include "xla/util.h"
+#include "xla/xla_data.pb.h"
 #include "tsl/platform/errors.h"
 #include "tsl/platform/logging.h"
 #include "tsl/platform/notification.h"
@@ -71,7 +76,7 @@ absl::Status TransferManager::TransferLiteralFromDevice(
   absl::Cleanup cleanup = [&]() { stream->ReturnSubStream(substream); };
 
   absl::Status ret;
-  tsl::Notification n;
+  absl::Notification n;
   TransferLiteralFromDevice(
       substream, device_buffer, literal,
       [&](absl::Status status) {
@@ -177,7 +182,9 @@ absl::Status TransferManager::ReadDynamicShapes(
             auto metadata,
             TransferArrayFromDevice(
                 stream,
-                ShapeUtil::MakeShape(S32, {buffer_shape.dimensions_size()}),
+                ShapeUtil::MakeShape(
+                    S32,
+                    {static_cast<int64_t>(buffer_shape.dimensions().size())}),
                 metadata_buffer));
 
         // Update shape size from metadata.
@@ -196,7 +203,7 @@ absl::Status TransferManager::ReadDynamicShapes(
 /* static */ void TransferManager::RegisterTransferManager(
     se::Platform::Id platform_id,
     TransferManagerCreationFunction creation_function) {
-  absl::MutexLock lock(&TransferManager::platform_transfer_manager_mutex_);
+  absl::MutexLock lock(TransferManager::platform_transfer_manager_mutex_);
   auto* managers = GetPlatformTransferManagers();
   CHECK(managers->find(platform_id) == managers->end());
   (*managers)[platform_id].creation_function = creation_function;
@@ -204,7 +211,7 @@ absl::Status TransferManager::ReadDynamicShapes(
 
 /* static */ absl::StatusOr<TransferManager*> TransferManager::GetForPlatform(
     const se::Platform* platform) {
-  absl::MutexLock lock(&TransferManager::platform_transfer_manager_mutex_);
+  absl::MutexLock lock(TransferManager::platform_transfer_manager_mutex_);
   auto* managers = GetPlatformTransferManagers();
 
   auto it = managers->find(platform->id());

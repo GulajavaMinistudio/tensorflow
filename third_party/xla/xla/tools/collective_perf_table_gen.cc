@@ -33,13 +33,14 @@ limitations under the License.
 #include "absl/strings/string_view.h"
 #include "absl/strings/substitute.h"
 #include "absl/time/time.h"
-#include "xla/hlo/ir/collective_device_list.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_module.h"
+#include "xla/hlo/ir/replica_group.h"
 #include "xla/hlo/parser/hlo_parser.h"
 #include "xla/hlo/utils/hlo_query.h"
 #include "xla/pjrt/pjrt_client.h"
 #include "xla/pjrt/plugin/xla_gpu/xla_gpu_client_options.h"
+#include "xla/service/backend.h"
 #include "xla/service/gpu/model/hlo_op_profile.pb.h"
 #include "xla/service/gpu/model/hlo_op_profiles.h"
 #include "xla/service/hlo_module_config.h"
@@ -121,14 +122,13 @@ int64_t GetInputDim(CollectivePerfTableGen::CollectiveType type,
   CHECK_EQ(tensor_size_bytes % kBytesPerElem, 0);
   switch (type) {
     case CollectivePerfTableGen::CollectiveType::ALL_REDUCE:
+    case CollectivePerfTableGen::CollectiveType::REDUCE_SCATTER:
+    case CollectivePerfTableGen::CollectiveType::ALL_TO_ALL:
       dim_size = tensor_size_bytes / kBytesPerElem;
       break;
     case CollectivePerfTableGen::CollectiveType::ALL_GATHER:
       dim_size = tensor_size_bytes /
                  (kBytesPerElem * replica_groups.num_devices_per_group());
-      break;
-    case CollectivePerfTableGen::CollectiveType::REDUCE_SCATTER:
-      dim_size = tensor_size_bytes / kBytesPerElem;
       break;
     default:
       LOG(FATAL) << "Unsupported collective type.";
@@ -144,6 +144,7 @@ int64_t GetOutputDim(CollectivePerfTableGen::CollectiveType type,
   switch (type) {
     case CollectivePerfTableGen::CollectiveType::ALL_REDUCE:
     case CollectivePerfTableGen::CollectiveType::ALL_GATHER:
+    case CollectivePerfTableGen::CollectiveType::ALL_TO_ALL:
       dim_size = tensor_size_bytes / kBytesPerElem;
       break;
     case CollectivePerfTableGen::CollectiveType::REDUCE_SCATTER:
@@ -215,6 +216,19 @@ std::string GetHlo(CollectivePerfTableGen::CollectiveType type,
                              "f32", input_dim, output_dim,
                              replica_groups.ToString());
       break;
+    case CollectivePerfTableGen::CollectiveType::ALL_TO_ALL:
+      hlo = absl::Substitute(R"(
+        HloModule m
+
+        ENTRY e {
+          p0 = $0[$1] parameter(0)
+          ROOT _ = $0[$2] all-to-all(p0), replica_groups=$3, channel_id=1,
+          dimensions={0}
+        }
+      )",
+                             "f32", input_dim, output_dim,
+                             replica_groups.ToString());
+      break;
     default:
       LOG(FATAL) << "Unsupported collective type.";
   }
@@ -264,18 +278,31 @@ IotaReplicaGroupList GetCollectiveDeviceList(
 
 /*static*/ std::unique_ptr<CollectivePerfTableGen>
 CollectivePerfTableGen::Create(CollectivePerfTableGen::Config config) {
-  GpuClientOptions gpu_opts;
-  gpu_opts.num_nodes = config.num_nodes;
-  gpu_opts.node_id = config.task_id;
-  gpu_opts.allocator_config.memory_fraction = kGpuMemFraction;
-
-  auto pjrt_env = GetPjRtEnvironmentForGpu(config.coordinator_address, gpu_opts,
-                                           config.connection_timeout);
-  CHECK_OK(pjrt_env);
-  CHECK_NE(pjrt_env->client.get(), nullptr);
-
   return std::unique_ptr<CollectivePerfTableGen>(
-      new CollectivePerfTableGen(config, std::move(*pjrt_env)));
+      new CollectivePerfTableGen(config));
+}
+
+PjRtEnvironment& CollectivePerfTableGen::GetPjRtEnv() {
+  if (pjrt_env_ == nullptr) {
+    GpuClientOptions gpu_opts;
+    gpu_opts.num_nodes = config_.num_nodes;
+    gpu_opts.node_id = config_.task_id;
+    gpu_opts.allocator_config.memory_fraction = kGpuMemFraction;
+    absl::StatusOr<PjRtEnvironment> pjrt_env = GetPjRtEnvironmentForGpu(
+        config_.coordinator_address, gpu_opts, config_.connection_timeout);
+    CHECK_OK(pjrt_env);
+    CHECK_NE(pjrt_env->client.get(), nullptr);
+    pjrt_env_ = std::make_unique<PjRtEnvironment>(*std::move(pjrt_env));
+  }
+  CHECK_NE(pjrt_env_, nullptr);
+  return *pjrt_env_;
+}
+
+Backend& CollectivePerfTableGen::GetBackend() {
+  if (backend_ == nullptr) {
+    backend_ = Backend::CreateDefaultBackend().value();
+  }
+  return *backend_;
 }
 
 std::unique_ptr<PjRtLoadedExecutable> CollectivePerfTableGen::Compile(
@@ -285,11 +312,11 @@ std::unique_ptr<PjRtLoadedExecutable> CollectivePerfTableGen::Compile(
   opts.num_partitions = module->config().num_partitions();
   opts.spmd_mode = FunctionalHloRunner::SpmdMode::kUseSpmdPartitioning;
   auto compile_opts = FunctionalHloRunner::CreateCompileOptions(
-      *pjrt_env_.client, opts, config_.task_id, config_.num_nodes);
+      *GetPjRtEnv().client, opts, config_.task_id, config_.num_nodes);
   CHECK_OK(compile_opts);
-  auto executable =
-      FunctionalHloRunner::Compile(*pjrt_env_.client, module.get(), debug_opts,
-                                   /*preproc_options=*/{}, *compile_opts);
+  auto executable = FunctionalHloRunner::Compile(
+      *GetPjRtEnv().client, module.get(), debug_opts,
+      /*preproc_options=*/{}, *compile_opts);
   CHECK_OK(executable);
   return std::move(*executable);
 }
@@ -302,7 +329,7 @@ std::vector<ExecutionProfile> CollectivePerfTableGen::Run(
   run_opts.num_repeats = kNumProfilingRuns;
   std::vector<ExecutionProfile> profiles;
   run_opts.execution_profiles = &profiles;
-  CHECK_OK(FunctionalHloRunner::Run(*pjrt_env_.client, &executable,
+  CHECK_OK(FunctionalHloRunner::Run(*GetPjRtEnv().client, &executable,
                                     /*arguments=*/{}, run_opts));
   return profiles;
 }
@@ -396,7 +423,9 @@ DeviceHloInstructionProfiles CollectivePerfTableGen::ComputeTable() {
   }
 
   std::string device_key = HloOpProfiles::GetProfileName(
-      /*device_info=*/backend_->stream_executors()[0]->GetDeviceDescription());
+      /*device_info=*/GetBackend()
+          .stream_executors()[0]
+          ->GetDeviceDescription());
   profiles.mutable_entries()->insert({device_key, profile_list});
   return profiles;
 }
@@ -442,21 +471,16 @@ absl::Status CollectivePerfTableGen::Dump(
 }
 
 DeviceHloInstructionProfiles CollectivePerfTableGen::Merge(
-    absl::string_view merge_path) {
+    const std::vector<std::string>& files) {
   DeviceHloInstructionProfiles result;
-  std::vector<std::string> filenames;
-  CHECK_OK(
-      tsl::Env::Default()->GetChildren(std::string(merge_path), &filenames));
 
   absl::flat_hash_set<ProfilingResult, ProfilingResult::Hash,
                       ProfilingResult::Eq>
       profiling_results;
   uint64_t profiling_results_counter = 0;
-  for (const std::string& filename : filenames) {
+  for (const std::string& profile_path : files) {
     // Read file.
-    std::string profile_path = absl::StrCat(merge_path, "/", filename);
     DeviceHloInstructionProfiles partial_profile;
-
     CHECK_OK(tsl::Env::Default()->FileExists(profile_path));
     if (!tsl::ReadTextOrBinaryProto(tsl::Env::Default(), profile_path,
                                     &partial_profile)
@@ -514,6 +538,19 @@ DeviceHloInstructionProfiles CollectivePerfTableGen::Merge(
   }
 
   return result;
+}
+
+DeviceHloInstructionProfiles CollectivePerfTableGen::Merge(
+    absl::string_view merge_path) {
+  std::vector<std::string> file_paths;
+  std::vector<std::string> filenames;
+  CHECK_OK(
+      tsl::Env::Default()->GetChildren(std::string(merge_path), &filenames));
+  for (const std::string& fname : filenames) {
+    std::string file_path = absl::StrCat(merge_path, "/", fname);
+    file_paths.push_back(file_path);
+  }
+  return Merge(file_paths);
 }
 
 }  // namespace xla::gpu

@@ -23,8 +23,10 @@ limitations under the License.
 
 #include "absl/algorithm/container.h"
 #include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "absl/memory/memory.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/str_join.h"
 #include "absl/types/span.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
@@ -33,16 +35,20 @@ limitations under the License.
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/MLIRContext.h"
+#include "xla/codegen/tiling/affine_map_evaluator.h"
+#include "xla/codegen/tiling/constraint_expression.h"
+#include "xla/codegen/tiling/symbolic_tile.h"
+#include "xla/codegen/tiling/symbolic_tile_analysis.h"
+#include "xla/codegen/tiling/symbolic_tiled_hlo_instruction.h"
 #include "xla/hlo/analysis/indexing_analysis.h"
 #include "xla/hlo/analysis/indexing_map.h"
+#include "xla/hlo/analysis/indexing_map_serialization.h"
+#include "xla/hlo/analysis/interval.h"
+#include "xla/hlo/analysis/symbolic_expr.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/hlo/utils/hlo_traversal.h"
-#include "xla/service/gpu/model/affine_map_evaluator.h"
-#include "xla/service/gpu/model/constraint_expression.h"
-#include "xla/service/gpu/model/symbolic_tile.h"
-#include "xla/service/gpu/model/symbolic_tile_analysis.h"
-#include "xla/service/gpu/model/symbolic_tiled_hlo_instruction.h"
+#include "xla/shape.h"
 #include "xla/stream_executor/device_description.h"
 #include "xla/util.h"
 
@@ -56,8 +62,13 @@ using ::mlir::AffineMap;
 using ::mlir::MLIRContext;
 
 // Triton enforces that all tensors in the program have less than 1048576
-// elements, otherwise it will fail to compile.
+// elements, otherwise it will fail to compile. (See `TRITON_MAX_TENSOR_NUMEL`
+// in the Triton codebase.)
 constexpr int64_t kMaxTensorNumElements = 1048576;
+// For dot operations we don't want to tile the contracting dimension to a size
+// larger than this as that leads to a large number of registers being used.
+// Also for MMA instruction we don't want tiles greater than 256.
+constexpr int64_t kMaxMMADimSize = 256;
 
 llvm::SmallVector<int64_t> GetPaddedTileSizes(
     llvm::SmallVector<int64_t> tile_sizes) {
@@ -85,16 +96,38 @@ TritonEmitterConstraints::DeriveCustomConstraints(
       continue;
     }
 
+    if (hlo->opcode() == HloOpcode::kDot) {
+      auto ctx = instruction->symbolic_tile().size_map().getContext();
+      AffineMap identity_map = AffineMap::getMultiDimIdentityMap(
+          instruction->symbolic_tile().size_map().getNumDims(), ctx);
+      for (const auto& operand : instruction->operands()) {
+        for (AffineExpr tile_size :
+             operand->symbolic_tile().size_map().getResults()) {
+          // TODO(393299275): There is also a lower bound limit for Triton
+          // on what is accepted for dimension size (both contracting and free).
+          ConstraintExpression dim_constraint(ConstraintExpression::Constraint{
+              tile_size, Interval{1, kMaxMMADimSize}});
+          result.push_back(CustomConstraints{identity_map, dim_constraint});
+        }
+      }
+      continue;
+    }
+
     // Construct custom constraints for parameters of bitcasts and reshapes
     // within `instructions`.
     if (hlo->opcode() == HloOpcode::kReshape ||
         hlo->opcode() == HloOpcode::kBitcast) {
       MLIRContext* ctx = instruction->symbolic_tile().size_map().getContext();
 
+      // TODO(b/446856820): Remove this once we use SymbolicMap here and
+      // therefore we can get the context directly.
+      SymbolicExprContext symbolic_expr_context{ctx};
       IndexingMap reshape_indexing_map =
-          *ComputeOutputToInputIndexing(hlo, /*output_id=*/0, ctx)
-               .indexing_maps[0]
-               .begin();
+          ComputeOutputToInputIndexing(hlo, /*output_id=*/0,
+                                       &symbolic_expr_context)
+              .indexing_maps[0]
+              .begin()
+              ->map();
 
       std::optional<SymbolicTile> reshape_symbolic_tile =
           SymbolicTile::FromIndexingMap(reshape_indexing_map);
@@ -129,7 +162,11 @@ TritonEmitterConstraints::DeriveCustomConstraints(
       ConstraintExpression divisibility_constraints =
           ConstraintExpression::GetAlwaysSatisfied();
 
-      for (const HloInstruction* operand : hlo->operands()) {
+      // The last operand of the concat does not require the divisibility
+      // constraint.
+      for (int operand_id = 0; operand_id < hlo->operand_count() - 1;
+           ++operand_id) {
+        const HloInstruction* operand = hlo->operand(operand_id);
         AffineExpr operand_concat_dimension = mlir::getAffineConstantExpr(
             operand->shape().dimensions(concatenate_dimension_index), ctx);
         ConstraintExpression::Constraint divisibility_constraint{
@@ -205,33 +242,63 @@ TritonEmitterConstraints::GetBuilder(
   };
 }
 
+namespace {
+
+// Returns the number of elements in the (padded) tile described by
+// tile_size_map` and `tiling_parameters`.
+int64_t NumberOfElementsInPaddedTile(
+    const AffineMap& tile_size_map,
+    absl::Span<const int64_t> tiling_parameters) {
+  int64_t num_elements = 1;
+  for (auto expr : tile_size_map.getResults()) {
+    num_elements *= llvm::PowerOf2Ceil(
+        EvaluateAffineExpr(expr, /*dim_values=*/tiling_parameters));
+  }
+
+  return num_elements;
+}
+
+// Checks whether the number of programs to launch on the grid is under the
+// limit enforced by the device.
+//
+// This currently returns `true` unconditionally if the output shape is not an
+// array.
+//
+// TODO(b/418965008): persistent kernels will make this check obsolete.
+bool NumberOfBlocksFitsOnDeviceGrid(const Shape& output_shape,
+                                    absl::Span<const int64_t> tiling_parameters,
+                                    const se::DeviceDescription& device_info) {
+  int64_t num_blocks = 1;
+  if (output_shape.IsArray()) {
+    for (auto [dim_size, tile_size] :
+         llvm::zip(output_shape.dimensions(), tiling_parameters)) {
+      // Currently, each output tile is mapped to one block.
+      num_blocks *= (dim_size + tile_size - 1) / tile_size;
+    }
+  }
+
+  return num_blocks < device_info.block_dim_limit().x;
+}
+
+}  // namespace
+
 absl::StatusOr<bool> TritonEmitterConstraints::ParametersSatisfyConstraints(
     absl::Span<const int64_t> tile_parameters) const {
   // Verify that the tile sizes are not too big.
-  for (const auto& tile_size_map : tile_size_maps_) {
-    int64_t tile_size = 1;
-    for (auto expr : tile_size_map.getResults()) {
-      tile_size *= llvm::PowerOf2Ceil(
-          EvaluateAffineExpr(expr, /*dim_values=*/tile_parameters));
-    }
-
-    if (tile_size > kMaxTensorNumElements) {
-      return false;
-    }
+  if (absl::c_any_of(tile_size_maps_, [&](const auto& tile_size_map) {
+        return NumberOfElementsInPaddedTile(tile_size_map, tile_parameters) >
+               kMaxTensorNumElements;
+      })) {
+    VLOG(2) << "Found a tile with more than " << kMaxTensorNumElements
+            << " elements. Bailing out.";
+    return false;
   }
 
-  int64_t num_tiles = 1;
-  if (root_shape_.IsArray()) {
-    for (auto [dim_size, tile_size] :
-         llvm::zip(root_shape_.dimensions(), tile_parameters)) {
-      num_tiles *= (dim_size + tile_size - 1) / tile_size;
-    }
-  }
-
-  // Number of blocks will exceed the hardware limit. This limitation comes from
-  // the fact that one tile is mapped to one block. This constraint can be
-  // potentially hoisted to more generic "gpu-specific constraint".
-  if (num_tiles >= device_info_.block_dim_limit().x) {
+  // Verify that the number of blocks to launch on the device grid is not too
+  // big.
+  if (!NumberOfBlocksFitsOnDeviceGrid(root_shape_, tile_parameters,
+                                      device_info_)) {
+    VLOG(2) << "Number of blocks exceeds the device grid limit. Bailing out.";
     return false;
   }
 
@@ -241,7 +308,12 @@ absl::StatusOr<bool> TritonEmitterConstraints::ParametersSatisfyConstraints(
   //
   // TODO(b/365727080): get rid of this once tiling is using power of twos
   // everywhere, including when propagating into the prologue of reductions.
+  VLOG(5) << "Checking custom constraints for tile parameters: "
+          << absl::StrJoin(tile_parameters, ", ");
   for (const auto& custom_constraint : custom_constraints_) {
+    VLOG(5) << "Checking custom constraint: transform  "
+            << xla::ToString(custom_constraint.tile_parameters_transform)
+            << " constraints " << custom_constraint.constraints.ToString();
     llvm::SmallVector<int64_t> transformed_tile_parameters =
         EvaluateAffineMap(custom_constraint.tile_parameters_transform,
                           /*dim_values=*/tile_parameters);
@@ -266,6 +338,10 @@ absl::StatusOr<bool> TritonEmitterConstraints::ParametersSatisfyConstraints(
       // invalid. Otherwise we would for example compute the launch config
       // incorrectly.
       if ((tile_size & (tile_size - 1)) && tile_size != dim_size) {
+        VLOG(5)
+            << "Found a tile size that is not a power of 2 and is not equal "
+               "to the dimension size. Bailing out."
+            << tile_size << " " << dim_size;
         return false;
       }
     }

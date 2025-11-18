@@ -47,6 +47,7 @@ limitations under the License.
 #include "xla/codegen/emitters/type_util.h"
 #include "xla/hlo/analysis/indexing_analysis.h"
 #include "xla/hlo/analysis/indexing_map.h"
+#include "xla/hlo/analysis/symbolic_expr.h"
 #include "xla/hlo/ir/hlo_computation.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_opcode.h"
@@ -67,7 +68,7 @@ const Shape& TupleShape(const Shape& shape, int index) {
 }
 
 std::vector<IndexingMapSet> ComputeOperandIndexingMaps(
-    const HloInstruction* instr, mlir::MLIRContext* mlir_context) {
+    const HloInstruction* instr, SymbolicExprContext* symbolic_expr_context) {
   std::vector<IndexingMapSet> indexing_maps_per_operand;
   // For some ops, there is no indexing map implemented for the operands (e.g.
   // scatter) or there are multiple results and the common iteration space is
@@ -77,23 +78,34 @@ std::vector<IndexingMapSet> ComputeOperandIndexingMaps(
     int64_t num_operands = instr->operand_count();
     indexing_maps_per_operand.reserve(num_operands);
     for (int64_t i = 0; i < num_operands; ++i) {
-      indexing_maps_per_operand.push_back(
-          {CreateIdentityMap(instr->operand(i)->shape(), mlir_context)});
+      indexing_maps_per_operand.push_back({CreateIdentityMap(
+          instr->operand(i)->shape(), symbolic_expr_context)});
     }
   } else {
-    auto operands_indexing =
-        ComputeOutputToInputIndexing(instr, /*output_id=*/0, mlir_context);
+    auto operands_indexing = ComputeOutputToInputIndexing(
+        instr, /*output_id=*/0, symbolic_expr_context);
     operands_indexing.Simplify();
-    indexing_maps_per_operand = std::move(operands_indexing.indexing_maps);
+    indexing_maps_per_operand.reserve(operands_indexing.indexing_maps.size());
+    for (auto& indexing_maps : operands_indexing.indexing_maps) {
+      indexing_maps_per_operand.push_back(ToIndexingMapSet(indexing_maps));
+    }
   }
   return indexing_maps_per_operand;
+}
+
+bool HasNoCompute(const HloInstruction* instr) {
+  return HloPredicateIsOp<HloOpcode::kBitcast, HloOpcode::kConstant,
+                          HloOpcode::kIota, HloOpcode::kParameter,
+                          HloOpcode::kReshape, HloOpcode::kReverse,
+                          HloOpcode::kTranspose, HloOpcode::kBroadcast,
+                          HloOpcode::kSlice, HloOpcode::kCopy>(instr);
 }
 
 }  // namespace
 
 EpilogueSpecification EpilogueSpecification::FromIdentityIndexing(
     const HloInstruction* hero, const HloInstruction* root,
-    mlir::MLIRContext* mlir_context) {
+    SymbolicExprContext* symbolic_expr_context) {
   EpilogueSpecification result;
   if (root->shape().IsArray()) {
     absl::c_copy(root->shape().dimensions(),
@@ -101,7 +113,7 @@ EpilogueSpecification EpilogueSpecification::FromIdentityIndexing(
   }
   result.roots.push_back(root);
   result.root_indexing.push_back(
-      CreateIdentityMap(root->shape(), mlir_context));
+      CreateIdentityMap(root->shape(), symbolic_expr_context));
   result.heroes.push_back(hero);
   return result;
 }
@@ -109,10 +121,13 @@ EpilogueSpecification EpilogueSpecification::FromIdentityIndexing(
 std::string PartitionedComputation::Subgraph::ToString(int indentation) const {
   std::string indent(indentation, ' ');
   std::ostringstream ss;
-  ss << indent << "SUBGRAPH " << name << " {\n";
+  ss << indent << "SUBGRAPH " << name << (has_no_compute ? " no_compute" : "")
+     << " {\n";
   for (auto* instr :
        (*instructions.begin())->parent()->MakeInstructionPostOrder()) {
-    if (!instructions.contains(instr)) continue;
+    if (!instructions.contains(instr)) {
+      continue;
+    }
     ss << indent << "  ";
     if (absl::c_linear_search(roots, instr)) {
       ss << "ROOT ";
@@ -189,7 +204,8 @@ struct HloSubgraphData {
 };
 
 PartitionedComputation::PartitionedComputation(
-    const HloComputation* computation, mlir::MLIRContext* mlir_context,
+    const HloComputation* computation,
+    SymbolicExprContext* symbolic_expr_context,
     std::function<bool(const HloInstruction*)> is_subgraph_root)
     : computation_(computation) {
   CHECK_NE(computation, nullptr);
@@ -224,6 +240,7 @@ PartitionedComputation::PartitionedComputation(
       instr_subgraph_data.indexings.clear();
       num_ops_per_subgraph.push_back(1);
     } else {
+      // We checked above that `user_subgraph_ids` contains exactly one value.
       instr_subgraph_data.subgraph_id =
           *instr_subgraph_data.user_subgraph_ids.begin();
       ++num_ops_per_subgraph.at(instr_subgraph_data.subgraph_id);
@@ -236,7 +253,8 @@ PartitionedComputation::PartitionedComputation(
       instr_subgraph_data.indexings.clear();
       num_ops_per_subgraph.push_back(1);
     }
-    auto operands_indexing = ComputeOperandIndexingMaps(instr, mlir_context);
+    auto operands_indexing =
+        ComputeOperandIndexingMaps(instr, symbolic_expr_context);
     // Iterate over the operands and add the func_ids of the current instruction
     // to their HloSubgraphIndexing and compute the indexing maps.
     for (auto [operand_instr, operand_maps] :
@@ -247,11 +265,15 @@ PartitionedComputation::PartitionedComputation(
       IndexingMap instr_indexing = instr_subgraph_data.indexings.empty()
                                        ? IndexingMap::GetUndefined()
                                        : *instr_subgraph_data.indexings.begin();
+      // Only fusion ops would have several operand maps, and we don't support
+      // nested fusions here.
+      CHECK_EQ(operand_maps.size(), 1);
       IndexingMap composed_indexing =
           instr_subgraph_data.is_root
               ? *operand_maps.begin()
               : ComposeIndexingMaps(instr_indexing, *operand_maps.begin());
       composed_indexing.Simplify();
+      composed_indexing.RemoveUnusedSymbols();
 
       operand_subgraph_data.user_subgraph_ids.insert(
           instr_subgraph_data.subgraph_id);
@@ -276,9 +298,7 @@ PartitionedComputation::PartitionedComputation(
     const xla::Shape* first_root_shape = nullptr;
     bool has_no_compute = true;
     for (auto* instruction : instructions) {
-      has_no_compute &=
-          HloPredicateIsOp<HloOpcode::kParameter, HloOpcode::kIota,
-                           HloOpcode::kConstant>(instruction);
+      has_no_compute &= HasNoCompute(instruction);
       if (id_to_subgraph_data[instr_to_id[instruction]].is_root) {
         roots.push_back(instruction);
         if (first_root_shape) {
@@ -289,8 +309,9 @@ PartitionedComputation::PartitionedComputation(
             root_indexing.push_back(root_indexing.front());
           } else {
             // Bitcast from the first root to the target shape.
-            root_indexing.push_back(GetBitcastMap(
-                *first_root_shape, instruction->shape(), mlir_context));
+            root_indexing.push_back(GetBitcastMap(*first_root_shape,
+                                                  instruction->shape(),
+                                                  symbolic_expr_context));
           }
         } else {
           first_root_shape = &instruction->shape();
@@ -298,7 +319,7 @@ PartitionedComputation::PartitionedComputation(
             first_root_shape = &first_root_shape->tuple_shapes()[0];
           }
           root_indexing.push_back(
-              CreateIdentityMap(*first_root_shape, mlir_context));
+              CreateIdentityMap(*first_root_shape, symbolic_expr_context));
         }
       }
     }
@@ -352,9 +373,11 @@ PartitionedComputation::Subgraph PartitionedComputation::Subgraph::ForEpilogue(
 
   absl::flat_hash_set<const HloInstruction*> seen;
   std::function<void(const HloInstruction*)> visit;
+  bool has_no_compute = true;
   visit = [&](const HloInstruction* instruction) {
     if (subgraph.injected_value_starts.contains(instruction)) return;
     if (!seen.insert(instruction).second) return;
+    has_no_compute &= HasNoCompute(instruction);
     for (auto [index, operand] : llvm::enumerate(instruction->operands())) {
       visit(operand);
     }
@@ -364,13 +387,14 @@ PartitionedComputation::Subgraph PartitionedComputation::Subgraph::ForEpilogue(
   subgraph.instructions = std::move(seen);
   subgraph.index_ranges = epilogue.index_ranges;
   subgraph.root_indexing = epilogue.root_indexing;
+  subgraph.has_no_compute = has_no_compute;
   return subgraph;
 }
 
 PartitionedComputations::PartitionedComputations(
-    const HloComputation* fusion, mlir::MLIRContext* mlir_context,
+    const HloComputation* fusion, SymbolicExprContext* symbolic_expr_context,
     std::vector<EpilogueSpecification> epilogues)
-    : fusion_(fusion) {
+    : fusion_(fusion), symbolic_expr_context_(symbolic_expr_context) {
   // Collect all transitively called computations (including the fusion itself).
   absl::flat_hash_set<const HloComputation*> seen;
   std::vector<const HloComputation*> computations;
@@ -402,8 +426,8 @@ PartitionedComputations::PartitionedComputations(
   partitioned_computations_.reserve(computations.size());
   for (auto* computation : computations) {
     computation_to_partitioning_[computation] =
-        &partitioned_computations_.emplace_back(
-            PartitionedComputation{computation, mlir_context, is_root});
+        &partitioned_computations_.emplace_back(PartitionedComputation{
+            computation, symbolic_expr_context, is_root});
   }
 }
 

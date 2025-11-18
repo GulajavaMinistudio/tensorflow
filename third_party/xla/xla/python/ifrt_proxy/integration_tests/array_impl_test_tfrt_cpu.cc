@@ -20,9 +20,17 @@
 
 int main(int argc, char** argv) {
   const std::string disabled[] = {
-      // TfrtCpuBuffer::ToLiteral() currently does not respect the layout of the
+      // PjRtCpuBuffer::ToLiteral() currently does not respect the layout of the
       // destination literal.
       "ArrayImplTest.MakeArrayFromHostBufferAndCopyToHostBufferWithByteStrides",
+
+      // Arrays created using `MakeArraysFromHostBufferShards()` do not indicate
+      // correct custom layouts even if the given layout is a concrete default
+      // layout. PjRt-IFRT uses `ClientMakeArraysFromHostBufferShards()`
+      // internally, which lowers `MakeArraysFromHostBufferShards()` call into
+      // legacy API calls that do not yet support custom layouts, and thus the
+      // output arrays only can have default layouts.
+      "ArrayImplTest.MakeArraysFromHostBufferShardsWithLayout",
 
       // `ShardingParamSharding` does not support serialization yet.
       // TODO(b/282757875): Enable the test once IFRT implements

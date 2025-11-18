@@ -23,17 +23,24 @@ limitations under the License.
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include "absl/algorithm/container.h"
 #include "absl/strings/match.h"
 #include "absl/strings/numbers.h"
+#include "google/protobuf/text_format.h"
 #include "xla/debug_options_flags.h"
+#include "xla/hlo/analysis/alias_info.h"
+#include "xla/hlo/analysis/hlo_ordering.h"
 #include "xla/hlo/ir/hlo_module.h"
 #include "xla/hlo/parser/hlo_parser.h"
 #include "xla/runtime/large_hlo_snapshot_serialization/serialization.h"
+#include "xla/service/buffer_assignment.h"
 #include "xla/service/hlo_module_config.h"
 #include "xla/tsl/lib/core/status_test_util.h"
 #include "xla/tsl/platform/env.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/platform/test.h"
+#include "xla/tsl/testing/temporary_directory.h"
+#include "xla/tsl/util/proto/proto_matchers.h"
 #include "xla/xla.pb.h"
 #include "tsl/platform/path.h"
 #include "tsl/platform/platform.h"
@@ -42,7 +49,10 @@ limitations under the License.
 namespace xla {
 namespace {
 
+using ::testing::ElementsAre;
+using ::testing::HasSubstr;
 using ::testing::IsEmpty;
+using ::tsl::proto_testing::EqualsProto;
 
 TEST(DumpHloIfEnabled, LargeConstantElided) {
   HloModuleConfig config;
@@ -66,10 +76,12 @@ TEST(DumpHloIfEnabled, LargeConstantElided) {
                           ParseAndReturnUnverifiedModule(kModuleStr, config));
   std::string dump_name = "dump";
   auto paths = DumpHloModuleIfEnabled(*m, dump_name);
-  EXPECT_EQ(paths.size(), 1);
+  EXPECT_EQ(paths.size(), 2);  // debug options dump + HLO dump.
   std::string data;
   EXPECT_TRUE(ReadFileToString(env, paths[0], &data).ok());
   EXPECT_TRUE(absl::StrContains(data, "{...}"));
+  EXPECT_TRUE(ReadFileToString(env, paths[1], &data).ok());
+  EXPECT_TRUE(absl::StrContains(data, "xla_dump_to:"));
 }
 
 TEST(DumpHloIfEnabled, LargeConstantPrinted) {
@@ -94,10 +106,63 @@ TEST(DumpHloIfEnabled, LargeConstantPrinted) {
                           ParseAndReturnUnverifiedModule(kModuleStr, config));
   std::string dump_name = "dump";
   auto paths = DumpHloModuleIfEnabled(*m, dump_name);
-  EXPECT_EQ(paths.size(), 1);
+  EXPECT_EQ(paths.size(), 2);
   std::string data;
   EXPECT_TRUE(ReadFileToString(env, paths[0], &data).ok());
   EXPECT_TRUE(!absl::StrContains(data, "{...}"));
+  EXPECT_TRUE(ReadFileToString(env, paths[1], &data).ok());
+  EXPECT_TRUE(absl::StrContains(data, "xla_dump_to:"));
+  EXPECT_TRUE(absl::StrContains(data, "xla_dump_hlo_as_text: true"));
+  EXPECT_TRUE(absl::StrContains(data, "xla_dump_large_constants: true"));
+}
+
+TEST(DumpHloModule, WithBufferAssignment) {
+  HloModuleConfig config;
+  DebugOptions options = config.debug_options();
+  tsl::Env* env = tsl::Env::Default();
+  std::string dump_dir;
+  EXPECT_TRUE(env->LocalTempFilename(&dump_dir));
+  options.set_xla_dump_to(dump_dir);
+  config.set_debug_options(options);
+  const char* kModuleStr = R"(
+    HloModule m
+    test {
+      p0 = s32[11] parameter(0)
+      c = s32[11] constant({0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10})
+      ROOT x = s32[11] multiply(p0, c)
+    }
+  )";
+  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> m,
+                          ParseAndReturnUnverifiedModule(kModuleStr, config));
+  AliasInfo alias_info;
+  std::unique_ptr<BufferAssignment> buffer_assignment =
+      BufferAssigner::Run(
+          /*module=*/&*m,
+          /*hlo_ordering=*/std::make_unique<DependencyHloOrdering>(&*m),
+          /*buffer_size=*/
+          [](const BufferValue& buffer) -> int64_t {
+            return ShapeUtil::ByteSizeOf(buffer.shape(), sizeof(void*));
+          },
+          &alias_info,
+          /*color_alignment=*/[](LogicalBuffer::Color) -> int64_t { return 1; },
+          /*allocate_buffers_for_constants=*/true)
+          .value();
+  std::string dump_name = "dump";
+  std::vector<std::string> paths =
+      DumpHloModuleIfEnabled(*m, *buffer_assignment, dump_name);
+  EXPECT_EQ(paths.size(), 4);
+  std::string data;
+  // First file is the HLO.
+  EXPECT_TRUE(ReadFileToString(env, paths[0], &data).ok());
+  EXPECT_TRUE(absl::StrContains(data, "HloModule m"));
+  // Second file is the buffer assignment.
+  EXPECT_TRUE(ReadFileToString(env, paths[1], &data).ok());
+  EXPECT_TRUE(absl::StrContains(data, "BufferAssignment:"));
+  // Third file is the memory usage report.
+  EXPECT_TRUE(ReadFileToString(env, paths[2], &data).ok());
+  EXPECT_TRUE(absl::StrContains(data, "Total bytes used:"));
+  // Fourth file is the debug options.
+  EXPECT_TRUE(ReadFileToString(env, paths[3], &data).ok());
 }
 
 TEST(DumpTest, NoDumpingToFileWhenNotEnabled) {
@@ -184,11 +249,15 @@ TEST(DumpTest, DumpFdoProfileToFileWhenEnabled) {
                           ParseAndReturnUnverifiedModule(kModuleStr, config));
   std::string dump_name = "dump";
   auto paths = DumpHloModuleIfEnabled(*m, dump_name);
-  EXPECT_EQ(paths.size(), 2);
+  EXPECT_EQ(paths.size(), 3);
 
   std::string data;
   EXPECT_TRUE(ReadFileToString(env, paths[1], &data).ok());
   EXPECT_TRUE(absl::StrContains(data, fdo_profile));
+  EXPECT_TRUE(ReadFileToString(env, paths[2], &data).ok());
+  EXPECT_TRUE(
+      absl::StrContains(data, "xla_gpu_experimental_dump_fdo_profiles: true"));
+  EXPECT_TRUE(absl::StrContains(data, "xla_dump_to:"));
 }
 
 TEST(DumpTest, DumpHloUnoptimizedSnapshot) {
@@ -203,7 +272,7 @@ TEST(DumpTest, DumpHloUnoptimizedSnapshot) {
 
   options.set_xla_dump_to(tsl::testing::TmpDir());
   options.set_xla_dump_hlo_as_text(true);
-  options.set_xla_gpu_dump_hlo_unoptimized_snapshots(true);
+  options.set_xla_dump_hlo_unoptimized_snapshots(true);
   config.set_debug_options(options);
 
   DumpHloUnoptimizedSnapshotIfEnabled(hlo_snapshot, options);
@@ -251,7 +320,7 @@ TEST(DumpHloIfEnabled, DumpsBuildClNumber) {
 
   std::string dump_name = "dump";
   auto paths = DumpHloModuleIfEnabled(*m, dump_name);
-  EXPECT_EQ(paths.size(), 1);
+  EXPECT_EQ(paths.size(), 2);
 
   EXPECT_TRUE(absl::StrContains(paths[0], ".cl_"));
 }
@@ -271,7 +340,7 @@ TEST(DumpTest, DumpHloUnoptimizedSnapshotProtoBinary) {
   EXPECT_TRUE(env->LocalTempFilename(&dump_dir));
   options.set_xla_dump_to(dump_dir);
   options.set_xla_dump_hlo_as_proto(true);
-  options.set_xla_gpu_dump_hlo_unoptimized_snapshots(true);
+  options.set_xla_dump_hlo_unoptimized_snapshots(true);
   config.set_debug_options(options);
 
   DumpHloUnoptimizedSnapshotIfEnabled(hlo_snapshot, options);
@@ -417,6 +486,53 @@ TEST(DumpTest, GetNonDefaultDebugOptions) {
                         FilenameFor(*m, "", kNonDefaultDebugOptionsDumpSuffix)),
       &real_contents));
   EXPECT_THAT(real_contents, testing::Eq(non_default_options));
+}
+
+TEST(DumpTest, DumpRepeatedStringTest) {
+  DebugOptions options = DefaultDebugOptionsIgnoringFlags();
+  options.add_xla_disable_hlo_passes("layout-assignment");
+
+  std::string non_default_options = GetNonDefaultDebugOptions(options);
+  EXPECT_THAT(
+      non_default_options,
+      testing::HasSubstr("xla_disable_hlo_passes: \"layout-assignment\"\n"));
+}
+
+TEST(DumpTest, DumpPerExecutionProtoToFile) {
+  TF_ASSERT_OK_AND_ASSIGN(
+      tsl::testing::TemporaryDirectory dump_folder,
+      tsl::testing::TemporaryDirectory::CreateForCurrentTestcase());
+  const HloModule hlo_module("test_module", HloModuleConfig());
+  DebugOptions debug_options = DefaultDebugOptionsIgnoringFlags();
+  debug_options.set_xla_dump_to(dump_folder.path());
+  // Arbitrary proto.
+  HloModuleProto proto;
+  tsl::Env* env = tsl::Env::Default();
+
+  proto.set_name("test_module_1");
+  DumpPerExecutionProtobufToFile(hlo_module, proto, debug_options,
+                                 /*name=*/"test_name",
+                                 /*text_formatter=*/nullptr);
+  proto.set_name("test_module_2");
+  DumpPerExecutionProtobufToFile(hlo_module, proto, debug_options,
+                                 /*name=*/"test_name",
+                                 /*text_formatter=*/nullptr);
+
+  std::vector<std::string> matches;
+  TF_ASSERT_OK(tsl::Env::Default()->GetMatchingPaths(
+      tsl::io::JoinPath(dump_folder.path(), "*test_name*execution_*"),
+      &matches));
+  // The output of GetMatchingPaths is not stable, therefore we sort the vector.
+  absl::c_sort(matches);
+  ASSERT_THAT(matches, ElementsAre(HasSubstr("execution_0000"),
+                                   HasSubstr("execution_0001")));
+
+  HloModuleProto loaded_proto1;
+  HloModuleProto loaded_proto2;
+  TF_ASSERT_OK(tsl::ReadTextOrBinaryProto(env, matches[0], &loaded_proto1));
+  TF_ASSERT_OK(tsl::ReadTextOrBinaryProto(env, matches[1], &loaded_proto2));
+  EXPECT_THAT(loaded_proto1, EqualsProto(R"pb(name: "test_module_1")pb"));
+  EXPECT_THAT(loaded_proto2, EqualsProto(R"pb(name: "test_module_2")pb"));
 }
 
 }  // namespace

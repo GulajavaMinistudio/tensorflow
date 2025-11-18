@@ -16,12 +16,17 @@ limitations under the License.
 #ifndef XLA_SERVICE_CPU_ONEDNN_UTIL_H_
 #define XLA_SERVICE_CPU_ONEDNN_UTIL_H_
 
-#if defined(INTEL_MKL)
-
 #define EIGEN_USE_THREADS
 
+#include <memory>
+#include <utility>
+#include <vector>
+
+#include "absl/status/statusor.h"
 #include "unsupported/Eigen/CXX11/Tensor"
-#include "dnnl.hpp"
+#include "oneapi/dnnl/dnnl.hpp"
+#include "oneapi/dnnl/dnnl_common.hpp"
+#include "oneapi/dnnl/dnnl_threadpool_iface.hpp"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/service/cpu/backend_config.pb.h"
 #include "xla/service/cpu/onednn_config.pb.h"
@@ -51,6 +56,10 @@ inline bool IsSupportedType(xla::PrimitiveType dtype) {
       return false;
   }
   return false;
+}
+
+inline bool HasAMXTile() {
+  return TestCPUFeature(tsl::port::CPUFeature::AMX_TILE);
 }
 
 struct FusedOperandsRef {
@@ -89,5 +98,4 @@ dnnl::post_ops PopulateOneDnnPostOps(
 }  // namespace cpu
 }  // namespace xla
 
-#endif  // INTEL_MKL
 #endif  // XLA_SERVICE_CPU_ONEDNN_UTIL_H_

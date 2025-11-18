@@ -35,7 +35,7 @@ limitations under the License.
 
 namespace xla {
 
-absl::StatusOr<bool> AllGatherSimplifier::Run(
+absl::StatusOr<bool> AllGatherSimplifier::RunImpl(
     HloModule* module,
     const absl::flat_hash_set<absl::string_view>& execution_threads) {
   bool changed = false;
@@ -51,7 +51,7 @@ absl::StatusOr<bool> AllGatherSimplifier::Run(
       } else {
         HloAllGatherInstruction* all_gather =
             Cast<HloAllGatherInstruction>(inst);
-        const HloModuleConfig config = module->config();
+        const HloModuleConfig& config = module->config();
         std::optional<ReduceScatterSpec> spec =
             AllGatherDynamicSliceCancellation(
                 all_gather, config.num_partitions(), config.replica_count(),

@@ -19,13 +19,20 @@ limitations under the License.
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "xla/python/ifrt/attribute_map.pb.h"
+#include "xla/python/ifrt/serdes_default_version_accessor.h"
+#include "xla/python/ifrt/serdes_version.h"
 
 namespace xla {
 namespace ifrt {
@@ -84,11 +91,31 @@ class AttributeMap {
 
   const Map& map() const { return map_; }
 
+  template <typename T>
+  absl::StatusOr<T> Get(const std::string& key) const {
+    if constexpr (std::is_same_v<T, std::string> ||
+                  std::is_same_v<T, absl::string_view>) {
+      return Get<T, StringValue>(key);
+    } else if constexpr (std::is_same_v<T, bool>) {
+      return Get<T, BoolValue>(key);
+    } else if constexpr (std::is_same_v<T, int64_t>) {
+      return Get<T, Int64Value>(key);
+    } else if constexpr (std::is_same_v<T, std::vector<int64_t>> ||
+                         std::is_same_v<T, absl::Span<const int64_t>>) {
+      return Get<T, Int64ListValue>(key);
+    } else if constexpr (std::is_same_v<T, float>) {
+      return Get<T, FloatValue>(key);
+    } else {
+      static_assert(false, "Unsupported type for AttributeMap::Get");
+    }
+  }
+
   // Deserializes `AttributeMapProto` into `AttributeMap`.
   static absl::StatusOr<AttributeMap> FromProto(const AttributeMapProto& proto);
 
   // Serializes `AttributeMap` into `AttributeMapProto`.
-  AttributeMapProto ToProto() const;
+  AttributeMapProto ToProto(
+      SerDesVersion version = SerDesDefaultVersionAccessor::Get()) const;
 
   std::string DebugString(size_t max_string_length = 64,
                           size_t max_int64_list_size = 16) const;
@@ -99,6 +126,20 @@ class AttributeMap {
   }
 
  private:
+  template <typename T, typename V>
+  absl::StatusOr<T> Get(const std::string& key) const {
+    auto it = map_.find(key);
+    if (it == map_.end()) {
+      return absl::NotFoundError(absl::StrCat("Key not found: ", key));
+    }
+    const V* value = std::get_if<V>(&it->second);
+    if (value == nullptr) {
+      return absl::InvalidArgumentError(
+          absl::StrCat("Value type mismatch for key: ", key));
+    }
+    return value->value;
+  }
+
   Map map_;
 };
 

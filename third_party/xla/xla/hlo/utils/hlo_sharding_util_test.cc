@@ -30,6 +30,7 @@ limitations under the License.
 #include "xla/hlo/ir/tile_assignment.h"
 #include "xla/hlo/testlib/hlo_hardware_independent_test_base.h"
 #include "xla/hlo/testlib/test.h"
+#include "xla/service/call_graph.h"
 #include "xla/service/dot_as_convolution_util.h"
 #include "xla/shape.h"
 #include "xla/shape_util.h"
@@ -465,6 +466,27 @@ TEST(HloShardingUtilTest, ReshapeShardingTranspose4) {
   EXPECT_EQ(result.value(), output_sharding);
 }
 
+TEST(HloShardingUtilTest, ReshapeShardingWithPadding1) {
+  Shape input_shape = ShapeUtil::MakeShape(F32, {4});
+  Shape output_shape = ShapeUtil::MakeShape(F32, {2, 2});
+  HloSharding input_sharding = HloSharding::IotaTile({8});
+  std::optional<HloSharding> result =
+      ReshapeSharding(input_shape, output_shape, input_sharding);
+  EXPECT_FALSE(result.has_value());
+}
+
+TEST(HloShardingUtilTest, ReshapeShardingWithPadding2) {
+  Shape input_shape = ShapeUtil::MakeShape(F32, {2, 2});
+  Shape output_shape = ShapeUtil::MakeShape(F32, {4});
+  HloSharding input_sharding = HloSharding::IotaTile({2, 4});
+  HloSharding output_sharding =
+      HloSharding::PartialTile(TileAssignment({4, 2}));
+  std::optional<HloSharding> result =
+      ReshapeSharding(input_shape, output_shape, input_sharding);
+  EXPECT_TRUE(result.has_value());
+  EXPECT_EQ(result.value(), output_sharding);
+}
+
 TEST(HloShardingUtilTest, ReshapeToTileDimension2D) {
   // The two sharding in the vector are the same. They will be processed in
   // different branches in ReshapeToTileDimension.
@@ -691,10 +713,8 @@ TEST(HloShardingUtilTest, GetManualSubgroupSharding_ManualOnly) {
   EXPECT_EQ(group_sharding.sharding.tile_assignment(), TileAssignment({1, 2}));
 
   // Expect the device groups are: {0, 2} and {1, 3}
-  EXPECT_THAT(group_sharding.device_groups[0],
-              ::testing::ElementsAreArray({0, 2}));
-  EXPECT_THAT(group_sharding.device_groups[1],
-              ::testing::ElementsAreArray({1, 3}));
+  EXPECT_EQ(group_sharding.device_groups.ToString(),
+            "devices=[2,2]<=[2,2]T(1,0)");
 }
 
 TEST(HloShardingUtilTest, GetManualSubgroupSharding_ManualAndReplicted) {
@@ -711,10 +731,8 @@ TEST(HloShardingUtilTest, GetManualSubgroupSharding_ManualAndReplicted) {
             "{devices=[1,2,2]<=[4] last_tile_dim_replicate}");
 
   // Expect the device groups are: {0, 2, 4, 6} and {1, 3, 5, 7}
-  EXPECT_THAT(group_sharding.device_groups[0],
-              ::testing::ElementsAreArray({0, 2, 4, 6}));
-  EXPECT_THAT(group_sharding.device_groups[1],
-              ::testing::ElementsAreArray({1, 3, 5, 7}));
+  EXPECT_EQ(group_sharding.device_groups.ToString(),
+            "devices=[2,4]<=[4,2]T(1,0)");
 }
 
 TEST(HloShardingUtilTest, GetManualSubgroupSharding_ReplicatedAndManual) {
@@ -731,15 +749,13 @@ TEST(HloShardingUtilTest, GetManualSubgroupSharding_ReplicatedAndManual) {
             "{devices=[1,2,2]<=[4] last_tile_dim_replicate}");
 
   // Expect the device groups are: {0, 1, 4, 5} and {2, 3, 6, 7}
-  EXPECT_THAT(group_sharding.device_groups[0],
-              ::testing::ElementsAreArray({0, 1, 4, 5}));
-  EXPECT_THAT(group_sharding.device_groups[1],
-              ::testing::ElementsAreArray({2, 3, 6, 7}));
+  EXPECT_EQ(group_sharding.device_groups.ToString(),
+            "devices=[2,4]<=[2,2,2]T(1,0,2)");
 }
 
 TEST(HloShardingUtilTest, UngroupSharding_ManualOnly) {
   HloSharding sharding = HloSharding::IotaTile({1, 2});
-  std::vector<std::vector<int64_t>> device_groups = {{0, 2}, {1, 3}};
+  DeviceGroupTileAssignment device_groups(2, 2, {2, 2}, {1, 0});
   DimensionVector group_dims = {2};
   DimensionVector group_dim_sizes = {2};
 
@@ -751,13 +767,12 @@ TEST(HloShardingUtilTest, UngroupSharding_ManualOnly) {
   HloSharding ungroup_sharding = UngroupSharding(grouped);
 
   EXPECT_EQ(ungroup_sharding.ToString(),
-            "{devices=[1,2,2]0,1,2,3 last_tile_dims={manual}}");
+            "{devices=[1,2,2]<=[4] last_tile_dims={manual}}");
 }
 
 TEST(HloShardingUtilTest, UngroupSharding_ReplicatedAndManual) {
   HloSharding sharding = HloSharding::PartialTile(TileAssignment({1, 2, 2}));
-  std::vector<std::vector<int64_t>> device_groups = {{0, 2, 4, 6},
-                                                     {1, 3, 5, 7}};
+  DeviceGroupTileAssignment device_groups(2, 4, {2, 2, 2}, {2, 0, 1});
   DimensionVector group_dims = {3};
   DimensionVector group_dim_sizes = {2};
 
@@ -770,15 +785,14 @@ TEST(HloShardingUtilTest, UngroupSharding_ReplicatedAndManual) {
   HloSharding ungroup_sharding = UngroupSharding(grouped);
   VLOG(1) << "ungroup_sharding: " << ungroup_sharding.ToString();
 
-  EXPECT_EQ(
-      ungroup_sharding.ToString(),
-      "{devices=[1,2,2,2]0,2,1,3,4,6,5,7 last_tile_dims={manual, replicated}}");
+  EXPECT_EQ(ungroup_sharding.ToString(),
+            "{devices=[1,2,2,2]<=[2,2,2]T(0,2,1) last_tile_dims={manual, "
+            "replicated}}");
 }
 
 TEST(HloShardingUtilTest, UngroupSharding_ManualAndReplicated) {
   HloSharding sharding = HloSharding::PartialTile(TileAssignment({1, 2, 2}));
-  std::vector<std::vector<int64_t>> device_groups = {{0, 1, 4, 5},
-                                                     {2, 3, 6, 7}};
+  DeviceGroupTileAssignment device_groups(2, 4, {2, 2, 2}, {1, 0, 2});
   DimensionVector group_dims = {2};
   DimensionVector group_dim_sizes = {2};
 
@@ -791,9 +805,8 @@ TEST(HloShardingUtilTest, UngroupSharding_ManualAndReplicated) {
   HloSharding ungroup_sharding = UngroupSharding(grouped);
   VLOG(1) << "ungroup_sharding: " << ungroup_sharding.ToString();
 
-  EXPECT_EQ(
-      ungroup_sharding.ToString(),
-      "{devices=[1,2,2,2]0,1,2,3,4,5,6,7 last_tile_dims={manual, replicated}}");
+  EXPECT_EQ(ungroup_sharding.ToString(),
+            "{devices=[1,2,2,2]<=[8] last_tile_dims={manual, replicated}}");
 }
 
 TEST(HloShardingUtilTest, UngroupSharding_Replicated) {
@@ -802,8 +815,7 @@ TEST(HloShardingUtilTest, UngroupSharding_Replicated) {
   DimensionVector group_dims = {3};
   DimensionVector group_dim_sizes = {2};
 
-  std::vector<std::vector<int64_t>> device_groups = {{0, 1}, {2, 3}};
-
+  DeviceGroupTileAssignment device_groups(2, 2);
   auto grouped =
       GroupedSharding(std::move(device_groups), std::move(group_dims),
                       std::move(group_dim_sizes), 2, sharding,
@@ -813,7 +825,7 @@ TEST(HloShardingUtilTest, UngroupSharding_Replicated) {
   VLOG(1) << "ungroup_sharding: " << ungroup_sharding.ToString();
 
   EXPECT_EQ(ungroup_sharding.ToString(),
-            "{devices=[1,1,2,2]0,1,2,3 last_tile_dims={manual, replicated}}");
+            "{devices=[1,1,2,2]<=[4] last_tile_dims={manual, replicated}}");
 }
 
 TEST(HloShardingUtilTest, UngroupSharding_Replicated2) {
@@ -821,7 +833,7 @@ TEST(HloShardingUtilTest, UngroupSharding_Replicated2) {
   DimensionVector group_dims = {2};
   DimensionVector group_dim_sizes = {2};
 
-  std::vector<std::vector<int64_t>> device_groups = {{0, 2}, {1, 3}};
+  DeviceGroupTileAssignment device_groups(2, 2, {2, 2}, {1, 0});
 
   auto grouped =
       GroupedSharding(std::move(device_groups), std::move(group_dims),
@@ -831,8 +843,9 @@ TEST(HloShardingUtilTest, UngroupSharding_Replicated2) {
   HloSharding ungroup_sharding = UngroupSharding(grouped);
   VLOG(1) << "ungroup_sharding: " << ungroup_sharding.ToString();
 
-  EXPECT_EQ(ungroup_sharding.ToString(),
-            "{devices=[1,1,2,2]0,2,1,3 last_tile_dims={manual, replicated}}");
+  EXPECT_EQ(
+      ungroup_sharding.ToString(),
+      "{devices=[1,1,2,2]<=[2,2]T(1,0) last_tile_dims={manual, replicated}}");
 }
 
 TEST(HloShardingUtilTest, GroupedAndUngroupedReplicatedSharding) {
@@ -842,8 +855,7 @@ TEST(HloShardingUtilTest, GroupedAndUngroupedReplicatedSharding) {
 }
 
 TEST(HloShardingUtilTest, GroupedAndUngroupedIotaSharding) {
-  std::vector<std::vector<int64_t>> device_groups = {{0, 1, 2, 3, 4, 5},
-                                                     {6, 7, 8, 9, 10, 11}};
+  DeviceGroupTileAssignment device_groups(2, 6);
   GroupedSharding group_sharding = GroupedSharding(
       device_groups, /*group_dims=*/{0}, /*group_dim_sizes=*/{2},
       /*data_rank=*/2, HloSharding::IotaTile({1, 2, 3}, {2, 3}, {1, 0}));
@@ -860,7 +872,8 @@ TEST(HloShardingUtilTest, GroupedAndUngroupedShardingWithUnsortedGroupDims) {
 }
 
 TEST(HloShardingUtilTest, UngroupShardingWithUnsortedGroupDims) {
-  GroupedSharding group_sharding({{0}, {1}, {2}, {3}}, {1, 0}, {2, 2}, 4,
+  DeviceGroupTileAssignment device_groups(4, 1);
+  GroupedSharding group_sharding(device_groups, {1, 0}, {2, 2}, 4,
                                  HloSharding::Replicate());
   EXPECT_EQ(UngroupSharding(group_sharding),
             HloSharding::IotaTile({2, 2, 1, 1}, {2, 2}, {1, 0}));
@@ -870,8 +883,7 @@ TEST(HloShardingUtilTest, DeviceGroupsDoesNotMatch) {
   HloSharding sharding = HloSharding::PartialTile(TileAssignment({2, 2}));
   DimensionVector group_dim_sizes = {2};
 
-  std::vector<std::vector<int64_t>> lhs_device_groups = {{0, 2, 4, 6},
-                                                         {1, 3, 5, 7}};
+  DeviceGroupTileAssignment lhs_device_groups(2, 4, {2, 2, 2}, {2, 0, 1});
   DimensionVector lhs_group_dims = {3};
 
   auto lhs =
@@ -879,8 +891,7 @@ TEST(HloShardingUtilTest, DeviceGroupsDoesNotMatch) {
                       group_dim_sizes, 2, sharding,
                       /*subgroup_manual=*/true);
 
-  std::vector<std::vector<int64_t>> rhs_device_groups = {{0, 1, 4, 5},
-                                                         {2, 3, 6, 7}};
+  DeviceGroupTileAssignment rhs_device_groups(2, 4, {2, 2, 2}, {1, 0, 2});
   DimensionVector rhs_group_dims = {2};
 
   auto rhs =
@@ -895,7 +906,7 @@ TEST(HloShardingUtilTest, DeviceGroupsMatch) {
   HloSharding lhs_sharding = HloSharding::Replicate();
   DimensionVector group_dims = {2};
   DimensionVector group_dim_sizes = {2};
-  std::vector<std::vector<int64_t>> device_groups = {{0, 2}, {1, 3}};
+  DeviceGroupTileAssignment device_groups(2, 2, {2, 2}, {1, 0});
 
   auto lhs = GroupedSharding(
       device_groups, DimensionVector(group_dims.begin(), group_dims.end()),
@@ -1245,6 +1256,33 @@ TEST_F(HloShardingUtilTestWithHlo, InferDotOperandShardingTest2) {
   EXPECT_EQ(InferDotOperandSharding(nullptr, &lhs_sharding, 1, dnums, false,
                                     may_combine_partial_sharding),
             HloSharding::Replicate());
+}
+
+TEST_F(HloShardingUtilTestWithHlo, MultipleCallSitesForIota) {
+  absl::string_view hlo_string = R"(
+    HloModule module
+
+    call_computation {
+      %param = (s32[4096,4096]) parameter(0)
+      ROOT %gte = s32[4096,4096] get-tuple-element(%param), index=0
+    }
+
+    ENTRY %main {
+      %iota = s32[4096,4096] iota(), iota_dimension=0
+      %tuple = (s32[4096,4096]) tuple(%iota)
+      %call.0 = s32[4096,4096] call(%tuple), to_apply=call_computation
+      %call.1 = s32[4096,4096] call(%tuple), to_apply=call_computation
+      ROOT %add = s32[4096,4096] add(%call.0, %call.1)
+    })";
+  TF_ASSERT_OK_AND_ASSIGN(auto module,
+                          ParseAndReturnVerifiedModule(hlo_string));
+  // TODO(b/260601110): Actually recognize the iota.
+  auto call_graph = CallGraph::Build(module.get());
+  EXPECT_EQ(
+      GetDimensionForIota(module->GetComputationWithName("call_computation")
+                              ->root_instruction(),
+                          *call_graph),
+      std::nullopt);
 }
 
 }  // namespace

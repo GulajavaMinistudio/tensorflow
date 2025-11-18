@@ -29,13 +29,13 @@ limitations under the License.
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/ImplicitLocOpBuilder.h"
-#include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Support/LLVM.h"
 #include "xla/backends/gpu/codegen/emitters/emitter_base.h"
 #include "xla/codegen/emitters/computation_partitioner.h"
 #include "xla/hlo/analysis/indexing_map.h"
+#include "xla/hlo/analysis/symbolic_expr.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_instructions.h"
 #include "xla/service/gpu/hlo_fusion_analysis.h"
@@ -47,25 +47,11 @@ limitations under the License.
 namespace xla {
 namespace gpu {
 
-// Lowers kTranspose fusion to LLVM via MLIR using GPU's shared memory.
-
-// Each thread block of `kWarpSize` x `kNumRows` threads
-// transposes one tile: each thread copies kWarpSize/kNumRows elements from
-// the input to a shared memory tile.
-
-// This is similar to the following CUDA algorithm in TensorFlow:
-// https://goo.gl/MStRV6.
-class TransposeFusion : public EmitterBase {
+class TransposeFusionBase : public EmitterBase {
  public:
-  explicit TransposeFusion(const HloFusionAnalysis& analysis);
-  LaunchDimensions launch_dimensions() const override;
-
-  std::optional<IndexingMap> ComputeThreadIdToOutputIndexing(
-      int64_t root_index, mlir::MLIRContext* mlir_context) const override;
-
-  std::optional<IndexingMap> ComputeThreadIdToInputIndexing(
-      int64_t root_index, int64_t hero_operand_index,
-      mlir::MLIRContext* mlir_context) const override;
+  explicit TransposeFusionBase(const HloFusionAnalysis& analysis,
+                               SymbolicExprContext* symbolic_expr_context)
+      : analysis_(analysis), symbolic_expr_context_(symbolic_expr_context) {}
 
  protected:
   absl::Status EmitEntryFunction(
@@ -76,7 +62,7 @@ class TransposeFusion : public EmitterBase {
 
   std::vector<emitters::EpilogueSpecification> GetEpilogues(
       const HloFusionInstruction& fusion,
-      mlir::MLIRContext* mlir_context) const override;
+      SymbolicExprContext* symbolic_expr_context) const override;
 
   struct WriteResult {
     // All output tensors of the fusion, with side outputs written to them.
@@ -85,27 +71,87 @@ class TransposeFusion : public EmitterBase {
     mlir::ValueRange shmem_tensors;
   };
 
+  virtual WriteResult EmitWriteToShMemMlir(
+      mlir::ImplicitLocOpBuilder& builder, mlir::func::FuncOp entry_function,
+      const HloFusionInstruction& fusion,
+      const emitters::PartitionedComputation& root_computation,
+      const emitters::CallTargetProvider& call_target_provider,
+      mlir::ValueRange output_args,
+      mlir::ValueRange thread_and_block_ids) const = 0;
+
+  virtual void EmitReadFromShMemMlir(
+      mlir::ImplicitLocOpBuilder& builder, mlir::func::FuncOp entry_function,
+      const HloFusionInstruction& fusion,
+      const emitters::PartitionedComputations& computations,
+      const WriteResult& written,
+      mlir::ValueRange thread_and_block_ids) const = 0;
+
+  const HloFusionAnalysis& analysis_;
+  SymbolicExprContext* symbolic_expr_context_;
+
+  // Transpose instructions that require shared memory. Note that not all
+  // transposes require shared memory, e.g. the ones with a large innermost
+  // dimension.
+  std::vector<const HloInstruction*> shmem_transposes_;
+
+  // Roots that have shmem transposes as heroes.
+  std::vector<const HloInstruction*> shmem_transpose_roots_;
+
+  // Root indices for shmem_transpose_roots_.
+  std::vector<int> shmem_transpose_root_indices_;
+
+  // Roots that don't have a transpose hero.
+  std::vector<const HloInstruction*> side_output_roots_;
+
+  // Root indices for side_output_roots_.
+  std::vector<int> side_output_root_indices_;
+};
+
+// Lowers kTranspose fusion to LLVM via MLIR using GPU's shared memory.
+
+// Each thread block of `kWarpSize` x `kNumRows` threads
+// transposes one tile: each thread copies kWarpSize/kNumRows elements from
+// the input to a shared memory tile.
+
+// This is similar to the following CUDA algorithm in TensorFlow:
+// https://goo.gl/MStRV6.
+class TransposeFusion : public TransposeFusionBase {
+ public:
+  explicit TransposeFusion(const HloFusionAnalysis& analysis,
+                           SymbolicExprContext* symbolic_expr_context);
+  LaunchDimensions launch_dimensions() const override;
+
+  std::optional<IndexingMap> ComputeThreadIdToOutputIndexing(
+      int64_t root_index,
+      SymbolicExprContext* symbolic_expr_context) const override;
+
+  std::optional<std::vector<IndexingMap>> ComputeThreadIdToInputIndexing(
+      int64_t root_index,
+      SymbolicExprContext* symbolic_expr_context) const override;
+
+ protected:
   WriteResult EmitWriteToShMemMlir(
       mlir::ImplicitLocOpBuilder& builder, mlir::func::FuncOp entry_function,
       const HloFusionInstruction& fusion,
       const emitters::PartitionedComputation& root_computation,
       const emitters::CallTargetProvider& call_target_provider,
       mlir::ValueRange output_args,
-      mlir::ValueRange thread_and_block_ids) const;
+      mlir::ValueRange thread_and_block_ids) const override;
   void EmitReadFromShMemMlir(
       mlir::ImplicitLocOpBuilder& builder, mlir::func::FuncOp entry_function,
       const HloFusionInstruction& fusion,
       const emitters::PartitionedComputations& computations,
-      const WriteResult& written, mlir::ValueRange thread_and_block_ids) const;
+      const WriteResult& written,
+      mlir::ValueRange thread_and_block_ids) const override;
 
  private:
-  const HloFusionAnalysis& analysis_;
-
   IndexingMap GetIndexing(bool input, const xla::Shape& shape,
-                          mlir::MLIRContext* ctx) const;
-  IndexingMap GetSharedMemoryIndexing(bool read, mlir::MLIRContext* ctx) const;
+                          SymbolicExprContext* symbolic_expr_context) const;
+  IndexingMap GetSharedMemoryIndexing(
+      bool read, SymbolicExprContext* symbolic_expr_context) const;
+
   llvm::SmallVector<mlir::AffineExpr, 4> GetThreadOffsets(
-      bool read, mlir::MLIRContext* ctx) const;
+      bool read, SymbolicExprContext* symbolic_expr_context) const;
   bool MostMinorDimensionUnchanged() const;
 
   TransposeDescription transpose_;
@@ -117,12 +163,6 @@ class TransposeFusion : public EmitterBase {
   int vector_size_;
   int block_size_;
   int64_t base_block_size_;
-
-  std::vector<const HloInstruction*> shmem_transposes_;
-  std::vector<const HloInstruction*> shmem_transpose_roots_;
-  std::vector<int> shmem_transpose_root_indices_;
-  std::vector<const HloInstruction*> side_output_roots_;
-  std::vector<int> side_output_root_indices_;
 };
 
 // Packed transpose is a more advanced version of the transpose emitter.
@@ -191,62 +231,47 @@ class TransposeFusion : public EmitterBase {
 //        for K = 0 to VECTOR_SIZE:
 //          OUTPUT[(I + J) % 10, (I + J) / 10,
 //                  LANE_ID * VECTOR_SIZE + K] =  VECTOR_2D[K, J]
-class PackedTranspose : public EmitterBase {
+class PackedTranspose : public TransposeFusionBase {
  public:
   explicit PackedTranspose(const HloFusionAnalysis& analysis,
                            const TransposeSpec& spec,
                            absl::Span<const int64_t> output_block_tile,
-                           int64_t num_warps);
+                           int64_t num_warps,
+                           SymbolicExprContext* symbolic_expr_context);
 
   LaunchDimensions launch_dimensions() const override;
 
   std::optional<IndexingMap> ComputeThreadIdToOutputIndexing(
-      int64_t root_index, mlir::MLIRContext* mlir_context) const override;
+      int64_t root_index,
+      SymbolicExprContext* symbolic_expr_context) const override;
 
-  std::optional<IndexingMap> ComputeThreadIdToInputIndexing(
-      int64_t root_index, int64_t hero_operand_index,
-      mlir::MLIRContext* mlir_context) const override;
+  std::optional<std::vector<IndexingMap>> ComputeThreadIdToInputIndexing(
+      int64_t root_index,
+      SymbolicExprContext* symbolic_expr_context) const override;
 
  protected:
-  absl::Status EmitEntryFunction(
-      const emitters::PartitionedComputations& computations,
-      const emitters::CallTargetProvider& call_targets,
-      mlir::func::FuncOp entry_function,
-      const HloFusionInstruction& fusion) const override;
-
-  std::vector<emitters::EpilogueSpecification> GetEpilogues(
-      const HloFusionInstruction& fusion,
-      mlir::MLIRContext* mlir_context) const override;
-
-  struct WriteResult {
-    // All output tensors of the fusion, with side outputs written to them.
-    mlir::SmallVector<mlir::Value> updated_outputs;
-    // Shared memory tiles for transpose heroes.
-    mlir::ValueRange shmem_tensors;
-  };
-
   WriteResult EmitWriteToShMemMlir(
       mlir::ImplicitLocOpBuilder& builder, mlir::func::FuncOp entry_function,
       const HloFusionInstruction& fusion,
       const emitters::PartitionedComputation& root_computation,
       const emitters::CallTargetProvider& call_target_provider,
       mlir::ValueRange output_args,
-      mlir::ValueRange thread_and_block_ids) const;
+      mlir::ValueRange thread_and_block_ids) const override;
 
   void EmitReadFromShMemMlir(
       mlir::ImplicitLocOpBuilder& builder, mlir::func::FuncOp entry_function,
       const HloFusionInstruction& fusion,
       const emitters::PartitionedComputations& computations,
-      const WriteResult& written, mlir::ValueRange thread_and_block_ids) const;
+      const WriteResult& written,
+      mlir::ValueRange thread_and_block_ids) const override;
 
  private:
-  IndexingMap GetInputIndexing(mlir::MLIRContext* ctx) const;
-  IndexingMap GetShmemWriteIndexing(mlir::MLIRContext* ctx) const;
+  IndexingMap GetInputIndexing(SymbolicExprContext* ctx) const;
+  IndexingMap GetShmemWriteIndexing(SymbolicExprContext* ctx) const;
 
-  IndexingMap GetShmemReadIndexing(mlir::MLIRContext* ctx) const;
-  IndexingMap GetOutputIndexing(mlir::MLIRContext* ctx) const;
+  IndexingMap GetShmemReadIndexing(SymbolicExprContext* ctx) const;
+  IndexingMap GetOutputIndexing(SymbolicExprContext* ctx) const;
 
-  const HloFusionAnalysis& analysis_;
   TransposeSpec spec_;
 
   // Tile sizes for the canonical input shape.
@@ -275,27 +300,11 @@ class PackedTranspose : public EmitterBase {
 
   // Number of populated rows in the shared memory tensor.
   int64_t populated_shmem_rows_;
-
-  // Transpose instructions that require shared memory. Note that not all
-  // transposes require shared memory, e.g. the ones with a large innermost
-  // dimension.
-  std::vector<const HloInstruction*> shmem_transposes_;
-
-  // Roots that have shmem transposes as heroes.
-  std::vector<const HloInstruction*> shmem_transpose_roots_;
-
-  // Root indices for shmem_transpose_roots_.
-  std::vector<int> shmem_transpose_root_indices_;
-
-  // Roots that don't have a transpose hero.
-  std::vector<const HloInstruction*> side_output_roots_;
-
-  // Root indices for side_output_roots_.
-  std::vector<int> side_output_root_indices_;
 };
 
 std::unique_ptr<EmitterBase> CreateTransposeFusion(
-    const HloFusionAnalysis& analysis);
+    const HloFusionAnalysis& analysis,
+    SymbolicExprContext* symbolic_expr_context);
 
 }  // namespace gpu
 }  // namespace xla

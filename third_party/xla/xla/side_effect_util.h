@@ -36,6 +36,7 @@ extern const char kXlaComputeTypeAttr[];
 extern const char kXlaComputeTypeSparse[];
 extern const char kXlaComputeTypeDense[];
 extern const char kXlaComputeTypeHost[];
+extern const char kXlaComputeTypeSparseOffload[];
 
 // XLA frontend attribute name for the maximum number of ids expected per
 // partition *before* an input batch is partitioned.
@@ -102,10 +103,17 @@ extern const char kXlaNoOpSchedulingGroup[];
 // are added.
 extern const char kMustFuseAttr[];
 extern const char kMaximalFuseAttr[];
+extern const char kFuseLimitAttr[];
 
 // XLA frontend attribute for specifying groups of collectives that should be
 // launched together.
 extern const char kCollectivesGroupAttr[];
+
+extern const char kNumSlotVariables[];
+extern const char kNumHyperparameters[];
+
+// XLA frontend attribute for specifying the tag of a log instruction.
+extern const char kLogTag[];
 }  // namespace xla
 
 #endif  // XLA_SIDE_EFFECT_UTIL_H_

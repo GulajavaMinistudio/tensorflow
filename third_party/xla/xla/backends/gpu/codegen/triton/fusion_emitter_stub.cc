@@ -13,27 +13,21 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include <cstdint>
 #include <string>
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
-#include "absl/types/span.h"
-#include "llvm/ADT/SmallVector.h"
 #include "llvm/IR/Module.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/OwningOpRef.h"
-#include "mlir/IR/Value.h"
 #include "mlir/Pass/PassManager.h"
-#include "xla/autotuning.pb.h"
 #include "xla/backends/gpu/codegen/triton/fusion_emitter.h"
-#include "xla/codegen/emitter_loc_op_builder.h"
+#include "xla/hlo/analysis/symbolic_expr.h"
 #include "xla/hlo/ir/hlo_clone_context.h"
 #include "xla/hlo/ir/hlo_instructions.h"
-#include "xla/service/gpu/model/tiled_hlo_computation.h"
 #include "xla/service/hlo_module_config.h"
 #include "xla/stream_executor/device_description.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
@@ -56,7 +50,7 @@ absl::StatusOr<TritonWrapperResult> TritonWrapper(
     const se::GpuComputeCapability& cc,
     const se::DeviceDescription& device_info,
     const BlockLevelParameters& block_level_parameters,
-    llvm::Module* llvm_module, mlir::MLIRContext& mlir_context) {
+    llvm::Module* llvm_module, SymbolicExprContext& symbolic_expr_context) {
   return absl::UnimplementedError("not supported for this build configuration");
 }
 
@@ -64,7 +58,7 @@ absl::StatusOr<mlir::OwningOpRef<mlir::ModuleOp>> CreateTritonModule(
     absl::string_view fn_name, const HloFusionInstruction* fusion,
     const se::DeviceDescription& device_info,
     const BlockLevelParameters& block_level_parameters,
-    mlir::MLIRContext& mlir_context) {
+    SymbolicExprContext& symbolic_expr_context) {
   return absl::UnimplementedError("not supported for this build configuration");
 }
 
@@ -81,16 +75,6 @@ std::string GetLibdevicePath(const HloModuleConfig& hlo_config,
                              const se::DeviceDescription& device_info) {
   return "";
 }
-
-namespace ir_emitter_triton_internal {
-
-llvm::SmallVector<mlir::Value, 3> ComputeDelinearizedTileIndex(
-    EmitterLocOpBuilder& b,
-    absl::Span<const int64_t> num_output_tiles_per_dim) {
-  return {};
-}
-
-}  // namespace ir_emitter_triton_internal
 
 }  // namespace gpu
 }  // namespace xla

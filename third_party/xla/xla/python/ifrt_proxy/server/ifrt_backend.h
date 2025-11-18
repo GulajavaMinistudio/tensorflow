@@ -32,12 +32,13 @@
 #include "xla/python/ifrt/array_spec.h"
 #include "xla/python/ifrt/client.h"
 #include "xla/python/ifrt/executable.h"
-#include "xla/python/ifrt/future.h"
 #include "xla/python/ifrt/host_callback.h"
+#include "xla/python/ifrt/serdes_any_version_accessor.h"
+#include "xla/python/ifrt/serdes_version.h"
 #include "xla/python/ifrt_proxy/common/ifrt_service.pb.h"
 #include "xla/python/ifrt_proxy/server/host_buffer.h"
 #include "xla/python/ifrt_proxy/server/host_callback.h"
-#include "xla/tsl/concurrency/ref_count.h"
+#include "xla/tsl/concurrency/future.h"
 #include "xla/tsl/platform/threadpool.h"
 
 namespace xla {
@@ -58,7 +59,8 @@ class BackendInterface {
   using Response = std::shared_ptr<IfrtResponse>;
 
   // Processes a given IFRT Request and returns a Future of an IfrtResponse.
-  virtual Future<Response> Process(std::unique_ptr<IfrtRequest> request) = 0;
+  virtual tsl::Future<Response> Process(
+      std::unique_ptr<IfrtRequest> request) = 0;
 };
 
 // IfrtBackend implements a backend that already has a linkable C++ client that
@@ -76,9 +78,15 @@ class IfrtBackend final : public BackendInterface {
   ~IfrtBackend() override;
 
   // IFRT Proxy version negotiated between the client and the server.
-  const IfrtProxyVersion& version() const { return version_; }
+  int32_t protocol_version() const { return version_.protocol_version(); }
 
-  Future<Response> Process(std::unique_ptr<IfrtRequest> request) override;
+  // IFRT SerDes version negotiated between the client and the server.
+  SerDesVersion ifrt_serdes_version() const {
+    return SerDesAnyVersionAccessor::Get(
+        SerDesVersionNumber(version_.ifrt_serdes_version_number()));
+  }
+
+  tsl::Future<Response> Process(std::unique_ptr<IfrtRequest> request) override;
 
  private:
   // Generates unique handles for returning to the client. Guaranteed to return
@@ -156,11 +164,11 @@ class IfrtBackend final : public BackendInterface {
   // that becomes ready when the function returns. If the thread pool is not
   // given, uses a default thread pool implementation that does not limit the
   // maximum number of threads.
-  Future<Response> AsyncExecute(
+  tsl::Future<Response> AsyncExecute(
       std::function<absl::StatusOr<Response>()> handle_fn,
       tsl::thread::ThreadPool* thread_pool = nullptr);
 
-  Future<Response> ProcessInternal(std::unique_ptr<IfrtRequest> request);
+  tsl::Future<Response> ProcessInternal(std::unique_ptr<IfrtRequest> request);
 
   //////////////////////////////////////////////////////////////////////
   // Handlers for individual requests
@@ -168,10 +176,10 @@ class IfrtBackend final : public BackendInterface {
 
   absl::StatusOr<Response> HandleInit(std::unique_ptr<IfrtRequest> request);
 
-  Future<Response> HandleCheckFutureRequest(
+  tsl::Future<Response> HandleCheckFutureRequest(
       std::unique_ptr<IfrtRequest> request);
 
-  Future<Response> HandleCheckValueReadyRequest(
+  tsl::Future<Response> HandleCheckValueReadyRequest(
       std::unique_ptr<IfrtRequest> request);
 
   absl::StatusOr<Response> HandleMakeArrayFromHostBufferRequest(
@@ -184,7 +192,7 @@ class IfrtBackend final : public BackendInterface {
       ArrayStore::Reservation& asr, std::unique_ptr<IfrtRequest> request);
   absl::StatusOr<Response> HandleRemapArraysRequest(
       ArrayStore::Reservation& asr, std::unique_ptr<IfrtRequest> request);
-  Future<Response> HandleCopyToHostBufferRequest(
+  tsl::Future<Response> HandleCopyToHostBufferRequest(
       std::unique_ptr<IfrtRequest> request);
   absl::StatusOr<Response> HandleDisassembleIntoSingleDeviceArraysRequest(
       ArrayStore::Reservation& asr, std::unique_ptr<IfrtRequest> request);
@@ -199,9 +207,14 @@ class IfrtBackend final : public BackendInterface {
   absl::StatusOr<Response> HandleDestructArrayRequest(
       std::unique_ptr<IfrtRequest> request);
 
-  Future<Response> HandleCompileRequest(std::unique_ptr<IfrtRequest> request);
+  tsl::Future<Response> HandleCompileRequest(
+      std::unique_ptr<IfrtRequest> request);
 
-  Future<Response> HandleLoadedExecutableMetadataRequest(
+  tsl::Future<Response> HandleLoadedExecutableMetadataRequest(
+      std::unique_ptr<IfrtRequest> request);
+  tsl::Future<Response> HandleLoadedExecutableCostAnalysisRequest(
+      std::unique_ptr<IfrtRequest> request);
+  tsl::Future<Response> HandleLoadedExecutableHumanReadableProgramTextRequest(
       std::unique_ptr<IfrtRequest> request);
   absl::StatusOr<Response> HandleLoadedExecutableExecuteRequest(
       ArrayStore::Reservation& asr, std::unique_ptr<IfrtRequest> request);
@@ -212,7 +225,7 @@ class IfrtBackend final : public BackendInterface {
   absl::StatusOr<Response> HandleLoadedExecutableDestructRequest(
       std::unique_ptr<IfrtRequest> request);
 
-  Future<Response> HandleLoadedHostCallbackPollRequest(
+  tsl::Future<Response> HandleLoadedHostCallbackPollRequest(
       std::unique_ptr<IfrtRequest> request);
   absl::StatusOr<Response> HandleLoadedHostCallbackReturnRequest(
       std::unique_ptr<IfrtRequest> request);
@@ -226,7 +239,7 @@ class IfrtBackend final : public BackendInterface {
   // Auxiliary/Helper methods for the handler methods above
   //
 
-  Future<BackendInterface::Response> HandleCopyToStringHostBufferRequest(
+  tsl::Future<BackendInterface::Response> HandleCopyToStringHostBufferRequest(
       std::unique_ptr<IfrtRequest> request);
 
   //////////////////////////////////////////////////////////////////////
@@ -246,7 +259,7 @@ class IfrtBackend final : public BackendInterface {
   const std::shared_ptr<HostBufferStore> host_buffer_store_;
 
   absl::Mutex futures_mutex_;
-  absl::flat_hash_map<uint64_t, Future<>> futures_
+  absl::flat_hash_map<uint64_t, tsl::Future<>> futures_
       ABSL_GUARDED_BY(futures_mutex_);
 
   ArrayStore array_store_;

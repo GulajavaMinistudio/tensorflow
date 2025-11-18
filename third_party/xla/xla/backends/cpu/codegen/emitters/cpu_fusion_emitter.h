@@ -28,11 +28,11 @@ limitations under the License.
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/OwningOpRef.h"
 #include "mlir/Pass/PassManager.h"
 #include "xla/codegen/emitters/computation_partitioner.h"
 #include "xla/hlo/analysis/indexing_map.h"
+#include "xla/hlo/analysis/symbolic_expr.h"
 #include "xla/hlo/ir/hlo_instructions.h"
 #include "xla/mlir/tools/mlir_replay/public/compiler_trace.pb.h"
 #include "xla/service/buffer_assignment.h"
@@ -42,9 +42,9 @@ namespace cpu {
 
 IndexingMap GetDefaultIndexingMap(absl::Span<const int64_t> thread_tile_sizes,
                                   absl::Span<const int64_t> shape,
-                                  mlir::MLIRContext* mlir_context);
+                                  SymbolicExprContext* symbolic_expr_context);
 
-absl::StatusOr<mlir::func::FuncOp> EmitFusionKernelApi(
+absl::StatusOr<mlir::func::FuncOp> EmitEntryFunctionApi(
     mlir::ModuleOp fusion_module, const HloFusionInstruction& fusion,
     const std::string& entry_function_name,
     const BufferAssignment& buffer_assignment);
@@ -55,11 +55,6 @@ absl::StatusOr<emitters::CallTargetProvider> EmitCallTargets(
     const emitters::PartitionedComputations& computations,
     const std::vector<emitters::EpilogueSpecification>& epilogues);
 
-// Set the data layout attribute of the module based on the called instructions
-// of the fusion.
-void SetDataLayoutAttribute(mlir::ModuleOp module,
-                            const HloFusionInstruction& fusion);
-
 // Creates a module op with the name of the fusion using `GetFusionName`.
 absl::StatusOr<mlir::OwningOpRef<mlir::ModuleOp>> CreateNamedMlirModuleOp(
     const HloFusionInstruction& fusion, mlir::Builder& builder);
@@ -69,23 +64,6 @@ absl::StatusOr<mlir::OwningOpRef<mlir::ModuleOp>> CreateNamedMlirModuleOp(
 // C-style name of the fusion created by combining the name of the parent
 // HloModule and the name of the fusion.
 absl::StatusOr<std::string> GetFusionName(const HloFusionInstruction& fusion);
-
-class CpuFusionEmitterBase {
- public:
-  virtual ~CpuFusionEmitterBase() = default;
-
-  virtual int64_t num_threads() const = 0;
-
-  virtual std::optional<IndexingMap> ComputeThreadIdToOutputIndexing(
-      int64_t, mlir::MLIRContext*) const = 0;
-
-  virtual std::optional<IndexingMap> ComputeThreadIdToInputIndexing(
-      int64_t, int64_t, mlir::MLIRContext*) const = 0;
-
-  virtual std::string BackendExtraOptions() { return {}; }
-
-  virtual absl::StatusOr<mlir::OwningOpRef<mlir::ModuleOp>> Emit() const = 0;
-};
 
 int64_t CeilDiv(int64_t a, int64_t b);
 

@@ -24,11 +24,12 @@ limitations under the License.
 
 #include "absl/container/flat_hash_map.h"
 #include "absl/functional/any_invocable.h"
+#include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/types/span.h"
-#include "xla/pjrt/pjrt_future.h"
+#include "xla/future.h"
 #include "xla/python/transfer/transfer_socket.pb.h"
 
 namespace aux {
@@ -42,9 +43,10 @@ class ChunkDestination : public tsl::ReferenceCounted<ChunkDestination> {
   virtual absl::Status Put(const void* data, int64_t offset, size_t size,
                            absl::AnyInvocable<void() &&> on_done) = 0;
 
+  virtual void Poison(absl::Status s) = 0;
+
   // For testing.
-  static std::pair<xla::PjRtFuture<std::string>,
-                   tsl::RCReference<ChunkDestination>>
+  static std::pair<xla::Future<std::string>, tsl::RCReference<ChunkDestination>>
   MakeStringDest();
 };
 
@@ -105,7 +107,8 @@ class BulkTransportInterface {
     // There may be some delay between Send() and when the message
     // is actually sent. on_send gets called when the message actually
     // gets sent.
-    absl::AnyInvocable<void(int bond_id, size_t size) &&> on_send;
+    absl::AnyInvocable<void(absl::StatusOr<int> bond_id, size_t size) &&>
+        on_send;
   };
 
   // Schedules a send over a BulkTransportInterface connection.
@@ -178,6 +181,11 @@ class ConnectionState : public tsl::ReferenceCounted<ConnectionState> {
   // used.
   virtual void Send(size_t req_id, const void* data, size_t offset, size_t size,
                     bool is_largest, absl::AnyInvocable<void() &&> on_done) = 0;
+
+  virtual void SendError(size_t req_id, size_t offset, size_t size,
+                         bool is_largest, absl::Status status) {
+    CHECK_OK(status);
+  }
 };
 
 // Basic rendevous table.
@@ -205,6 +213,9 @@ class PullTable {
   // Test-only implementation of PullTable::Entry for a list of strings.
   static tsl::RCReference<PullTable::Entry> MakeStringEntry(
       std::vector<std::string> buffers);
+
+  // Clears all entries.
+  void Reset();
 
  private:
   absl::Mutex mu_;

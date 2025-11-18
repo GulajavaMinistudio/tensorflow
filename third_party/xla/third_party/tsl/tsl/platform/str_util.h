@@ -31,11 +31,6 @@ limitations under the License.
 #include "xla/tsl/platform/types.h"
 #include "tsl/platform/stringpiece.h"
 
-// TODO: b/323943471 - This macro should eventually be provided by Abseil.
-#ifndef ABSL_DEPRECATE_AND_INLINE
-#define ABSL_DEPRECATE_AND_INLINE()
-#endif
-
 // Basic string utility routines
 namespace tsl {
 namespace str_util {
@@ -214,11 +209,6 @@ ABSL_DEPRECATE_AND_INLINE()
 inline bool StrContains(absl::string_view haystack, absl::string_view needle) {
   return absl::StrContains(haystack, needle);
 }
-
-// Returns the length of the given null-terminated byte string 'str'.
-// Returns 'string_max_len' if the null character was not found in the first
-// 'string_max_len' bytes of 'str'.
-size_t Strnlen(const char* str, const size_t string_max_len);
 
 //   ----- NON STANDARD, TF SPECIFIC METHOD -----
 // Converts "^2ILoveYou!" to "i_love_you_". More specifically:

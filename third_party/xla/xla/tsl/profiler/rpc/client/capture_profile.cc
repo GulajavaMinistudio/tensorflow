@@ -56,7 +56,7 @@ using tensorflow::ProfileResponse;
 using tensorflow::RemoteProfilerSessionManagerOptions;
 using tensorflow::profiler::XSpace;
 
-constexpr uint64 kMaxEvents = 1000000;
+constexpr uint64_t kMaxEvents = 1000000;
 const absl::string_view kXPlanePb = "xplane.pb";
 
 MonitorRequest PopulateMonitorRequest(int duration_ms, int monitoring_level,
@@ -199,8 +199,10 @@ absl::Status CaptureRemoteTrace(const std::string& logdir,
   DCHECK_GT(opts.profiler_options().duration_ms(), 0);
   DCHECK(!opts.service_addresses().empty());
 
-  // Use the current timestamp as the run name.
-  std::string session_id = GetCurrentTimeStampAsString();
+  // Sets the session ID if provided, otherwise uses the current timestamp.
+  std::string session_id = opts.profiler_options().session_id().empty()
+                               ? GetCurrentTimeStampAsString()
+                               : opts.profiler_options().session_id();
   std::string repository_root = GetTensorBoardProfilePluginDir(logdir);
   auto duration_ms = opts.profiler_options().duration_ms();
 
@@ -223,8 +225,9 @@ absl::Status CaptureRemoteTrace(const std::string& logdir,
     } else {
       status = Profile(repository_root, session_id, opts);
     }
-    if (remaining_attempts <= 0 || status.ok() || !ShouldRetryTracing(status))
+    if (remaining_attempts <= 0 || status.ok() || !ShouldRetryTracing(status)) {
       break;
+    }
     std::cout << "No trace event is collected. Automatically retrying.\n"
               << std::endl;
   }
@@ -272,8 +275,8 @@ absl::Status ExportToTensorBoard(const XSpace& xspace,
 absl::Status CaptureRemoteTrace(
     const char* service_addr, const char* logdir, const char* worker_list,
     bool include_dataset_ops, int duration_ms, int num_tracing_attempts,
-    const absl::flat_hash_map<std::string, std::variant<int, std::string>>&
-        options) {
+    const absl::flat_hash_map<std::string,
+                              std::variant<bool, int, std::string>>& options) {
   // TPU capture is true if the user sets worker_list.
   bool is_cloud_tpu_session = false;
   RemoteProfilerSessionManagerOptions opts =

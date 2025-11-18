@@ -18,6 +18,7 @@ limitations under the License.
 
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "absl/base/thread_annotations.h"
@@ -29,6 +30,7 @@ limitations under the License.
 #include "xla/backends/gpu/runtime/command_buffer_cmd.h"
 #include "xla/backends/gpu/runtime/sequential_thunk.h"
 #include "xla/backends/gpu/runtime/thunk.h"
+#include "xla/service/buffer_assignment.h"
 #include "xla/stream_executor/command_buffer.h"
 #include "xla/stream_executor/device_memory.h"
 #include "xla/stream_executor/stream_executor.h"
@@ -55,6 +57,7 @@ class CommandBufferThunk : public Thunk {
       const ExecuteParams& params, int64_t index);
 
   void ForAllThunks(absl::FunctionRef<void(const Thunk*)> fn) const override;
+  void ForAllThunksMutable(absl::FunctionRef<void(Thunk*)> fn) override;
 
   std::string ToString(int indent) const override;
 
@@ -65,10 +68,13 @@ class CommandBufferThunk : public Thunk {
     explicit ExecutorCommandBuffer(
         std::unique_ptr<se::CommandBuffer> command_buffer);
 
-    // Returns true if `commands` cmd sequence has to be recorded into
-    // `command_buffer` to update it (see `recorded_allocs` below).
-    bool ShouldUpdateCommandBuffer(const CommandBufferCmdExecutor& commands,
-                                   const Thunk::ExecuteParams& params)
+    // Updates recorded buffer allocation for the given `commands` using the
+    // buffer allocations passed in `params`. Returns buffer allocations that
+    // changed since the last update. Returned buffer allocations are sorted by
+    // the buffer allocation index.
+    std::vector<BufferAllocation::Index> UpdateBufferAllocations(
+        const CommandBufferCmdExecutor& commands,
+        const Thunk::ExecuteParams& params)
         ABSL_EXCLUSIVE_LOCKS_REQUIRED(mutex);
 
     // se::CommandBuffer is not thread safe, and we guard it with a mutex to
@@ -95,6 +101,15 @@ class CommandBufferThunk : public Thunk {
 
     // Number of command buffer executions since last update.
     int64_t num_executions ABSL_GUARDED_BY(mutex) = 0;
+
+    // For GPU backend, NCCL may call cuda-graph un-supported host side API
+    // during graph capturing (e.g. cuCtxEnablePeerAccess), this will break XLA
+    // cuda graph run. To work around the issue, this PR introduces a warm up
+    // iteration for command buffer thunk, during warm up iteration, command
+    // buffer thunk are executed through normal thunks. The warm up iteration
+    // will do the proper NCCL setup, so later iterations running through
+    // command buffer does not need to call NCCL setup APIs.
+    bool warmup_done ABSL_GUARDED_BY(mutex) = false;
   };
 
   // Command buffer thunk owns commands buffers instantiated on all executors.

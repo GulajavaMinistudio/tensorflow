@@ -353,7 +353,7 @@ LogicalResult ConvertTFLReluOp::matchAndRewrite(
         buildRescale(rewriter, op, output_type, tfl_relu_op.getX(),
                      input_qtype.getScale() / output_qtype.getScale(),
                      input_qtype.getZeroPoint(), output_qtype.getZeroPoint(),
-                     /*double_round=*/"SINGLE_ROUND", /*scale32=*/true);
+                     /*double_round=*/tosa::RoundingMode::SINGLE_ROUND, /*scale32=*/true);
   }
 
   auto element_type = input_type.getElementType();
@@ -423,7 +423,7 @@ LogicalResult ConvertTFLRelu1Op::matchAndRewrite(
         buildRescale(rewriter, op, output_type, tfl_relu1_op.getX(),
                      input_qtype.getScale() / output_qtype.getScale(),
                      input_qtype.getZeroPoint(), output_qtype.getZeroPoint(),
-                     /*double_round=*/"SINGLE_ROUND", /*scale32=*/true);
+                     /*double_round=*/tosa::RoundingMode::SINGLE_ROUND, /*scale32=*/true);
   }
 
   auto element_type = input_type.getElementType();
@@ -490,7 +490,7 @@ LogicalResult ConvertTFLRelu0To1Op::matchAndRewrite(
         buildRescale(rewriter, op, output_type, tfl_relu0to1_op.getX(),
                      input_qtype.getScale() / output_qtype.getScale(),
                      input_qtype.getZeroPoint(), output_qtype.getZeroPoint(),
-                     /*double_round=*/"SINGLE_ROUND", /*scale32=*/true);
+                     /*double_round=*/tosa::RoundingMode::SINGLE_ROUND, /*scale32=*/true);
   }
 
   auto element_type = input_type.getElementType();
@@ -557,7 +557,7 @@ LogicalResult ConvertTFLRelu6Op::matchAndRewrite(
         buildRescale(rewriter, op, output_type, tfl_relu6_op.getX(),
                      input_qtype.getScale() / output_qtype.getScale(),
                      input_qtype.getZeroPoint(), output_qtype.getZeroPoint(),
-                     /*double_round=*/"SINGLE_ROUND", /*scale32=*/true);
+                     /*double_round=*/tosa::RoundingMode::SINGLE_ROUND, /*scale32=*/true);
   }
 
   auto element_type = input_type.getElementType();
@@ -1519,6 +1519,18 @@ Value lowerGroupedConvolution(TFL::Conv2DOp op, PatternRewriter& rewriter) {
                                                convolutions, output_slice_dim);
 }
 
+bool isInt16InputAndVariableBias(mlir::ShapedType input_type, Value orig_bias) {
+  auto input_qtype = llvm::dyn_cast<mlir::quant::UniformQuantizedType>(
+      input_type.getElementType());
+  if (!input_qtype) return false;
+
+  int input_bits = input_qtype.getStorageTypeIntegralWidth();
+  auto const_bias = orig_bias.getDefiningOp<tosa::ConstOp>();
+  auto no_value_bias = orig_bias.getDefiningOp<TFL::NoValueOp>();
+
+  return (input_bits == 16 && !const_bias && !no_value_bias);
+}
+
 /* Ensure bias is of the correct type.
 TOSA requires that bias must be of the same type as the output, and that
 output type must be of a certain type depending on the input type.
@@ -1546,12 +1558,24 @@ static FailureOr<std::pair<Type, Value>> getTosaBias(
     bias_bits = bias_ety.getIntOrFloatBitWidth();
   }
 
-  if (!bias || !dyn_cast<RankedTensorType>(bias.getType())) {
-    // The bias may actually be typed "None" which has no value. TOSA requires
-    // bias to be an array of output_channel_count values, so create a constant
-    // of the appropriate number and type of zeros.
+  bool input_is_qtype =
+      mlir::isa<mlir::quant::QuantizedType>(input_type.getElementType());
+
+  bool special_case_16bit_input =
+      input_is_qtype ? isInt16InputAndVariableBias(input_type, bias) : false;
+
+  if (!bias || !dyn_cast<RankedTensorType>(bias.getType()) ||
+      special_case_16bit_input) {
+    // Create a bias with values of all zeros. This is needed in two situations:
+    // 1. The bias may actually be typed "None" which has no value. TOSA
+    // requires bias to be an array of output_channel_count values, so create a
+    // constant of the appropriate number and type of zeros.
+    // 2. Conv output is of type int48 and bias is of type int32 but TOSA
+    // insists on dtype(output) == dtype(bias). So we need to create zero bias
+    // of type 48 now and later add the int32 bias explicitly
     RankedTensorType bias_type = RankedTensorType::get({1}, bias_ety);
     auto bias_attr = rewriter.getZeroAttr(bias_type);
+
     bias = CreateOpAndInfer<tosa::ConstOp>(rewriter, op->getLoc(), bias_type,
                                            mlir::cast<ElementsAttr>(bias_attr));
   }
@@ -1571,7 +1595,7 @@ static FailureOr<std::pair<Type, Value>> getTosaBias(
     prev_bias_bits = prev_bias_etype.getIntOrFloatBitWidth();
   }
 
-  if (prev_bias_bits == bias_bits) {
+  if (prev_bias_bits == bias_bits || special_case_16bit_input) {
     return std::pair<Type, Value>(bias_ety, bias);
   }
 
@@ -1613,6 +1637,39 @@ static FailureOr<std::pair<Type, Value>> getTosaBias(
   rewriter.replaceOp(const_op, new_bias);
 
   return std::make_pair(bias_ety, new_bias);
+}
+
+Value handleConvRescaleAndBias(Operation* op, PatternRewriter& rewriter,
+                               Value conv_val, Value bias,
+                               ShapedType input_type, ShapedType filter_type,
+                               ShapedType output_type) {
+  bool input_is_qtype =
+      mlir::isa<mlir::quant::QuantizedType>(input_type.getElementType());
+
+  if (!input_is_qtype) {
+    return conv_val;
+  }
+
+  bool special_case_16bit_input =
+      input_is_qtype ? isInt16InputAndVariableBias(input_type, bias) : false;
+
+  Value conv_output = conv_val;
+
+  // Special case - if input tensor is int16, we have to add the bias
+  // manually after rescale
+  if (special_case_16bit_input) {
+    conv_output = buildRescaleToInt32(rewriter, op, conv_output, 1.0, 0);
+
+    // Rescale the actual bias to 32 bit to be able to do the bias add
+    auto bias_scaled = buildRescaleToInt32(rewriter, op, bias, 1.0, 0);
+    conv_output = CreateOpAndInfer<tosa::AddOp>(rewriter, op->getLoc(),
+                                                conv_output.getType(),
+                                                conv_output, bias_scaled)
+                      .getResult();
+  }
+  conv_output = buildRescaleOpConvOutput(rewriter, op, conv_output, input_type,
+                                         filter_type, output_type);
+  return conv_output;
 }
 
 LogicalResult ConvertTFLConv2DOp::matchAndRewrite(
@@ -1706,14 +1763,11 @@ LogicalResult ConvertTFLConv2DOp::matchAndRewrite(
       rewriter, op->getLoc(), output_type.clone(bias_ety), conv2d_input,
       tfl_conv2d_op.getFilter(), bias_val, pad, stride, dilation, acc_type);
 
-  Value conv2d_output;
-  if (input_is_qtype) {
-    conv2d_output =
-        buildRescaleOpConvOutput(rewriter, op, a1_conv2d_op.getResult(),
-                                 input_type, filter_type, output_type);
-  } else {
-    conv2d_output = a1_conv2d_op.getResult();
-  }
+  // Sometimes we need to rescale the op to the output quantization space or
+  // expliciyly add variable bias
+  Value conv2d_output = handleConvRescaleAndBias(
+      op, rewriter, a1_conv2d_op.getResult(), tfl_conv2d_op.getBias(),
+      input_type, filter_type, output_type);
 
   auto fused_activation_fn = tfl_conv2d_op.getFusedActivationFunctionAttr();
 
@@ -1827,11 +1881,11 @@ LogicalResult ConvertTFLConv3DOp::matchAndRewrite(
 
   if (!a1_conv3d_op) return failure();
 
-  Value conv3d_output =
-      input_is_qtype
-          ? buildRescaleOpConvOutput(rewriter, op, a1_conv3d_op.value(),
-                                     input_type, filter_type, output_type)
-          : a1_conv3d_op.value();
+  // Sometimes we need to rescale the op to the output quantization space or
+  // expliciyly add variable bias
+  Value conv3d_output = handleConvRescaleAndBias(
+      op, rewriter, a1_conv3d_op.value(), tfl_conv3d_op.getBias(), input_type,
+      filter_type, output_type);
 
   if (auto fused_activation_fn =
           tfl_conv3d_op.getFusedActivationFunctionAttr()) {
@@ -1916,14 +1970,11 @@ LogicalResult ConvertTFLTransposeConvOp::matchAndRewrite(
       tfl_conv_op.getInput(), tfl_conv_op.getWeights(), bias_val, outpad,
       stride, acc_type);
 
-  Value conv2d_output;
-  if (input_is_qtype) {
-    conv2d_output =
-        buildRescaleOpConvOutput(rewriter, op, a1_conv2d_op.getResult(),
-                                 input_type, filter_type, output_type);
-  } else {
-    conv2d_output = a1_conv2d_op.getResult();
-  }
+  // Sometimes we need to rescale the op to the output quantization space or
+  // expliciyly add variable bias
+  Value conv2d_output = handleConvRescaleAndBias(
+      op, rewriter, a1_conv2d_op.getResult(), tfl_conv_op.getBias(), input_type,
+      filter_type, output_type);
 
   auto fused_activation_fn = tfl_conv_op.getFusedActivationFunctionAttr();
 
@@ -2047,6 +2098,13 @@ LogicalResult ConvertTFLDepthwiseConv2DOp::matchAndRewrite(
                             filter_type.getElementType()),
       a1_filter_transpose_op.getResult(), a2_reshape_dims_value);
 
+  auto input_type_ranked =
+      dyn_cast<RankedTensorType>(tfl_conv2d_op.getInput().getType());
+
+  if (!input_type_ranked) {
+    return failure();
+  }
+
   auto bias_result = getTosaBias(op, rewriter, input_type, output_type,
                                  output_is_qtype, tfl_conv2d_op.getBias());
   if (failed(bias_result)) return failure();
@@ -2067,20 +2125,17 @@ LogicalResult ConvertTFLDepthwiseConv2DOp::matchAndRewrite(
       a2_filter_reshape_op.getResult(), bias_val, pad, stride, dilation,
       acc_type);
 
-  Value conv2d_output;
-  if (input_is_qtype) {
-    conv2d_output = buildRescaleOpConvOutput(
-        rewriter, op, a3_depthwise_conv2d_op.getResult(), input_type,
-        filter_type, output_type);
-  } else {
-    conv2d_output = a3_depthwise_conv2d_op.getResult();
-  }
+  // Sometimes we need to rescale the op to the output quantization space or
+  // expliciyly add variable bias
+  Value depthwise_conv2d_output = handleConvRescaleAndBias(
+      op, rewriter, a3_depthwise_conv2d_op.getResult(), tfl_conv2d_op.getBias(),
+      input_type, filter_type, output_type);
 
   auto fused_activation_fn = tfl_conv2d_op.getFusedActivationFunctionAttr();
 
   if (fused_activation_fn) {
     std::optional<Value> fused_activation_val = convertFusedActivation(
-        rewriter, op, conv2d_output, fused_activation_fn);
+        rewriter, op, depthwise_conv2d_output, fused_activation_fn);
 
     if (!fused_activation_val) return failure();
 
@@ -2088,7 +2143,7 @@ LogicalResult ConvertTFLDepthwiseConv2DOp::matchAndRewrite(
     return success();
   }
 
-  rewriter.replaceOp(op, {conv2d_output});
+  rewriter.replaceOp(op, {depthwise_conv2d_output});
 
   return success();
 }
@@ -2338,14 +2393,11 @@ LogicalResult ConvertTFLFullyConnectedOp::matchAndRewrite(
       /* stride = */ rewriter.getDenseI64ArrayAttr({1, 1}),
       /* dilation = */ rewriter.getDenseI64ArrayAttr({1, 1}), acc_type);
 
-  Value fc_output;
-  if (input_is_qtype) {
-    fc_output = buildRescaleOpConvOutput(
-        rewriter, op, fc_op.getResult(), input_type, filter_type,
-        UnrankedTensorType::get(output_type.getElementType()));
-  } else {
-    fc_output = fc_op.getResult();
-  }
+  // Sometimes we need to rescale the op to the output quantization space or
+  // expliciyly add variable bias
+  Value fc_output = handleConvRescaleAndBias(op, rewriter, fc_op.getResult(),
+                                             tfl_fc_op.getBias(), input_type,
+                                             filter_type, output_type);
 
   // If we know the output rank, we need to ensure the output shape is correct.
   ShapedType fc_type = mlir::cast<ShapedType>(fc_output.getType());
@@ -3197,7 +3249,8 @@ LogicalResult ConvertTFLResizeBilinearOp::matchAndRewrite(
 
   std::optional<Value> result = convertResizeOp(
       rewriter, op, output_type, tfl_resize_op.getInput(),
-      StringRef("BILINEAR"), tfl_resize_op.getAlignCornersAttr().getValue(),
+      tosa::ResizeMode::BILINEAR,
+      tfl_resize_op.getAlignCornersAttr().getValue(),
       tfl_resize_op.getHalfPixelCentersAttr().getValue());
 
   if (!result) return failure();
@@ -3218,7 +3271,7 @@ LogicalResult ConvertTFLResizeNearestNeighborOp::matchAndRewrite(
 
   std::optional<Value> result =
       convertResizeOp(rewriter, op, output_type, tfl_resize_op.getInput(),
-                      StringRef("NEAREST_NEIGHBOR"),
+                      tosa::ResizeMode::NEAREST_NEIGHBOR,
                       tfl_resize_op.getAlignCornersAttr().getValue(),
                       tfl_resize_op.getHalfPixelCentersAttr().getValue());
 
@@ -3704,7 +3757,7 @@ LogicalResult ConvertTFLLogisticOp::matchAndRewrite(
 
       Value op2_rescale_op1 =
           buildRescale(rewriter, op, output_type, op1_table_in.getResult(),
-                       1.0 / 128.0, 0, 0, "SINGLE_ROUND", true);
+                       1.0 / 128.0, 0, 0, tosa::RoundingMode::SINGLE_ROUND, true);
 
       rewriter.replaceOp(op, {op2_rescale_op1});
     }
@@ -3772,7 +3825,7 @@ LogicalResult ConvertTFLTanhOp::matchAndRewrite(
 
       Value op2_rescale_op1 =
           buildRescale(rewriter, op, output_type, op1_table_in.getResult(),
-                       1.0 / 128.0, 0, 0, "SINGLE_ROUND", true);
+                       1.0 / 128.0, 0, 0, tosa::RoundingMode::SINGLE_ROUND, true);
 
       rewriter.replaceOp(op, {op2_rescale_op1});
     }
@@ -3848,7 +3901,7 @@ static LogicalResult LegalizeQuantizedPrelu(Operation* op,
   // Initalize the negative values to the slope of leaky ReLU.
   Value op_rescale_slope_in = buildRescale(
       rewriter, op, output_type, input, scale_alpha, input_qtype.getZeroPoint(),
-      output_qtype.getZeroPoint(), "DOUBLE_ROUND", true);
+      output_qtype.getZeroPoint(), tosa::RoundingMode::DOUBLE_ROUND, true);
 
   // Perform an element-wise multiplication on rescaled alpha and input for
   // PReLU.
@@ -3865,11 +3918,11 @@ static LogicalResult LegalizeQuantizedPrelu(Operation* op,
 
   op_rescale_slope_in =
       buildRescale(rewriter, op, output_type, op_mul, scale_alpha,
-                   /* input_zp = */ 0, output_qtype.getZeroPoint(), "DOUBLE_ROUND", true);
+                   /* input_zp = */ 0, output_qtype.getZeroPoint(), tosa::RoundingMode::DOUBLE_ROUND, true);
 
   Value op_rescale_identity_in = buildRescale(
       rewriter, op, output_type, input, scale_identity,
-      input_qtype.getZeroPoint(), output_qtype.getZeroPoint(), "DOUBLE_ROUND", true);
+      input_qtype.getZeroPoint(), output_qtype.getZeroPoint(), tosa::RoundingMode::DOUBLE_ROUND, true);
 
   CreateReplaceOpAndInfer<tosa::SelectOp>(rewriter, op, output_type, op_ge,
                                           op_rescale_identity_in,
@@ -3933,11 +3986,11 @@ static LogicalResult LegalizeQuantizedLeakyRelu(Operation* op,
 
   Value op_rescale_alpha_in =
       buildRescale(rewriter, op, rescale_type, input, scale_alpha,
-                   input_qtype.getZeroPoint(), 0, "DOUBLE_ROUND", true);
+                   input_qtype.getZeroPoint(), 0, tosa::RoundingMode::DOUBLE_ROUND, true);
 
   Value op_rescale_identity_in =
       buildRescale(rewriter, op, rescale_type, input, scale_identity,
-                   input_qtype.getZeroPoint(), 0, "DOUBLE_ROUND", true);
+                   input_qtype.getZeroPoint(), 0, tosa::RoundingMode::DOUBLE_ROUND, true);
 
   Value result_int32;
   if (alpha <= 1.0) {
@@ -4139,7 +4192,7 @@ LogicalResult ConvertTFLQuantizeOp::matchAndRewrite(
     Value rescale_op =
         buildRescale(rewriter, op, output_type, tfl_quantize_op.getInput(),
                      rescale_scale, input_element_type.getZeroPoint(),
-                     element_type.getZeroPoint(), "DOUBLE_ROUND", true);
+                     element_type.getZeroPoint(), tosa::RoundingMode::DOUBLE_ROUND, true);
 
     rewriter.replaceOp(op, {rescale_op});
     return success();
@@ -4479,9 +4532,11 @@ LogicalResult ConvertTFLArgMaxOp::matchAndRewrite(
     dim += input_type.getRank();
   }
 
+  const auto propagate_nan_attr = tosa::NanPropagationModeAttr::get(
+      rewriter.getContext(), tosa::NanPropagationMode::PROPAGATE);
   CreateReplaceOpAndInfer<tosa::ArgMaxOp>(
       rewriter, op, arg_max_op.getType(), arg_max_op.getInput(),
-      rewriter.getI32IntegerAttr(dim), rewriter.getStringAttr("PROPAGATE"));
+      rewriter.getI32IntegerAttr(dim), propagate_nan_attr);
 
   return success();
 }
@@ -4547,16 +4602,18 @@ LogicalResult ConvertTFLArgMinOp::matchAndRewrite(
   // double check input/output type cast consistency
   assert(input_type_casted == (output_zp != 0));
 
+  const auto propagate_nan_attr = tosa::NanPropagationModeAttr::get(
+      rewriter.getContext(), tosa::NanPropagationMode::PROPAGATE);
   Value result = CreateOpAndInfer<tosa::ArgMaxOp>(
       rewriter, loc, output_ty, input, rewriter.getI32IntegerAttr(dim),
-      rewriter.getStringAttr("PROPAGATE"));
+      propagate_nan_attr);
 
   if (output_zp != 0) {
     // rescale result to output_zp
     result = buildRescale(rewriter, op, arg_min_op.getType(), result,
                           /* sclae = */ 1.0,
                           /* input_zp = */ 0,
-                          /* output_zp = */ output_zp, "SINGLE_ROUND", true);
+                          /* output_zp = */ output_zp, tosa::RoundingMode::SINGLE_ROUND, true);
   }
 
   rewriter.replaceOp(op, {result});

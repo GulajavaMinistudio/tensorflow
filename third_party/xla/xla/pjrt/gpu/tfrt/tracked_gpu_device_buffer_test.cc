@@ -36,7 +36,6 @@ limitations under the License.
 #include "xla/pjrt/gpu/tfrt/gpu_event.h"
 #include "xla/pjrt/pjrt_client.h"
 #include "xla/pjrt/pjrt_common.h"
-#include "xla/pjrt/pjrt_future.h"
 #include "xla/service/shaped_buffer.h"
 #include "xla/shape.h"
 #include "xla/shape_util.h"
@@ -167,7 +166,7 @@ TEST(TrackedGpuDeviceBufferTest, TrackedDeviceBufferUsageEndToEnd) {
                                       /*num_threads=*/4);
 
   TrackedGpuDeviceBuffer tracked_buffer(test_buffer, definition_event,
-                                        /*on_delete_callback_=*/nullptr);
+                                        definition_event);
   tracked_buffer.SetUnOwned();
   {
     MarkGpuEventReadyOnExit ready_on_exit(usage_event);

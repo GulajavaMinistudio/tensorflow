@@ -21,7 +21,9 @@ limitations under the License.
 #include <limits>
 #include <vector>
 
+#include <gtest/gtest.h>
 #include "absl/strings/ascii.h"
+#include "absl/types/span.h"
 #include "xla/primitive_util.h"
 #include "xla/service/gpu/stream_executor_util.h"
 #include "xla/service/platform_util.h"
@@ -31,9 +33,10 @@ limitations under the License.
 #include "xla/stream_executor/platform.h"
 #include "xla/stream_executor/platform_manager.h"
 #include "xla/stream_executor/stream.h"
+#include "xla/tsl/platform/status.h"
 #include "xla/types.h"
+#include "xla/xla_data.pb.h"
 #include "tsl/platform/ml_dtypes.h"
-#include "tsl/platform/test.h"
 
 namespace xla {
 namespace gpu {
@@ -50,10 +53,9 @@ class BufferComparatorTest : public testing::Test {
     stream_exec_ = platform_->ExecutorForDevice(0).value();
   }
 
-  // Take floats only for convenience. Still uses ElementType internally.
   template <typename ElementType>
-  bool CompareEqualBuffers(const std::vector<ElementType>& current,
-                           const std::vector<ElementType>& expected,
+  bool CompareEqualBuffers(absl::Span<const ElementType> current,
+                           absl::Span<const ElementType> expected,
                            double tolerance) {
     auto stream = stream_exec_->CreateStream().value();
 
@@ -87,7 +89,7 @@ class BufferComparatorTest : public testing::Test {
                                 double tolerance = kDefaultTolerance) {
     std::vector<ElementType> lhs(lhs_float.begin(), lhs_float.end());
     std::vector<ElementType> rhs(rhs_float.begin(), rhs_float.end());
-    return CompareEqualBuffers(lhs, rhs, tolerance);
+    return CompareEqualBuffers<ElementType>(lhs, rhs, tolerance);
   }
 
   template <typename ElementType>
@@ -95,6 +97,32 @@ class BufferComparatorTest : public testing::Test {
                            const std::vector<std::complex<ElementType>>& rhs) {
     return CompareEqualBuffers<std::complex<ElementType>>(lhs, rhs,
                                                           kDefaultTolerance);
+  }
+
+  template <typename ElementType>
+  bool CompareEqualScalar(const ElementType& current,
+                          const ElementType& expected,
+                          double tolerance = kDefaultTolerance) {
+    auto stream = stream_exec_->CreateStream().value();
+    se::DeviceMemoryHandle current_buffer(
+        stream_exec_, stream_exec_->AllocateScalar<ElementType>());
+    se::DeviceMemoryHandle expected_buffer(
+        stream_exec_, stream_exec_->AllocateScalar<ElementType>());
+
+    TF_CHECK_OK(stream->Memcpy(current_buffer.memory_ptr(), &current,
+                               current_buffer.memory().size()));
+    TF_CHECK_OK(stream->Memcpy(expected_buffer.memory_ptr(), &expected,
+                               expected_buffer.memory().size()));
+    TF_CHECK_OK(stream->BlockHostUntilDone());
+
+    BufferComparator comparator(
+        ShapeUtil::MakeShape(
+            primitive_util::NativeToPrimitiveType<ElementType>(), {}),
+        kDefaultTolerance);
+    return comparator
+        .CompareEqual(stream.get(), current_buffer.memory(),
+                      expected_buffer.memory())
+        .value();
   }
 
   se::Platform* platform_;
@@ -121,6 +149,33 @@ TEST_F(BufferComparatorTest, TestComplex) {
                                           {{0.1, 0.2}, {2.2, 3.3}}));
   EXPECT_FALSE(
       CompareEqualComplex<double>({{0.1, 0.2}, {2, 3}}, {{0.1, 0.2}, {2, 7}}));
+}
+
+TEST_F(BufferComparatorTest, TestScalar) {
+  EXPECT_TRUE(CompareEqualScalar<std::complex<double>>({1, 1}, {1, 1}));
+  EXPECT_FALSE(CompareEqualScalar<std::complex<double>>({1, 1}, {1, 2}));
+  EXPECT_FALSE(CompareEqualScalar<std::complex<double>>({1, 1}, {2, 1}));
+  EXPECT_TRUE(CompareEqualScalar<std::complex<float>>({1, 1}, {1, 1}));
+  EXPECT_FALSE(CompareEqualScalar<std::complex<float>>({1, 1}, {1, 2}));
+  EXPECT_FALSE(CompareEqualScalar<std::complex<float>>({1, 1}, {2, 1}));
+  EXPECT_TRUE(CompareEqualScalar<float>(1, 1));
+  EXPECT_FALSE(CompareEqualScalar<float>(1, 2));
+  EXPECT_TRUE(CompareEqualScalar<double>(1, 1));
+  EXPECT_FALSE(CompareEqualScalar<double>(1, 2));
+  EXPECT_TRUE(CompareEqualScalar<bool>(true, true));
+  EXPECT_TRUE(CompareEqualScalar<bool>(false, false));
+  EXPECT_FALSE(CompareEqualScalar<bool>(true, false));
+  EXPECT_TRUE(CompareEqualScalar<int8_t>(1, 1));
+  EXPECT_FALSE(CompareEqualScalar<int8_t>(1, 2));
+  EXPECT_TRUE(CompareEqualScalar<int32_t>(1, 1));
+  EXPECT_FALSE(CompareEqualScalar<int32_t>(1, 2));
+}
+
+TEST_F(BufferComparatorTest, TestPred) {
+  EXPECT_TRUE(CompareEqualBuffers<bool>({false, true}, {false, true}, 0.0));
+  EXPECT_FALSE(CompareEqualBuffers<bool>({false, true}, {false, false}, 0.0));
+  EXPECT_FALSE(CompareEqualBuffers<bool>({false, true}, {true, true}, 0.0));
+  EXPECT_FALSE(CompareEqualBuffers<bool>({false, true}, {true, false}, 0.0));
 }
 
 TEST_F(BufferComparatorTest, TestNaNs) {

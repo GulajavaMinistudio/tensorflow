@@ -35,6 +35,7 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_format.h"
+#include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "xla/backends/cpu/runtime/buffer_allocations.h"
 #include "xla/backends/cpu/runtime/function_library.h"
@@ -43,9 +44,9 @@ limitations under the License.
 #include "xla/backends/cpu/runtime/thunk.h"
 #include "xla/codegen/kernel_spec.h"
 #include "xla/runtime/buffer_use.h"
+#include "xla/runtime/work_group.h"
 #include "xla/service/buffer_assignment.h"
 #include "xla/stream_executor/device_memory.h"
-#include "xla/stream_executor/launch_dim.h"
 #include "xla/tsl/concurrency/async_value_ref.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/statusor.h"
@@ -63,7 +64,9 @@ namespace internal {
 static absl::Status CheckBufferAlignment(
     const Thunk::Info& info, uint64_t min_alignment,
     absl::Span<const XLA_CPU_KernelArg> kernel_args) {
-  if (min_alignment == 0) return absl::OkStatus();
+  if (min_alignment == 0) {
+    return absl::OkStatus();
+  }
 
   for (int64_t i = 0; i < kernel_args.size(); ++i) {
     auto ptr = reinterpret_cast<uintptr_t>(kernel_args[i].data);
@@ -101,10 +104,10 @@ static Thunk::BufferUses KernelBufferUses(
     absl::Span<const BufferAllocation::Slice> results_buffers) {
   Thunk::BufferUses buffer_uses;
   for (const BufferAllocation::Slice& buffer : arguments_buffers) {
-    buffer_uses.emplace_back(buffer, BufferUse::kRead);
+    buffer_uses.emplace_back(BufferUse::Read(buffer));
   }
   for (const BufferAllocation::Slice& buffer : results_buffers) {
-    buffer_uses.emplace_back(buffer, BufferUse::kWrite);
+    buffer_uses.emplace_back(BufferUse::Write(buffer));
   }
   return buffer_uses;
 }
@@ -113,15 +116,16 @@ template <int64_t num_arguments, int64_t num_results>
 KernelThunk<num_arguments, num_results>::KernelThunk(
     Info info, absl::Span<const BufferAllocation::Slice> arguments_buffers,
     absl::Span<const BufferAllocation::Slice> results_buffers,
-    absl::flat_hash_set<int64_t> invariant_arguments, std::string kernel_name,
-    se::ThreadDim thread_dim, std::optional<uint64_t> min_alignment)
+    absl::flat_hash_set<int64_t> invariant_arguments,
+    absl::string_view kernel_name, NumWorkGroups num_workgroups,
+    std::optional<uint64_t> min_alignment)
     : KernelThunkBase(Kind::kKernel, std::move(info)),
       invariant_arguments_(std::move(invariant_arguments)),
       num_kernel_args_(arguments_buffers.size() + results_buffers.size()),
       kernel_name_(std::move(kernel_name)),
-      thread_dim_(thread_dim),
+      num_workgroups_(num_workgroups),
       min_alignment_(min_alignment),
-      call_once_(thread_dim_ == se::ThreadDim()) {
+      call_once_(num_workgroups_ == NumWorkGroups()) {
   // Resize storage for arguments and results buffers if it is dynamic.
   if constexpr (IsDynamic(num_arguments)) {
     arguments_buffers_.resize(arguments_buffers.size());
@@ -160,9 +164,9 @@ ABSL_ATTRIBUTE_ALWAYS_INLINE tsl::AsyncValueRef<Thunk::ExecuteEvent>
 KernelThunk<num_arguments, num_results>::ExecuteInternal(
     const ExecuteParams& params) {
   VLOG(3) << absl::StreamFormat(
-      "Launch host kernel %s with %d arguments and %d results: #threads=%s",
+      "Launch host kernel %s with %d arguments and %d results: #workgroups=%v",
       kernel_name_, arguments_buffers_.size(), results_buffers_.size(),
-      thread_dim_.ToString());
+      num_workgroups_);
 
   alignas(64) KernelArgs kernel_args = kernel_args_;
   XLA_CPU_KernelArg* kernel_args_ptr = kernel_args.data();
@@ -231,10 +235,11 @@ KernelThunk<num_arguments, num_results>::ExecuteInternal(
   // by scheduling tasks into it. HostKernel launch completion will
   // automatically signal KernelThunk execute completion.
   if (ABSL_PREDICT_TRUE(params.intra_op_threadpool)) {
-    return kernel->Launch(thread_dim_, kernel_args, params.intra_op_threadpool);
+    return kernel->Launch(num_workgroups_, kernel_args,
+                          params.intra_op_threadpool);
   }
 
-  TF_RETURN_IF_ERROR(kernel->Launch(thread_dim_, kernel_args));
+  TF_RETURN_IF_ERROR(kernel->Launch(num_workgroups_, kernel_args));
   return OkExecuteEvent();
 }
 
@@ -310,7 +315,7 @@ absl::StatusOr<std::unique_ptr<Thunk>> KernelThunk::Create(
     Thunk::Info info,
     absl::Span<const BufferAllocation::Slice> arguments_buffers,
     absl::Span<const BufferAllocation::Slice> results_buffers,
-    std::string kernel_name, se::ThreadDim thread_dim,
+    absl::string_view kernel_name, NumWorkGroups num_workgroups,
     absl::flat_hash_set<int64_t> invariant_arguments,
     std::optional<uint64_t> min_alignment) {
   if (min_alignment.has_value() && !absl::has_single_bit(*min_alignment)) {
@@ -322,7 +327,7 @@ absl::StatusOr<std::unique_ptr<Thunk>> KernelThunk::Create(
     return absl::WrapUnique(
         new SmallKernelThunk<num_arguments(), num_results()>(
             std::move(info), arguments_buffers, results_buffers,
-            std::move(invariant_arguments), std::move(kernel_name), thread_dim,
+            std::move(invariant_arguments), kernel_name, num_workgroups,
             min_alignment));
   };
 
@@ -364,7 +369,7 @@ absl::StatusOr<std::unique_ptr<Thunk>> KernelThunk::Create(
   return absl::WrapUnique(
       new KernelThunk(std::move(info), arguments_buffers, results_buffers,
                       std::move(invariant_arguments), std::move(kernel_name),
-                      thread_dim, min_alignment));
+                      num_workgroups, min_alignment));
 }
 
 absl::StatusOr<std::unique_ptr<Thunk>> KernelThunk::Create(
@@ -372,7 +377,7 @@ absl::StatusOr<std::unique_ptr<Thunk>> KernelThunk::Create(
     std::optional<uint64_t> min_alignment) {
   return Create(std::move(info), kernel_spec.argument_buffers(),
                 kernel_spec.result_buffers(), kernel_spec.name(),
-                kernel_spec.thread_dim(), kernel_spec.invariant_arguments(),
+                kernel_spec.num_workgroups(), kernel_spec.invariant_arguments(),
                 min_alignment);
 }
 

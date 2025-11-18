@@ -17,6 +17,8 @@ syntax = "proto3";
 
 package xla.cpu;
 
+import "xla/backends/cpu/xnn_fusion_options.proto";
+import "xla/backends/cpu/ynn_fusion_options.proto";
 import "xla/service/buffer_assignment.proto";
 import "xla/service/hlo.proto";
 import "xla/xla_data.proto";
@@ -148,6 +150,7 @@ message XnnDotThunkProto {
   ShapeBufferAllocationSliceProto lhs_buffer_shape = 2;
   ShapeBufferAllocationSliceProto rhs_buffer_shape = 3;
   ShapeBufferAllocationSliceProto out_buffer_shape = 4;
+  bool capture_rhs = 5;
 }
 
 message XnnConvolutionThunkProto {
@@ -167,17 +170,21 @@ message XnnFusionThunkProtoImpl {
 }
 
 message XnnFusionThunkProto {
-  message Options {
-    bool use_threadpool = 1;
-  }
-
-  Options options = 1;
+  XnnFusionOptions options = 1;
 
   oneof impl {
     XnnDotThunkProto xnn_dot_thunk = 2;
     XnnConvolutionThunkProto xnn_convolution_thunk = 3;
     XnnFusionThunkProtoImpl xnn_fusion_thunk = 4;
   }
+}
+
+message YnnFusionThunkProto {
+  YnnFusionOptions options = 1;
+
+  int64 instruction_id = 2;
+  repeated ShapeBufferAllocationSliceProto arguments_shapes = 3;
+  repeated ShapeBufferAllocationSliceProto results_shapes = 4;
 }
 
 message DotThunkProto {
@@ -209,13 +216,13 @@ message WhileThunkProto {
 }
 
 message KernelThunkProto {
-  message ThreadDim {
+  message NumWorkGroups {
     int64 x = 1;
     int64 y = 2;
     int64 z = 3;
   }
   string kernel_name = 1;
-  ThreadDim thread_dim = 2;
+  NumWorkGroups num_workgroups = 2;
   repeated int64 invariant_arguments = 3;
   Int64Optional min_alignment = 4;
   repeated xla.buffer_assignment.BufferAllocationSliceProto arguments_buffers =
@@ -303,6 +310,7 @@ message ThunkProto {
     CollectiveThunkProto collective_thunk = 18;
     PartitionIdThunkProto partition_id_thunk = 19;
     ReplicaIdThunkProto replica_id_thunk = 20;
+    YnnFusionThunkProto ynn_fusion_thunk = 21;
   }
 }
 

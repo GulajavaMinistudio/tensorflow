@@ -47,13 +47,14 @@ limitations under the License.
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "xla/backends/gpu/runtime/sequential_thunk.h"
-#include "xla/hlo/analysis/hlo_dataflow_analysis.h"
 #include "xla/hlo/analysis/hlo_ordering.h"
+#include "xla/hlo/analysis/symbolic_expr.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_module.h"
 #include "xla/service/buffer_assignment.h"
 #include "xla/service/buffer_value.h"
 #include "xla/service/dump.h"
+#include "xla/service/gpu/alias_info.h"
 #include "xla/service/gpu/execution_stream_assignment.h"
 #include "xla/service/gpu/gpu_constants.h"
 #include "xla/service/gpu/gpu_executable.h"
@@ -145,16 +146,14 @@ CompileModuleResults InitializeResults(const HloModule* hlo_module,
 }
 
 std::string GetDumpName(const se::DeviceDescription& device_desc) {
-  struct GetCcStr {
-    std::string operator()(const se::CudaComputeCapability& cc) const {
-      return absl::StrCat("sm_", cc.ToString());
-    }
-    std::string operator()(const se::RocmComputeCapability& cc) const {
-      return cc.gfx_version();
-    }
-  };
-  std::string prefix =
-      std::visit(GetCcStr(), device_desc.gpu_compute_capability());
+  std::string prefix;
+  if (auto* cc =
+          device_desc.gpu_compute_capability().cuda_compute_capability()) {
+    prefix = absl::StrCat("sm_", cc->ToString());
+  } else if (auto* cc = device_desc.gpu_compute_capability()
+                            .rocm_compute_capability()) {
+    prefix = cc->gfx_version();
+  }
   return absl::StrCat(prefix, "_gpu_", kAfterOptimizationsDumpName);
 }
 
@@ -246,42 +245,34 @@ absl::Status LoadCache(IrEmitterContext& ir_emitter_context,
 }
 
 absl::StatusOr<std::unique_ptr<BufferAssignment>> RunBufferAssignment(
-    const HloModule* module,
-    const HloDataflowAnalysis::CanShareBuffer& can_share_buffer_function,
-    const BufferValue::SizeFunction& buffer_size_bytes_function) {
+    const HloModule* module, const GpuAliasInfo* alias_info,
+    BufferValue::SizeFunction buffer_size_bytes_function) {
   ScopedAnnotation annotation(Phase("XlaBufferAssignment", module));
 
   const DebugOptions& options = module->config().debug_options();
-  BufferAssigner::Colorer colorer =
-      (options.xla_gpu_enable_nccl_user_buffers() ||
-       options.xla_gpu_experimental_enable_nvshmem())
-          ? CollectiveColorer(options.xla_gpu_enable_nccl_user_buffers(),
-                              options.xla_gpu_experimental_enable_nvshmem())
-          : BufferAssigner::DefaultColorer();
 
   std::optional<BufferValue::Color> color =
       options.xla_gpu_temp_buffer_use_separate_color()
-          ? std::optional<BufferValue::Color>(kTempBufferMemorySpaceColor)
+          ? std::optional<BufferValue::Color>(
+                (int)MemorySpaceColor::kTempBuffer)
           : std::nullopt;
 
   TF_ASSIGN_OR_RETURN(
       std::unique_ptr<BufferAssignment> buffer_assignment,
       BufferAssigner::Run(
           module, std::make_unique<SequentialHloOrdering>(module->schedule()),
-          buffer_size_bytes_function,
+          std::move(buffer_size_bytes_function), alias_info,
           /*color_alignment=*/
           [](LogicalBuffer::Color) { return kXlaAllocatedBufferAlignBytes; },
           /*allocate_buffers_for_constants=*/true,
-          /*colorer=*/colorer,
+          /*colorer=*/CreateColorer(options),
           /*must_not_live_out=*/{},
-          /*can_share_buffer*/ can_share_buffer_function,
           /*preset_assignments*/ {},
           /*private_stack*/ {}, /*heap_buffer_interval_compare*/ nullptr,
           /*isolation_options*/ std::nullopt, color));
 
   VLOG(1) << "Buffer Assignment Stats for " << module->name() << "\n"
-          << buffer_assignment->StatsString(
-                 /*report_total_fragmentation=*/true);
+          << buffer_assignment->StatsString(alias_info);
   return buffer_assignment;
 }
 
@@ -289,8 +280,8 @@ absl::StatusOr<CompileModuleResults> CompileModuleToLlvmIr(
     const HloModule* hlo_module, llvm::LLVMContext* llvm_context,
     const std::string& target_triple, const std::string& data_layout,
     const se::Platform* platform, const se::DeviceDescription& device_desc,
-    const HloDataflowAnalysis::CanShareBuffer& can_share_buffer_function,
-    const BufferValue::SizeFunction& buffer_size_bytes_function,
+    const GpuAliasInfo* alias_info,
+    BufferValue::SizeFunction buffer_size_bytes_function,
     bool split_constants_module) {
   tsl::profiler::TraceMe traceme("CompileModuleToLlvmIr");
   const bool use_cache =
@@ -300,9 +291,10 @@ absl::StatusOr<CompileModuleResults> CompileModuleToLlvmIr(
       InitializeResults(hlo_module, llvm_context, target_triple, data_layout,
                         split_constants_module);
 
-  TF_ASSIGN_OR_RETURN(results.buffer_assignment,
-                      RunBufferAssignment(hlo_module, can_share_buffer_function,
-                                          buffer_size_bytes_function));
+  TF_ASSIGN_OR_RETURN(
+      results.buffer_assignment,
+      RunBufferAssignment(hlo_module, alias_info,
+                          std::move(buffer_size_bytes_function)));
   TF_ASSIGN_OR_RETURN(results.output_info,
                       GetOutputInfo(*hlo_module, *results.buffer_assignment));
 
@@ -316,6 +308,8 @@ absl::StatusOr<CompileModuleResults> CompileModuleToLlvmIr(
           << ": " << hlo_module->GetFingerprint128();
 
   std::unique_ptr<mlir::MLIRContext> mlir_context = CreateMlirContext();
+  auto symbolic_expr_context =
+      std::make_unique<SymbolicExprContext>(mlir_context.get());
   IrEmitterContext ir_emitter_context(
       hlo_module, results.buffer_assignment.get(),
       results.execution_stream_assignment.get(), platform->Name(), device_desc,

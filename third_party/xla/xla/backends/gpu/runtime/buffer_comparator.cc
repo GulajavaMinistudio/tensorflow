@@ -21,7 +21,11 @@ limitations under the License.
 #include <type_traits>
 #include <vector>
 
+#include "absl/log/check.h"
+#include "absl/log/log.h"
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
 #include "Eigen/Core"
 #include "xla/primitive_util.h"
 #include "xla/service/gpu/launch_dimensions.h"
@@ -33,7 +37,10 @@ limitations under the License.
 #include "xla/stream_executor/gpu/gpu_kernel_registry.h"
 #include "xla/stream_executor/stream.h"
 #include "xla/stream_executor/stream_executor.h"
+#include "xla/tsl/platform/errors.h"
+#include "xla/tsl/platform/statusor.h"
 #include "xla/util.h"
+#include "xla/xla_data.pb.h"
 
 namespace xla {
 namespace gpu {
@@ -179,17 +186,23 @@ absl::StatusOr<bool> BufferComparator::CompareEqual(
     return CompareEqualParameterized<ElementT, ComparisonT>(params);
   };
 
-  if (primitive_util::IsFloatingPointType(shape_.element_type())) {
+  PrimitiveType element_type = shape_.element_type();
+  // PRED is handled on buffer level the same way as S8.
+  if (element_type == PRED) {
+    element_type = S8;
+  }
+  if (primitive_util::IsFloatingPointType(element_type)) {
     return xla::primitive_util::FloatingPointTypeSwitch(do_compare,
-                                                        shape_.element_type());
+                                                        element_type);
   }
 
-  if (primitive_util::IsIntegralType(shape_.element_type())) {
-    return xla::primitive_util::IntegralTypeSwitch(do_compare,
-                                                   shape_.element_type());
+  if (primitive_util::IsIntegralType(element_type)) {
+    return xla::primitive_util::IntegralTypeSwitch(do_compare, element_type);
   }
 
-  return Unimplemented("Unimplemented element type for host function");
+  return absl::UnimplementedError(
+      absl::StrCat("Unimplemented element type for host function: ",
+                   primitive_util::LowercasePrimitiveTypeName(element_type)));
 }
 
 BufferComparator::BufferComparator(const Shape& shape, double tolerance,
@@ -198,6 +211,10 @@ BufferComparator::BufferComparator(const Shape& shape, double tolerance,
   // Normalize complex shapes: since we treat the passed array as a contiguous
   // storage it does not matter which dimension are we doubling.
   auto double_dim_size = [&]() {
+    // A 0D tensor is equal to a 1D tensor of size 1 in a buffer.
+    if (shape_.dimensions().empty()) {
+      shape_.add_dimensions(1);
+    }
     int64_t prev_zero_dim_size = shape_.dimensions(0);
     shape_.set_dimensions(0, prev_zero_dim_size * 2);
   };

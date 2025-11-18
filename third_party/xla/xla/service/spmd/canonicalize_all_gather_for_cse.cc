@@ -76,7 +76,7 @@ absl::StatusOr<bool> CanonicalizeAllGatherForCSE::RunOnComputation(
         major_elements /= real_data->shape().dimensions(new_ag_dim++);
       }
     }
-    if (new_ag_dim == real_data->shape().dimensions_size()) {
+    if (new_ag_dim == real_data->shape().dimensions().size()) {
       continue;
     }
 
@@ -104,7 +104,7 @@ absl::StatusOr<bool> CanonicalizeAllGatherForCSE::RunOnComputation(
   return changed;
 }
 
-absl::StatusOr<bool> CanonicalizeAllGatherForCSE::Run(
+absl::StatusOr<bool> CanonicalizeAllGatherForCSE::RunImpl(
     HloModule* module,
     const absl::flat_hash_set<absl::string_view>& execution_threads) {
   bool changed = false;

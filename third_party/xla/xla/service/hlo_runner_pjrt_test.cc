@@ -27,12 +27,12 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "absl/synchronization/notification.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "xla/hlo/builder/xla_computation.h"
 #include "xla/hlo/ir/hlo_module.h"
 #include "xla/hlo/parser/hlo_parser.h"
-#include "xla/pjrt/interpreter/interpreter_client.h"
 #include "xla/pjrt/pjrt_client.h"
 #include "xla/pjrt/pjrt_compiler.h"
 #include "xla/pjrt/pjrt_executable.h"
@@ -40,14 +40,18 @@ limitations under the License.
 #include "xla/service/hlo_runner_interface.h"
 #include "xla/tsl/lib/core/status_test_util.h"
 #include "xla/tsl/platform/env.h"
+#include "xla/tsl/platform/status_matchers.h"
 #include "xla/tsl/platform/statusor.h"
+#include "xla/tsl/platform/test.h"
 #include "xla/util.h"
 #include "tsl/platform/fingerprint.h"
-#include "tsl/platform/notification.h"
 #include "tsl/platform/path.h"
 
 namespace xla {
 namespace {
+
+using ::absl_testing::StatusIs;
+using ::testing::StartsWith;
 
 class FakeClient : public PjRtClient {
  public:
@@ -128,7 +132,7 @@ ENTRY %constant_s32 () -> s32[] {
 }
 
 constexpr absl::string_view kModuleSerializedName =
-    "4f22972e3e39d4470dc57f236347ca2d.bin";
+    "7a8f4b1ac78966508b85e1d9a0bc8f21.bin";
 
 class ArtifactDirTest : public ::testing::Test {
  public:
@@ -151,8 +155,6 @@ using CompilePhaseHloRunnerPjRtTest = ArtifactDirTest;
 // Tests that a call to CreateExecutable places the file in the right location.
 TEST_F(CompilePhaseHloRunnerPjRtTest, CreateExecutablePlacesFileCorrectly) {
   CompilePhaseHloRunnerPjRt runner(std::make_unique<FakeClient>(),
-                                   InterpreterClient::DeviceShapeRepresentation,
-                                   InterpreterClient::ShapeSizeBytes,
                                    artifact_dir_);
   TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> m, CreateFakeModule());
   TF_ASSERT_OK(
@@ -172,7 +174,7 @@ TEST_F(ExecutePhaseHloRunnerPjRtTest, CreateExecutableReadsFileCorrectly) {
   TF_ASSERT_OK(tsl::WriteStringToFile(
       tsl::Env::Default(),
       tsl::io::JoinPath(artifact_dir_, kModuleSerializedName), "hello world"));
-  tsl::Notification notification;
+  absl::Notification notification;
   std::optional<std::string> serialized_representation_read = std::nullopt;
   ExecutePhaseHloRunnerPjRt runner(
       std::make_unique<FakeClient>(
@@ -181,8 +183,7 @@ TEST_F(ExecutePhaseHloRunnerPjRtTest, CreateExecutableReadsFileCorrectly) {
             serialized_representation_read = serialized;
             notification.Notify();
           }),
-      InterpreterClient::DeviceShapeRepresentation,
-      InterpreterClient::ShapeSizeBytes, artifact_dir_);
+      artifact_dir_);
   TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> m, CreateFakeModule());
   TF_ASSERT_OK_AND_ASSIGN(
       std::unique_ptr<OpaqueExecutable> executable,
@@ -191,6 +192,37 @@ TEST_F(ExecutePhaseHloRunnerPjRtTest, CreateExecutableReadsFileCorrectly) {
   ASSERT_TRUE(notification.WaitForNotificationWithTimeout(absl::Seconds(5)));
   ASSERT_TRUE(serialized_representation_read.has_value());
   ASSERT_EQ(*serialized_representation_read, "hello world");
+}
+
+TEST_F(ExecutePhaseHloRunnerPjRtTest,
+       CreateExecutableFailsOnDuplicateLoadIfFeatureEnabled) {
+  TF_ASSERT_OK(tsl::WriteStringToFile(
+      tsl::Env::Default(),
+      tsl::io::JoinPath(artifact_dir_, kModuleSerializedName), "hello world"));
+  ExecutePhaseHloRunnerPjRt runner(std::make_unique<FakeClient>(),
+                                   artifact_dir_);
+  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> m, CreateFakeModule());
+  TF_ASSERT_OK(runner.CreateExecutable(m->Clone(""), /*run_hlo_passes=*/false));
+  EXPECT_THAT(
+      runner.CreateExecutable(std::move(m), /*run_hlo_passes=*/false),
+      StatusIs(
+          absl::StatusCode::kInvalidArgument,
+          StartsWith(
+              "ExecutePhaseHloRunnerPjRt::CreateExecutable called with a "
+              "module that loads an executable that was previously loaded.")));
+}
+
+TEST_F(ExecutePhaseHloRunnerPjRtTest,
+       CreateExecutableSucceedsOnDuplicateLoadIfFeatureDisabled) {
+  TF_ASSERT_OK(tsl::WriteStringToFile(
+      tsl::Env::Default(),
+      tsl::io::JoinPath(artifact_dir_, kModuleSerializedName), "hello world"));
+  ExecutePhaseHloRunnerPjRt runner(
+      std::make_unique<FakeClient>(), artifact_dir_,
+      /*compile_if_not_found=*/false, /*fail_duplicate_loads=*/false);
+  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> m, CreateFakeModule());
+  TF_ASSERT_OK(runner.CreateExecutable(m->Clone(""), /*run_hlo_passes=*/false));
+  TF_EXPECT_OK(runner.CreateExecutable(std::move(m), /*run_hlo_passes=*/false));
 }
 
 }  // namespace

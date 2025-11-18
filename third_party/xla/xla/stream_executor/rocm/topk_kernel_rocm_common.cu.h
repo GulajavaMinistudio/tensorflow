@@ -25,6 +25,7 @@ limitations under the License.
 
 #include "xla/stream_executor/gpu/gpu_kernel_registry.h"
 #include "xla/stream_executor/gpu/topk_kernel.h"
+#include "xla/stream_executor/kernel_symbol_registry.h"
 #include "xla/stream_executor/rocm/rocm_platform_id.h"
 #include "xla/tsl/lib/math/math_util.h"
 
@@ -288,12 +289,14 @@ __launch_bounds__(stream_executor::gpu::kTopKMaxThreadsPerBlock, 1) __global__
 #define REGISTER_TOPK_KERNEL(K_VAL, TYPE, VT)                                 \
   GPU_KERNEL_REGISTRY_REGISTER_KERNEL_STATICALLY(                             \
       TopKKernelRocm_K##K_VAL##_##TYPE##_##VT, KERNEL_TRAIT(K_VAL, TYPE, VT), \
-      stream_executor::rocm::kROCmPlatformId, ([] {                           \
-        stream_executor::MultiKernelLoaderSpec spec(5);                       \
-        spec.AddInProcessSymbol(absl::bit_cast<void*>(&Run<K_VAL, TYPE, VT>), \
-                                "topk_k" #K_VAL "_" #TYPE "_" #VT);           \
-        return spec;                                                          \
-      }));
+      stream_executor::rocm::kROCmPlatformId, ([](size_t arity) {             \
+        return stream_executor::KernelLoaderSpec::CreateInProcessSymbolSpec(  \
+            absl::bit_cast<void*>(&Run<K_VAL, TYPE, VT>),                     \
+            "topk_k" #K_VAL "_" #TYPE "_" #VT, arity);                        \
+      }));                                                                    \
+  KERNEL_SYMBOL_REGISTRY_REGISTER_SYMBOL_STATICALLY(                          \
+      TopKKernelRocm_K##K_VAL##_##TYPE##_##VT,                                \
+      stream_executor::rocm::kROCmPlatformId, (&Run<K_VAL, TYPE, VT>));
 
 }  // namespace stream_executor::rocm
 

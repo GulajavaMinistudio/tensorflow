@@ -15,6 +15,7 @@ limitations under the License.
 #include "xla/hlo/evaluator/hlo_evaluator.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <complex>
@@ -35,7 +36,6 @@ limitations under the License.
 #include <vector>
 
 #include "absl/algorithm/container.h"
-#include "absl/base/internal/endian.h"
 #include "absl/cleanup/cleanup.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/inlined_vector.h"
@@ -70,7 +70,6 @@ limitations under the License.
 #include "xla/literal_util.h"
 #include "xla/primitive_util.h"
 #include "xla/service/compilation_environments.h"
-#include "xla/service/cpu/runtime_single_threaded_matmul.h"
 #include "xla/service/gather_scatter_utils.h"
 #include "xla/service/hlo_module_config.h"
 #include "xla/service/logical_buffer.h"
@@ -88,6 +87,13 @@ limitations under the License.
 #include "xla/util.h"
 #include "xla/xla_data.pb.h"
 #include "tsl/platform/cpu_info.h"
+
+#define EIGEN_USE_THREADS
+#include "unsupported/Eigen/CXX11/Tensor"
+
+#if defined(TENSORFLOW_USE_CUSTOM_CONTRACTION_KERNEL)
+#include "xla/tsl/framework/contraction/eigen_contraction_kernel.h"
+#endif
 
 namespace xla {
 
@@ -236,10 +242,15 @@ absl::Status MakeEvalErrorDueToParamOrInfeed(
       eval_instruction.parent()->name(), ")."));
   std::string error_payload;
   error_payload.resize(sizeof(internal::EvalErrorDetail));
-  absl::little_endian::Store32(
-      const_cast<char*>(error_payload.data()),
-      static_cast<uint32_t>(
-          internal::EvalErrorDetail::kDynamicValueDependence));
+
+  uint32_t error_detail =
+      static_cast<uint32_t>(internal::EvalErrorDetail::kDynamicValueDependence);
+  // Ensure that the error detail is also in little endian.
+  if constexpr (absl::endian::native != absl::endian::little) {
+    DCHECK(absl::endian::native == absl::endian::big);
+    error_detail = absl::byteswap(error_detail);
+  }
+  (*error_payload.data()) = error_detail;
   error.SetPayload(internal::kEvalErrorDetailUrl, absl::Cord(error_payload));
   return error;
 }
@@ -371,9 +382,12 @@ std::optional<WhileCondComparisonOrNoOp> PatternMatchLoopCondComparison(
   CHECK_EQ(comparison->opcode(), HloOpcode::kCompare);
   std::optional<ParamIndexAndValue> lhs =
       ParseComparisonOperand(comparison->operand(0), precomputed_analyses);
+  if (!lhs.has_value()) {
+    return std::nullopt;
+  }
   std::optional<ParamIndexAndValue> rhs =
       ParseComparisonOperand(comparison->operand(1), precomputed_analyses);
-  if (!lhs.has_value() || !rhs.has_value()) {
+  if (!rhs.has_value()) {
     return std::nullopt;
   }
   return WhileCondComparison{comparison->comparison_direction(), *lhs, *rhs};
@@ -721,7 +735,7 @@ std::optional<ParsedWhileLoop> PatternMatchParseWhileLoop(
   if (loop_comparison.lhs.value->is_dynamic() &&
       loop_comparison.rhs.value->is_dynamic()) {
     VLOG(3) << "Both operands of the loop condition comparison are dynamic.";
-    return std::nullopt;
+    return kParsedDynamicWhileLoop;
   }
   // We would have returned if both operands are dynamic. So there is at most
   // one dynamic operand, which is potentially the loop induction variable.
@@ -838,6 +852,45 @@ std::optional<ParsedWhileLoop> PatternMatchParseWhileLoop(
     return parsed_static_while_loop;
   }
   return std::nullopt;
+}
+
+/*static*/ bool HloEvaluator::IsOpcodeImplemented(HloOpcode opcode) {
+  switch (opcode) {
+    case HloOpcode::kAllGather:
+    case HloOpcode::kAllGatherDone:
+    case HloOpcode::kAllGatherStart:
+    case HloOpcode::kAllReduce:
+    case HloOpcode::kAllReduceDone:
+    case HloOpcode::kAllReduceStart:
+    case HloOpcode::kAllToAll:
+    case HloOpcode::kBatchNormGrad:
+    case HloOpcode::kBatchNormInference:
+    case HloOpcode::kBatchNormTraining:
+    case HloOpcode::kCholesky:
+    case HloOpcode::kCollectiveBroadcast:
+    case HloOpcode::kCollectivePermute:
+    case HloOpcode::kCollectivePermuteDone:
+    case HloOpcode::kCollectivePermuteStart:
+    case HloOpcode::kDomain:
+    case HloOpcode::kDynamicReshape:
+    case HloOpcode::kOptimizationBarrier:
+    case HloOpcode::kOutfeed:
+    case HloOpcode::kPartitionId:
+    case HloOpcode::kRaggedAllToAll:
+    case HloOpcode::kRaggedDot:
+    case HloOpcode::kRecv:
+    case HloOpcode::kRecvDone:
+    case HloOpcode::kReduceScatter:
+    case HloOpcode::kReplicaId:
+    case HloOpcode::kRngBitGenerator:
+    case HloOpcode::kRngGetAndUpdateState:
+    case HloOpcode::kSend:
+    case HloOpcode::kSendDone:
+    case HloOpcode::kTriangularSolve:
+      return false;
+    default:
+      return true;
+  }
 }
 
 // Note that unsupported types by the typed visitor does not necessarily imply
@@ -1086,6 +1139,31 @@ absl::StatusOr<Literal> HloEvaluator::EvaluateDotOp(
   return Evaluate(cloned_instruction.get());
 }
 
+absl::StatusOr<Literal> HloEvaluator::EvaluateScaledDotOp(
+    const DotDimensionNumbers& dim_numbers,
+    const PrecisionConfig& precision_config, const Literal& lhs,
+    const Literal& rhs, const Literal& lhs_scale, const Literal& rhs_scale) {
+  std::unique_ptr<HloInstruction> lhs_instr =
+      HloInstruction::CreateConstant(lhs.Clone());
+  std::unique_ptr<HloInstruction> rhs_instr =
+      HloInstruction::CreateConstant(rhs.Clone());
+  std::unique_ptr<HloInstruction> lhs_scale_instr =
+      HloInstruction::CreateConstant(lhs_scale.Clone());
+  std::unique_ptr<HloInstruction> rhs_scale_instr =
+      HloInstruction::CreateConstant(rhs_scale.Clone());
+
+  TF_ASSIGN_OR_RETURN(
+      Shape dot_shape,
+      ShapeInference::InferDotOpShape(lhs.shape(), rhs.shape(), dim_numbers,
+                                      /*preferred_element_type=*/std::nullopt));
+
+  std::unique_ptr<HloInstruction> cloned_instruction =
+      HloInstruction::CreateScaledDot(
+          dot_shape, lhs_instr.get(), rhs_instr.get(), lhs_scale_instr.get(),
+          rhs_scale_instr.get(), dim_numbers, precision_config);
+  return Evaluate(cloned_instruction.get());
+}
+
 absl::Status HloEvaluator::EvaluateParameterFromCallerArgument(
     const HloInstruction* parameter, const ShapeIndex& shape_index,
     PrecomputedAnalyses analyses) {
@@ -1194,6 +1272,12 @@ absl::Status HloEvaluator::EvaluateInternal(
     const HloInstruction* instruction, PrecomputedAnalyses precomputed_analyses,
     const ShapeIndex& shape_index,
     bool recursively_evaluate_nonconstant_operands) {
+  // No need to evaluate the operand subtrees if the instruction opcode is not
+  // implemented.
+  if (!IsOpcodeImplemented(instruction->opcode())) {
+    return Unimplemented("HloEvaluator does not implement the %s opcode.",
+                         HloOpcodeString(instruction->opcode()));
+  }
   // Don't need to evaluate this instruction again if it has already been
   // evaluated.
   if (IsAlreadyEvaluated(instruction, shape_index)) {
@@ -1642,7 +1726,7 @@ absl::Status HloEvaluator::HandleTuple(const HloInstruction* tuple) {
 
   if (state_.has_evaluated(tuple)) {
     CHECK(new_result.IsDetermined(visitor_shape_index_));
-    Literal literal;
+    Literal literal = Literal::CreateFromShape(new_result.shape());
     TF_RETURN_IF_ERROR(
         literal.CopyFrom(new_result,
                          /*dest_shape_index=*/visitor_shape_index_,
@@ -1958,7 +2042,7 @@ class FftTransform {
     const int64_t num_dimensions = lengths.size();
 
     // Make sure that the layout length matches the number of dimensions.
-    CHECK_EQ(num_dimensions, layout.minor_to_major_size());
+    CHECK_EQ(num_dimensions, layout.minor_to_major().size());
 
     // Calculate strides using layout-specified ordering of the dimensions and
     // place the stride for axis 0 at index 0, for axis 1 at index 1, etc.
@@ -3211,6 +3295,14 @@ absl::Status HloEvaluator::HandleAddDependency(
   return absl::OkStatus();
 }
 
+absl::Status HloEvaluator::HandleOptimizationBarrier(
+    const HloInstruction* optimization_barrier) {
+  SetEvaluatedLiteralFor(
+      optimization_barrier,
+      GetEvaluatedLiteralFor(optimization_barrier->operand(0)).Clone());
+  return absl::OkStatus();
+}
+
 absl::Status HloEvaluator::HandleGetTupleElement(
     const HloInstruction* get_tuple_element) {
   const auto result_shape = get_tuple_element->shape();
@@ -3597,10 +3689,10 @@ absl::StatusOr<Literal> TryParseAndEvaluateWhileInductionVar(
       Literal result,
       CreateScalarLiteral(induction_var_value, result_shape.element_type()));
   std::vector<Literal*> while_result_element_ptrs;
-  while_result_element_ptrs.reserve(while_hlo->shape().tuple_shapes_size());
+  while_result_element_ptrs.reserve(while_hlo->shape().tuple_shapes().size());
   std::vector<Literal> while_result_elements(
-      while_hlo->shape().tuple_shapes_size());
-  for (int i = 0; i < while_hlo->shape().tuple_shapes_size(); ++i) {
+      while_hlo->shape().tuple_shapes().size());
+  for (int i = 0; i < while_hlo->shape().tuple_shapes().size(); ++i) {
     if (i == parsed_while_loop->static_while_loop->induction_var_index) {
       while_result_element_ptrs.push_back(&result);
     } else {
@@ -3630,7 +3722,7 @@ absl::Status HloEvaluator::HandleWhile(const HloInstruction* while_hlo) {
         visitor_shape_index_.size() != 1 ||
         parsed_while_loop->static_while_loop->induction_var_index !=
             visitor_shape_index_[0]) {
-      return absl::OkStatus();
+      return MakeEvalErrorDueToParamOrInfeed(*while_hlo);
     }
     Shape induction_var_shape =
         ShapeUtil::GetSubshape(while_hlo->shape(), visitor_shape_index_);
@@ -4755,13 +4847,6 @@ absl::Status HloEvaluator::HandleCustomCall(const HloInstruction* custom_call) {
   return absl::OkStatus();
 }
 
-absl::Status HloEvaluator::HandleOptimizationBarrier(
-    const HloInstruction* hlo) {
-  Literal result = GetEvaluatedLiteralFor(hlo->operand(0)).Clone();
-  SetEvaluatedLiteralFor(hlo, std::move(result));
-  return absl::OkStatus();
-}
-
 absl::Status HloEvaluator::Preprocess(const HloInstruction* hlo) {
   VLOG(3) << "About to visit HLO: " << hlo->ToString();
   if (!enable_partial_evaluation_) {
@@ -4813,76 +4898,68 @@ absl::Status HloEvaluator::Postprocess(const HloInstruction* hlo) {
   return absl::OkStatus();
 }
 
-namespace {
 template <typename T>
-std::unique_ptr<Array2D<T>> MatmulArray2DImpl(
-    const Array2D<T>& lhs, const Array2D<T>& rhs,
-    const std::function<void(const void* run_options_ptr, T* out, T* lhs,
-                             T* rhs, int64_t m, int64_t n, int64_t k,
-                             int32_t transpose_lhs, int32_t transpose_rhs)>&
-        impl_fn) {
+static std::unique_ptr<Array2D<T>> MatmulArray2DImpl(const Array2D<T>& lhs,
+                                                     const Array2D<T>& rhs) {
   CHECK_EQ(lhs.width(), rhs.height());
   int m = lhs.height();
-  int n = rhs.width();
   int k = lhs.width();
+  int n = rhs.width();
   auto result = std::make_unique<Array2D<T>>(m, n);
-  // Because Eigen is a header-oriented library, make sure that the Eigen code
-  // is the same as the code used by the CPU backend (otherwise the linker will
-  // randomly pick *some* definition).
-  impl_fn(
-      /*run_options_ptr=*/nullptr, result->data(), rhs.data(), lhs.data(), n, m,
-      k,
-      /*transpose_lhs=*/0,
-      /*transpose_rhs=*/0);
+
+  using ConstTensor = Eigen::Tensor<const T, 2, Eigen::RowMajor>;
+  using Tensor = Eigen::Tensor<T, 2, Eigen::RowMajor>;
+
+  Eigen::TensorMap<ConstTensor> A(lhs.data(), m, k);
+  Eigen::TensorMap<ConstTensor> B(rhs.data(), k, n);
+  Eigen::TensorMap<Tensor> C(result->data(), m, n);
+
+  using DimPair = typename ConstTensor::DimensionPair;
+  std::array<DimPair, 1> dims({DimPair(1, 0)});
+
+  C = A.contract(B, dims);
+
   return result;
 }
-}  // namespace
 
 std::unique_ptr<Array2D<Eigen::half>> HloEvaluator::MatmulArray2D(
     const Array2D<Eigen::half>& lhs, const Array2D<Eigen::half>& rhs) {
-  return MatmulArray2DImpl<Eigen::half>(
-      lhs, rhs, __xla_cpu_runtime_EigenSingleThreadedMatMulF16);
+  return MatmulArray2DImpl<Eigen::half>(lhs, rhs);
 }
 
 std::unique_ptr<Array2D<float>> HloEvaluator::MatmulArray2D(
     const Array2D<float>& lhs, const Array2D<float>& rhs) {
-  return MatmulArray2DImpl<float>(
-      lhs, rhs, __xla_cpu_runtime_EigenSingleThreadedMatMulF32);
+  return MatmulArray2DImpl<float>(lhs, rhs);
 }
 
 std::unique_ptr<Array2D<double>> HloEvaluator::MatmulArray2D(
     const Array2D<double>& lhs, const Array2D<double>& rhs) {
-  return MatmulArray2DImpl<double>(
-      lhs, rhs, __xla_cpu_runtime_EigenSingleThreadedMatMulF64);
+  return MatmulArray2DImpl<double>(lhs, rhs);
 }
 
 std::unique_ptr<Array2D<std::complex<float>>> HloEvaluator::MatmulArray2D(
     const Array2D<std::complex<float>>& lhs,
     const Array2D<std::complex<float>>& rhs) {
-  return MatmulArray2DImpl<std::complex<float>>(
-      lhs, rhs, __xla_cpu_runtime_EigenSingleThreadedMatMulC64);
+  return MatmulArray2DImpl<std::complex<float>>(lhs, rhs);
 }
 
 std::unique_ptr<Array2D<std::complex<double>>> HloEvaluator::MatmulArray2D(
     const Array2D<std::complex<double>>& lhs,
     const Array2D<std::complex<double>>& rhs) {
-  return MatmulArray2DImpl<std::complex<double>>(
-      lhs, rhs, __xla_cpu_runtime_EigenSingleThreadedMatMulC128);
+  return MatmulArray2DImpl<std::complex<double>>(lhs, rhs);
 }
 
 std::unique_ptr<Array2D<int32_t>> HloEvaluator::MatmulArray2D(
     const Array2D<int32_t>& lhs, const Array2D<int32_t>& rhs) {
-  return MatmulArray2DImpl<int32_t>(
-      lhs, rhs, __xla_cpu_runtime_EigenSingleThreadedMatMulS32);
+  return MatmulArray2DImpl<int32_t>(lhs, rhs);
 }
 
 std::unique_ptr<Array2D<uint8_t>> HloEvaluator::MatmulArray2D(
     const Array2D<uint8_t>& lhs, const Array2D<uint8_t>& rhs) {
-  return MatmulArray2DImpl<uint8_t>(
-      lhs, rhs, __xla_cpu_runtime_EigenSingleThreadedMatMulU8);
+  return MatmulArray2DImpl<uint8_t>(lhs, rhs);
 }
 
-/* static */ std::unique_ptr<Array2D<float>> Array2DF8E5M2ToF32(
+std::unique_ptr<Array2D<float>> Array2DF8E5M2ToF32(
     const Array2D<tsl::float8_e5m2>& input) {
   auto result = std::make_unique<Array2D<float>>(input.height(), input.width());
   for (int64_t rowno = 0; rowno < input.height(); ++rowno) {
@@ -4893,7 +4970,7 @@ std::unique_ptr<Array2D<uint8_t>> HloEvaluator::MatmulArray2D(
   return result;
 }
 
-/* static */ std::unique_ptr<Array2D<float>> Array2DF8E4M3FNToF32(
+std::unique_ptr<Array2D<float>> Array2DF8E4M3FNToF32(
     const Array2D<tsl::float8_e4m3fn>& input) {
   auto result = std::make_unique<Array2D<float>>(input.height(), input.width());
   for (int64_t rowno = 0; rowno < input.height(); ++rowno) {
@@ -4904,7 +4981,7 @@ std::unique_ptr<Array2D<uint8_t>> HloEvaluator::MatmulArray2D(
   return result;
 }
 
-/* static */ std::unique_ptr<Array2D<tsl::float8_e5m2>> Array2DF32ToF8E5M2(
+std::unique_ptr<Array2D<tsl::float8_e5m2>> Array2DF32ToF8E5M2(
     const Array2D<float>& input) {
   auto result = std::make_unique<Array2D<tsl::float8_e5m2>>(input.height(),
                                                             input.width());
@@ -4917,7 +4994,7 @@ std::unique_ptr<Array2D<uint8_t>> HloEvaluator::MatmulArray2D(
   return result;
 }
 
-/* static */ std::unique_ptr<Array2D<tsl::float8_e4m3fn>> Array2DF32ToF8E4M3FN(
+std::unique_ptr<Array2D<tsl::float8_e4m3fn>> Array2DF32ToF8E4M3FN(
     const Array2D<float>& input) {
   auto result = std::make_unique<Array2D<tsl::float8_e4m3fn>>(input.height(),
                                                               input.width());
@@ -4940,10 +5017,8 @@ std::unique_ptr<Array2D<tsl::float8_e5m2>> HloEvaluator::MatmulArray2D(
     auto rhs_float = Array2DF8E5M2ToF32(rhs);
     auto result = MatmulArray2D(*lhs_float, *rhs_float);
     return Array2DF32ToF8E5M2(*result);
-  } else {
-    return MatmulArray2DImpl<tsl::float8_e5m2>(
-        lhs, rhs, __xla_cpu_runtime_EigenSingleThreadedMatMulF8E5M2);
   }
+  return MatmulArray2DImpl<tsl::float8_e5m2>(lhs, rhs);
 }
 
 std::unique_ptr<Array2D<tsl::float8_e4m3fn>> HloEvaluator::MatmulArray2D(
@@ -4954,10 +5029,8 @@ std::unique_ptr<Array2D<tsl::float8_e4m3fn>> HloEvaluator::MatmulArray2D(
     auto rhs_float = Array2DF8E4M3FNToF32(rhs);
     auto result = MatmulArray2D(*lhs_float, *rhs_float);
     return Array2DF32ToF8E4M3FN(*result);
-  } else {
-    return MatmulArray2DImpl<tsl::float8_e4m3fn>(
-        lhs, rhs, __xla_cpu_runtime_EigenSingleThreadedMatMulF8E4M3FN);
   }
+  return MatmulArray2DImpl<tsl::float8_e4m3fn>(lhs, rhs);
 }
 
 }  // namespace xla

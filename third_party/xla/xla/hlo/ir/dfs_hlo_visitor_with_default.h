@@ -16,11 +16,13 @@ limitations under the License.
 #ifndef XLA_HLO_IR_DFS_HLO_VISITOR_WITH_DEFAULT_H_
 #define XLA_HLO_IR_DFS_HLO_VISITOR_WITH_DEFAULT_H_
 
+#include <functional>
 #include <memory>
 #include <utility>
 
 #include "absl/base/optimization.h"
 #include "absl/log/log.h"
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "xla/hlo/ir/dfs_hlo_visitor.h"
@@ -82,6 +84,9 @@ class DfsHloVisitorWithDefaultBase
     return DefaultAction(dot);
   }
   absl::Status HandleRaggedDot(HloInstructionPtr dot) override {
+    return DefaultAction(dot);
+  }
+  absl::Status HandleScaledDot(HloInstructionPtr dot) override {
     return DefaultAction(dot);
   }
   absl::Status HandleConvolution(HloInstructionPtr convolution) override {
@@ -319,7 +324,9 @@ class DfsHloRewriteVisitor : public DfsHloVisitorWithDefault {
     for (HloComputation* computation :
          module->MakeNonfusionComputations(execution_threads)) {
       status = computation->Accept(this);
-      if (ABSL_PREDICT_FALSE(!status.ok())) return status;
+      if (ABSL_PREDICT_FALSE(!status.ok())) {
+        return status;
+      }
     }
     return changed();
   }
@@ -381,10 +388,32 @@ class DfsHloRewriteVisitor : public DfsHloVisitorWithDefault {
 
   // Mark the computation as having changed.
   void MarkAsChanged() { changed_ = true; }
+  void MarkAsUnchanged() { changed_ = false; }
   void MarkAsMaybeChanged(bool changed) { changed_ |= changed; }
 
  private:
   bool changed_ = false;
+};
+
+// A visitor that visits only HLO instructions that match the filter.
+class FilteredDfsHloVisitor : public DfsHloVisitorWithDefault {
+ public:
+  FilteredDfsHloVisitor(
+      std::function<absl::Status(HloInstruction*)> action,
+      std::function<bool(const HloInstruction*)> filter) noexcept
+      : action_(std::move(action)), filter_(std::move(filter)) {}
+
+  // Filter and call the child visitor if appropriate.
+  absl::Status DefaultAction(HloInstruction* hlo_instruction) override {
+    if (filter_(hlo_instruction)) {
+      return action_(hlo_instruction);
+    }
+    return absl::OkStatus();
+  }
+
+ private:
+  std::function<absl::Status(HloInstruction*)> action_;
+  std::function<bool(const HloInstruction*)> filter_;
 };
 
 // (Const)FunctionVisitor lets you transform an

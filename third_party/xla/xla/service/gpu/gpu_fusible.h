@@ -128,6 +128,15 @@ bool IsNestableVariadicReduceWindow(const HloInstruction& instr);
 bool IsInputFusibleScatter(const HloInstruction& instr);
 
 // Determines whether the combination of `instr1` and `instr2` into a (possibly
+// multi-output) fusion fits within the maximum number of parameters that can be
+// passed to a kernel. If the fusion is a producer/consumer fusion and `instr1`
+// is the consumer and `instr2` is the producer, set consumer_producer_fusion to
+// true to enable more fusion.
+FusionDecision FusionFitsInParameterLimit(
+    const HloInstruction& instr1, const HloInstruction& instr2,
+    bool is_consumer_producer_fusion = false);
+
+// Determines whether the combination of `instr1` and `instr2` into a (possibly
 // multi-output) fusion fits within a "budget" -- i.e., does have more operands
 // and outputs than is allowed or occupy too much shared memory. If the fusion
 // is a producer/consumer fusion and `instr1` is the consumer and `instr2` is
@@ -219,9 +228,10 @@ std::vector<const HloInstruction*> GetFusionRoots(
 // Whether the instruction is a generic Triton fusion.
 bool IsGenericTritonFusion(const HloInstruction& instr);
 
-// Whether the fusion will likely behave poorly with vectorization due to the
-// instructions it contains.
-bool MayPreventVectorization(const HloFusionAdaptor& fusion);
+// Whether there is an expected performance drop when unrolling due to the
+// instructions contained in the fusion, e.g. potential register spilling or not
+// enough parallelism.
+bool MayCausePerformanceDropIfUnrolled(const HloFusionAdaptor& fusion);
 
 // Returns the max loop unroll factor.
 inline constexpr int64_t MaxUnrollFactor() { return 4; }

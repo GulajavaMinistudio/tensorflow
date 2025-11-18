@@ -16,10 +16,10 @@ limitations under the License.
 
 #include <cstddef>
 #include <cstdint>
-#include <functional>
+#include <memory>
 #include <utility>
 
-#include "absl/container/inlined_vector.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
 #include "absl/types/span.h"
@@ -30,6 +30,7 @@ limitations under the License.
 #include "xla/shape_tree.h"
 #include "xla/stream_executor/device_memory.h"
 #include "xla/stream_executor/device_memory_allocator.h"
+#include "xla/stream_executor/event.h"
 #include "xla/stream_executor/stream_executor.h"
 #include "xla/tsl/concurrency/async_value_ref.h"
 #include "xla/tsl/framework/allocator.h"
@@ -79,22 +80,15 @@ absl::StatusOr<GpuDeviceMemory> GpuDeviceMemory::Allocate(
 
 TrackedGpuDeviceBuffer::TrackedGpuDeviceBuffer(
     tsl::AsyncValueRef<GpuDeviceMemory> buffer,
-    absl::InlinedVector<tsl::AsyncValueRef<GpuEvent>, 4> definition_events,
-    std::function<void()> on_delete_callback)
-    : TrackedGpuDeviceBuffer(std::move(buffer), AfterAll(definition_events),
-                             std::move(on_delete_callback)) {
-  VLOG(4) << "TrackedGpuDeviceBuffer::TrackedGpuDeviceBuffer: " << this << "\n "
-          << tsl::CurrentStackTrace();
-}
-
-TrackedGpuDeviceBuffer::TrackedGpuDeviceBuffer(
-    tsl::AsyncValueRef<GpuDeviceMemory> buffer,
     tsl::AsyncValueRef<GpuEvent> definition_event,
-    std::function<void()> on_delete_callback)
+    tsl::AsyncValueRef<GpuEvent> ready_event,
+    absl::AnyInvocable<void() &&> on_delete_callback,
+    std::shared_ptr<stream_executor::Event> cuda_event)
     : buffer_(std::move(buffer)),
       definition_event_(std::move(definition_event)),
-      deallocation_event_(tsl::MakeConstructedAsyncValueRef<GpuEvent>()),
-      on_delete_callback_(std::move(on_delete_callback)) {
+      ready_event_(std::move(ready_event)),
+      on_delete_callback_(std::move(on_delete_callback)),
+      cuda_event_(std::move(cuda_event)) {
   VLOG(4) << "TrackedGpuDeviceBuffer::TrackedGpuDeviceBuffer: " << this << "\n "
           << tsl::CurrentStackTrace();
   DCHECK(definition_event_);
@@ -107,7 +101,7 @@ TrackedGpuDeviceBuffer::~TrackedGpuDeviceBuffer() {
 
   ReleaseDeviceMemory();
   if (on_delete_callback_) {
-    on_delete_callback_();
+    std::move(on_delete_callback_)();
   }
 }
 
@@ -138,7 +132,7 @@ void TrackedGpuDeviceBuffer::ReleaseDeviceMemory() {
   buffer_.reset();
   definition_event_.reset();
   usage_events_.Clear();
-  deallocation_event_.SetStateConcrete();
+  cuda_event_.reset();
 }
 
 void TrackedGpuDeviceBuffer::SetUnOwned() {

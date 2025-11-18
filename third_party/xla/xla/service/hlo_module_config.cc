@@ -32,6 +32,7 @@ limitations under the License.
 #include "xla/service/computation_layout.h"
 #include "xla/service/computation_placer.h"
 #include "xla/service/hlo.pb.h"
+#include "xla/service/schedule_config.h"
 #include "xla/service/sharding_config.h"
 #include "xla/shape.h"
 #include "xla/shape_layout.h"
@@ -68,7 +69,7 @@ std::string HloModuleConfig::compilation_cache_key() const {
   if (entry_computation_layout_.has_value()) {
     for (const ShapeLayout& param_layout :
          entry_computation_layout_->parameter_layouts()) {
-      params.push_back(param_layout.shape().DebugString());
+      params.push_back(param_layout.shape().ToString());
     }
     StrAppend(&key, absl::StrJoin(params, ", "), ") => ",
               entry_computation_layout_->result_shape()
@@ -109,6 +110,9 @@ std::string HloModuleConfig::compilation_cache_key() const {
     StrAppend(&key, "::device_memory_size=", device_memory_size());
   }
   StrAppend(&key, "::use_shardy_partitioner=", use_shardy_partitioner());
+  if (partition_size() != 0) {
+    StrAppend(&key, "::partition_size=", partition_size());
+  }
   return key;
 }
 
@@ -338,7 +342,9 @@ HloModuleConfigProto HloModuleConfig::ToProto() const {
   proto.set_fdo_profile(fdo_profile_);
   proto.set_device_memory_size(device_memory_size_);
   proto.set_use_shardy_partitioner(use_shardy_partitioner_);
+  proto.set_partition_size(partition_size_);
   *proto.mutable_sharding_config() = ShardingConfig::ToProto(sharding_config_);
+  *proto.mutable_schedule_config() = ScheduleConfig::ToProto(schedule_config_);
   return proto;
 }
 
@@ -416,7 +422,9 @@ HloModuleConfig::CreateFromProto(const HloModuleConfigProto& proto) {
   config->fdo_profile_ = proto.fdo_profile();
   config->device_memory_size_ = proto.device_memory_size();
   config->use_shardy_partitioner_ = proto.use_shardy_partitioner();
+  config->partition_size_ = proto.partition_size();
   config->sharding_config_ = ShardingConfig::FromProto(proto.sharding_config());
+  config->schedule_config_ = ScheduleConfig::FromProto(proto.schedule_config());
   return std::move(config);
 }
 

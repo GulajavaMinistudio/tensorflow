@@ -345,6 +345,44 @@ bool IsCubSortFasterOnH100(int bitwidth, int batch_size, int num_elements,
   }
 }
 
+bool IsCubSortFasterOnA100(int bitwidth, int batch_size, int num_elements,
+                           int sm_count) {
+  // The numbers below are based on extensive benchmarks: see
+  // b/410480351#comment4 for more details.
+  switch (bitwidth) {
+    case 8:
+      return batch_size == 1 ||
+             (num_elements > 1000 && (batch_size > 5 || num_elements < 43000));
+    case 16:
+      return (batch_size == 1 && num_elements > (1 << 16)) ||
+             (batch_size > 9 && num_elements > (1 << 17)) ||
+             (batch_size > 13 && num_elements > (1 << 16)) ||
+             (batch_size > 13 && num_elements > (1 << 15)) ||
+             (batch_size > 13 && num_elements > (1 << 14)) ||
+             (batch_size > 13 && num_elements > (1 << 13)) ||
+             (batch_size > 27 && num_elements > (1 << 12)) ||
+             (batch_size > 54 && num_elements > (1 << 11));
+    case 32:
+      return (batch_size == 1 && num_elements > (2 << 14)) ||
+             (batch_size > 24 && num_elements > (1 << 17)) ||
+             (batch_size > 30 && num_elements > (1 << 16)) ||
+             (batch_size > 36 && num_elements > (1 << 15)) ||
+             (batch_size > 39 && num_elements > (1 << 14)) ||
+             (batch_size > 52 && num_elements > (1 << 13)) ||
+             (batch_size > 144 && num_elements > (1 << 12));
+    case 64:
+      return (batch_size == 1 && num_elements > (1 << 16)) ||
+             (batch_size > 46 && num_elements > (1 << 17)) ||
+             (batch_size > 55 && num_elements > (1 << 16)) ||
+             (batch_size > 72 && num_elements > (1 << 15)) ||
+             (((batch_size > 138 && batch_size <= 2 * sm_count) ||
+               (batch_size > 289)) &&
+              num_elements > (1 << 14));
+    default:
+      return false;
+  }
+}
+
 // Returns whether a compatible sort should be rewritten based on the current
 // sort mode and possibly a heuristic.
 bool ShouldRewriteCompatibleSort(se::DeviceDescription device_description,
@@ -360,19 +398,23 @@ bool ShouldRewriteCompatibleSort(se::DeviceDescription device_description,
   }
 
   if (SortRewriter::SortMode() == SortRewriter::Mode::kAuto) {
-    if (auto cuda_cc = std::get_if<se::CudaComputeCapability>(
-            &device_description.gpu_compute_capability())) {
+    if (auto* cuda_cc = device_description.gpu_compute_capability()
+                            .cuda_compute_capability()) {
       int bitwidth = primitive_util::BitWidth(operand_shape.element_type());
       int batch_size = Product(operand_shape.dimensions()) / num_elements;
 
+      if (cuda_cc->IsBlackwell()) {
+        // TODO(b/410480351): Verify that the H100 heuristic also works well for
+        // Blackwell or implement a custom heuristic.
+        return IsCubSortFasterOnH100(bitwidth, batch_size, num_elements,
+                                     device_description.core_count());
+      }
       if (cuda_cc->IsHopper()) {
         return IsCubSortFasterOnH100(bitwidth, batch_size, num_elements,
                                      device_description.core_count());
       }
       if (cuda_cc->IsAmpere()) {
-        // TODO(b/410480351): Verify that the H100 heuristic also works well for
-        // Ampere or implement a custom heuristic.
-        return IsCubSortFasterOnH100(bitwidth, batch_size, num_elements,
+        return IsCubSortFasterOnA100(bitwidth, batch_size, num_elements,
                                      device_description.core_count());
       }
     }
@@ -531,17 +573,17 @@ absl::StatusOr<bool> SortRewriter::RunOnComputation(
 }
 
 // Replace compatible sort operations with custom calls.
-absl::StatusOr<bool> SortRewriter::Run(
+absl::StatusOr<bool> SortRewriter::RunImpl(
     HloModule* module,
     const absl::flat_hash_set<absl::string_view>& execution_threads) {
-  XLA_VLOG_LINES(3, "SortRewriter::Run(), before:\n" + module->ToString());
+  XLA_VLOG_LINES(3, "SortRewriter::RunImpl(), before:\n" + module->ToString());
   bool changed = false;
   for (HloComputation* computation :
        module->MakeNonfusionComputations(execution_threads)) {
     TF_ASSIGN_OR_RETURN(bool result, RunOnComputation(computation));
     changed |= result;
   }
-  XLA_VLOG_LINES(3, "SortRewriter::Run(), after:\n" + module->ToString());
+  XLA_VLOG_LINES(3, "SortRewriter::RunImpl(), after:\n" + module->ToString());
   return changed;
 }
 

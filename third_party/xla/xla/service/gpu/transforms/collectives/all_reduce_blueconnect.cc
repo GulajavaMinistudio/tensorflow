@@ -45,9 +45,8 @@ limitations under the License.
 #include "tsl/platform/statusor.h"
 
 namespace xla {
-namespace {
 
-std::vector<HloInstruction*> GetOutputs(HloInstruction& instruction) {
+static std::vector<HloInstruction*> GetOutputs(HloInstruction& instruction) {
   if (!instruction.shape().IsTuple()) {
     return {&instruction};
   }
@@ -63,42 +62,50 @@ std::vector<HloInstruction*> GetOutputs(HloInstruction& instruction) {
   return outputs;
 }
 
+namespace {
 struct DecomposedReplicaGroups {
   std::vector<ReplicaGroup> scatter_gather_groups;
   std::vector<ReplicaGroup> new_all_reduce_groups;
 };
+}  // namespace
 
 // Returns the global device id for the given replica id. Returns nullopt if
 // if the replica id can refer to multiple devices, or if the pass does not
 // support the CollectiveOpGroupMode.
-std::optional<GlobalDeviceId> TryConvertingReplicaIdToDeviceId(
+static std::optional<GlobalDeviceId> TryConvertingReplicaIdToDeviceId(
     int64_t replica_id, const DeviceAssignment& device_assignment,
     CollectiveOpGroupMode collective_group_mode) {
-  if (collective_group_mode == CollectiveOpGroupMode::kCrossReplica) {
+  if (collective_group_mode ==
+      CollectiveOpGroupMode::COLLECTIVE_OP_GROUP_MODE_CROSS_REPLICA) {
     if (device_assignment.computation_count() != 1) {
       // If there are multiple partitions, the replica_id may refer to multiple
       // devices on different partitions.
       return std::nullopt;
     }
     return GlobalDeviceId{device_assignment(replica_id, /*computation_id=*/0)};
-  } else if (collective_group_mode == CollectiveOpGroupMode::kFlattenedID) {
+  }
+  if (collective_group_mode ==
+      CollectiveOpGroupMode::COLLECTIVE_OP_GROUP_MODE_FLATTENED_ID) {
     int partition_count = device_assignment.computation_count();
     int64_t actual_replica_id = replica_id / partition_count;
     int64_t partition_id = replica_id % partition_count;
     return GlobalDeviceId{device_assignment(actual_replica_id, partition_id)};
   }
 
-  // kCrossPartition and kCrossReplicaAndPartition are unsupported.
+  // COLLECTIVE_OP_GROUP_MODE_CROSS_PARTITION and
+  // COLLECTIVE_OP_GROUP_MODE_FLATTENED_CROSS_REPLICA_AND_PARTITION are
+  // unsupported.
   VLOG(1) << "Skip AllReduceBlueConnect because of unsupported "
              "CollectiveOpGroupMode "
           << CollectiveOpGroupModeToString(collective_group_mode);
   return std::nullopt;
 }
 
-absl::StatusOr<std::optional<DecomposedReplicaGroups>> TryDecomposeReplicaGroup(
-    const ReplicaGroup& replica_group,
-    const DeviceAssignment& device_assignment, size_t num_devices_per_host,
-    CollectiveOpGroupMode collective_group_mode) {
+static absl::StatusOr<std::optional<DecomposedReplicaGroups>>
+TryDecomposeReplicaGroup(const ReplicaGroup& replica_group,
+                         const DeviceAssignment& device_assignment,
+                         size_t num_devices_per_host,
+                         CollectiveOpGroupMode collective_group_mode) {
   int group_size = replica_group.replica_ids_size();
   TF_RET_CHECK(group_size > 0);
 
@@ -151,7 +158,7 @@ absl::StatusOr<std::optional<DecomposedReplicaGroups>> TryDecomposeReplicaGroup(
                                   std::move(new_all_reduce_groups)}};
 }
 
-absl::StatusOr<std::optional<DecomposedReplicaGroups>>
+static absl::StatusOr<std::optional<DecomposedReplicaGroups>>
 TryDecomposeReplicaGroups(const HloAllReduceInstruction& all_reduce,
                           size_t num_devices_per_host) {
   const DeviceAssignment& device_assignment =
@@ -234,8 +241,8 @@ TryDecomposeReplicaGroups(const HloAllReduceInstruction& all_reduce,
 //
 // When applied repeatedly, this transformation will reproduce the same pattern
 // as described in the BlueConnect paper.
-absl::StatusOr<bool> TryDecomposeAllReduce(HloAllReduceInstruction* all_reduce,
-                                           size_t num_devices_per_host) {
+static absl::StatusOr<bool> TryDecomposeAllReduce(
+    HloAllReduceInstruction* all_reduce, size_t num_devices_per_host) {
   TF_RET_CHECK(all_reduce);
   TF_RET_CHECK(!all_reduce->has_sharding());
 
@@ -271,7 +278,9 @@ absl::StatusOr<bool> TryDecomposeAllReduce(HloAllReduceInstruction* all_reduce,
         element_type, {num_elements / scatter_group_size}));
   }
 
-  Shape reduce_scatter_shape = ShapeUtil::MakeMaybeTupleShape(scattered_shapes);
+  TF_ASSIGN_OR_RETURN(
+      auto reduce_scatter_shape,
+      ShapeUtil::MakeValidatedMaybeTupleShape(scattered_shapes));
 
   int64_t next_channel_id = hlo_query::NextChannelId(*computation.parent());
   auto get_channel_id = [&]() -> std::optional<int64_t> {
@@ -297,10 +306,11 @@ absl::StatusOr<bool> TryDecomposeAllReduce(HloAllReduceInstruction* all_reduce,
           /*constrain_layout=*/false, all_reduce->channel_id(),
           all_reduce->use_global_device_ids()));
 
+  TF_ASSIGN_OR_RETURN(auto all_gather_shape,
+                      ShapeUtil::MakeValidatedMaybeTupleShape(flat_shapes));
   HloInstruction* all_gather =
       computation.AddInstruction(HloInstruction::CreateAllGather(
-          ShapeUtil::MakeMaybeTupleShape(flat_shapes),
-          GetOutputs(*new_all_reduce),
+          all_gather_shape, GetOutputs(*new_all_reduce),
           /*all_gather_dimension=*/0,
           CollectiveDeviceList(decomposed_groups->scatter_gather_groups),
           /*constrain_layout=*/false, get_channel_id(),
@@ -329,9 +339,7 @@ absl::StatusOr<bool> TryDecomposeAllReduce(HloAllReduceInstruction* all_reduce,
   return true;
 }
 
-}  // namespace
-
-absl::StatusOr<bool> AllReduceBlueConnect::Run(
+absl::StatusOr<bool> AllReduceBlueConnect::RunImpl(
     HloModule* module,
     const absl::flat_hash_set<absl::string_view>& execution_threads) {
   VLOG(1) << "Running AllReduceBlueConnect";

@@ -40,7 +40,7 @@ limitations under the License.
 #include "absl/types/span.h"
 #include "xla/stream_executor/data_type.h"
 #include "xla/stream_executor/device_memory.h"
-#include "xla/stream_executor/numeric_options.h"
+#include "xla/stream_executor/engine_options.h"
 #include "xla/stream_executor/scratch_allocator.h"
 #include "xla/stream_executor/stream.h"
 #include "xla/tsl/lib/strings/proto_serialization.h"
@@ -91,7 +91,6 @@ AlgorithmDesc::AlgorithmDesc(
     int64_t engine_id,
     const std::vector<std::pair<int64_t, int64_t>>& tuning_knobs,
     std::optional<uint64_t> workspace_size) {
-  proto_.set_is_cudnn_frontend(true);
   proto_.set_algo_id(engine_id);
   if (workspace_size) {
     proto_.mutable_workspace_size()->set_value(*workspace_size);
@@ -106,34 +105,23 @@ uint64_t AlgorithmDesc::hash() const {
 }
 
 bool AlgorithmDesc::operator==(const AlgorithmDesc& other) const {
-  if (is_cudnn_frontend()) {
-    return other.is_cudnn_frontend() && algo_id() == other.algo_id() &&
-           ProtoMapsEqual(proto_.tuning_knobs(), other.proto_.tuning_knobs());
-  }
-  return !other.is_cudnn_frontend() && algo_id() == other.algo_id() &&
-         tensor_ops_enabled() == other.tensor_ops_enabled();
+  return algo_id() == other.algo_id() &&
+         ProtoMapsEqual(proto_.tuning_knobs(), other.proto_.tuning_knobs());
 }
 
 std::string AlgorithmDesc::ToString() const {
-  if (is_cudnn_frontend()) {
-    // Format similarly to cudnn_frontend::ExecutionPlan::getTag(), e.g.
-    // "eng2{k1=2,k3=4}".
-    absl::btree_map<int64_t, int64_t> tuning_knobs_sorted;
-    absl::c_copy(proto_.tuning_knobs(),
-                 std::inserter(tuning_knobs_sorted, tuning_knobs_sorted.end()));
-    return absl::StrFormat(
-        "eng%d{%s}", proto_.algo_id(),
-        absl::StrJoin(
-            tuning_knobs_sorted, ",",
-            [](std::string* out, const std::pair<int64_t, int64_t>& pair) {
-              absl::StrAppendFormat(out, "k%d=%d", pair.first, pair.second);
-            }));
-  }
-  if (tensor_ops_enabled()) {
-    return absl::StrCat(algo_id(), "#TC");
-  } else {
-    return absl::StrCat(algo_id());
-  }
+  // Format similarly to cudnn_frontend::ExecutionPlan::getTag(), e.g.
+  // "eng2{k1=2,k3=4}".
+  absl::btree_map<int64_t, int64_t> tuning_knobs_sorted;
+  absl::c_copy(proto_.tuning_knobs(),
+               std::inserter(tuning_knobs_sorted, tuning_knobs_sorted.end()));
+  return absl::StrFormat(
+      "eng%d{%s}", proto_.algo_id(),
+      absl::StrJoin(
+          tuning_knobs_sorted, ",",
+          [](std::string* out, const std::pair<int64_t, int64_t>& pair) {
+            absl::StrAppendFormat(out, "k%d=%d", pair.first, pair.second);
+          }));
 }
 
 std::vector<std::pair<int64_t, int64_t>> AlgorithmDesc::TuningKnobs() const {
@@ -156,7 +144,7 @@ absl::Status DnnSupport::GetConvolveRunners(
     DeviceMemoryBase /*output_data*/,
     const dnn::ConvolutionDescriptor& /*convolution_descriptor*/,
     bool /*use_fallback*/, ScratchAllocator* /*scratch_allocator*/,
-    const NumericOptions& /*numeric_options*/,
+    const EngineOptions& /*engine_options*/,
     std::vector<std::unique_ptr<const dnn::ConvRunner>>* /*exec_plans*/) {
   return absl::UnimplementedError("GetConvolveRunners not implemented.");
 }
@@ -179,7 +167,7 @@ absl::Status DnnSupport::GetGraphConvolveRunners(
     const dnn::FilterDescriptor& /*filter_descriptor*/,
     const dnn::BatchDescriptor& /*output_descriptor*/,
     const dnn::ConvolutionDescriptor& /*convolution_descriptor*/,
-    bool /*use_fallback*/, const NumericOptions& /*numeric_options*/,
+    bool /*use_fallback*/, const EngineOptions& /*engine_options*/,
     std::vector<std::unique_ptr<const dnn::GraphConvRunner>>* /*exec_plans*/,
     std::string /*serialized_graph*/) {
   return absl::UnimplementedError("GetGraphConvolveRunners not implemented.");
@@ -207,7 +195,7 @@ absl::Status DnnSupport::GetFusedConvolveRunners(
     const dnn::BatchDescriptor& bias_descriptor,
     const dnn::BatchDescriptor& output_descriptor,
     const dnn::ConvolutionDescriptor& convolution_descriptor, bool use_fallback,
-    dnn::ActivationMode activation_mode, const NumericOptions& numeric_options,
+    dnn::ActivationMode activation_mode, const EngineOptions& engine_options,
     std::vector<std::unique_ptr<const dnn::FusedConvRunner>>* out_exec_plans) {
   return absl::UnimplementedError("GetFusedConvolveRunners not implemented.");
 }
@@ -217,7 +205,7 @@ absl::Status DnnSupport::GetFusedMatmulRunners(
     dnn::DataType output_type, Stream* stream, bool trans_a, bool trans_b,
     uint64_t m, uint64_t n, uint64_t k, int64_t lda, int64_t ldb, int64_t ldc,
     dnn::ActivationMode activation_mode, bool use_fallback,
-    const NumericOptions& numeric_options,
+    const EngineOptions& engine_options,
     std::vector<std::unique_ptr<const dnn::FusedMatmulRunner>>*
         out_exec_plans) {
   return absl::UnimplementedError("GetFusedMatmulRunners not implemented.");
@@ -277,7 +265,7 @@ bool DnnSupport::GetRnnAlgorithms(std::vector<AlgorithmDesc>* out_algorithms) {
 absl::Status DnnSupport::DoPoolForward(
     DataType element_type, Stream* stream,
     const dnn::PoolingDescriptor& pooling_dimensions,
-    const NumericOptions& numeric_options,
+    const EngineOptions& engine_options,
     const dnn::BatchDescriptor& input_dimensions, DeviceMemoryBase input_data,
     const dnn::BatchDescriptor& output_dimensions, DeviceMemoryBase output_data,
     ScratchAllocator* workspace_allocator) {
@@ -290,7 +278,7 @@ absl::Status DnnSupport::DoPoolForward(
 absl::Status DnnSupport::DoPoolBackward(
     DataType element_type, Stream* stream,
     const dnn::PoolingDescriptor& pooling_dimensions,
-    const NumericOptions& numeric_options,
+    const EngineOptions& engine_options,
     const dnn::BatchDescriptor& input_dimensions, DeviceMemoryBase input_data,
     const dnn::BatchDescriptor& output_dimensions, DeviceMemoryBase output_data,
     DeviceMemoryBase input_diff_data, DeviceMemoryBase output_diff_data,
@@ -914,7 +902,7 @@ std::string ConvolutionDescriptor::ToString() const {
   return absl::StrFormat(
       "{zero_padding: %s pad_alignment: %s filter_strides: %s dilation_rates: "
       "%s}",
-      padding, PadAlignmentString(pad_alignment()), strides, dilations);
+      padding, PadAlignmentString(PadAlignment::kDefault), strides, dilations);
 }
 
 // -- PoolingDescriptor

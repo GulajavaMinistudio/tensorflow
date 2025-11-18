@@ -208,7 +208,7 @@ absl::Status EagerOperation::SetAttrShapeList(const char* attr_name,
     }
   }
   MutableAttrs()->Set(
-      attr_name, gtl::ArraySlice<TensorShapeProto>(proto.get(), num_values));
+      attr_name, absl::Span<const TensorShapeProto>(proto.get(), num_values));
   return absl::OkStatus();
 }
 
@@ -371,7 +371,7 @@ absl::Status EagerOperation::Reset(
   if (eager_func_params.has_value()) {
     eager_func_params_ = eager_func_params;
   }
-  op_name_ = op;
+  op_name_ = std::string(op);
   return SetDeviceName(device_name);
 }
 
@@ -517,18 +517,17 @@ string EagerOperation::DebugString() const {
   string out;
   VLOG(1) << "EagerOperation::DebugString() over " << this;
 
-  strings::StrAppend(&out, "Name: ", Name(), "\n");
-  strings::StrAppend(&out, "Device Name: [", device_name_, "]\n");
-  strings::StrAppend(&out, "Device: ", VariantDeviceDebugString(Device()),
-                     "\n");
+  absl::StrAppend(&out, "Name: ", Name(), "\n");
+  absl::StrAppend(&out, "Device Name: [", device_name_, "]\n");
+  absl::StrAppend(&out, "Device: ", VariantDeviceDebugString(Device()), "\n");
   for (const auto& input : inputs_) {
     VLOG(1) << "Input ptr: " << input;
-    strings::StrAppend(&out, "Input: ", input->DebugString(), "\n");
+    absl::StrAppend(&out, "Input: ", input->DebugString(), "\n");
   }
 
   NodeDef ndef;
   Attrs().FillAttrValueMap(ndef.mutable_attr());
-  strings::StrAppend(&out, "Attrs: ", ndef.DebugString(), "\n");
+  absl::StrAppend(&out, "Attrs: ", ndef.DebugString(), "\n");
   return out;
 }
 

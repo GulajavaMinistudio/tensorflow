@@ -18,6 +18,7 @@ limitations under the License.
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "absl/strings/string_view.h"
+#include "xla/hlo/analysis/indexing_map.h"
 #include "xla/hlo/analysis/indexing_map_serialization.h"
 #include "xla/hlo/analysis/indexing_test_utils.h"
 #include "xla/hlo/ir/hlo_instruction.h"
@@ -43,7 +44,7 @@ MATCHER_P2(MatchInstrIndexing, operand_id, indexing_map_matchers, "") {
 
 using IndexingAnalysisTest = IndexingTestBase;
 
-TEST_F(IndexingAnalysisTest, FuseProducerConsumerOutputToInputIndexing) {
+TEST_F(IndexingAnalysisTest, GroupIndexingMapsByProducers) {
   auto root = ParseAndGetRoot(R"(
     HloModule m
     ENTRY e {
@@ -60,13 +61,13 @@ TEST_F(IndexingAnalysisTest, FuseProducerConsumerOutputToInputIndexing) {
 
   EXPECT_THAT(
       grouped_by_key,
-      UnorderedElementsAre(Pair(parameter, ElementsAre(MatchIndexingMap(R"(
+      UnorderedElementsAre(Pair(parameter, ElementsAre(MatchOperandIndexing(R"(
                     (d0, d1) -> (d0, d1),
                     domain:
                     d0 in [0, 999],
                     d1 in [0, 999]
                   )"))),
-                           Pair(transpose, ElementsAre(MatchIndexingMap(R"(
+                           Pair(transpose, ElementsAre(MatchOperandIndexing(R"(
                     (d0, d1) -> (d0, d1),
                     domain:
                     d0 in [0, 999],
@@ -89,28 +90,28 @@ TEST_F(IndexingAnalysisTest, ComputeGroupedOutputToInputIndexing) {
   auto fusion_adaptor = HloFusionAdaptor::ForProducerConsumer(transpose, root);
 
   auto grouped_indexing = ComputeGroupedOutputToInputIndexing(
-      *fusion_adaptor, fusion_adaptor->GetRoots()[0], &mlir_context_);
+      *fusion_adaptor, fusion_adaptor->GetRoots()[0], &symbolic_expr_context_);
   EXPECT_THAT(grouped_indexing,
               UnorderedElementsAre(
-                  Pair(root, ElementsAre(MatchIndexingMap(R"(
+                  Pair(root, ElementsAre(MatchOperandIndexing(R"(
                     (d0, d1) -> (d0, d1),
                     domain:
                     d0 in [0, 999],
                     d1 in [0, 999]
                   )"))),
-                  Pair(transpose, ElementsAre(MatchIndexingMap(R"(
+                  Pair(transpose, ElementsAre(MatchOperandIndexing(R"(
                     (d0, d1) -> (d0, d1),
                     domain:
                     d0 in [0, 999],
                     d1 in [0, 999]
                   )"))),
-                  Pair(parameter, UnorderedElementsAre(MatchIndexingMap(R"(
+                  Pair(parameter, UnorderedElementsAre(MatchOperandIndexing(R"(
                         (d0, d1) -> (d0, d1),
                         domain:
                         d0 in [0, 999],
                         d1 in [0, 999]
                       )"),
-                                                       MatchIndexingMap(R"(
+                                                       MatchOperandIndexing(R"(
                         (d0, d1) -> (d1, d0),
                         domain:
                         d0 in [0, 999],
@@ -146,33 +147,33 @@ TEST_F(IndexingAnalysisTest,
   auto fusion_adaptor = HloFusionAdaptor::ForInstruction(root);
 
   auto grouped_indexing = ComputeGroupedOutputToInputIndexing(
-      *fusion_adaptor, fusion_adaptor->GetRoots()[0], &mlir_context_);
+      *fusion_adaptor, fusion_adaptor->GetRoots()[0], &symbolic_expr_context_);
 
   EXPECT_THAT(grouped_indexing,
               UnorderedElementsAre(
-                  Pair(root, ElementsAre(MatchIndexingMap(R"(
+                  Pair(root, ElementsAre(MatchOperandIndexing(R"(
                     (d0) -> (d0),
                     domain:
                     d0 in [0, 31]
                   )"))),
-                  Pair(root->operand(0), ElementsAre(MatchIndexingMap(R"(
+                  Pair(root->operand(0), ElementsAre(MatchOperandIndexing(R"(
                     (d0)[s0] -> (d0, s0),
                     domain:
                     d0 in [0, 31],
                     s0 in [0, 39]
                   )"))),
-                  Pair(root->operand(1), ElementsAre(MatchIndexingMap(R"(
+                  Pair(root->operand(1), ElementsAre(MatchOperandIndexing(R"(
                     (d0)[s0] -> (d0, s0),
                     domain:
                     d0 in [0, 31],
                     s0 in [0, 39]
                   )"))),
-                  Pair(root->operand(2), ElementsAre(MatchIndexingMap(R"(
+                  Pair(root->operand(2), ElementsAre(MatchOperandIndexing(R"(
                     (d0) -> (),
                     domain:
                     d0 in [0, 31]
                   )"))),
-                  Pair(root->operand(3), ElementsAre(MatchIndexingMap(R"(
+                  Pair(root->operand(3), ElementsAre(MatchOperandIndexing(R"(
                     (d0) -> (),
                     domain:
                     d0 in [0, 31]
@@ -199,9 +200,10 @@ TEST_F(IndexingAnalysisTest, ComputeGroupedOutputToInputIndexing_SingleOp) {
   HloInstructionAdaptor parameter_adaptor =
       fusion_adaptor->GetRoots()[0].GetOperand(0);
   auto grouped_indexing = ComputeGroupedOutputToInputIndexing(
-      *fusion_adaptor, parameter_adaptor, &mlir_context_);
-  EXPECT_THAT(grouped_indexing, UnorderedElementsAre(Pair(
-                                    parameter, ElementsAre(MatchIndexingMap(R"(
+      *fusion_adaptor, parameter_adaptor, &symbolic_expr_context_);
+  EXPECT_THAT(
+      grouped_indexing,
+      UnorderedElementsAre(Pair(parameter, ElementsAre(MatchOperandIndexing(R"(
                                                      (d0, d1) -> (d0, d1),
                                                      domain:
                                                      d0 in [0, 999],
@@ -239,11 +241,11 @@ TEST_F(IndexingAnalysisTest,
   auto parameter_0 = bcast.GetOperand(0);
 
   auto grouped_indexing = ComputeGroupedOutputToInputIndexing(
-      *fusion_adaptor, bcast, &mlir_context_);
+      *fusion_adaptor, bcast, &symbolic_expr_context_);
   EXPECT_THAT(
       grouped_indexing,
       UnorderedElementsAre(
-          Pair(&bcast.instruction(), ElementsAre(MatchIndexingMap(R"(
+          Pair(&bcast.instruction(), ElementsAre(MatchOperandIndexing(R"(
             (d0, d1, d2, d3) -> (d0, d1, d2, d3),
             domain:
             d0 in [0, 14],
@@ -251,7 +253,7 @@ TEST_F(IndexingAnalysisTest,
             d2 in [0, 19],
             d3 in [0, 63]
           )"))),
-          Pair(&parameter_0.instruction(), ElementsAre(MatchIndexingMap(R"(
+          Pair(&parameter_0.instruction(), ElementsAre(MatchOperandIndexing(R"(
             (d0, d1, d2, d3) -> (d0, d2),
             domain:
             d0 in [0, 14],
@@ -330,9 +332,12 @@ TEST_F(IndexingAnalysisTest, ReshapeNothing) {
               MatchIndexingString("operand id = 0 KNOWN EMPTY"));
   // Even though the indexing is known empty, the rank of the map should still
   // be 1.
-  EXPECT_EQ(
-      output_indexing.indexing_maps[0].begin()->GetAffineMap().getNumResults(),
-      1);
+  EXPECT_EQ(output_indexing.indexing_maps[0]
+                .begin()
+                ->map()
+                .GetAffineMap()
+                .getNumResults(),
+            1);
 }
 
 TEST_F(IndexingAnalysisTest, PhysicalLayoutTestInputPermutation) {
@@ -667,34 +672,41 @@ TEST_F(IndexingAnalysisTest, DynamicSliceOp) {
     }
   )"));
   EXPECT_THAT(input_indexing.ToString(), MatchIndexingString(R"(
-                operand id = 0
-                  (d0, d1, d2){rt0, rt1, rt2} -> (d0 + rt0, d1 + rt1, d2 + rt2),
-                  domain:
-                  d0 in [0, 0],
-                  d1 in [0, 1],
-                  d2 in [0, 31],
-                  rt0 in [0, 1],
-                  rt1 in [0, 0],
-                  rt2 in [0, 226]
-                operand id = 1
-                  (d0, d1, d2)  -> (),
-                  domain:
-                  d0 in [0, 0],
-                  d1 in [0, 1],
-                  d2 in [0, 31]
-                operand id = 2
-                  (d0, d1, d2)  -> (),
-                  domain:
-                  d0 in [0, 0],
-                  d1 in [0, 1],
-                  d2 in [0, 31]
-                operand id = 3
-                  (d0, d1, d2)  -> (),
-                  domain:
-                  d0 in [0, 0],
-                  d1 in [0, 1],
-                  d2 in [0, 31]
-              )"));
+    operand id = 0
+      (d0, d1, d2){rt0, rt1, rt2} -> (d0 + rt0, d1 + rt1, d2 + rt2),
+      domain:
+        d0 in [0, 0],
+        d1 in [0, 1],
+        d2 in [0, 31],
+        rt0 in [0, 1],
+        rt1 in [0, 0],
+        rt2 in [0, 226]
+      runtime variables:
+        rt0: %of1 = s32[] parameter(1); (d0, d1, d2) -> (),
+          domain: d0 in [0, 0], d1 in [0, 1], d2 in [0, 31]
+        rt1: %of2 = s32[] parameter(2); (d0, d1, d2) -> (),
+          domain: d0 in [0, 0], d1 in [0, 1], d2 in [0, 31]
+        rt2: %of3 = s32[] parameter(3); (d0, d1, d2) -> (),
+          domain: d0 in [0, 0], d1 in [0, 1], d2 in [0, 31]
+    operand id = 1
+      (d0, d1, d2) -> (),
+      domain:
+      d0 in [0, 0],
+      d1 in [0, 1],
+      d2 in [0, 31]
+    operand id = 2
+      (d0, d1, d2) -> (),
+      domain:
+      d0 in [0, 0],
+      d1 in [0, 1],
+      d2 in [0, 31]
+    operand id = 3
+      (d0, d1, d2) -> (),
+      domain:
+      d0 in [0, 0],
+      d1 in [0, 1],
+      d2 in [0, 31]
+    )"));
 }
 
 TEST_F(IndexingAnalysisTest, DynamicUpdateSliceOp) {
@@ -710,29 +722,34 @@ TEST_F(IndexingAnalysisTest, DynamicUpdateSliceOp) {
     }
   )"));
   EXPECT_THAT(input_indexing.ToString(), MatchIndexingString(R"(
-                operand id = 0
-                  (d0, d1) -> (d0, d1),
-                  domain:
-                  d0 in [0, 19],
-                  d1 in [0, 29]
-                operand id = 1
-                  (d0, d1){rt0, rt1}  -> (d0 - rt0, d1 - rt1),
-                  domain:
-                  d0 in [0, 19],
-                  d1 in [0, 29],
-                  rt0 in [0, 15],
-                  rt1 in [0, 20]
-                operand id = 2
-                  (d0, d1)  -> (),
-                  domain:
-                  d0 in [0, 19],
-                  d1 in [0, 29]
-                operand id = 3
-                  (d0, d1)  -> (),
-                  domain:
-                  d0 in [0, 19],
-                  d1 in [0, 29]
-              )"));
+    operand id = 0
+      (d0, d1) -> (d0, d1),
+      domain:
+        d0 in [0, 19],
+        d1 in [0, 29]
+    operand id = 1
+      (d0, d1){rt0, rt1} -> (d0 - rt0, d1 - rt1),
+      domain:
+        d0 in [0, 19],
+        d1 in [0, 29],
+        rt0 in [0, 15],
+        rt1 in [0, 20]
+      runtime variables:
+        rt0: %of1 = s32[] parameter(2); (d0, d1) -> (),
+          domain: d0 in [0, 19], d1 in [0, 29]
+        rt1: %of2 = s32[] parameter(3); (d0, d1) -> (),
+          domain: d0 in [0, 19], d1 in [0, 29]
+    operand id = 2
+      (d0, d1) -> (),
+      domain:
+        d0 in [0, 19],
+        d1 in [0, 29]
+    operand id = 3
+      (d0, d1) -> (),
+      domain:
+        d0 in [0, 19],
+        d1 in [0, 29]
+      )"));
 }
 
 TEST_F(IndexingAnalysisTest, FusionOpWithSingleBinaryOp) {
@@ -930,7 +947,7 @@ TEST_F(IndexingAnalysisTest, FusionOpWithSoftmax) {
     }
   )"));
   EXPECT_THAT(input_indexing.indexing_maps,
-              ElementsAre(UnorderedElementsAre(MatchIndexingMap(R"(
+              ElementsAre(UnorderedElementsAre(MatchOperandIndexing(R"(
                             (d0, d1, d2)[s0] -> (d0, d1, s0),
                             domain:
                             d0 in [0, 1],
@@ -938,7 +955,7 @@ TEST_F(IndexingAnalysisTest, FusionOpWithSoftmax) {
                             d2 in [0, 124],
                             s0 in [0, 124]
                           )"),
-                                               MatchIndexingMap(R"(
+                                               MatchOperandIndexing(R"(
                             (d0, d1, d2) -> (d0, d1, d2),
                             domain:
                             d0 in [0, 1],
@@ -961,13 +978,13 @@ TEST_F(IndexingAnalysisTest, FusionOpTensorPlusTransposedTensor) {
     }
   )"));
   EXPECT_THAT(input_indexing.indexing_maps,
-              ElementsAre(UnorderedElementsAre(MatchIndexingMap(R"(
+              ElementsAre(UnorderedElementsAre(MatchOperandIndexing(R"(
                             (d0, d1) -> (d0, d1),
                             domain:
                             d0 in [0, 999],
                             d1 in [0, 999]
                           )"),
-                                               MatchIndexingMap(R"(
+                                               MatchOperandIndexing(R"(
                             (d0, d1) -> (d1, d0),
                             domain:
                             d0 in [0, 999],
@@ -998,32 +1015,32 @@ TEST_F(IndexingAnalysisTest, FusionExponentialDuplication) {
       calls=fused_computation
     })"));
   EXPECT_THAT(input_indexing.indexing_maps,
-              ElementsAre(UnorderedElementsAre(MatchIndexingMap(R"(
+              ElementsAre(UnorderedElementsAre(MatchOperandIndexing(R"(
                             (d0) -> (d0 + 1),
                             domain:
                             d0 in [0, 1]
                           )"),
-                                               MatchIndexingMap(R"(
+                                               MatchOperandIndexing(R"(
                             (d0) -> (d0),
                             domain:
                             d0 in [0, 1]
                           )"),
-                                               MatchIndexingMap(R"(
+                                               MatchOperandIndexing(R"(
                             (d0) -> (d0 + 2),
                             domain:
                             d0 in [0, 1]
                           )")),
-                          UnorderedElementsAre(MatchIndexingMap(R"(
+                          UnorderedElementsAre(MatchOperandIndexing(R"(
                             (d0) -> (d0 + 2),
                             domain:
                             d0 in [0, 1]
                           )"),
-                                               MatchIndexingMap(R"(
+                                               MatchOperandIndexing(R"(
                             (d0) -> (d0 + 1),
                             domain:
                             d0 in [0, 1]
                           )"),
-                                               MatchIndexingMap(R"(
+                                               MatchOperandIndexing(R"(
                             (d0) -> (d0),
                             domain:
                             d0 in [0, 1]
@@ -1042,24 +1059,66 @@ TEST_F(IndexingAnalysisTest, GatherOp) {
     }
   )"));
   EXPECT_THAT(input_indexing.ToString(), MatchIndexingString(R"(
-              operand id = 0
-                (d0, d1, d2, d3){rt0, rt1} -> (d1 + rt0, d2 + rt1, d3),
-                domain:
-                d0 in [0, 1805],
-                d1 in [0, 6],
-                d2 in [0, 7],
-                d3 in [0, 3],
-                rt0 in [0, 26],
-                rt1 in [0, 68]
-              operand id = 1
-                (d0, d1, d2, d3)[s0] -> (d0, s0),
-                domain:
-                d0 in [0, 1805],
-                d1 in [0, 6],
-                d2 in [0, 7],
-                d3 in [0, 3],
-                s0 in [0, 1]
-              )"));
+    operand id = 0
+      (d0, d1, d2, d3){rt0, rt1} -> (d1 + rt0, d2 + rt1, d3),
+      domain:
+        d0 in [0, 1805],
+        d1 in [0, 6],
+        d2 in [0, 7],
+        d3 in [0, 3],
+        rt0 in [0, 26],
+        rt1 in [0, 68]
+      runtime variables:
+        rt0: %indices = s32[1806,2]{1,0} parameter(1); (d0, d1, d2, d3) -> (d0, 0),
+          domain: d0 in [0, 1805], d1 in [0, 6], d2 in [0, 7], d3 in [0, 3]
+        rt1: %indices = s32[1806,2]{1,0} parameter(1); (d0, d1, d2, d3) -> (d0, 1),
+          domain: d0 in [0, 1805], d1 in [0, 6], d2 in [0, 7], d3 in [0, 3]
+    operand id = 1
+      (d0, d1, d2, d3)[s0] -> (d0, s0),
+      domain:
+        d0 in [0, 1805],
+        d1 in [0, 6],
+        d2 in [0, 7],
+        d3 in [0, 3],
+        s0 in [0, 1]
+    )"));
+}
+
+TEST_F(IndexingAnalysisTest, GatherOpWithShuffledStartIndexMap) {
+  auto input_indexing = GetOutputToInputIndexing(ParseAndGetRoot(R"(
+    HloModule m
+    ENTRY main {
+      operand = f32[33,76,70] parameter(0)
+      indices = s32[1806,2] parameter(1)
+      ROOT r = f32[1806,7,8,4] gather(operand, indices), offset_dims={1,2,3},
+                                 collapsed_slice_dims={}, start_index_map={1,0},
+                                 index_vector_dim=1, slice_sizes={7,8,4}
+    }
+  )"));
+  EXPECT_THAT(input_indexing.ToString(), MatchIndexingString(R"(
+    operand id = 0
+      (d0, d1, d2, d3){rt0, rt1} -> (d1 + rt0, d2 + rt1, d3),
+      domain:
+        d0 in [0, 1805],
+        d1 in [0, 6],
+        d2 in [0, 7],
+        d3 in [0, 3],
+        rt0 in [0, 26],
+        rt1 in [0, 68]
+      runtime variables:
+        rt0: %indices = s32[1806,2]{1,0} parameter(1); (d0, d1, d2, d3) -> (d0, 1),
+          domain: d0 in [0, 1805], d1 in [0, 6], d2 in [0, 7], d3 in [0, 3]
+        rt1: %indices = s32[1806,2]{1,0} parameter(1); (d0, d1, d2, d3) -> (d0, 0),
+          domain: d0 in [0, 1805], d1 in [0, 6], d2 in [0, 7], d3 in [0, 3]
+    operand id = 1
+      (d0, d1, d2, d3)[s0] -> (d0, s0),
+      domain:
+        d0 in [0, 1805],
+        d1 in [0, 6],
+        d2 in [0, 7],
+        d3 in [0, 3],
+        s0 in [0, 1]
+    )"));
 }
 
 TEST_F(IndexingAnalysisTest, FusionOpWithReduceOfReduce) {
@@ -1325,36 +1384,55 @@ TEST_F(IndexingAnalysisTest, FusionOpWithDynSliceOfDynSlice) {
     }
   )"));
   EXPECT_THAT(input_indexing.ToString(), MatchIndexingString(R"(
-              operand id = 0
-                (d0, d1){rt0, rt1, rt2, rt3} -> (d0 + rt0 + rt2, d1 + rt1 + rt3),
-                domain:
-                d0 in [0, 24],
-                d1 in [0, 15],
-                rt0 in [0, 100],
-                rt1 in [0, 32],
-                rt2 in [0, 25],
-                rt3 in [0, 16]
-              operand id = 1
-                  (d0, d1) -> (),
-                  domain:
-                  d0 in [0, 24],
-                  d1 in [0, 15]
-              operand id = 2
-                  (d0, d1) -> (),
-                  domain:
-                  d0 in [0, 24],
-                  d1 in [0, 15]
-              operand id = 3
-                  (d0, d1) -> (),
-                  domain:
-                  d0 in [0, 24],
-                  d1 in [0, 15]
-              operand id = 4
-                  (d0, d1) -> (),
-                  domain:
-                  d0 in [0, 24],
-                  d1 in [0, 15]
-                )"));
+    operand id = 0
+      (d0, d1){rt0, rt1, rt2, rt3} -> (d0 + rt0 + rt2, d1 + rt1 + rt3),
+      domain:
+        d0 in [0, 24],
+        d1 in [0, 15],
+        rt0 in [0, 100],
+        rt1 in [0, 32],
+        rt2 in [0, 25],
+        rt3 in [0, 16]
+      runtime variables:
+        rt0: %of21 = s32[] parameter(3); (d0, d1) -> (),
+          domain: d0 in [0, 24], d1 in [0, 15]
+        rt1: %of22 = s32[] parameter(4); (d0, d1) -> (),
+          domain: d0 in [0, 24], d1 in [0, 15]
+        rt2: %of11 = s32[] parameter(1); (d0, d1){rt0, rt1} -> (),
+          domain:
+            d0 in [0, 24],
+            d1 in [0, 15],
+            rt0 in [0, 25],
+            rt1 in [0, 16],
+            d0 + rt0 in [0, 49],
+            d1 + rt1 in [0, 31]
+        rt3: %of12 = s32[] parameter(2); (d0, d1){rt0, rt1} -> (),
+          domain:
+            d0 in [0, 24], d1 in [0, 15],
+            rt0 in [0, 25], rt1 in [0, 16],
+            d0 + rt0 in [0, 49],
+            d1 + rt1 in [0, 31]
+    operand id = 1
+      (d0, d1) -> (),
+      domain:
+        d0 in [0, 24],
+        d1 in [0, 15]
+    operand id = 2
+      (d0, d1) -> (),
+      domain:
+        d0 in [0, 24],
+        d1 in [0, 15]
+    operand id = 3
+      (d0, d1) -> (),
+      domain:
+        d0 in [0, 24],
+        d1 in [0, 15]
+    operand id = 4
+      (d0, d1) -> (),
+      domain:
+        d0 in [0, 24],
+        d1 in [0, 15]
+    )"));
 }
 
 TEST_F(IndexingAnalysisTest, FusionOpSliceOfAllConcatenateOpInputs) {
@@ -1791,14 +1869,14 @@ TEST_F(IndexingAnalysisTest, VariadicReduceOp) {
   auto input_indexing_0 = GetInputToOutputIndexing(root, /*input_id=*/0);
   EXPECT_THAT(
       input_indexing_0.indexing_maps,
-      ElementsAre(ElementsAre(MatchIndexingMap(kInputToOutputIndexing)),
-                  ElementsAre(MatchIndexingMap(kInputToOutputIndexing))));
+      ElementsAre(ElementsAre(MatchOperandIndexing(kInputToOutputIndexing)),
+                  ElementsAre(MatchOperandIndexing(kInputToOutputIndexing))));
 
   auto input_indexing_1 = GetInputToOutputIndexing(root, /*input_id=*/1);
   EXPECT_THAT(
       input_indexing_1.indexing_maps,
-      ElementsAre(ElementsAre(MatchIndexingMap(kInputToOutputIndexing)),
-                  ElementsAre(MatchIndexingMap(kInputToOutputIndexing))));
+      ElementsAre(ElementsAre(MatchOperandIndexing(kInputToOutputIndexing)),
+                  ElementsAre(MatchOperandIndexing(kInputToOutputIndexing))));
 
   constexpr absl::string_view kInitToOutputIndexing = R"(
       ()[s0] -> (s0),
@@ -1808,13 +1886,13 @@ TEST_F(IndexingAnalysisTest, VariadicReduceOp) {
   auto input_indexing_2 = GetInputToOutputIndexing(root, /*input_id=*/2);
   EXPECT_THAT(
       input_indexing_2.indexing_maps,
-      ElementsAre(ElementsAre(MatchIndexingMap(kInitToOutputIndexing)),
-                  ElementsAre(MatchIndexingMap(kInitToOutputIndexing))));
+      ElementsAre(ElementsAre(MatchOperandIndexing(kInitToOutputIndexing)),
+                  ElementsAre(MatchOperandIndexing(kInitToOutputIndexing))));
   auto input_indexing_3 = GetInputToOutputIndexing(root, /*input_id=*/2);
   EXPECT_THAT(
       input_indexing_3.indexing_maps,
-      ElementsAre(ElementsAre(MatchIndexingMap(kInitToOutputIndexing)),
-                  ElementsAre(MatchIndexingMap(kInitToOutputIndexing))));
+      ElementsAre(ElementsAre(MatchOperandIndexing(kInitToOutputIndexing)),
+                  ElementsAre(MatchOperandIndexing(kInitToOutputIndexing))));
 }
 
 TEST_F(IndexingAnalysisTest, ReduceWindowOp_NoPadding) {
@@ -1845,6 +1923,41 @@ TEST_F(IndexingAnalysisTest, ReduceWindowOp_NoPadding) {
                             domain:
                             d0 in [0, 1023],
                             d1 in [0, 2]
+                          )"));
+}
+
+TEST_F(IndexingAnalysisTest, ReduceWindowOp_4DWithTrivalDims_NoPadding) {
+  auto root = ParseAndGetRoot(R"(
+    HloModule m
+    max {
+      p0 = f32[] parameter(0)
+      p1 = f32[] parameter(1)
+      ROOT max = f32[] maximum(p0, p1)
+    }
+    ENTRY e {
+      c_inf = f32[] constant(-inf)
+      p0 = f32[1024, 514, 1, 1]parameter(0)
+      ROOT reduce-window = f32[1024, 3, 1, 1] reduce-window(p0, c_inf),
+        window={size=1x512x1x1 pad=0_0x0_0x0_0x0_0}, to_apply=max
+    }
+  )");
+  auto input_indexing = GetOutputToInputIndexing(root);
+  EXPECT_THAT(input_indexing.ToString(), MatchIndexingString(R"(
+                          operand id = 0
+                            (d0, d1, d2, d3)[s0] -> (d0, d1 + s0, 0, 0),
+                            domain:
+                            d0 in [0, 1023],
+                            d1 in [0, 2],
+                            d2 in [0, 0],
+                            d3 in [0, 0],
+                            s0 in [0, 511]
+                          operand id = 1
+                            (d0, d1, d2, d3) -> (),
+                            domain:
+                            d0 in [0, 1023],
+                            d1 in [0, 2],
+                            d2 in [0, 0],
+                            d3 in [0, 0]
                           )"));
 }
 
@@ -2036,7 +2149,7 @@ TEST_F(IndexingAnalysisTest, ConvolutionOp_NoPadding) {
   auto input_indexing = GetOutputToInputIndexing(root);
   EXPECT_THAT(input_indexing.ToString(), MatchIndexingString(R"(
                           operand id = 0
-                            (d0, d1, d2, d3)[s0, s1, s2] -> (d0, d1 + s0, d2 + s1, s2),
+                            (d0, d1, d2, d3)[s0, s1, s2] -> (0, d1 + s0, d2 + s1, s2),
                             domain:
                             d0 in [0, 0],
                             d1 in [0, 9],
@@ -2058,6 +2171,43 @@ TEST_F(IndexingAnalysisTest, ConvolutionOp_NoPadding) {
                           )"));
 }
 
+TEST_F(IndexingAnalysisTest, ConvolutionOp_4DWithTrivialDims_NoPadding) {
+  auto root = ParseAndGetRoot(R"(
+    HloModule m
+    ENTRY e {
+      p0 = f64[1,1,16,16,2,2]{5,4,3,2,1,0} parameter(0)
+      p1 = f64[1,1,3,3,1,1]{5,4,3,2,1,0} parameter(1)
+      ROOT conv = f64[1,1,14,14,2,2]{5,4,3,2,1,0} convolution(p0, p1),
+        window={size=3x3x1x1}, dim_labels=bf0123_oi0123->bf0123
+    }
+  )");
+  auto input_indexing = GetOutputToInputIndexing(root);
+  EXPECT_THAT(input_indexing.ToString(), MatchIndexingString(R"(
+                          operand id = 0
+                            (d0, d1, d2, d3, d4, d5)[s0, s1] -> (0, 0, d2 + s0, d3 + s1, d4, d5),
+                            domain:
+                            d0 in [0, 0],
+                            d1 in [0, 0],
+                            d2 in [0, 13],
+                            d3 in [0, 13],
+                            d4 in [0, 1],
+                            d5 in [0, 1],
+                            s0 in [0, 2],
+                            s1 in [0, 2]
+                          operand id = 1
+                            (d0, d1, d2, d3, d4, d5)[s0, s1] -> (0, 0, s0, s1, 0, 0),
+                            domain:
+                            d0 in [0, 0],
+                            d1 in [0, 0],
+                            d2 in [0, 13],
+                            d3 in [0, 13],
+                            d4 in [0, 1],
+                            d5 in [0, 1],
+                            s0 in [0, 2],
+                            s1 in [0, 2]
+                          )"));
+}
+
 TEST_F(IndexingAnalysisTest, ConvolutionOp_PaddingAndWindowStride) {
   auto root = ParseAndGetRoot(R"(
     HloModule m
@@ -2071,7 +2221,7 @@ TEST_F(IndexingAnalysisTest, ConvolutionOp_PaddingAndWindowStride) {
   auto input_indexing = GetOutputToInputIndexing(root);
   EXPECT_THAT(input_indexing.ToString(), MatchIndexingString(R"(
                           operand id = 0
-                            (d0, d1, d2, d3)[s0, s1, s2] -> (d0, d1 * 2 + s0 - 1, d2 * 2 + s1 - 2, s2),
+                            (d0, d1, d2, d3)[s0, s1, s2] -> (0, d1 * 2 + s0 - 1, d2 * 2 + s1 - 2, s2),
                             domain:
                             d0 in [0, 0],
                             d1 in [0, 5],
@@ -2108,7 +2258,7 @@ TEST_F(IndexingAnalysisTest, ConvolutionOp_LhsDilation) {
   auto input_indexing = GetOutputToInputIndexing(root);
   EXPECT_THAT(input_indexing.ToString(), MatchIndexingString(R"(
                           operand id = 0
-                            (d0, d1, d2, d3)[s0, s1, s2] -> (d0, (d1 + s0) floordiv 2, (d2 + s1) floordiv 2, s2),
+                            (d0, d1, d2, d3)[s0, s1, s2] -> (0, (d1 + s0) floordiv 2, (d2 + s1) floordiv 2, s2),
                             domain:
                             d0 in [0, 0],
                             d1 in [0, 20],
@@ -2145,7 +2295,7 @@ TEST_F(IndexingAnalysisTest, ConvolutionOp_RhsDilation) {
   auto input_indexing = GetOutputToInputIndexing(root);
   EXPECT_THAT(input_indexing.ToString(), MatchIndexingString(R"(
                           operand id = 0
-                            (d0, d1, d2, d3)[s0, s1, s2] -> (d0, d1 + s0 * 2, d2 + s1 * 2, s2),
+                            (d0, d1, d2, d3)[s0, s1, s2] -> (0, d1 + s0 * 2, d2 + s1 * 2, s2),
                             domain:
                             d0 in [0, 0],
                             d1 in [0, 7],
@@ -2180,7 +2330,7 @@ TEST_F(IndexingAnalysisTest, ConvolutionOp_FeatureGroups) {
   auto input_indexing = GetOutputToInputIndexing(root);
   EXPECT_THAT(input_indexing.ToString(), MatchIndexingString(R"(
                           operand id = 0
-                            (d0, d1, d2, d3)[s0, s1, s2] -> (d0, d1 + s0, d2 + s1, (d3 floordiv 8) * 4 + s2),
+                            (d0, d1, d2, d3)[s0, s1, s2] -> (0, d1 + s0, d2 + s1, (d3 floordiv 8) * 4 + s2),
                             domain:
                             d0 in [0, 0],
                             d1 in [0, 9],
@@ -2414,6 +2564,47 @@ TEST_F(IndexingAnalysisTest, DotOp) {
               )"));
 }
 
+TEST_F(IndexingAnalysisTest, ScaledDotOp) {
+  auto input_indexing = GetOutputToInputIndexing(ParseAndGetRoot(R"(
+    HloModule m
+    ENTRY e {
+      a = f32[2,10] parameter(0)
+      b = f32[10,2] parameter(1)
+      a_scale = f32[2,2] parameter(2)
+      b_scale = f32[2,2] parameter(3)
+      ROOT dot = f32[2,2] scaled-dot(a, b, a_scale, b_scale),
+        lhs_contracting_dims={1},
+        rhs_contracting_dims={0}
+    }
+  )"));
+  EXPECT_THAT(input_indexing.ToString(), MatchIndexingString(R"(
+    operand id = 0
+      (d0, d1)[s0] -> (d0, s0),
+      domain:
+      d0 in [0, 1],
+      d1 in [0, 1],
+      s0 in [0, 9]
+    operand id = 1
+      (d0, d1)[s0] -> (s0, d1),
+      domain:
+      d0 in [0, 1],
+      d1 in [0, 1],
+      s0 in [0, 9]
+    operand id = 2
+      (d0, d1)[s0] -> (d0, s0 floordiv 5),
+      domain:
+      d0 in [0, 1],
+      d1 in [0, 1],
+      s0 in [0, 9]
+    operand id = 3
+      (d0, d1)[s0] -> (s0 floordiv 5, d1),
+      domain:
+      d0 in [0, 1],
+      d1 in [0, 1],
+      s0 in [0, 9]
+  )"));
+}
+
 TEST_F(IndexingAnalysisTest, UnsupportedOps) {
   auto root = ParseAndGetRoot(R"(
     HloModule m
@@ -2502,8 +2693,8 @@ TEST_F(IndexingAnalysisTest, EpilogueIndexing) {
   HloInstructionAdaptor log(*computation->GetInstructionWithName("log"),
                             fusion.get());
 
-  EXPECT_THAT(ToString(ComputeEpilogueInputToOutputIndexing(transpose, log,
-                                                            &mlir_context_)),
+  EXPECT_THAT(ToString(ComputeEpilogueInputToOutputIndexing(
+                  transpose, log, &symbolic_expr_context_)),
               MatchIndexingString(R"(
                   (d0, d1) -> (d1 * 1000 + d0),
                   domain:
@@ -2532,7 +2723,7 @@ TEST_F(IndexingAnalysisTest, EpilogueIndexing_NoEpilogue) {
                                   fusion.get());
 
   EXPECT_THAT(ToString(ComputeEpilogueInputToOutputIndexing(
-                  transpose, transpose, &mlir_context_)),
+                  transpose, transpose, &symbolic_expr_context_)),
               MatchIndexingString(R"(
                   (d0, d1) -> (d0, d1),
                   domain:
@@ -2587,6 +2778,34 @@ TEST_F(IndexingAnalysisTest, FusionWithRTVarsSimplification_ScalarConstant) {
       (d0) -> (d0 + 42),
       domain:
       d0 in [0, 9]
+  )"));
+}
+
+TEST_F(IndexingAnalysisTest,
+       FusionWithRTVarsSimplification_ScalarConstantOutsideOfRangeIsKept) {
+  auto input_indexing = GetOutputToInputIndexing(ParseAndGetRoot(R"hlo(
+      HloModule m
+      fused_computation {
+        p0 = s32[100] parameter(0)
+        offset = s64[] constant(99)
+        ROOT dynamic-slice = s32[10]
+          dynamic-slice(p0, offset), dynamic_slice_sizes={10}
+      }
+      ENTRY main {
+        p0 = s32[100] parameter(0)
+        ROOT fusion = s32[10] fusion(p0), kind=kInput, calls=fused_computation
+      }
+    )hlo"));
+
+  EXPECT_THAT(input_indexing.ToString(), MatchIndexingString(R"(
+    operand id = 0
+      (d0){rt0} -> (d0 + rt0),
+      domain:
+        d0 in [0, 9],
+        rt0 in [0, 90]
+      runtime variables:
+        rt0: %offset = s64[] constant(99); (d0) -> (),
+          domain: d0 in [0, 9]
   )"));
 }
 
@@ -2646,155 +2865,7 @@ TEST_F(IndexingAnalysisTest, FusionWithRTVarsSimplification_IotaAsConstant) {
   )"));
 }
 
-TEST_F(IndexingAnalysisTest, FusionWithRTVarsSimplification_Broadcast) {
-  auto input_indexing = GetOutputToInputIndexing(ParseAndGetRoot(R"hlo(
-      HloModule m
-      fused_computation {
-        p0 = f32[33,76] parameter(0)
-        c42 = s64[] constant(42)
-        bcast = s64[42, 1] broadcast(s64[] c42), dimensions={}
-        ROOT gather = f32[42,1,1] gather(p0, bcast),
-          offset_dims={1,2},
-          collapsed_slice_dims={},
-          start_index_map={0},
-          index_vector_dim=1,
-          slice_sizes={1,1}
-      }
-      ENTRY main {
-        p0 = f32[33,76] parameter(0)
-        ROOT fusion = f32[42,1,1] fusion(p0), kind=kInput, calls=fused_computation
-      }
-    )hlo"));
-  EXPECT_THAT(input_indexing.ToString(), MatchIndexingString(R"(
-    operand id = 0
-    (d0, d1, d2) -> (42, 0),
-     domain:
-     d0 in [0, 41],
-     d1 in [0, 0],
-     d2 in [0, 0]
-  )"));
-}
-
-TEST_F(IndexingAnalysisTest, FusionWithRTVarsSimplification_Reverse) {
-  auto input_indexing = GetOutputToInputIndexing(ParseAndGetRoot(R"hlo(
-      HloModule m
-      fused_computation {
-        p0 = f32[33,76] parameter(0)
-        iota = s64[42,1] iota(), iota_dimension=0
-        reverse = s64[42,1] reverse(iota), dimensions={0}
-        ROOT gather = f32[42,1,1] gather(p0, reverse),
-          offset_dims={1,2},
-          collapsed_slice_dims={},
-          start_index_map={0},
-          index_vector_dim=1,
-          slice_sizes={1,1}
-      }
-      ENTRY main {
-        p0 = f32[33,76] parameter(0)
-        ROOT fusion = f32[42,1,1] fusion(p0), kind=kInput, calls=fused_computation
-      }
-    )hlo"));
-  EXPECT_THAT(input_indexing.ToString(), MatchIndexingString(R"(
-    operand id = 0
-    (d0, d1, d2) -> (-d0 + 41, 0),
-     domain:
-     d0 in [0, 41],
-     d1 in [0, 0],
-     d2 in [0, 0]
-  )"));
-}
-
-TEST_F(IndexingAnalysisTest, FusionWithRTVarsSimplification_Add) {
-  auto input_indexing = GetOutputToInputIndexing(ParseAndGetRoot(R"hlo(
-      HloModule m
-      fused_computation {
-        p0 = s32[4096] parameter(0)
-        p1 = s64[] parameter(1)
-        c42 = s64[] constant(42)
-        add = s64[] add(c42, p1)
-        ROOT dynamic-slice = s32[10]
-          dynamic-slice(p0, add), dynamic_slice_sizes={10}
-      }
-      ENTRY main {
-        p0 = s32[4096] parameter(0)
-        p1 = s64[] parameter(1)
-        ROOT fusion = s32[10] fusion(p0, p1), kind=kInput, calls=fused_computation
-      }
-    )hlo"));
-  EXPECT_THAT(input_indexing.ToString(), MatchIndexingString(R"(
-    operand id = 0 (d0){rt0} -> (d0 + rt0 + 42),
-      domain:
-      d0 in [0, 9],
-      rt0 in [0, 4086]
-    operand id = 1
-      (d0) -> (),
-      domain:
-      d0 in [0, 9]
-  )"));
-}
-
-TEST_F(IndexingAnalysisTest, FusionWithRTVarsSimplification_Multiply) {
-  auto input_indexing = GetOutputToInputIndexing(ParseAndGetRoot(R"hlo(
-      HloModule m
-      fused_computation {
-        p0 = s32[4096] parameter(0)
-        p1 = s64[] parameter(1)
-        c42 = s64[] constant(42)
-        add = s64[] multiply(c42, p1)
-        ROOT dynamic-slice = s32[10]
-          dynamic-slice(p0, add), dynamic_slice_sizes={10}
-      }
-      ENTRY main {
-        p0 = s32[4096] parameter(0)
-        p1 = s64[] parameter(1)
-        ROOT fusion = s32[10] fusion(p0, p1), kind=kInput, calls=fused_computation
-      }
-    )hlo"));
-  // TODO: Figure out why the bounds are not updated.
-  EXPECT_THAT(input_indexing.ToString(), MatchIndexingString(R"(
-    operand id = 0 (d0){rt0} -> (d0 + rt0 * 42),
-      domain:
-      d0 in [0, 9],
-      rt0 in [0, 4086]
-    operand id = 1
-      (d0) -> (),
-      domain:
-      d0 in [0, 9]
-  )"));
-}
-
-TEST_F(IndexingAnalysisTest, FusionWithRTVarsSimplification_ChainedOps) {
-  auto input_indexing = GetOutputToInputIndexing(ParseAndGetRoot(R"hlo(
-      HloModule m
-      fused_computation {
-        p0 = s32[4096] parameter(0)
-        p1 = s64[] parameter(1)
-        c42 = s64[] constant(42)
-        c2 = s64[] constant(2)
-        add = s64[] add(c42, p1)
-        multiply = s64[] multiply(c2, add)
-        ROOT dynamic-slice = s32[10]
-          dynamic-slice(p0, multiply), dynamic_slice_sizes={10}
-      }
-      ENTRY main {
-        p0 = s32[4096] parameter(0)
-        p1 = s64[] parameter(1)
-        ROOT fusion = s32[10] fusion(p0, p1), kind=kInput, calls=fused_computation
-      }
-    )hlo"));
-  EXPECT_THAT(input_indexing.ToString(), MatchIndexingString(R"(
-   operand id = 0
-     (d0){rt0} -> (d0 + rt0 * 2 + 84),
-     domain: d0 in [0, 9],
-     rt0 in [0, 4086]
-   operand id = 1
-     (d0) -> (),
-     domain:
-     d0 in [0, 9]
-  )"));
-}
-
-TEST_F(IndexingAnalysisTest, FusionOpWithDUS) {
+TEST_F(IndexingAnalysisTest, FusionOpWithPadAndDynamicSlice) {
   auto input_indexing = GetOutputToInputIndexing(ParseAndGetRoot(R"hlo(
       HloModule m
       fused_computation {
@@ -2814,19 +2885,275 @@ TEST_F(IndexingAnalysisTest, FusionOpWithDUS) {
       }
     )hlo"));
   EXPECT_THAT(input_indexing.ToString(), MatchIndexingString(R"(
-                            operand id = 0
-                              (d0, d1){rt0} -> (0, d1 + rt0 - 4096),
-                              domain:
-                              d0 in [0, 0],
-                              d1 in [0, 4095],
-                              rt0 in [0, 4096],
-                              d1 + rt0 in [4096, 8191]
-                            operand id = 1
-                              (d0, d1) -> (0),
-                              domain:
-                              d0 in [0, 0],
-                              d1 in [0, 4095]
-                          )"));
+    operand id = 0
+      (d0, d1){rt0} -> (0, d1 + rt0 - 4096),
+      domain:
+        d0 in [0, 0],
+        d1 in [0, 4095],
+        rt0 in [0, 4096],
+        d1 + rt0 in [4096, 8191]
+      runtime variables:
+        rt0: %bitcast.4 = s32[] bitcast(%slice); (d0, d1) -> (),
+          domain: d0 in [0, 0], d1 in [0, 4095]
+    operand id = 1
+      (d0, d1) -> (0),
+      domain:
+        d0 in [0, 0],
+        d1 in [0, 4095]
+  )"));
+}
+
+TEST_F(IndexingAnalysisTest, NestedDotFusionWithDynamicUpdateSlice) {
+  auto input_indexing = GetOutputToInputIndexing(ParseAndGetRoot(R"(
+    HloModule t
+
+    dot_lhs {
+      ROOT p0 = f32[2,4]{1,0} parameter(0)
+    }
+
+    dot_rhs {
+      p0 = f32[4,5,2]{2,1,0} parameter(0)
+      p1 = s32[] parameter(1)
+      p2 = s32[] parameter(2)
+      p3 = s32[] parameter(3)
+      dynamic_slice = f32[1,5,2]{2,1,0} dynamic-slice(p0, p1, p2, p3), dynamic_slice_sizes={1,5,2}
+      ROOT bitcast = f32[5,2]{1,0} bitcast(dynamic_slice)
+    }
+
+    triton_gemm {
+      dot_lhs_param = f32[2,4]{1,0} parameter(0)
+      lhs = f32[2,4]{1,0} fusion(dot_lhs_param), kind=kCustom, calls=dot_lhs
+      dynamic_slice_input = f32[4,5,2]{2,1,0} parameter(1)
+      start_index0 = s32[] parameter(2)
+      start_index1 = s32[] parameter(3)
+      start_index2 = s32[] parameter(4)
+      rhs = f32[5,2]{1,0} fusion(dynamic_slice_input, start_index0, start_index1, start_index2), kind=kCustom, calls=dot_rhs
+      ROOT dot = f32[4,5]{1,0} dot(lhs, rhs), lhs_contracting_dims={0}, rhs_contracting_dims={1}
+    }
+
+    ENTRY e {
+      p0 = f32[2,4]{1,0} parameter(0)
+      p1 = f32[4,5,2]{2,1,0} parameter(1)
+      p2 = s32[] parameter(2)
+      c0 = s32[] constant(0)
+      c1 = s32[] constant(0)
+      ROOT fusion = f32[4,5]{1,0} fusion(p0, p1, p2, c0, c1), kind=kCustom, calls=triton_gemm
+    }
+    )"));
+  EXPECT_THAT(input_indexing.ToString(), MatchIndexingString(R"(
+    operand id = 0 (d0, d1)[s0] -> (s0, d0),
+      domain: d0 in [0, 3], d1 in [0, 4], s0 in [0, 1]
+    operand id = 1 (d0, d1)[s0]{rt0} -> (rt0, d1, s0),
+      domain: d0 in [0, 3], d1 in [0, 4], s0 in [0, 1], rt0 in [0, 3]
+    runtime variables:
+      rt0: %p1 = s32[] parameter(1);
+        (d0, d1)[s0] -> (), domain: d0 in [0, 3], d1 in [0, 4], s0 in [0, 1]
+    operand id = 2 (d0, d1) -> (),
+      domain: d0 in [0, 3], d1 in [0, 4]
+    operand id = 3 (d0, d1) -> (),
+      domain: d0 in [0, 3], d1 in [0, 4]
+    operand id = 4 (d0, d1) -> (),
+      domain: d0 in [0, 3], d1 in [0, 4]
+  )"));
+}
+
+TEST_F(IndexingAnalysisTest, AllGatherOp) {
+  auto input_indexing = GetOutputToInputIndexing(ParseAndGetRoot(R"(
+    HloModule m, replica_count=4
+    ENTRY e {
+      p0 = f32[128, 128] parameter(0)
+      ROOT all-gather = f32[128, 256] all-gather(p0),
+        replica_groups={{0,1}, {2,3}}, dimensions={1}
+    }
+  )"));
+  EXPECT_THAT(input_indexing.ToString(), MatchIndexingString(R"(
+    operand id = 0
+      (d0, d1) -> (d0, d1 mod 128),
+      domain:
+        d0 in [0, 127],
+        d1 in [0, 255]
+      replica id:
+        (d0, d1) -> (d1 floordiv 128),
+        domain:
+          d0 in [0, 127],
+          d1 in [0, 255]
+  )"));
+}
+
+TEST_F(IndexingAnalysisTest, AllGatherFusionWithTranspose) {
+  auto root = ParseAndGetRoot(R"(
+    HloModule m
+
+    fusion_computation {
+      p0 = f32[16384] parameter(0)
+      p1 = f32[128, 256] parameter(1)
+      bitcast = f32[128, 128] bitcast(p0)
+      all-gather = f32[256, 128] all-gather(bitcast), replica_groups={{0,1}},
+        dimensions={0}
+      transpose = f32[128, 256] transpose(all-gather), dimensions={1, 0}
+      ROOT add = f32[128, 256] add(transpose, p1)
+    }
+
+    ENTRY e {
+      p0 = f32[16384] parameter(0)
+      p1 = f32[128, 256] parameter(1)
+      ROOT fusion = f32[128, 256] fusion(p0, p1), kind=kLoop, calls=fusion_computation
+    }
+  )");
+  EXPECT_THAT(GetOutputToInputIndexing(root).ToString(), MatchIndexingString(R"(
+    operand id = 0
+      (d0, d1) -> ((d1 mod 128) * 128 + d0),
+      domain:
+        d0 in [0, 127],
+        d1 in [0, 255]
+      replica id:
+        (d0, d1) -> (d1 floordiv 128),
+        domain:
+          d0 in [0, 127],
+          d1 in [0, 255]
+    operand id = 1
+      (d0, d1) -> (d0, d1),
+      domain:
+        d0 in [0, 127],
+        d1 in [0, 255]
+  )"));
+}
+
+TEST_F(IndexingAnalysisTest, AllGatherFusionWithReshape) {
+  auto root = ParseAndGetRoot(R"(
+    HloModule m
+
+    ENTRY e {
+      p0 = f32[128, 128] parameter(0)
+      all-gather = f32[256, 128] all-gather(p0), replica_groups={{0,1}}, dimensions={0}
+      ROOT reshape = f32[32768] reshape(all-gather)
+    }
+  )");
+
+  auto all_gather = root->operand(0);
+  auto parameter = all_gather->operand(0);
+
+  auto fusion_adaptor = HloFusionAdaptor::ForProducerConsumer(all_gather, root);
+
+  auto grouped_indexing = ComputeGroupedOutputToInputIndexing(
+      *fusion_adaptor, fusion_adaptor->GetRoots()[0], &symbolic_expr_context_);
+
+  EXPECT_THAT(grouped_indexing[root], ElementsAre(MatchOperandIndexing(R"(
+    (d0) -> (d0),
+    domain:
+      d0 in [0, 32767]
+  )")));
+
+  EXPECT_THAT(grouped_indexing[all_gather], ElementsAre(MatchOperandIndexing(R"(
+    (d0) -> (d0 floordiv 128, d0 mod 128),
+    domain:
+      d0 in [0, 32767]
+  )")));
+
+  EXPECT_THAT(grouped_indexing[parameter], ElementsAre(MatchOperandIndexing(R"(
+    (d0) -> ((d0 floordiv 128) mod 128, d0 mod 128),
+    domain:
+      d0 in [0, 32767]
+    replica id:
+      (d0) -> ((d0 floordiv 128) floordiv 128),
+      domain:
+        d0 in [0, 32767],
+        d0 floordiv 128 in [0, 255],
+        d0 mod 128 in [0, 127]
+  )")));
+}
+
+TEST_F(IndexingAnalysisTest, ChainedAllGatherFusion) {
+  auto root = ParseAndGetRoot(R"(
+    HloModule m
+
+    ENTRY e {
+      p0 = f32[128] parameter(0)
+      all-gather.0 = f32[256] all-gather(p0), replica_groups={{0,1}}, dimensions={0}
+      ROOT all-gather.1 = f32[512] all-gather(all-gather.0), replica_groups={{0,1}}, dimensions={0}
+    }
+  )");
+
+  auto all_gather = root->operand(0);
+  auto parameter = all_gather->operand(0);
+
+  auto fusion_adaptor = HloFusionAdaptor::ForProducerConsumer(all_gather, root);
+
+  auto grouped_indexing = ComputeGroupedOutputToInputIndexing(
+      *fusion_adaptor, fusion_adaptor->GetRoots()[0], &symbolic_expr_context_);
+
+  EXPECT_THAT(grouped_indexing[parameter],
+              ElementsAre(UndefinedOperandIndexing()));
+}
+
+TEST_F(IndexingAnalysisTest, AllGatherDotFusion_GatherNonContractingDim) {
+  auto root = ParseAndGetRoot(R"(
+    HloModule m
+
+    ENTRY e {
+      p0 = f32[64, 256] parameter(0)
+      p1 = f32[256, 128] parameter(1)
+      all-gather = f32[128, 256] all-gather(p0), replica_groups={{0,1}}, dimensions={0}
+      ROOT dot = f32[128, 128] dot(all-gather, p1), lhs_contracting_dims={1}, rhs_contracting_dims={0}
+    }
+  )");
+
+  auto all_gather = root->operand(0);
+  auto parameter = all_gather->operand(0);
+
+  auto fusion_adaptor = HloFusionAdaptor::ForProducerConsumer(all_gather, root);
+
+  auto grouped_indexing = ComputeGroupedOutputToInputIndexing(
+      *fusion_adaptor, fusion_adaptor->GetRoots()[0], &symbolic_expr_context_);
+
+  EXPECT_THAT(grouped_indexing[parameter], ElementsAre(MatchOperandIndexing(R"(
+    (d0, d1)[s0] -> (d0 mod 64, s0),
+    domain:
+      d0 in [0, 127],
+      d1 in [0, 127],
+      s0 in [0, 255]
+    replica id:
+      (d0, d1)[s0] -> (d0 floordiv 64),
+      domain:
+        d0 in [0, 127],
+        d1 in [0, 127],
+        s0 in [0, 255]
+  )")));
+}
+
+TEST_F(IndexingAnalysisTest, AllGatherDotFusion_GatherContractingDim) {
+  auto root = ParseAndGetRoot(R"(
+    HloModule m
+
+    ENTRY e {
+      p0 = f32[128, 128] parameter(0)
+      p1 = f32[256, 128] parameter(1)
+      all-gather = f32[128, 256] all-gather(p0), replica_groups={{0,1}}, dimensions={1}
+      ROOT dot = f32[128, 128] dot(all-gather, p1), lhs_contracting_dims={1}, rhs_contracting_dims={0}
+    }
+  )");
+
+  auto all_gather = root->operand(0);
+  auto parameter = all_gather->operand(0);
+
+  auto fusion_adaptor = HloFusionAdaptor::ForProducerConsumer(all_gather, root);
+
+  auto grouped_indexing = ComputeGroupedOutputToInputIndexing(
+      *fusion_adaptor, fusion_adaptor->GetRoots()[0], &symbolic_expr_context_);
+
+  EXPECT_THAT(grouped_indexing[parameter], ElementsAre(MatchOperandIndexing(R"(
+    (d0, d1)[s0] -> (d0, s0 mod 128),
+    domain:
+      d0 in [0, 127],
+      d1 in [0, 127],
+      s0 in [0, 255]
+    replica id:
+      (d0, d1)[s0] -> (s0 floordiv 128),
+      domain:
+        d0 in [0, 127],
+        d1 in [0, 127],
+        s0 in [0, 255]
+  )")));
 }
 
 }  // namespace

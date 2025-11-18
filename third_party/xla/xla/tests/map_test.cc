@@ -17,6 +17,7 @@ limitations under the License.
 #include <memory>
 #include <utility>
 
+#include "xla/tests/xla_test_backend_predicates.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "xla/array2d.h"
@@ -33,8 +34,8 @@ limitations under the License.
 #include "xla/shape.h"
 #include "xla/shape_util.h"
 #include "xla/tests/client_library_test_runner_mixin.h"
-#include "xla/tests/hlo_test_base.h"
-#include "xla/tests/test_macros.h"
+#include "xla/tests/hlo_pjrt_interpreter_reference_mixin.h"
+#include "xla/tests/hlo_pjrt_test_base.h"
 #include "xla/tsl/platform/status.h"
 #include "xla/tsl/platform/test.h"
 #include "xla/xla_data.pb.h"
@@ -42,7 +43,8 @@ limitations under the License.
 namespace xla {
 namespace {
 
-class MapTest : public ClientLibraryTestRunnerMixin<HloTestBase> {
+class MapTest : public ClientLibraryTestRunnerMixin<
+                    HloPjRtInterpreterReferenceMixin<HloPjRtTestBase>> {
  public:
   MapTest() {
     mutable_debug_options()->add_xla_disable_hlo_passes("algsimp");
@@ -454,10 +456,13 @@ TEST_F(MapTest, MapOperationWithBuildError) {
                                    "different element types: f32[] and u16[]"));
 }
 
-class MapHloTest : public HloTestBase {};
+using MapHloTest = HloPjRtInterpreterReferenceMixin<HloPjRtTestBase>;
 
 // TODO(b/230123847): Enable this on GPU once mhlo allows mixed-type map.
-TEST_F(MapHloTest, DISABLED_ON_GPU(MapWithMixedInputTypes)) {
+TEST_F(MapHloTest, MapWithMixedInputTypes) {
+  if (test::DeviceTypeIs(test::kGpu)) {
+    GTEST_SKIP();
+  }
   absl::string_view hlo_string = R"(
   HloModule MapMixedInputTypes
 
@@ -481,7 +486,8 @@ TEST_F(MapHloTest, DISABLED_ON_GPU(MapWithMixedInputTypes)) {
 
 // MapTest disables inline and algsimp. MapTestWithFullOpt runs all
 // optimizations.
-using MapTestWithFullOpt = ClientLibraryTestRunnerMixin<HloTestBase>;
+using MapTestWithFullOpt = ClientLibraryTestRunnerMixin<
+    HloPjRtInterpreterReferenceMixin<HloPjRtTestBase>>;
 
 // Regression test for b/31466798. The inliner simplifies map(param0, param1,
 // power) to power(param0, param1) without deleting the old subcomputation which

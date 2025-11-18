@@ -16,7 +16,6 @@ limitations under the License.
 #include "xla/backends/cpu/codegen/emitters/cpu_fusion_emitter.h"
 
 #include <cstdint>
-#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -26,22 +25,18 @@ limitations under the License.
 #include "absl/container/flat_hash_set.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
-#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/IR/Function.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/LLVMContext.h"
-#include "llvm/Linker/Linker.h"
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h"
 #include "mlir/Dialect/DLTI/DLTI.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/LLVMIR/LLVMAttrs.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MemRef/Transforms/Passes.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
@@ -50,7 +45,6 @@ limitations under the License.
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Location.h"
-#include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/OwningOpRef.h"
 #include "mlir/IR/Types.h"
 #include "mlir/Interfaces/DataLayoutInterfaces.h"
@@ -62,8 +56,6 @@ limitations under the License.
 #include "mlir/Target/LLVMIR/Dialect/ROCDL/ROCDLToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Export.h"
 #include "xla/backends/cpu/alignment.h"
-#include "xla/backends/cpu/codegen/emitters/ir/xla_cpu_ops.h"
-#include "xla/backends/cpu/codegen/emitters/ir/xla_cpu_types.h"
 #include "xla/backends/cpu/codegen/kernel_api_ir_builder.h"
 #include "xla/backends/cpu/codegen/symbol_name_util.h"
 #include "xla/codegen/emitters/computation_partitioner.h"
@@ -72,6 +64,7 @@ limitations under the License.
 #include "xla/codegen/emitters/type_util.h"
 #include "xla/hlo/analysis/indexing_analysis.h"
 #include "xla/hlo/analysis/indexing_map.h"
+#include "xla/hlo/analysis/symbolic_expr.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_instructions.h"
 #include "xla/hlo/ir/hlo_opcode.h"
@@ -134,39 +127,15 @@ bool Needs64BitIndices(const HloComputation* computation) {
   return false;
 }
 
-absl::Status SetKernelFunctionAttributes(const HloFusionInstruction& fusion,
-                                         mlir::Builder& builder,
-                                         mlir::func::FuncOp& func) {
-  const HloModule* hlo_module = fusion.GetModule();
-  if (hlo_module == nullptr) {
-    return Internal("HloModule is null");
-  }
-
-  mlir::MLIRContext* context = func->getContext();
-
-  int32_t vector_width =
-      hlo_module->config().debug_options().xla_cpu_prefer_vector_width();
-  mlir::ArrayAttr prefer_vector_width_attr = builder.getStrArrayAttr(
-      {"prefer-vector-width", absl::StrCat(vector_width)});
-  func->setAttr("passthrough",
-                builder.getArrayAttr({prefer_vector_width_attr}));
-  func->setAttr(
-      "frame_pointer",
-      mlir::LLVM::FramePointerKindAttr::get(
-          context, mlir::LLVM::framePointerKind::FramePointerKind::All));
-  func->setAttr("uwtable_kind",
-                mlir::LLVM::UWTableKindAttr::get(
-                    context, mlir::LLVM::uwtable::UWTableKind::Async));
-
-  return absl::OkStatus();
-}
 }  // namespace
 
 using mlir::AffineExpr;
 
-IndexingMap GetDefaultIndexingMap(absl::Span<const int64_t> thread_tile_sizes,
-                                  absl::Span<const int64_t> shape,
-                                  mlir::MLIRContext* mlir_context) {
+IndexingMap GetDefaultIndexingMap(
+    absl::Span<const int64_t> thread_tile_sizes,
+    absl::Span<const int64_t> shape,
+    // TODO: b/451959933 - Use reference or absl_nullable pointer.
+    SymbolicExprContext* symbolic_expr_context) {
   CHECK_EQ(thread_tile_sizes.size(), shape.size())
       << "thread_tile_sizes and shape must have the same size";
   SmallVector<int64_t> thread_tile_counts;
@@ -175,12 +144,14 @@ IndexingMap GetDefaultIndexingMap(absl::Span<const int64_t> thread_tile_sizes,
     thread_tile_counts.push_back(CeilDiv(dim_size, tile_size));
   }
   // Delinearize thread_expr w.r.t. number of thread tiles per dimension.
-  auto thread_expr = mlir::getAffineDimExpr(0, mlir_context);
+  auto thread_expr =
+      mlir::getAffineDimExpr(0, symbolic_expr_context->GetMLIRContext());
   SmallVector<AffineExpr, 4> thread_ids =
       DelinearizeInBoundsIndex(thread_expr, thread_tile_counts);
   SmallVector<AffineExpr, 4> result;
   result.reserve(thread_ids.size());
-  auto linear_index = mlir::getAffineSymbolExpr(0, mlir_context);
+  auto linear_index =
+      mlir::getAffineSymbolExpr(0, symbolic_expr_context->GetMLIRContext());
   SmallVector<AffineExpr, 4> indices_in_tile =
       DelinearizeInBoundsIndex(linear_index, thread_tile_sizes);
   SmallVector<std::pair<AffineExpr, Interval>, 4> constraints;
@@ -193,15 +164,16 @@ IndexingMap GetDefaultIndexingMap(absl::Span<const int64_t> thread_tile_sizes,
   int64_t num_threads = Product(thread_tile_counts);
   int64_t num_tile_elements = Product(thread_tile_sizes);
 
-  auto affine_map = mlir::AffineMap::get(/*num_dims=*/1, /*num_symbols=*/1,
-                                         result, mlir_context);
+  auto affine_map =
+      mlir::AffineMap::get(/*num_dims=*/1, /*num_symbols=*/1, result,
+                           symbolic_expr_context->GetMLIRContext());
   return IndexingMap(
       affine_map, {IndexingMap::Variable({0, num_threads - 1, "thread_id"})},
       {IndexingMap::Variable({0, num_tile_elements - 1, "linear_index"})}, {},
       constraints);
 }
 
-absl::StatusOr<mlir::func::FuncOp> EmitFusionKernelApi(
+absl::StatusOr<mlir::func::FuncOp> EmitEntryFunctionApi(
     mlir::ModuleOp fusion_module, const HloFusionInstruction& fusion,
     const std::string& entry_function_name,
     const BufferAssignment& buffer_assignment) {
@@ -240,9 +212,8 @@ absl::StatusOr<mlir::func::FuncOp> EmitFusionKernelApi(
   };
 
   // First argument is the thread id.
-  SmallVector<mlir::Attribute> arg_attrs{builder.getDictionaryAttr(
-      builder.getNamedAttr("xla.invariant", builder.getUnitAttr()))};
-  SmallVector<mlir::Type> param_types{builder.getIndexType()};
+  SmallVector<mlir::Attribute> arg_attrs;
+  SmallVector<mlir::Type> param_types;
 
   for (const auto& [index, arg] : llvm::enumerate(arguments)) {
     param_types.push_back(emitters::TensorShapeToMlirType(arg.shape, builder));
@@ -266,41 +237,8 @@ absl::StatusOr<mlir::func::FuncOp> EmitFusionKernelApi(
       mlir::ArrayAttr::get(context, arg_attrs),
       /*res_attrs=*/mlir::ArrayAttr{});
   entry_func->setAttr("xla.entry", mlir::UnitAttr::get(context));
+  // TODO(willfroom): Remove backend kind.
   SetBackendKind(context, entry_func, xla::BackendKind::kCpu);
-  entry_func.setPrivate();
-
-  // Create wrapper for the entry function. This function has one call_frame
-  // argument and call the entry function.
-  auto error_type = cpu::ErrorType::get(context);
-  auto call_frame_type = CallFrameType::get(context);
-  auto call_frame_func = builder.create<FuncOp>(
-      loc, module_name,
-      builder.getFunctionType(/*arg_types=*/{call_frame_type},
-                              /*result_types=*/{error_type}));
-
-  TF_RETURN_IF_ERROR(
-      SetKernelFunctionAttributes(fusion, builder, call_frame_func));
-
-  builder.setInsertionPointToStart(call_frame_func.addEntryBlock());
-  mlir::Value call_frame_arg = call_frame_func.getArgument(0);
-  SmallVector<mlir::Value> extracted_values;
-  extracted_values.reserve(arguments.size() + results.size() + 1);
-  extracted_values.push_back(builder.create<cpu::ThreadIdOp>(
-      loc, builder.getIndexType(), call_frame_arg));
-
-  for (int i = 1; i < param_types.size(); ++i) {
-    extracted_values.push_back(builder.create<cpu::LoadOp>(
-        loc, param_types[i], call_frame_arg, i - 1));
-  }
-  auto call_results =
-      builder.create<xla::PureCallOp>(loc, entry_func, extracted_values);
-  call_results->setAttr("noinline", mlir::UnitAttr::get(context));
-  for (auto [index, call_result] : llvm::enumerate(call_results.getResults())) {
-    builder.create<cpu::StoreOp>(loc, call_result, call_frame_arg,
-                                 index + arguments.size());
-  }
-  auto error = builder.create<cpu::SuccessOp>(loc, error_type);
-  builder.create<mlir::func::ReturnOp>(loc, error.getResult());
 
   return entry_func;
 }
@@ -339,7 +277,8 @@ absl::StatusOr<emitters::CallTargetProvider> EmitCallTargets(
     for (const auto& subgraph : comp.subgraphs()) {
       if (subgraph_to_mlir_fn.contains(&subgraph)) {
         TF_RETURN_IF_ERROR(emitters::SubgraphToMlirFunction(
-            comp, subgraph, subgraph_to_mlir_fn[&subgraph], call_targets));
+            comp, subgraph, subgraph_to_mlir_fn[&subgraph], call_targets,
+            computations.symbolic_expr_context()));
       }
     }
   }
@@ -348,22 +287,11 @@ absl::StatusOr<emitters::CallTargetProvider> EmitCallTargets(
     TF_RETURN_IF_ERROR(emitters::SubgraphToMlirFunction(
         computations.FindPartitionedComputation(
             fusion.fused_instructions_computation()),
-        epilogue, subgraph_to_mlir_fn[&epilogue], call_targets));
+        epilogue, subgraph_to_mlir_fn[&epilogue], call_targets,
+        computations.symbolic_expr_context()));
   }
 
   return call_targets;
-}
-
-void SetDataLayoutAttribute(mlir::ModuleOp module,
-                            const HloFusionInstruction& fusion) {
-  int index_bitwidth =
-      Needs64BitIndices(fusion.fused_instructions_computation()) ? 64 : 32;
-  mlir::OpBuilder b(module->getContext());
-  auto index_layout = mlir::DataLayoutEntryAttr::get(
-      b.getIndexType(), b.getI32IntegerAttr(index_bitwidth));
-  module->setAttr(
-      mlir::DLTIDialect::kDataLayoutAttrName,
-      mlir::DataLayoutSpecAttr::get(module->getContext(), {index_layout}));
 }
 
 int64_t CeilDiv(int64_t a, int64_t b) { return (a + b - 1) / b; }

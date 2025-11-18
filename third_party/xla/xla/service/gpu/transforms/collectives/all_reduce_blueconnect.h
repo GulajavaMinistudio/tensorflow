@@ -37,18 +37,18 @@ namespace xla {
 // that host IDs are ordered corresponding to network hierarchy.
 class AllReduceBlueConnect : public HloModulePass {
  public:
-  explicit AllReduceBlueConnect(size_t num_devices_per_host)
+  explicit AllReduceBlueConnect(const size_t num_devices_per_host)
       : num_devices_per_host_(num_devices_per_host) {}
 
   absl::string_view name() const override { return "all-reduce-blueconnect"; }
 
-  using HloPassInterface::Run;
-  absl::StatusOr<bool> Run(
+ protected:
+  absl::StatusOr<bool> RunImpl(
       HloModule* module,
       const absl::flat_hash_set<absl::string_view>& execution_threads) override;
 
  private:
-  size_t num_devices_per_host_;
+  const size_t num_devices_per_host_;
 };
 
 }  // namespace xla

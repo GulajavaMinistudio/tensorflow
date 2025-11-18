@@ -26,6 +26,8 @@ limitations under the License.
 #include "absl/base/const_init.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/container/flat_hash_map.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -34,8 +36,8 @@ limitations under the License.
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "xla/tsl/platform/errors.h"
+#include "xla/tsl/platform/statusor.h"
 #include "tsl/platform/protobuf.h"
-#include "tsl/platform/statusor.h"
 
 namespace xla {
 namespace {
@@ -58,7 +60,7 @@ class GlobalCompEnvStats {
   void DefaultEnvCreatedByCompilationEnvironments(absl::string_view env_type)
       ABSL_LOCKS_EXCLUDED(mu_) {
     {
-      absl::MutexLock l(&mu_);
+      absl::MutexLock l(mu_);
       ++stats_[std::string(env_type)]
             .default_env_created_by_compilation_environments;
     }
@@ -67,14 +69,14 @@ class GlobalCompEnvStats {
 
   void EnvAdded(absl::string_view env_type) ABSL_LOCKS_EXCLUDED(mu_) {
     {
-      absl::MutexLock l(&mu_);
+      absl::MutexLock l(mu_);
       ++stats_[std::string(env_type)].env_added;
     }
     VLOG(1) << "New GlobalCompEnvStats value: " << ToString();
   }
 
   std::string ToString() const ABSL_LOCKS_EXCLUDED(mu_) {
-    absl::ReaderMutexLock l(&mu_);
+    absl::ReaderMutexLock l(mu_);
     return absl::StrJoin(
         stats_, "; ",
         [](std::string* out, const StatMap::value_type& env_stats_pair) {
@@ -149,8 +151,8 @@ CompilationEnvironments::CreateFromProto(
         tsl::protobuf::MessageFactory::generated_factory()->GetPrototype(
             descriptor);
     if (prototype == nullptr) {
-      return tsl::errors::Internal(
-          "Unsupported CompilationEnvironment message type: %s", fullname);
+      return absl::InternalError(absl::StrCat(
+          "Unsupported CompilationEnvironment message type: ", fullname));
     }
 
     std::unique_ptr<tsl::protobuf::Message> env(prototype->New());
@@ -169,7 +171,7 @@ CompilationEnvironments::CreateFromProto(
 void CompilationEnvironments::RegisterProcessNewEnvFn(
     const tsl::protobuf::Descriptor* descriptor,
     ProcessNewEnvFn process_new_env) {
-  absl::MutexLock l(&process_new_env_fns_mu);
+  absl::MutexLock l(process_new_env_fns_mu);
   if (process_new_env_fns == nullptr) {
     process_new_env_fns =
         new absl::flat_hash_map<const tsl::protobuf::Descriptor*,
@@ -185,7 +187,7 @@ void CompilationEnvironments::RegisterProcessNewEnvFn(
 absl::Status CompilationEnvironments::InitializeAllKnownEnvs() {
   std::vector<const tsl::protobuf::Descriptor*> descriptors;
   {
-    absl::MutexLock l(&process_new_env_fns_mu);
+    absl::MutexLock l(process_new_env_fns_mu);
     if (process_new_env_fns == nullptr) {
       return absl::OkStatus();
     }
@@ -238,7 +240,7 @@ CompilationEnvironmentsProto CompilationEnvironments::ToProto() const {
 CompilationEnvironments::ProcessNewEnvFn
 CompilationEnvironments::GetProcessNewEnvFn(
     const tsl::protobuf::Descriptor& descriptor) {
-  absl::MutexLock l(&process_new_env_fns_mu);
+  absl::MutexLock l(process_new_env_fns_mu);
   if (process_new_env_fns == nullptr) {
     return nullptr;
   }

@@ -21,8 +21,8 @@ limitations under the License.
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
-#include "xla/hlo/ir/collective_device_list.h"
 #include "xla/hlo/ir/hlo_sharding.h"
+#include "xla/hlo/ir/replica_group.h"
 #include "xla/hlo/ir/tile_assignment.h"
 
 namespace xla {
@@ -117,14 +117,6 @@ TEST(SPMDPartitionerUtilTest, GetIotaPartitionGroupsForReplication2) {
               testing::ElementsAre(4, 2));
   EXPECT_THAT(actual_partition_group_list->transpose_perm(),
               testing::ElementsAre(1, 0));
-}
-
-TEST(SPMDPartitionerUtilTest,
-     GetIotaPartitionGroupsForReplicationSkipWhenNotUsingAllPartitions) {
-  HloSharding simple_sharding = HloSharding::IotaTile({2, 2, 2});
-  std::optional<IotaReplicaGroupList> actual_partition_group_list =
-      GetIotaPartitionGroupsForReplication(simple_sharding, {1}, 16);
-  EXPECT_FALSE(actual_partition_group_list.has_value());
 }
 
 TEST(SPMDPartitionerUtilTest, ExpandPartitionGroupListAcrossReplicas) {

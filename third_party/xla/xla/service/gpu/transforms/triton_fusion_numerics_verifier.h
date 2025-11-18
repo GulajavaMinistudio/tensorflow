@@ -24,12 +24,12 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "xla/hlo/analysis/symbolic_expr.h"
 #include "xla/hlo/ir/hlo_instructions.h"
 #include "xla/hlo/ir/hlo_module.h"
 #include "xla/hlo/pass/hlo_pass_interface.h"
 #include "xla/service/gpu/autotuning/autotuner_compile_util.h"
 #include "xla/service/gpu/autotuning/autotuner_util.h"
-#include "xla/service/hlo_module_config.h"
 #include "xla/service/shaped_buffer.h"
 #include "xla/shape.h"
 #include "xla/stream_executor/stream.h"
@@ -42,23 +42,25 @@ namespace xla::gpu {
 // generated with the regular emitters.
 class TritonFusionNumericsVerifier : public HloModulePass {
  public:
-  explicit TritonFusionNumericsVerifier(const AutotuneConfig& config)
-      : config_(config) {}
+  TritonFusionNumericsVerifier(const DeviceOrDevicelessConfig& config,
+                               SymbolicExprContext* symbolic_expr_context)
+      : config_(config), symbolic_expr_context_(symbolic_expr_context) {}
 
   static absl::string_view Name() { return "triton-numerics-verifier"; }
   absl::string_view name() const override { return Name(); }
-
-  using HloPassInterface::Run;
-  absl::StatusOr<bool> Run(
-      HloModule* module,
-      const absl::flat_hash_set<absl::string_view>& execution_threads) override;
 
   using FusionCacheKey = std::string;
 
   int CacheHitsForTestingOnly() const { return cache_hits_; }
 
+ protected:
+  absl::StatusOr<bool> RunImpl(
+      HloModule* module,
+      const absl::flat_hash_set<absl::string_view>& execution_threads) override;
+
  private:
-  AutotuneConfig config_;
+  DeviceOrDevicelessConfig config_;
+  SymbolicExprContext* symbolic_expr_context_;
 
   // In some models there are many identical fusions. These are cached to avoid
   // expensive recomputations.
@@ -70,11 +72,11 @@ namespace triton_fusion_numerics_pass_internal {
 // These are exposed only for testing. Do not use.
 absl::StatusOr<ScopedShapedBuffer> CompileAndRunFusion(
     AutotunerCompileUtil& util, const HloFusionInstruction& fusion,
-    const AutotuneConfig& config, const DebugOptions& debug_opts,
-    bool disable_triton);
+    const DeviceOrDevicelessConfig& config, const DebugOptions& debug_opts,
+    bool disable_triton, SymbolicExprContext* symbolic_expr_context);
 absl::Status CompareBuffers(const ScopedShapedBuffer& current,
                             const ScopedShapedBuffer& expected,
-                            const Shape& shape, const HloModuleConfig& config,
+                            const Shape& shape, const DebugOptions& debug_opts,
                             se::Stream* stream);
 absl::Status ForAllTritonFusions(
     const HloModule& module,

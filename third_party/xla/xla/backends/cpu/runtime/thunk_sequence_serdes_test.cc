@@ -67,6 +67,7 @@ limitations under the License.
 #include "xla/literal.h"
 #include "xla/literal_util.h"
 #include "xla/runtime/resource_use.h"
+#include "xla/runtime/work_group.h"
 #include "xla/service/buffer_assignment.h"
 #include "xla/service/collective_ops_utils.h"
 #include "xla/service/hlo.pb.h"
@@ -78,6 +79,10 @@ limitations under the License.
 #include "xla/util.h"
 #include "xla/xla_data.pb.h"
 #include "tsl/platform/casts.h"
+
+#ifdef XLA_YNNPACK
+#include "xla/backends/cpu/runtime/ynnpack/ynn_fusion_thunk.h"
+#endif  // XLA_YNNPACK
 
 namespace xla::cpu {
 namespace {
@@ -214,8 +219,8 @@ class ThunkSequenceSerdesTest : public ::testing::Test {
 
  public:
   void SetUp() override {
-    thunk_sequence_serdes_ =
-        std::make_unique<T>(&buffer_allocations_.GetUnderlyingVector());
+    thunk_sequence_serdes_ = std::make_unique<T>(
+        nullptr, &buffer_allocations_.GetUnderlyingVector());
   }
 
  protected:
@@ -613,7 +618,7 @@ class ThunkSequenceSerdesTest : public ::testing::Test {
         /*out_buffer=*/
         CreateBufferAllocationSlice(
             buffer_allocations_[buffer_allocations_.size() - 1]),
-        /*out_shape=*/literals_[buffer_allocations_.size() - 1].shape());
+        /*out_shape=*/literals_[buffer_allocations_.size() - 1].shape(), true);
   }
 
   absl::StatusOr<std::unique_ptr<Thunk>> CreateXnnConvolutionThunk() {
@@ -678,7 +683,7 @@ class ThunkSequenceSerdesTest : public ::testing::Test {
         {CreateBufferAllocationSlice(
             buffer_allocations_[buffer_allocations_.size() - 1])},
         /*kernel_name=*/"test",
-        /*thread_dim=*/se::ThreadDim(1),
+        /*num_workgroups=*/NumWorkGroups{1},
         /*invariant_arguments=*/{0},
         /*min_alignment=*/8);
   }
@@ -1102,6 +1107,15 @@ class ThunkSequenceSerdesTest : public ::testing::Test {
     return false;
   }
 
+#ifdef XLA_YNNPACK
+  bool VerifyYnnFusionThunkEquality(const YnnFusionThunk& thunk_1,
+                                    const YnnFusionThunk& thunk_2) {
+    // TODO(ashaposhnikov) assume this is always false until we implement
+    // serialization of YnnFusionThunk.
+    return false;
+  }
+#endif  // XLA_YNNPACK
+
   bool VerifyXnnDotThunkEquality(const XnnDotThunk& thunk_1,
                                  const XnnDotThunk& thunk_2) {
     const bool are_dot_dimensions_equal =
@@ -1117,7 +1131,11 @@ class ThunkSequenceSerdesTest : public ::testing::Test {
     const bool are_options_equal =
         thunk_1.options().use_threadpool == thunk_2.options().use_threadpool;
 
+    const bool is_capturing_rhs_equal =
+        thunk_1.capture_rhs() == thunk_2.capture_rhs();
+
     return are_options_equal && are_dot_dimensions_equal &&
+           is_capturing_rhs_equal &&
            VerifySliceShapeEquality(thunk_1.dot_slices().lhs_buffer,
                                     thunk_1.dot_slices().lhs_shape,
                                     thunk_2.dot_slices().lhs_buffer,
@@ -1193,7 +1211,7 @@ class ThunkSequenceSerdesTest : public ::testing::Test {
   bool VerifyKernelThunkEquality(const KernelThunkBase& thunk_1,
                                  const KernelThunkBase& thunk_2) {
     return thunk_1.kernel_name() == thunk_2.kernel_name() &&
-           thunk_1.thread_dim() == thunk_2.thread_dim() &&
+           thunk_1.num_workgroups() == thunk_2.num_workgroups() &&
            thunk_1.min_alignment() == thunk_2.min_alignment() &&
            absl::c_equal(thunk_1.arguments_buffers(),
                          thunk_2.arguments_buffers(),
@@ -1406,6 +1424,24 @@ class ThunkSequenceSerdesTest : public ::testing::Test {
                 tsl::down_cast<const XnnConvolutionThunk&>(thunk_1),
                 tsl::down_cast<const XnnConvolutionThunk&>(thunk_2));
         }
+      }
+      case Thunk::Kind::kYnnFusion: {
+#ifdef XLA_YNNPACK
+        const YnnFusionThunk& ynn_fusion_thunk_1 =
+            tsl::down_cast<const YnnFusionThunk&>(thunk_1);
+        const YnnFusionThunk& ynn_fusion_thunk_2 =
+            tsl::down_cast<const YnnFusionThunk&>(thunk_2);
+        if (ynn_fusion_thunk_1.ynn_fusion_kind() !=
+            ynn_fusion_thunk_2.ynn_fusion_kind()) {
+          return false;
+        }
+        return VerifyYnnFusionThunkEquality(
+            tsl::down_cast<const YnnFusionThunk&>(thunk_1),
+            tsl::down_cast<const YnnFusionThunk&>(thunk_2));
+#else
+        CHECK(false) << "Unsupported YNN fusion thunk type";
+        return false;
+#endif  // XLA_YNNPACK
       }
       case Thunk::Kind::kKernel:
         return VerifyKernelThunkEquality(

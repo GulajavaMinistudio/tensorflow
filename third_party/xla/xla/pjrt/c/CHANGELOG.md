@@ -1,5 +1,60 @@
 # PJRT C API changelog
 
+## 0.81
+
+* Added `PJRT_Layouts_PJRT_Executable_GetOutputLayouts`.
+
+## 0.80
+
+* Added `PJRT_Extension_Type::PJRT_Extension_Type_HostAllocator`.
+
+## 0.79
+
+* Added `PJRT_LoadedExecutable_GetDeviceAssignment.`
+
+## 0.78
+
+* Add incarnations to `PJRT_ExecuteOptions`.
+
+## 0.77
+
+* Added buffer aliasing support to the PJRT C API
+
+## 0.76
+
+* Added `call_location` to `PJRT_ExecuteOptions`
+
+## 0.75
+
+* Added `PJRT_TopologyDescription_Deserialize`.
+
+## 0.74
+
+* Added `PJRT_Extension_Type::PJRT_Extension_Type_CrossHostTransfers`.
+
+## 0.73
+
+* Added `PJRT_Client_UpdateGlobalProcessInfo`.
+
+## 0.72
+
+* Added `peak_memory_in_bytes` to `CompiledMemoryStats`.
+
+## 0.71
+
+*   Added `overridden_serialized_compile_options` and
+    `overridden_serialized_compile_options_size` fields to
+    `PJRT_Executable_DeserializeAndLoad_Args`.
+
+## 0.70
+
+* Sharding ops may appear directly in the payload (previously they were
+  serialized in `custom_calls`).
+
+## 0.69
+
+*   Implemented PjRtClient::CreateUninitializedBuffer
+
 ## 0.68
 
 * Changed the type of ``topology`` in

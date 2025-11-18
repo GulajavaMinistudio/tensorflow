@@ -48,7 +48,7 @@ bool IsAddingOnlyDegenerateDimensions(const HloInstruction* inst) {
   const Shape& out_shape = inst->shape();
   return ShapeUtil::ElementsIn(in_shape) == ShapeUtil::ElementsIn(out_shape) &&
          ShapeUtil::DimensionsUnmodifiedByReshape(in_shape, out_shape).size() ==
-             in_shape.dimensions_size();
+             in_shape.dimensions().size();
 }
 
 // Passthrough reshapes or bitcasts adding only degenerate hdimensions to some
@@ -168,7 +168,7 @@ absl::StatusOr<bool> RunOnComputation(HloComputation* comp, bool for_replicas,
 
 }  // namespace
 
-absl::StatusOr<bool> ScheduleAwareCollectiveOpsCSE::Run(
+absl::StatusOr<bool> ScheduleAwareCollectiveOpsCSE::RunImpl(
     HloModule* module,
     const absl::flat_hash_set<absl::string_view>& execution_threads) {
   bool changed = false;

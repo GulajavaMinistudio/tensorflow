@@ -18,11 +18,9 @@ limitations under the License.
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
-#include <limits>
 #include <numeric>
 #include <optional>
 #include <ostream>
-#include <sstream>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -30,12 +28,12 @@ limitations under the License.
 
 #include "absl/log/check.h"
 #include "absl/log/log.h"
-#include "absl/numeric/int128.h"
-#include "absl/strings/str_format.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallBitVector.h"
 #include "llvm/ADT/SmallVector.h"
@@ -46,6 +44,7 @@ limitations under the License.
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/Support/LLVM.h"
+#include "xla/hlo/analysis/interval.h"
 #include "tsl/platform/logging.h"  // IWYU pragma: keep
 
 namespace xla {
@@ -251,7 +250,8 @@ AffineExpr AffineExprSimplifier::RewriteMod(AffineBinaryOpExpr mod) {
             });
       }
       return (new_lhs % (m / multiplier_mod_gcd)) * multiplier_mod_gcd;
-    } else if (Interval{0, multiplier_gcd - 1}.Contains(not_multiplied_range)) {
+    }
+    if (Interval{0, multiplier_gcd - 1}.Contains(not_multiplied_range)) {
       // Remove everything that doesn't have a multiplier.
       new_lhs = multiplied * multiplier_gcd;
       return new_lhs % mod.getRHS() + not_multiplied;
@@ -503,7 +503,9 @@ mlir::AffineExpr AffineExprSimplifier::RewriteSum(
     for (int mod_i = 0; mod_i < mods.size(); ++mod_i) {
       auto [mod, mod_mul] = mods[mod_i];
       auto mod_c = GetConstantRhs(mod, AffineExprKind::Mod);
-      if (!mod_c) continue;
+      if (!mod_c) {
+        continue;
+      }
 
       // In many cases, we could just compare the LHSes of the mod and the
       // div, but if x is a floorDiv itself, we need to check a bit more
@@ -514,8 +516,12 @@ mlir::AffineExpr AffineExprSimplifier::RewriteSum(
       AffineExpr simplified_mod = Simplify(GetLhs(mod).floorDiv(*mod_c));
       for (int div_i = 0; div_i < divs.size(); ++div_i) {
         auto [div, div_mul] = divs[div_i];
-        if (simplified_mod != div) continue;
-        if ((div_mul % mod_mul) || (div_mul / mod_mul) != mod_c) continue;
+        if (simplified_mod != div) {
+          continue;
+        }
+        if ((div_mul % mod_mul) || (div_mul / mod_mul) != mod_c) {
+          continue;
+        }
 
         summands[GetLhs(mod)] += mod_mul;
         divs[div_i].first = nullptr;
@@ -528,9 +534,13 @@ mlir::AffineExpr AffineExprSimplifier::RewriteSum(
     // We do this even if there is no x in the sum.
     for (int div_i = 0; div_i < divs.size(); ++div_i) {
       auto [div, div_mul] = divs[div_i];
-      if (!div || div_mul > 0) continue;
+      if (!div || div_mul > 0) {
+        continue;
+      }
       auto div_c = GetConstantRhs(div, AffineExprKind::FloorDiv);
-      if (!div_c || *div_c < 0 || (div_mul % *div_c)) continue;
+      if (!div_c || *div_c < 0 || (div_mul % *div_c)) {
+        continue;
+      }
 
       int64_t b = div_mul / *div_c;
       auto x = GetLhs(div);
@@ -786,6 +796,7 @@ SmallVector<AffineExpr, 4> MapSymbolsToComposedSymbolsList(
 
 }  // namespace
 
+// TODO(willfroom): Change the names to work items/groups.
 static constexpr absl::string_view kVarKindDefault = "default";
 static constexpr absl::string_view kVarKindThreadX = "th_x";
 static constexpr absl::string_view kVarKindThreadY = "th_y";
@@ -821,154 +832,36 @@ absl::string_view ToVariableName(VariableKind var_kind) {
 }
 
 VariableKind ToVariableType(absl::string_view var_name) {
-  if (var_name == kVarKindThreadX) return VariableKind::kThreadX;
-  if (var_name == kVarKindThreadY) return VariableKind::kThreadY;
-  if (var_name == kVarKindThreadZ) return VariableKind::kThreadZ;
-  if (var_name == kVarKindBlockX) return VariableKind::kBlockX;
-  if (var_name == kVarKindBlockY) return VariableKind::kBlockY;
-  if (var_name == kVarKindBlockZ) return VariableKind::kBlockZ;
-  if (var_name == kVarKindWarp) return VariableKind::kWarp;
-  if (var_name == kVarKindWarpThread) return VariableKind::kWarpThread;
+  if (var_name == kVarKindThreadX) {
+    return VariableKind::kThreadX;
+  }
+  if (var_name == kVarKindThreadY) {
+    return VariableKind::kThreadY;
+  }
+  if (var_name == kVarKindThreadZ) {
+    return VariableKind::kThreadZ;
+  }
+  if (var_name == kVarKindBlockX) {
+    return VariableKind::kBlockX;
+  }
+  if (var_name == kVarKindBlockY) {
+    return VariableKind::kBlockY;
+  }
+  if (var_name == kVarKindBlockZ) {
+    return VariableKind::kBlockZ;
+  }
+  if (var_name == kVarKindWarp) {
+    return VariableKind::kWarp;
+  }
+  if (var_name == kVarKindWarpThread) {
+    return VariableKind::kWarpThread;
+  }
   return VariableKind::kDefault;
 }
 
 std::ostream& operator<<(std::ostream& out, VariableKind var_type) {
   out << ToVariableName(var_type);
   return out;
-}
-
-std::ostream& operator<<(std::ostream& out, const Interval& interval) {
-  out << absl::StrFormat("[%d, %d]", interval.lower, interval.upper);
-  return out;
-}
-
-std::string Interval::ToString() const {
-  std::stringstream ss;
-  ss << *this;
-  return ss.str();
-}
-
-inline llvm::raw_ostream& operator<<(llvm::raw_ostream& os,
-                                     const Interval& interval) {
-  os << absl::StrFormat("[%d, %d]", interval.lower, interval.upper);
-  return os;
-}
-
-int64_t Interval::GetLoopTripCount() const {
-  if (!IsFeasible()) {
-    return 0;
-  }
-  DCHECK((static_cast<absl::int128>(upper) - lower + 1) <=
-         std::numeric_limits<int64_t>::max());
-  return upper - lower + 1;
-}
-
-Interval::ComparisonResult Interval::Gt(const Interval& b) const {
-  if (!IsFeasible() || !b.IsFeasible()) {
-    return {std::nullopt};
-  }
-  if (lower > b.upper) {
-    return {true};
-  }
-  if (upper <= b.lower) {
-    return {false};
-  }
-  return {std::nullopt};
-}
-
-Interval::ComparisonResult Interval::Eq(const Interval& b) const {
-  Interval intersection = Intersect(b);
-  if (!intersection.IsFeasible()) return {false};
-  if (intersection.IsPoint() && IsPoint() && b.IsPoint()) {
-    return {true};
-  }
-  return {std::nullopt};
-}
-
-Interval Interval::operator+(const Interval& rhs) const {
-  int64_t out_lower;
-  int64_t out_upper;
-
-  constexpr int64_t kMin = std::numeric_limits<int64_t>::min();
-  constexpr int64_t kMax = std::numeric_limits<int64_t>::max();
-
-  bool lower_overflow = llvm::AddOverflow(lower, rhs.lower, out_lower);
-  bool upper_overflow = llvm::AddOverflow(upper, rhs.upper, out_upper);
-
-  if (lower_overflow || lower == kMin || rhs.lower == kMin) {
-    if (lower < 0 || rhs.lower < 0) {
-      out_lower = kMin;
-    } else {
-      out_lower = kMax;
-      out_upper = kMax;
-    }
-  }
-
-  if (upper_overflow || upper == kMax || rhs.upper == kMax) {
-    if (upper > 0 || rhs.upper > 0) {
-      out_upper = kMax;
-    } else {
-      out_upper = kMin;
-      out_lower = kMin;
-    }
-  }
-
-  return {out_lower, out_upper};
-}
-
-Interval Interval::operator*(const Interval& rhs) const {
-  constexpr int64_t kMin = std::numeric_limits<int64_t>::min();
-  constexpr int64_t kMax = std::numeric_limits<int64_t>::max();
-
-  auto mul = [&](int64_t p) {
-    int64_t l = lower;
-    int64_t u = upper;
-    if (p < 0) {
-      std::swap(l, u);
-    }
-    int64_t out_lower;
-    int64_t out_upper;
-    if (llvm::MulOverflow(l, p, out_lower) ||
-        // -1 * max is min + 1, and doesn't overflow. We consider max a
-        // special sentinel value, so the result should be min (= saturated).
-        (p == -1 && l == kMax)) {
-      out_lower = kMin;
-    }
-    if (llvm::MulOverflow(u, p, out_upper)) {
-      out_upper = kMax;
-    }
-    return Interval{out_lower, out_upper};
-  };
-
-  return mul(rhs.lower).Union(mul(rhs.upper));
-}
-
-Interval Interval::operator-() const {
-  int64_t ub = lower == std::numeric_limits<int64_t>::min()
-                   ? std::numeric_limits<int64_t>::max()
-                   : -lower;
-  int64_t lb = upper == std::numeric_limits<int64_t>::max()
-                   ? std::numeric_limits<int64_t>::min()
-                   : -upper;
-  return Interval{lb, ub};
-}
-
-Interval Interval::FloorDiv(int64_t rhs) const {
-  auto saturate_div = [](int64_t lhs, int64_t rhs) {
-    constexpr int64_t kMin = std::numeric_limits<int64_t>::min();
-    constexpr int64_t kMax = std::numeric_limits<int64_t>::max();
-    if (lhs == kMin) {
-      return rhs > 0 ? kMin : kMax;
-    }
-    if (lhs == kMax) {
-      return rhs > 0 ? kMax : kMin;
-    }
-    return llvm::divideFloorSigned(lhs, rhs);
-  };
-
-  int64_t a = saturate_div(lower, rhs);
-  int64_t b = saturate_div(upper, rhs);
-  return {std::min(a, b), std::max(a, b)};
 }
 
 bool operator==(const IndexingMap::Variable& lhs,
@@ -1027,7 +920,7 @@ IndexingMap::IndexingMap(
     AffineMap affine_map, std::vector<IndexingMap::Variable> dimensions,
     std::vector<IndexingMap::Variable> range_vars,
     std::vector<IndexingMap::Variable> rt_vars,
-    const llvm::DenseMap<AffineExpr, Interval>& constraints)
+    const llvm::MapVector<AffineExpr, Interval>& constraints)
     : affine_map_(affine_map),
       dim_vars_(std::move(dimensions)),
       range_vars_(std::move(range_vars)),
@@ -1111,13 +1004,17 @@ void IndexingMap::AddConstraint(mlir::AffineExpr expr, Interval range) {
   if (auto dim_expr = mlir::dyn_cast<AffineDimExpr>(expr)) {
     Interval& current_range = GetMutableDimensionBound(dim_expr.getPosition());
     current_range = current_range.Intersect(range);
-    if (!current_range.IsFeasible()) ResetToKnownEmpty();
+    if (!current_range.IsFeasible()) {
+      ResetToKnownEmpty();
+    }
     return;
   }
   if (auto symbol_expr = mlir::dyn_cast<AffineSymbolExpr>(expr)) {
     Interval& current_range = GetMutableSymbolBound(symbol_expr.getPosition());
     current_range = current_range.Intersect(range);
-    if (!current_range.IsFeasible()) ResetToKnownEmpty();
+    if (!current_range.IsFeasible()) {
+      ResetToKnownEmpty();
+    }
     return;
   }
   if (auto constant_expr = mlir::dyn_cast<AffineConstantExpr>(expr)) {
@@ -1179,7 +1076,9 @@ bool IndexingMap::IsSymbolConstrained(int64_t symbol_id) const {
         result = true;
       }
     });
-    if (result) return true;
+    if (result) {
+      return true;
+    }
   }
   return false;
 }
@@ -1268,12 +1167,30 @@ MLIRContext* IndexingMap::GetMLIRContext() const {
   return IsUndefined() ? nullptr : affine_map_.getContext();
 }
 
+namespace {
+bool EqualConstraints(const llvm::MapVector<mlir::AffineExpr, Interval>& lhs,
+                      const llvm::MapVector<mlir::AffineExpr, Interval>& rhs) {
+  if (lhs.size() != rhs.size()) {
+    return false;
+  }
+
+  for (const auto& [key, value] : lhs) {
+    auto it = rhs.find(key);
+    if (it == rhs.end() || it->second != value) {
+      return false;
+    }
+  }
+
+  return true;
+}
+}  // namespace
+
 bool operator==(const IndexingMap& lhs, const IndexingMap& rhs) {
   return lhs.GetAffineMap() == rhs.GetAffineMap() &&
          lhs.GetDimVars() == rhs.GetDimVars() &&
          lhs.GetRangeVars() == rhs.GetRangeVars() &&
          lhs.GetRTVars() == rhs.GetRTVars() &&
-         lhs.GetConstraints() == rhs.GetConstraints();
+         EqualConstraints(lhs.GetConstraints(), rhs.GetConstraints());
 }
 
 IndexingMap operator*(const IndexingMap& lhs, const IndexingMap& rhs) {
@@ -1285,13 +1202,18 @@ bool IndexingMap::Verify(std::ostream& out) const {
     return true;
   }
   if (affine_map_.getNumDims() != dim_vars_.size()) {
-    out << "dim size must match the number of dimensions in "
-           "the affine map";
+    out << absl::StrCat(
+        "number of dim vars (", dim_vars_.size(),
+        ") must match the number of dimensions in the affine map (",
+        affine_map_.getNumDims(), ")");
     return false;
   }
   if (affine_map_.getNumSymbols() != range_vars_.size() + rt_vars_.size()) {
-    out << "range vars size + rt var size must match the number of "
-           "symbols in the affine map";
+    out << absl::StrCat(
+        "number of range (", range_vars_.size(), ") + runtime (",
+        rt_vars_.size(),
+        ") variables must match the number of symbols in the affine map (",
+        affine_map_.getNumSymbols(), ")");
     return false;
   }
   return true;
@@ -1311,7 +1233,9 @@ bool IndexingMap::Verify(std::ostream& out) const {
 // simplification, because the ranges of constraints were already optimized once
 // when IndexingMap was constructed.
 bool IndexingMap::Simplify(SimplifyPointDimensions simplify_point_dimensions) {
-  if (IsUndefined() || IsKnownEmpty()) return false;
+  if (IsUndefined() || IsKnownEmpty()) {
+    return false;
+  }
 
   // Simplify constraints to shrink the lower/upper bounds of dims and symbols.
   bool constraints_were_simplified = false;
@@ -1359,7 +1283,9 @@ bool AffineExprSimplifier::SimplifyConstraintExprs(IndexingMap& map) {
       to_remove.push_back(expr);
       continue;
     }
-    if (simplified == expr) continue;
+    if (simplified == expr) {
+      continue;
+    }
     to_add.push_back({simplified, range});
     to_remove.push_back(expr);
   }
@@ -1466,10 +1392,14 @@ bool IsFunctionOfUnusedVarsOnly(const UsedParameters& used_parameters,
   }
 
   for (int64_t dim_id : used_parameters.dimension_ids) {
-    if (!unused_dims_bit_vector[dim_id]) return false;
+    if (!unused_dims_bit_vector[dim_id]) {
+      return false;
+    }
   }
   for (int64_t symbol_id : used_parameters.symbol_ids) {
-    if (!unused_symbols_bit_vector[symbol_id]) return false;
+    if (!unused_symbols_bit_vector[symbol_id]) {
+      return false;
+    }
   }
   return true;
 }
@@ -1546,7 +1476,9 @@ bool IndexingMap::CompressVars(const llvm::SmallBitVector& unused_dims,
 
   bool num_dims_changed = unused_dims.count() > 0;
   bool num_symbols_changed = unused_symbols.count() > 0;
-  if (!num_dims_changed && !num_symbols_changed) return false;
+  if (!num_dims_changed && !num_symbols_changed) {
+    return false;
+  }
 
   unsigned num_dims_before = GetDimensionCount();
   unsigned num_symbols_before = GetSymbolCount();
@@ -1600,7 +1532,9 @@ bool IndexingMap::CompressVars(const llvm::SmallBitVector& unused_dims,
   for (const auto& [expr, range] : constraints_) {
     auto updated_expr =
         expr.replaceDimsAndSymbols(dim_replacements, symbol_replacements);
-    if (updated_expr == expr) continue;
+    if (updated_expr == expr) {
+      continue;
+    }
     to_add.push_back({updated_expr, range});
     to_remove.push_back(expr);
   }
@@ -1614,9 +1548,9 @@ bool IndexingMap::CompressVars(const llvm::SmallBitVector& unused_dims,
 }
 
 SmallBitVector IndexingMap::RemoveUnusedSymbols() {
-  if (IsUndefined()) return {};
-  if (GetSymbolCount() == 0) return {};
-
+  if (IsUndefined() || GetSymbolCount() == 0) {
+    return {};
+  }
   UnusedVariables unused_vars = DetectUnusedVariables(
       *this, /*removing_dims=*/false, /*removing_symbols=*/true);
   for (AffineExpr expr : unused_vars.constraints_with_unused_vars_only) {
@@ -1666,7 +1600,9 @@ bool IndexingMap::VerifyConstraintIntervals() {
 }
 
 SmallBitVector IndexingMap::RemoveUnusedVars() {
-  if (IsUndefined()) return {};
+  if (IsUndefined()) {
+    return {};
+  }
 
   UnusedVariables unused_vars = DetectUnusedVariables(
       *this, /*removing_dims=*/true, /*removing_symbols=*/true);
@@ -1686,7 +1622,7 @@ bool IndexingMap::MergeModConstraints() {
   bool did_simplify = false;
 
   // Group constraints by LHS.
-  llvm::DenseMap<AffineExpr, llvm::SmallVector<AffineBinaryOpExpr, 2>>
+  llvm::MapVector<AffineExpr, llvm::SmallVector<AffineBinaryOpExpr, 2>>
       grouped_constraints;
   for (const auto& [expr, _] : constraints_) {
     if (expr.getKind() != AffineExprKind::Mod) continue;
@@ -1697,7 +1633,7 @@ bool IndexingMap::MergeModConstraints() {
   // Merge constraints of type MOD.
   // (X mod 3 == 0) & (X mod 2 == 0) => (X mod 6 == 0)
   for (const auto& [lhs, binops] : grouped_constraints) {
-    llvm::DenseMap<int64_t, llvm::SmallVector<AffineBinaryOpExpr, 2>>
+    llvm::MapVector<int64_t, llvm::SmallVector<AffineBinaryOpExpr, 2>>
         mod_groups;
     for (const auto& binop : binops) {
       Interval mod_result = constraints_[binop];
@@ -1847,20 +1783,30 @@ bool IndexingMap::RescaleSymbols() {
   llvm::DenseMap<AffineExpr, AffineExpr> to_replace;
 
   for (const auto& [expr, range] : constraints_) {
-    if (range.lower != range.upper) continue;
+    if (range.lower != range.upper) {
+      continue;
+    }
     auto shift_value = range.lower;
 
-    if (expr.getKind() != AffineExprKind::Mod) continue;
+    if (expr.getKind() != AffineExprKind::Mod) {
+      continue;
+    }
     auto mod_expr = mlir::cast<AffineBinaryOpExpr>(expr);
 
     auto constant_expr = mlir::dyn_cast<AffineConstantExpr>(mod_expr.getRHS());
-    if (!constant_expr) continue;
+    if (!constant_expr) {
+      continue;
+    }
 
     // We don't rescale mod expressions with non-positive divisors.
-    if (constant_expr.getValue() <= 0) continue;
+    if (constant_expr.getValue() <= 0) {
+      continue;
+    }
     auto scaling_factor = constant_expr.getValue();
 
-    if (mod_expr.getLHS().getKind() != AffineExprKind::SymbolId) continue;
+    if (mod_expr.getLHS().getKind() != AffineExprKind::SymbolId) {
+      continue;
+    }
     auto symbol_expr = mlir::cast<AffineSymbolExpr>(mod_expr.getLHS());
 
     // In case there are two mod constraints which were not merged, we only
@@ -1883,7 +1829,7 @@ bool IndexingMap::RescaleSymbols() {
     symbol_range.upper = (symbol_range.upper - shift_value) / scaling_factor;
   }
 
-  llvm::DenseMap<mlir::AffineExpr, Interval> new_constraints;
+  llvm::MapVector<mlir::AffineExpr, Interval> new_constraints;
   for (const auto& [expr, range] : constraints_) {
     if (!to_delete.contains(expr)) {
       new_constraints[expr.replace(to_replace)] = range;
@@ -1954,29 +1900,36 @@ IndexingMap ConvertRangeVariablesToDimensions(
   // Update the affine map and the variables.
   std::vector<IndexingMap::Variable> dims = map.GetDimVars();
   std::vector<IndexingMap::Variable> range_vars;
-  std::vector<IndexingMap::Variable> rt_vars = map.GetRTVars();
   SmallVector<AffineExpr, 4> symbol_replacements;
   symbol_replacements.reserve(affine_map.getNumSymbols());
-  int64_t range_var_count = 0;
+  int64_t updated_count = 0;
   int64_t range_var_indices_count = range_var_indices.size();
-  for (int i = 0; i < affine_map.getNumSymbols(); ++i) {
+  for (int i = 0; i < map.GetRangeVarsCount(); ++i) {
     auto range_var = map.GetRangeVar(i);
-    if (range_var_count < range_var_indices_count &&
-        i == range_var_indices[range_var_count]) {
+    if (updated_count < range_var_indices_count &&
+        i == range_var_indices[updated_count]) {
       symbol_replacements.push_back(getAffineDimExpr(
-          affine_map.getNumDims() + range_var_count, mlir_context));
+          affine_map.getNumDims() + updated_count, mlir_context));
       dims.push_back(range_var);
-      range_var_count++;
+      updated_count++;
     } else {
       symbol_replacements.push_back(
-          getAffineSymbolExpr(i - range_var_count, mlir_context));
+          getAffineSymbolExpr(i - updated_count, mlir_context));
       range_vars.push_back(range_var);
     }
   }
+  CHECK_EQ(updated_count, range_var_indices_count)
+      << "Not all replacements were used";
+  for (int i = 0; i < map.GetRTVarsCount(); ++i) {
+    symbol_replacements.push_back(getAffineSymbolExpr(
+        map.GetRangeVarsCount() - range_var_indices_count + i, mlir_context));
+  }
+  CHECK_EQ(symbol_replacements.size(), affine_map.getNumSymbols())
+      << "All symbols must be updated";
   AffineMap converted_affine_map = affine_map.replaceDimsAndSymbols(
-      {}, symbol_replacements,
-      affine_map.getNumDims() + range_var_indices_count,
-      affine_map.getNumSymbols() - range_var_indices_count);
+      /*dimReplacements=*/{}, symbol_replacements,
+      /*numResultDims=*/affine_map.getNumDims() + range_var_indices_count,
+      /*numResultSyms=*/affine_map.getNumSymbols() - range_var_indices_count);
 
   // Update the constraints.
   std::vector<std::pair<AffineExpr, Interval>> constraints;
@@ -1986,7 +1939,7 @@ IndexingMap ConvertRangeVariablesToDimensions(
                            constraint.second});
   }
   return IndexingMap{converted_affine_map, std::move(dims),
-                     std::move(range_vars), std::move(rt_vars), constraints};
+                     std::move(range_vars), map.GetRTVars(), constraints};
 }
 
 }  // namespace xla
