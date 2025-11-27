@@ -97,6 +97,7 @@ limitations under the License.
 #include "stablehlo/conversions/linalg/transforms/Passes.h"
 #include "stablehlo/dialect/StablehloOps.h"
 #include "stablehlo/transforms/Passes.h"
+#include "stablehlo/transforms/optimization/Passes.h"
 #include "xla/backends/cpu/codegen/emitters/ir/xla_cpu_dialect.h"
 #include "xla/backends/cpu/codegen/emitters/transforms/passes.h"
 #include "xla/backends/cpu/codegen/kernel_api_ir_builder.h"
@@ -311,16 +312,26 @@ static void AddBufferizationPasses(mlir::OpPassManager& pm) {
 static void AddTiledOptimizationPasses(mlir::OpPassManager& pm) {
   emitters::RegisterOptimizationPasses(pm);
 
+  pm.addPass(CreateLowerXTileEntryPass());
+
+  pm.addNestedPass<mlir::func::FuncOp>(
+      mlir::stablehlo::createStablehloTargetIndependentOptimizationPass());
+
   pm.addPass(CreateShloToVectorPass());
   pm.addPass(mlir::createCanonicalizerPass());
-  pm.addPass(CreateLowerXTileEntryPass());
   pm.addNestedPass<mlir::func::FuncOp>(
       mlir::vector::createLowerVectorMultiReductionPass(
           mlir::vector::VectorMultiReductionLowering::InnerParallel));
-  pm.addPass(CreateTensorOpsToVectorPass());
+  pm.addPass(CreateTensorOpsToBufferizablePass());
+
+  mlir::stablehlo::StablehloLegalizeToLinalgPassOptions
+      stablehlo_to_linalg_options;
+  stablehlo_to_linalg_options.enablePrimitiveOps = true;
+  pm.addPass(mlir::stablehlo::createStablehloLegalizeToLinalgPass());
+  pm.addPass(xtile::createConvertElementwise0DTensorToScalarPass());
 
   pm.addPass(mlir::createConvertElementwiseToLinalgPass());
-  pm.addPass(mlir::createLinalgElementwiseOpFusionPass());
+  pm.addPass(CreateFuseElementwisePass());
 
   AddBufferizationPasses(pm);
 
@@ -331,6 +342,7 @@ static void AddTiledOptimizationPasses(mlir::OpPassManager& pm) {
 // The input IR is from the xtile dialect which uses tensors that are converted
 // first to the vector dialect and then to LLVM.
 static void AddTiledLoweringPasses(mlir::OpPassManager& pm, bool fast_min_max) {
+  pm.addPass(CreateVectorToScalarPass());
   pm.addPass(cpu::CreateMemrefCopyToLoopsPass());
   pm.addPass(cpu::createLowerToLLVMPass());
   pm.addPass(mlir::createConvertVectorToSCFPass(

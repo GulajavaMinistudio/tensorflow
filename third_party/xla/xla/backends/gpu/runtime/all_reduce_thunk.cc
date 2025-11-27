@@ -65,14 +65,14 @@ absl::Status CheckImplementableInst(const HloInstruction* inst,
 }
 
 template <typename HloInstType>
-CollectiveOpGroupMode GetGroupModeInst(HloInstType* inst) {
+CollectiveOpGroupMode GetGroupModeInst(const HloInstType* inst) {
   return GetAllReduceConfigInst(inst).config.group_mode;
 }
 
 }  // namespace
 
-template <typename HloInstType>
-AllReduceConfig GetAllReduceConfigInst(HloInstType* inst) {
+AllReduceConfig GetAllReduceConfigInst(
+    const HloAllReduceInstructionBase* inst) {
   std::optional<ReductionKind> reduction_kind =
       MatchReductionComputation(inst->called_computations().front());
   CHECK(reduction_kind.has_value());
@@ -116,7 +116,7 @@ AllReduceReduceScatterThunkBase::AllReduceReduceScatterThunkBase(
                       AsyncStreamKind::ASYNC_STREAM_KIND_COLLECTIVE),
       config_(std::move(config)),
       buffers_(std::move(buffers)) {
-  CHECK_EQ(config_.config.operand_count, buffers_.size());
+  CHECK_EQ(config_.config.operand_element_type.size(), buffers_.size());
 }
 
 AllReduceStartThunk::AllReduceStartThunk(
@@ -142,10 +142,9 @@ CollectiveOpGroupMode AllReduceStartThunk::GetGroupMode(
   return GetGroupModeInst(inst);
 }
 
-absl::Status AllReduceStartThunk::Prepare(
-    const PrepareParams& params, ResourceRequestsInterface& resource_requests) {
-  TF_RETURN_IF_ERROR(CollectiveThunk::Prepare(params, resource_requests));
-  return collective_kernel_thunk_->Prepare(params, resource_requests);
+absl::Status AllReduceStartThunk::Prepare(const PrepareParams& params) {
+  TF_RETURN_IF_ERROR(CollectiveThunk::Prepare(params));
+  return collective_kernel_thunk_->Prepare(params);
 }
 
 absl::Status AllReduceStartThunk::Initialize(const InitializeParams& params) {
