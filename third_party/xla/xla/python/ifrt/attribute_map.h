@@ -24,12 +24,12 @@ limitations under the License.
 #include <variant>
 #include <vector>
 
+#include "absl/base/attributes.h"
 #include "absl/container/flat_hash_map.h"
+#include "absl/functional/function_ref.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
-#include "absl/strings/string_view.h"
-#include "absl/types/span.h"
 #include "xla/python/ifrt/attribute_map.pb.h"
 #include "xla/python/ifrt/serdes_default_version_accessor.h"
 #include "xla/python/ifrt/serdes_version.h"
@@ -89,19 +89,24 @@ class AttributeMap {
 
   explicit AttributeMap(Map map) : map_(std::move(map)) {}
 
+  ABSL_DEPRECATED("map() is not thread-safe. Use Get() function instead.")
   const Map& map() const { return map_; }
 
   template <typename T>
   absl::StatusOr<T> Get(const std::string& key) const {
-    if constexpr (std::is_same_v<T, std::string> ||
-                  std::is_same_v<T, absl::string_view>) {
+    if constexpr (std::is_same_v<T, Value>) {
+      auto it = map_.find(key);
+      if (it == map_.end()) {
+        return absl::NotFoundError(absl::StrCat("Key not found: ", key));
+      }
+      return it->second;
+    } else if constexpr (std::is_same_v<T, std::string>) {
       return Get<T, StringValue>(key);
     } else if constexpr (std::is_same_v<T, bool>) {
       return Get<T, BoolValue>(key);
     } else if constexpr (std::is_same_v<T, int64_t>) {
       return Get<T, Int64Value>(key);
-    } else if constexpr (std::is_same_v<T, std::vector<int64_t>> ||
-                         std::is_same_v<T, absl::Span<const int64_t>>) {
+    } else if constexpr (std::is_same_v<T, std::vector<int64_t>>) {
       return Get<T, Int64ListValue>(key);
     } else if constexpr (std::is_same_v<T, float>) {
       return Get<T, FloatValue>(key);
@@ -113,9 +118,17 @@ class AttributeMap {
   // Deserializes `AttributeMapProto` into `AttributeMap`.
   static absl::StatusOr<AttributeMap> FromProto(const AttributeMapProto& proto);
 
-  // Serializes `AttributeMap` into `AttributeMapProto`.
-  AttributeMapProto ToProto(
+  // Converts the attribute map to a protobuf.
+  void ToProto(
+      AttributeMapProto& proto,
       SerDesVersion version = SerDesDefaultVersionAccessor::Get()) const;
+
+  AttributeMapProto ToProto(
+      SerDesVersion version = SerDesDefaultVersionAccessor::Get()) const {
+    AttributeMapProto proto;
+    ToProto(proto, version);
+    return proto;
+  }
 
   std::string DebugString(size_t max_string_length = 64,
                           size_t max_int64_list_size = 16) const;
@@ -124,6 +137,22 @@ class AttributeMap {
   friend void AbslStringify(Sink& sink, const AttributeMap& attribute_map) {
     sink.Append(attribute_map.DebugString());
   }
+
+  bool IsEmpty() const { return map_.empty(); }
+
+  // Invokes `f` for each key-value pair in the attribute map.
+  void ForEach(
+      absl::FunctionRef<void(const std::string&, const Value&)> f) const {
+    for (const auto& [key, value] : map_) {
+      f(key, value);
+    }
+  }
+
+  bool operator==(const AttributeMap& other) const {
+    return map_ == other.map_;
+  }
+
+  size_t size() const { return map_.size(); }
 
  private:
   template <typename T, typename V>

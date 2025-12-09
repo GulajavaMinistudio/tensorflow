@@ -114,7 +114,7 @@ limitations under the License.
 #include "xla/service/hlo_module_util.h"
 #include "xla/service/hlo_value.h"
 #include "xla/service/llvm_ir/llvm_command_line_options.h"
-#include "xla/service/maybe_owning_device_memory.h"
+#include "xla/service/maybe_owning_device_address.h"
 #include "xla/shape.h"
 #include "xla/shape_util.h"
 #include "xla/stream_executor/device_memory.h"
@@ -975,8 +975,8 @@ absl::StatusOr<CompiledMemoryStats> PjRtCpuExecutable::GetCompiledMemoryStats()
   memory_stats.serialized_buffer_assignment = proto.SerializeAsString();
   memory_stats.PopulateBufferStatsFromAllocations(
       cpu_executable_->GetAllocations());
-  TF_ASSIGN_OR_RETURN(int64_t peak_memory, ComputePeakMemory(proto));
-  memory_stats.peak_memory_in_bytes = peak_memory;
+  TF_ASSIGN_OR_RETURN(memory_stats.peak_memory_in_bytes,
+                      ComputePeakMemory(proto));
   return memory_stats;
 }
 
@@ -1620,7 +1620,7 @@ absl::StatusOr<PjRtLoadedExecutable::Result> PjRtCpuExecutable::ExecuteHelper(
 
     if (cpu_executable->has_thunks()) {
       // Call interpreted thunk sequence implementing XLA executable.
-      absl::InlinedVector<MaybeOwningDeviceMemory, 8> buffer_device_mem;
+      absl::InlinedVector<MaybeOwningDeviceAddress, 8> buffer_device_mem;
       buffer_device_mem.reserve(buffer_table.size());
       for (const auto& buffer_info : buffer_table) {
         buffer_device_mem.emplace_back(
@@ -1764,7 +1764,7 @@ absl::StatusOr<PjRtLoadedExecutable::Result> PjRtCpuExecutable::ExecuteHelper(
           absl::Status status;
           if (cpu_executable->has_thunks()) {
             // Call interpreted thunk sequence implementing XLA executable.
-            absl::InlinedVector<MaybeOwningDeviceMemory, 8> buffer_device_mem;
+            absl::InlinedVector<MaybeOwningDeviceAddress, 8> buffer_device_mem;
             buffer_device_mem.reserve(buffer_table.size());
             for (const auto& buffer_info : buffer_table) {
               buffer_device_mem.emplace_back(

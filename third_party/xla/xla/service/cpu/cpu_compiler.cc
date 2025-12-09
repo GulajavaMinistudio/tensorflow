@@ -1017,7 +1017,9 @@ absl::Status CpuCompiler::RunHloPassesAfterLayoutAssn(
   if (is_fusion_emitters) {
     bool use_experimental_loop_fusion =
         options::UseExperimentalLoopFusion(module->config());
-    pipeline.AddPass<FusionWrapper>(use_experimental_loop_fusion);
+    bool use_tiled_emitter = options::EnableTiledEmitter(module->config());
+    pipeline.AddPass<FusionWrapper>(use_experimental_loop_fusion,
+                                    use_tiled_emitter);
   }
 
   AliasInfo alias_info;
@@ -2019,11 +2021,10 @@ CpuCompiler::CompileCpuExecutable(
 
   TF_ASSIGN_OR_RETURN(
       auto cpu_executable,
-      CpuExecutable::Create(
-          std::move(function_library), std::move(assignment), std::move(module),
-          std::move(thunks), std::move(constants),
-          std::move(hlo_profile_printer_data), std::move(hlo_profile_index_map),
-          std::move(target_machine_options)));
+      CpuExecutable::Create(std::move(function_library), std::move(assignment),
+                            std::move(module), std::move(thunks),
+                            std::move(constants),
+                            std::move(target_machine_options)));
 
   // Save object files to be able to export them to AOT compilation
   // result.
@@ -2101,10 +2102,6 @@ absl::StatusOr<std::unique_ptr<Executable>> CpuCompiler::RunBackend(
       std::unique_ptr<CpuExecutable> cpu_executable,
       CompileCpuExecutable(std::move(module), thunk_emitter_options,
                            std::move(ir_compiler)));
-
-  AliasInfo alias_info;
-  cpu_executable->set_debug_info(
-      cpu_executable->buffer_assignment().StatsString(&alias_info));
 
   VLOG(1) << "Compilation finished";
   cpu_executable->Finalize();
@@ -2247,12 +2244,6 @@ CpuCompiler::CompileAheadOfTimeThunks(
   const ThunkSequence& thunk_sequence =
       cpu_executable->thunks().thunk_sequence();
 
-  std::unique_ptr<HloProfilePrinterData> executable_hlo_profile_printer_data =
-      cpu_executable->module().config().hlo_profiling_enabled()
-          ? std::make_unique<HloProfilePrinterData>(
-                cpu_executable->hlo_profile_printer_data())
-          : nullptr;
-
   if (cpu_executable->obj_files().size() > 1) {
     return Internal(
         "Expected at most one object file for AOT compilation, but got %d",
@@ -2270,7 +2261,6 @@ CpuCompiler::CompileAheadOfTimeThunks(
       cpu_executable->module_name(), std::move(obj_files),
       cpu_executable->get_compiled_symbols_proto(), thunk_sequence,
       std::move(*cpu_executable).consume_function_library(),
-      std::move(executable_hlo_profile_printer_data),
       cpu_executable->target_machine_options().ToProto());
 }
 
@@ -2303,12 +2293,6 @@ absl::StatusOr<std::unique_ptr<AotCompilationResult>> CpuCompiler::Export(
   std::vector<SymbolProto> compiled_symbols_proto =
       cpu_executable->get_compiled_symbols_proto();
 
-  std::unique_ptr<HloProfilePrinterData> executable_hlo_profile_printer_data =
-      cpu_executable->module().config().hlo_profiling_enabled()
-          ? std::make_unique<HloProfilePrinterData>(
-                cpu_executable->hlo_profile_printer_data())
-          : nullptr;
-
   TF_ASSIGN_OR_RETURN(auto compiled_symbols,
                       GetCompiledSymbolsFromProto(compiled_symbols_proto));
 
@@ -2323,7 +2307,6 @@ absl::StatusOr<std::unique_ptr<AotCompilationResult>> CpuCompiler::Export(
       cpu_executable->module_name(), std::move(obj_files),
       std::move(compiled_symbols_proto), *thunk_sequence,
       std::move(function_library),
-      std::move(executable_hlo_profile_printer_data),
       cpu_executable->target_machine_options().ToProto());
 }
 
@@ -2356,10 +2339,12 @@ absl::StatusOr<std::unique_ptr<BufferAssignment>>
 CpuCompiler::CreateBufferAssignment(const HloModule& module) const {
   // Run buffer allocation on the HLO graph.
   AliasInfo alias_info;
+  BufferAssigner::Options opts;
+  opts.allocate_buffers_for_constants = true;
   return BufferAssigner::Run(
       &module, std::make_unique<SequentialHloOrdering>(module.schedule()),
       BufferSizeBytesFunction(), &alias_info, memory_alignment,
-      /*allocate_buffers_for_constants=*/true);
+      std::move(opts));
 }
 
 }  // namespace cpu

@@ -1,6 +1,7 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 load("//third_party/compute_library:build_defs.bzl", "if_enable_acl")
 
+# copybara:uncomment load("//devtools/build_cleaner/skylark:action_config_test.bzl", "action_config_test")
 # copybara:uncomment load("@rules_python//python:proto.bzl", "py_proto_library")
 load("//xla:package_groups.bzl", "xla_package_groups")
 load("//xla:xla.default.bzl", "xla_bzl_library", "xla_cc_test", "xla_py_proto_library")
@@ -18,6 +19,10 @@ package(
     default_visibility = internal_visibility(["//xla:internal"]),
     licenses = ["notice"],
 )
+
+exports_files([
+    "sh_test_with_runfiles.py",
+])
 
 exports_files([
     "lit.cfg.py",
@@ -354,6 +359,7 @@ xla_cc_test(
         "//xla/hlo/testlib:test",
         "//xla/tsl/platform:logging",
         "//xla/tsl/platform:test_main",
+        "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base:log_severity",
         "@com_google_absl//absl/container:inlined_vector",
         "@com_google_absl//absl/log:check",
@@ -664,6 +670,7 @@ cc_library(
         "//xla/tsl/platform:statusor",
         "//xla/tsl/util:byte_swap_array",
         "//xla/tsl/util:safe_reinterpret_cast",
+        "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:no_destructor",
@@ -704,6 +711,7 @@ xla_cc_test(
         "//xla/tsl/platform:test_benchmark",
         "//xla/tsl/platform:test_main",
         "//xla/tsl/util:safe_reinterpret_cast",
+        "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/hash",
         "@com_google_absl//absl/random",
@@ -1279,7 +1287,6 @@ xla_cc_test(
             "//xla/tsl/platform:env",
             "//xla/tsl/platform:test",
             "//xla/tsl/util:command_line_flags",
-            "@com_google_absl//absl/base:nullability",
             "@com_google_absl//absl/container:flat_hash_map",
             "@com_google_absl//absl/status",
             "@com_google_absl//absl/status:status_matchers",
@@ -1400,6 +1407,11 @@ cc_library(
 #     compatible_with = get_compatible_with_portable(),
 #     visibility = internal_visibility([":friends"]),
 #     deps = [":xla_proto"],
+# )
+#
+# action_config_test(
+#     name = "build_cleaner_spec_test",
+#     src = "build_cleaner_spec.textproto",
 # )
 # copybara:uncomment_end
 

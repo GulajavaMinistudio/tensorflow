@@ -46,23 +46,24 @@ limitations under the License.
 #include "xla/backends/gpu/runtime/p2p_thunk_common.h"
 #include "xla/backends/gpu/runtime/shaped_slice.h"
 #include "xla/backends/gpu/runtime/thunk.h"
+#include "xla/core/collectives/reduction_kind.h"
 #include "xla/ffi/api/c_api.h"
 #include "xla/ffi/attribute_map.h"
 #include "xla/ffi/call_frame.h"
+#include "xla/ffi/execution_state.h"
 #include "xla/hlo/ir/hlo_computation.h"
 #include "xla/runtime/buffer_use.h"
 #include "xla/runtime/execution_graph.h"
 #include "xla/runtime/object_pool.h"
 #include "xla/runtime/resource_use.h"
 #include "xla/service/buffer_assignment.h"
-#include "xla/service/collective_ops_utils.h"
 #include "xla/service/gpu/buffer_allocations.h"
 #include "xla/service/gpu/kernels/custom_kernel.h"
 #include "xla/service/gpu/launch_dimensions.h"
 #include "xla/service/gpu/matmul_utils.h"
 #include "xla/shape.h"
 #include "xla/stream_executor/command_buffer.h"
-#include "xla/stream_executor/device_memory.h"
+#include "xla/stream_executor/device_address.h"
 #include "xla/stream_executor/dnn.h"
 #include "xla/stream_executor/gpu/tma_metadata.h"
 #include "xla/stream_executor/kernel.h"
@@ -131,8 +132,9 @@ using ResourceUseVector = absl::InlinedVector<ResourceUse, 1>;
 
 class CommandBufferCmd {
  public:
-  CommandBufferCmd(CommandBufferCmdType cmd_type,
-                   se::StreamPriority priority = se::StreamPriority::Default)
+  explicit CommandBufferCmd(
+      CommandBufferCmdType cmd_type,
+      se::StreamPriority priority = se::StreamPriority::Default)
       : cmd_type_(cmd_type), priority_(priority) {
     token_ = Resource::Create(Resource::kToken);
     resources_.push_back(ResourceUse::Write(token_));
@@ -577,7 +579,7 @@ class TracedCommandBuffer : public CommandBufferCmd::State {
   std::vector<BufferAllocation::Index> allocs_indices_;
 
   struct Entry {
-    std::vector<se::DeviceMemoryBase> recorded_allocs;
+    std::vector<se::DeviceAddressBase> recorded_allocs;
     std::unique_ptr<se::CommandBuffer> command_buffer;
   };
   const CommandBufferCmd* trace_cmd_;
@@ -765,7 +767,7 @@ class MemcpyDeviceToDeviceCmd : public CommandBufferCmd {
 
 class MemzeroCmd : public CommandBufferCmd {
  public:
-  MemzeroCmd(BufferAllocation::Slice dst);
+  explicit MemzeroCmd(ShapedSlice dst);
 
   absl::StatusOr<const se::CommandBuffer::Command*> Record(
       const Thunk::ExecuteParams& execute_params,
@@ -775,7 +777,7 @@ class MemzeroCmd : public CommandBufferCmd {
   BufferUseVector buffers() const override;
 
  private:
-  BufferAllocation::Slice dst_;
+  ShapedSlice dst_;
 };
 
 //===----------------------------------------------------------------------===//
@@ -804,7 +806,7 @@ class Memset32Cmd : public CommandBufferCmd {
 
 class ChildCmd : public CommandBufferCmd {
  public:
-  ChildCmd(CommandBufferCmdExecutor child_commands);
+  explicit ChildCmd(CommandBufferCmdExecutor child_commands);
 
   absl::Status Initialize(const Thunk::InitializeParams& params,
                           StateManager& state) override;
@@ -936,7 +938,7 @@ class GemmCmd : public TracedCommandBufferCmd {
 
 class CublasLtCmd : public TracedCommandBufferCmd, public CublasLtMatmulThunk {
  public:
-  CublasLtCmd(const CublasLtMatmulThunk& matmul_thunk);
+  explicit CublasLtCmd(const CublasLtMatmulThunk& matmul_thunk);
 
   absl::Status Initialize(const Thunk::InitializeParams& params,
                           StateManager& state) override;
@@ -1008,11 +1010,13 @@ class CustomCallCmd : public CommandBufferCmd {
                 std::vector<NullableShapedSlice> operands,
                 std::vector<NullableShapedSlice> results,
                 ffi::CallFrame call_frame,
+                std::shared_ptr<ffi::ExecutionState> execution_state,
                 const HloComputation* called_computation)
       : CommandBufferCmd(CommandBufferCmdType::kCustomCallCmd),
         target_name_(std::move(target_name)),
         handler_(handler),
         call_frame_(std::move(call_frame)),
+        execution_state_(std::move(execution_state)),
         call_frames_([this] { return call_frame_->Copy(); }),
         called_computation_(called_computation),
         operands_(std::move(operands)),
@@ -1051,6 +1055,10 @@ class CustomCallCmd : public CommandBufferCmd {
 
   // Reference call frame pre-initialized at construction time.
   std::optional<ffi::CallFrame> call_frame_;
+
+  // Execution state bound to the FFI handler. It is initialized by the
+  // corresponding Thunk at construction time.
+  std::shared_ptr<ffi::ExecutionState> execution_state_;
 
   // A pool of call frames used at run time. Newly created call frames are
   // copied from the reference call frame and updated with buffer addresses.

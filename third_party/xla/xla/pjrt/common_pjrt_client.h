@@ -235,6 +235,32 @@ class CommonPjRtClient : public PjRtClient {
       tsl::RCReference<PjRtDeviceEventPromise> usage_event_promise,
       Future<std::string> serialized_descriptor,
       PjRtBuffer::RemoteSendCallback on_done);
+
+  static absl::Status PrepareArguments(
+      const ExecuteOptions& options,
+      absl::Span<PjRtBuffer* const> argument_handles,
+      absl::Span<int const> donated_params, PjRtDeviceEventSet& extra_deps,
+      PjRtDeviceEventSet& control_deps,
+      absl::InlinedVector<tsl::RCReference<CommonPjRtRawBuffer>, 4>&
+          input_buffers,
+      absl::InlinedVector<CommonPjRtBuffer::ScopedHold, 4>& device_buffers,
+      PjRtDevice* device, int replica, int partition,
+      absl::Span<const Shape> parameter_device_shapes, bool& is_error);
+
+  absl::StatusOr<absl::InlinedVector<tsl::RCReference<CommonPjRtRawBuffer>, 4>>
+  AllocateOutputBuffersWithInputReuse(
+      const Shape& output_device_shape,
+      absl::Span<const CommonPjRtBuffer::ScopedHold> input_device_buffer_holds,
+      const HloInputOutputAliasConfig& alias_config, PjRtDevice* device,
+      absl::Span<const int> output_memory_space_kind_ids);
+
+  std::vector<std::unique_ptr<PjRtBuffer>> CreateOutputs(
+      const Shape& output_device_shape,
+      tsl::RCReference<PjRtDeviceEvent> definition_event, PjRtDevice* device,
+      absl::Span<const int> output_memory_space_kind_ids,
+      absl::InlinedVector<tsl::RCReference<CommonPjRtRawBuffer>, 4>
+          output_leaf_buffers,
+      bool is_predetermined_error);
 };
 
 // TODO(parkers): Merge everything here into CommonPjRtBuffer.

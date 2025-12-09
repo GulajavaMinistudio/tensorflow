@@ -20,8 +20,6 @@ cc_library(
     srcs = ["service.cc"],
     hdrs = ["service.h"],
     deps = [
-        ":topology_util",
-        ":util",
         "//xla:types",
         "//xla:util",
         "//xla/tsl/distributed_runtime/coordination:coordination_service",
@@ -31,14 +29,11 @@ cc_library(
         "@com_github_grpc_grpc//:grpc++",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/log",
-        "@com_google_absl//absl/memory",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/time",
         "@local_tsl//tsl/platform:env",
-        "@local_tsl//tsl/platform:errors",
-        "@local_tsl//tsl/platform:random",
     ],
 )
 
@@ -70,8 +65,7 @@ cc_library(
     ],
     deps = [
         ":key_value_store_interface",
-        ":util",
-        "//xla/service:global_device_id",
+        "//xla/runtime:device_id",
         "//xla/tsl/distributed_runtime/coordination:coordination_client",
         "//xla/tsl/distributed_runtime/coordination:coordination_service_agent",
         "//xla/tsl/distributed_runtime/rpc/coordination:grpc_coordination_client",
@@ -87,8 +81,6 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:span",
-        "@local_tsl//tsl/platform:env",
-        "@local_tsl//tsl/platform:statusor",
     ],
 )
 
@@ -152,8 +144,7 @@ xla_cc_test(
         ":service",
         ":topology_util",
         "//xla:status_macros",
-        "//xla/service:global_device_id",
-        "//xla/tsl/distributed_runtime/coordination:coordination_service_agent",
+        "//xla/runtime:device_id",
         "//xla/tsl/lib/core:status_test_util",
         "//xla/tsl/platform:env",
         "//xla/tsl/platform:errors",
@@ -170,10 +161,6 @@ xla_cc_test(
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:span",
         "@com_google_googletest//:gtest_main",
-        "@local_tsl//tsl/platform:env",
-        "@local_tsl//tsl/platform:errors",
-        "@local_tsl//tsl/platform:statusor",
-        "@local_tsl//tsl/platform:test",
     ],
 )
 
