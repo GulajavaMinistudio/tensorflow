@@ -1,4 +1,4 @@
-/* Copyright 2025 The TensorFlow Authors. All Rights Reserved.
+/* Copyright 2025 The OpenXLA Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -13,9 +13,28 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef GOOGLETEST_WRAPPER_INCLUDE_GTEST_GTEST_H_
-#define GOOGLETEST_WRAPPER_INCLUDE_GTEST_GTEST_H_
+#include "xla/stream_executor/device_address.h"
 
-#include_next "gtest/gtest.h"
+#include <cstdint>
 
-#endif  // GOOGLETEST_WRAPPER_INCLUDE_GTEST_GTEST_H_
+#include <gtest/gtest.h>
+
+namespace stream_executor {
+namespace {
+
+TEST(DeviceAddressTest, NullptrComparisons) {
+  {
+    DeviceAddressBase null_ptr;
+    EXPECT_FALSE(null_ptr);
+    EXPECT_TRUE(null_ptr == nullptr);
+  }
+
+  {
+    DeviceAddress<int32_t> null_ptr;
+    EXPECT_FALSE(null_ptr);
+    EXPECT_TRUE(null_ptr == nullptr);
+  }
+}
+
+}  // namespace
+}  // namespace stream_executor
