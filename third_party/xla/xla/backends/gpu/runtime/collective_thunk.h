@@ -57,6 +57,9 @@ struct CollectiveConfig {
   std::vector<ReplicaGroup> replica_groups;
   CollectiveOpGroupMode group_mode;
   bool use_symmetric_buffer;
+
+  CollectiveConfigProto ToProto() const;
+  static CollectiveConfig FromProto(const CollectiveConfigProto& proto);
 };
 
 CollectiveConfig GetCollectiveConfig(const HloInstruction* hlo,
@@ -96,6 +99,11 @@ class CollectiveThunk : public Thunk {
     BufferAllocation::Slice destination_buffer;
     int64_t source_memory_space;
     int64_t destination_memory_space;
+
+    absl::StatusOr<CollectiveBufferProto> ToProto() const;
+    static absl::StatusOr<Buffer> FromProto(
+        const CollectiveBufferProto& buffer_proto,
+        absl::Span<const BufferAllocation> buffer_allocations);
   };
 
   // Completion events for asynchronous collective operations (operations
@@ -117,6 +125,12 @@ class CollectiveThunk : public Thunk {
     absl::flat_hash_map<se::StreamExecutor*, std::unique_ptr<se::Event>> events_
         ABSL_GUARDED_BY(mu_);
   };
+  using AsyncEventsMap =
+      absl::flat_hash_map<AsyncEventsUniqueId, std::shared_ptr<AsyncEvents>>;
+
+  CollectiveThunk(Kind kind, ThunkInfo thunk_info,
+                  std::shared_ptr<AsyncEvents> async_events,
+                  AsyncStreamKind stream_kind);
 
   // Logging support.
   static std::string GetDeviceString(const CollectiveParams& params);
@@ -148,6 +162,8 @@ class CollectiveThunk : public Thunk {
     return ExecutionStreamId(execution_stream_id().value() +
                              nccl_stream_id().value());
   }
+
+  absl::StatusOr<CollectiveThunkProto> ToCollectiveThunkProto() const;
 
  protected:
   // Run collective operation on a given stream and return if the first call
@@ -219,6 +235,11 @@ class CollectiveDoneThunk : public Thunk {
   std::shared_ptr<CollectiveThunk::AsyncEvents> async_events() const {
     return async_events_;
   }
+
+  absl::StatusOr<ThunkProto> ToProto() const override;
+  static absl::StatusOr<std::unique_ptr<CollectiveDoneThunk>> FromProto(
+      ThunkInfo thunk_info, const CollectiveDoneThunkProto& thunk_proto,
+      CollectiveThunk::AsyncEventsMap& async_events_map);
 
  private:
   std::shared_ptr<CollectiveThunk::AsyncEvents> async_events_;

@@ -57,6 +57,8 @@ limitations under the License.
 #include "xla/tsl/util/proto/proto_utils.h"
 #include "tsl/platform/blocking_counter.h"
 #include "tsl/platform/fingerprint.h"
+#include "tsl/profiler/lib/scoped_annotation.h"
+#include "tsl/profiler/lib/traceme.h"
 
 namespace xla {
 
@@ -332,6 +334,17 @@ absl::StatusOr<Autotuner::Config> Autotuner::TuneBestConfig(
     }
   }
 
+  if (autotune_config_.exclude_cublas_config) {
+    executable_candidates.erase(
+        std::remove_if(executable_candidates.begin(),
+                       executable_candidates.end(),
+                       [](const ExecutableCandidate& candidate) {
+                         return candidate.config.codegen_backend->name() ==
+                                "Cublas_fission";
+                       }),
+        executable_candidates.end());
+  }
+
   if (executable_candidates.empty()) {
     return absl::InternalError(
         absl::StrCat("Autotuner could not compile any configs for HLO: ",
@@ -428,6 +441,9 @@ absl::StatusOr<std::vector<Autotuner::Config>> Autotuner::GetSupportedConfigs(
 
 std::vector<absl::StatusOr<std::unique_ptr<Executable>>> Autotuner::CompileAll(
     HloInstruction* instr, std::vector<Config>& configs) {
+  XLA_SCOPED_LOGGING_TIMER_LEVEL("CompileAll", 5);
+  tsl::profiler::TraceMe traceme("CompileAll");
+  tsl::profiler::ScopedAnnotation annotation("XlaAutotunerCompilation");
   if (thread_pool_ == nullptr) {
     std::vector<absl::StatusOr<std::unique_ptr<Executable>>> executables;
     executables.reserve(configs.size());
@@ -502,15 +518,6 @@ absl::StatusOr<std::vector<Autotuner::ConfigResult>> Autotuner::ProfileAll(
 
 absl::StatusOr<Autotuner::ConfigResult> Autotuner::PickBestConfig(
     std::vector<ConfigResult>& results) {
-  if (autotune_config_.exclude_cublas_config) {
-    results.erase(
-        std::remove_if(results.begin(), results.end(),
-                       [](const ConfigResult& result) {
-                         return result.config.codegen_backend->name() ==
-                                "Cublas_fission";
-                       }),
-        results.end());
-  }
 
   absl::Duration min_duration = absl::InfiniteDuration();
   ConfigResult* best_result = nullptr;

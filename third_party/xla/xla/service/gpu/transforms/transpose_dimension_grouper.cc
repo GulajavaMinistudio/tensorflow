@@ -15,10 +15,7 @@ limitations under the License.
 
 #include "xla/service/gpu/transforms/transpose_dimension_grouper.h"
 
-#include <cstddef>
 #include <cstdint>
-#include <functional>
-#include <vector>
 
 #include "absl/container/flat_hash_set.h"
 #include "absl/container/inlined_vector.h"
@@ -30,12 +27,11 @@ limitations under the License.
 #include "absl/types/span.h"
 #include "xla/hlo/ir/dfs_hlo_visitor_with_default.h"
 #include "xla/hlo/ir/hlo_instruction.h"
-#include "xla/layout_util.h"
 #include "xla/permutation_util.h"
 #include "xla/shape.h"
 #include "xla/shape_util.h"
-#include "xla/tsl/platform/statusor.h"
 #include "xla/util.h"
+#include "xla/tsl/platform/status_macros.h"
 
 namespace xla {
 namespace gpu {
@@ -46,19 +42,14 @@ class TransposeDimensionGroupVisitor : public DfsHloRewriteVisitor {
  public:
   absl::Status HandleTranspose(HloInstruction* transpose) override {
     VLOG(4) << "Input: " << transpose->ToString();
-    if (!LayoutUtil::IsMonotonicWithDim0Major(transpose->shape().layout()) ||
-        !LayoutUtil::IsMonotonicWithDim0Major(
-            transpose->operand(0)->shape().layout())) {
-      // TransposeDimensionGrouper runs almost immediately after
-      // LayoutNormalization. The passes in between have been verified to not
-      // introduce transposes with non-default layout.
-      return FailedPrecondition(
-          "Layout normalization should have assigned the default layout to "
-          "transpose and its operand");
-    }
     absl::InlinedVector<int64_t, 3> permutation;
-    auto normalized_dims = ShapeUtil::GetNormalizedLogicalTransposeShape(
-        transpose->shape(), transpose->dimensions(), permutation);
+    // TransposeDimensionGrouper runs almost immediately after
+    // LayoutNormalization. The passes in between have been verified to not
+    // introduce transposes with non-default layout.
+    ASSIGN_OR_RETURN(auto normalized_dims,
+                     ShapeUtil::GetNormalizedLogicalTransposeShape(
+                         transpose->operand(0)->shape(), transpose->shape(),
+                         transpose->dimensions(), permutation));
     if (normalized_dims.size() == 1 ||
         normalized_dims == transpose->shape().dimensions()) {
       return absl::OkStatus();
@@ -85,9 +76,8 @@ class TransposeDimensionGroupVisitor : public DfsHloRewriteVisitor {
 absl::StatusOr<bool> TransposeDimensionGrouper::RunImpl(
     HloModule* module,
     const absl::flat_hash_set<absl::string_view>& execution_threads) {
-  TF_ASSIGN_OR_RETURN(
-      bool changed,
-      TransposeDimensionGroupVisitor().RunOnModule(module, execution_threads));
+  ASSIGN_OR_RETURN(bool changed, TransposeDimensionGroupVisitor().RunOnModule(
+                                     module, execution_threads));
   return changed;
 }
 

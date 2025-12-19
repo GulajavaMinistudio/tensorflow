@@ -145,12 +145,28 @@ TEST(HloShardingUtilTest, MoveAndMergeShardingTilesSubGroup) {
 TEST(HloShardingUtilTest, TransposeShardingReplicated) {
   EXPECT_EQ(TransposeSharding(HloSharding::Replicate(), {0, 1, 2}),
             HloSharding::Replicate());
+
+  EXPECT_EQ(
+      TransposeSharding(HloSharding::Replicate({}, /*use_named_sharding=*/true),
+                        {0, 1, 2}),
+      HloSharding::Replicate({}, /*use_named_sharding=*/true));
 }
 
 TEST(HloShardingUtilTest, TransposeShardingTiled) {
   HloSharding input = HloSharding::IotaTile({1, 2, 1, 2});
   HloSharding output = HloSharding::IotaTile({2, 1, 2, 1}, {2, 2}, {1, 0});
   EXPECT_EQ(TransposeSharding(input, {3, 0, 1, 2}), output);
+
+  {
+    Mesh mesh({2, 2}, {"a", "b"});
+    NamedSharding input =
+        test_utils::FromAxisNames(mesh, {{}, {"a"}, {}, {"b"}});
+    NamedSharding output =
+        test_utils::FromAxisNames(mesh, {{"b"}, {}, {"a"}, {}});
+    EXPECT_EQ(
+        TransposeSharding(HloSharding(input), {3, 2, 1, 0}).named_sharding(),
+        output);
+  }
 }
 
 TEST(HloShardingUtilTest, TransposeShardingWithCollapsedDimsSubgroupManual) {
@@ -160,6 +176,16 @@ TEST(HloShardingUtilTest, TransposeShardingWithCollapsedDimsSubgroupManual) {
       HloSharding::Subgroup(TileAssignment({1, 1, 2, 4}), {OpSharding::MANUAL});
   EXPECT_EQ(TransposeShardingWithCollapsedDims(input, {-1, 2}, {-1, -1, 1}),
             output);
+
+  {
+    Mesh mesh({1, 2, 4}, {"a", "b", "c"});
+    NamedSharding input = test_utils::FromAxisNames(mesh, {{"a"}, {"b"}});
+    NamedSharding output = test_utils::FromAxisNames(mesh, {{}, {}, {"b"}});
+    EXPECT_EQ(TransposeShardingWithCollapsedDims(HloSharding(input), {-1, 2},
+                                                 {-1, -1, 1})
+                  ->named_sharding(),
+              output);
+  }
 }
 
 TEST(HloShardingUtilTest, ReshapeShardingDimensionSizeOnePartitioned1) {
@@ -644,6 +670,42 @@ TEST(HloShardingUtilTest, PropagateShardingAlongDimsAndReplicateOthers4) {
   NamedSharding expected =
       test_utils::FromAxisNames(mesh, {{}, {"d"}, {}, {"c", "b"}}, {},
                                 /*unreduced_axes=*/{"e"});
+  EXPECT_EQ(target_sharding.named_sharding(), expected);
+}
+
+TEST(HloShardingUtilTest, PartiallyReplicateTiledShardingOnDims) {
+  Mesh mesh({2, 3, 5, 7, 11}, {"a", "b", "c", "d", "e"});
+  NamedSharding source_sharding =
+      test_utils::FromAxisNames(mesh, {{"a"}, {"b"}, {"c"}, {"d"}, {"e"}});
+  std::vector<int64_t> dims_to_replicate = {3, 1};
+  HloSharding target_sharding = PartiallyReplicateTiledShardingOnDims(
+      HloSharding(source_sharding), dims_to_replicate);
+  NamedSharding expected =
+      test_utils::FromAxisNames(mesh, {{"a"}, {}, {"c"}, {}, {"e"}});
+  EXPECT_EQ(target_sharding.named_sharding(), expected);
+}
+
+TEST(HloShardingUtilTest, ReplicateAllDataDims) {
+  Mesh mesh({2, 3, 5, 7, 11}, {"a", "b", "c", "d", "e"});
+  NamedSharding source_sharding = test_utils::FromAxisNames(
+      mesh, {{"a"}, {}, {"c"}, {}, {"e"}}, /*replicated_axes=*/{"d"},
+      /*unreduced_axes=*/{"b"});
+  HloSharding target_sharding =
+      ReplicateAllDataDims(HloSharding(source_sharding), 3);
+  NamedSharding expected =
+      test_utils::FromAxisNames(mesh, {{}, {}, {}}, {"d"}, {"b"});
+  EXPECT_EQ(target_sharding.named_sharding(), expected);
+}
+
+TEST(HloShardingUtilTest, RemoveShapeDimensions) {
+  Mesh mesh({2, 3, 5, 7, 11}, {"a", "b", "c", "d", "e"});
+  NamedSharding source_sharding =
+      test_utils::FromAxisNames(mesh, {{"a"}, {}, {"c"}, {}, {"e"}});
+  std::vector<int64_t> dims_to_remove = {1, 3};
+  HloSharding target_sharding =
+      RemoveShapeDimensions(HloSharding(source_sharding), dims_to_remove);
+  NamedSharding expected =
+      test_utils::FromAxisNames(mesh, {{"a"}, {"c"}, {"e"}});
   EXPECT_EQ(target_sharding.named_sharding(), expected);
 }
 
