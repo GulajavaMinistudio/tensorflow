@@ -512,8 +512,7 @@ PjRtStreamExecutorClient::DefineBuffer(
     const Shape& on_device_shape, PjRtMemorySpace* memory_space,
     tsl::RCReference<CommonPjRtRawBuffer> raw_buffer,
     absl::InlinedVector<tsl::RCReference<PjRtDeviceEvent>, 4>
-        definition_device_events,
-    bool raw_buffer_is_mutable) {
+        definition_device_events) {
   if (raw_buffer && raw_buffer->memory_space() != memory_space) {
     return absl::InvalidArgumentError(
         absl::StrFormat("DefineBuffer: Mismatch in memory spaces: %s vs %s",
@@ -540,8 +539,8 @@ PjRtStreamExecutorClient::DefineBuffer(
 
 absl::StatusOr<std::pair<tsl::RCReference<CommonPjRtRawBuffer>,
                          CommonPjRtClient::PjRtFulfillAliasRawBufferCallback>>
-PjRtStreamExecutorClient::CreateRawBufferChannel(
-    PjRtMemorySpace* memory_space) {
+PjRtStreamExecutorClient::CreateRawBufferChannel(PjRtMemorySpace* memory_space,
+                                                 size_t on_device_bytes_count) {
   auto buffer_promise = tsl::MakeIndirectAsyncValue();
   auto* device = tensorflow::down_cast<PjRtStreamExecutorDevice*>(
       memory_space->devices()[0]);

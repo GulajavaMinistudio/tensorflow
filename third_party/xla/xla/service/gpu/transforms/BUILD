@@ -1891,6 +1891,7 @@ cc_library(
         "//xla/service/gpu:backend_configs_cc",
         "//xla/service/gpu:matmul_utils",
         "//xla/tsl/platform:errors",
+        "//xla/tsl/platform:status_macros",
         "//xla/tsl/platform:statusor",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/container:flat_hash_set",
@@ -2598,6 +2599,40 @@ xla_cc_test(
 )
 
 cc_library(
+    name = "sort_iota_fusion",
+    srcs = ["sort_iota_fusion.cc"],
+    hdrs = ["sort_iota_fusion.h"],
+    deps = [
+        "//xla/hlo/ir:hlo",
+        "//xla/hlo/pass:hlo_pass",
+        "//xla/tsl/platform:status_macros",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
+    ],
+)
+
+xla_cc_test(
+    name = "sort_iota_fusion_test",
+    srcs = [
+        "sort_iota_fusion_test.cc",
+    ],
+    deps = [
+        ":sort_iota_fusion",
+        "//xla/hlo/ir:hlo",
+        "//xla/hlo/testlib:hlo_hardware_independent_test_base",
+        "//xla/hlo/testlib:pattern_matcher_gmock",
+        "//xla/service:pattern_matcher",
+        "@com_google_absl//absl/status:status_matchers",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
     name = "sort_rewriter",
     srcs = ["sort_rewriter.cc"],
     hdrs = ["sort_rewriter.h"],
@@ -2629,7 +2664,6 @@ xla_test(
         "gpu",
     ],
     tags = [
-        "cuda-only",
         "test_migrated_to_hlo_runner_pjrt",
     ],
     deps = [
