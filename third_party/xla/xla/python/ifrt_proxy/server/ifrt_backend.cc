@@ -80,7 +80,6 @@
 #include "xla/python/ifrt_proxy/server/host_buffer.h"
 #include "xla/python/ifrt_proxy/server/host_callback.h"
 #include "xla/python/ifrt_proxy/server/ifrt_backend_user_context.h"
-#include "xla/python/ifrt_proxy/server/version.h"
 #include "xla/python/pjrt_ifrt/xla_compiler.h"
 #include "xla/status_macros.h"
 #include "xla/tsl/concurrency/future.h"
@@ -370,7 +369,7 @@ class IfrtBackend::InOrderRequestsProcessor {
 
   tsl::Future<Response> Push(std::unique_ptr<IfrtRequest> request) {
     VLOG(3) << "Enqueuing " << request->ShortDebugString();
-    auto [promise, future] = tsl::Future<Response>::MakePromise();
+    auto [promise, future] = tsl::MakePromise<Response>();
     absl::MutexLock l(mu_);
     if (shutdown_msg_.has_value()) {
       promise.Set(absl::InternalError(absl::StrCat(
@@ -474,12 +473,12 @@ absl::StatusOr<std::unique_ptr<IfrtBackend>> IfrtBackend::Create(
   if (ifrt_client == nullptr) {
     return absl::InvalidArgumentError("ifrt_client cannot be a nullptr.");
   }
-  if (version.protocol_version() < kServerMinVersion ||
-      version.protocol_version() > kServerMaxVersion) {
+  if (version.protocol_version() < protocol_version::kServerMin ||
+      version.protocol_version() > protocol_version::kServerMax) {
     return absl::FailedPreconditionError(absl::StrCat(
         "Protocol version ", version.protocol_version(),
         " is unsupported by IFRT Proxy server; supported versions: [",
-        kServerMinVersion, ",", kServerMaxVersion, "]"));
+        protocol_version::kServerMin, ",", protocol_version::kServerMax, "]"));
   }
   const SerDesVersionNumber ifrt_serdes_version_number(
       SerDesVersion::current().version_number());
@@ -582,6 +581,11 @@ tsl::Future<BackendInterface::Response> IfrtBackend::ProcessInternal(
                   &array_store_);
       return tsl::Future<Response>(asr->ProcessResponse(
           HandleRemapArraysRequest(*asr, std::move(request))));
+    case IfrtRequest::RequestCase::kReshardArraysRequest:
+      asr.emplace(request->reshard_arrays_request().result_handles(),
+                  &array_store_);
+      return tsl::Future<Response>(asr->ProcessResponse(
+          HandleReshardArraysRequest(*asr, std::move(request))));
     case IfrtRequest::RequestCase::kCopyToHostBufferRequest:
       return HandleCopyToHostBufferRequest(std::move(request));
     case IfrtRequest::RequestCase::kDisassembleIntoSingleDeviceArraysRequest:
@@ -718,7 +722,7 @@ tsl::Future<BackendInterface::Response> IfrtBackend::AsyncExecute(
     absl::MutexLock lock(in_flight_count_mutex_);
     ++in_flight_count_;
   }
-  auto [promise, future] = tsl::Future<Response>::MakePromise();
+  auto [promise, future] = tsl::MakePromise<Response>();
   auto f =
       WithCurrentUserContext([this, promise = std::move(promise).ToShared(),
                               handle_fn = std::move(handle_fn)]() mutable {
@@ -866,6 +870,10 @@ IfrtBackend::HandleMakeArrayFromHostBufferRequest(
   CHECK(request->has_make_array_from_host_buffer_request());
   auto* make_array_request =
       request->mutable_make_array_from_host_buffer_request();
+  const uint64_t host_buffer_handle = make_array_request->host_buffer_handle();
+  absl::Cleanup cleanup = [&] {
+    host_buffer_store_->Delete(host_buffer_handle).IgnoreError();
+  };
 
   TF_ASSIGN_OR_RETURN(
       auto sharding,
@@ -881,11 +889,6 @@ IfrtBackend::HandleMakeArrayFromHostBufferRequest(
                       Shape::FromProto(make_array_request->shape()));
   TF_ASSIGN_OR_RETURN(const auto dtype,
                       DType::FromProto(make_array_request->dtype()));
-
-  const uint64_t host_buffer_handle = make_array_request->host_buffer_handle();
-  absl::Cleanup cleanup = [&] {
-    host_buffer_store_->Delete(host_buffer_handle).IgnoreError();
-  };
   TF_ASSIGN_OR_RETURN(
       HostBufferStore::MemRegion host_buffer,
       host_buffer_store_->Lookup(host_buffer_handle,
@@ -1099,6 +1102,37 @@ IfrtBackend::HandleRemapArraysRequest(ArrayStore::Reservation& asr,
   response->mutable_remap_arrays_response()->mutable_array_handles()->Assign(
       response_handles.begin(), response_handles.end());
 
+  return response;
+}
+
+absl::StatusOr<BackendInterface::Response>
+IfrtBackend::HandleReshardArraysRequest(ArrayStore::Reservation& asr,
+                                        std::unique_ptr<IfrtRequest> request) {
+  const auto& reshard_request = request->reshard_arrays_request();
+
+  TF_ASSIGN_OR_RETURN(std::vector<IfrtArrayRef> arrays,
+                      array_store_.Find(reshard_request.array_handles()));
+
+  std::vector<ArraySpec> array_specs;
+  array_specs.reserve(reshard_request.array_specs_size());
+  for (const auto& array_spec_proto : reshard_request.array_specs()) {
+    TF_ASSIGN_OR_RETURN(auto array_spec,
+                        ArraySpec::FromProto(client_.get(), array_spec_proto));
+    array_specs.push_back(std::move(array_spec));
+  }
+  TF_ASSIGN_OR_RETURN(auto semantics, FromArrayCopySemanticsProto(
+                                          reshard_request.copy_semantics()));
+
+  TF_ASSIGN_OR_RETURN(
+      auto out_arrays,
+      client_->ReshardArrays(absl::MakeSpan(arrays), array_specs, semantics));
+
+  std::vector<uint64_t> response_handles = asr.Fill(std::move(out_arrays));
+
+  std::unique_ptr<IfrtResponse> response =
+      NewIfrtResponse(request->request_metadata().op_id());
+  response->mutable_reshard_arrays_response()->mutable_array_handles()->Assign(
+      response_handles.begin(), response_handles.end());
   return response;
 }
 
