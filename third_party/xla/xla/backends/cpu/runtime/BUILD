@@ -153,15 +153,15 @@ tf_proto_library(
     srcs = ["thunk.proto"],
     create_grpc_library = True,
     make_default_target_header_only = True,
-    protodeps = [
+    visibility = ["//visibility:public"],
+    deps = [
+        "//xla:xla_data_proto",
         "//xla/backends/cpu:xnn_fusion_options_proto",
         "//xla/backends/cpu:ynn_fusion_options_proto",
         "//xla/service:buffer_assignment_proto",
-        "//xla:xla_data_proto",
         "//xla/service:hlo_proto",
         "@com_google_protobuf//:any_proto",
     ],
-    visibility = ["//visibility:public"],
 )
 
 cc_library(
@@ -275,6 +275,7 @@ xla_cc_test(
         ":thunk_testlib",
         "//xla:literal",
         "//xla:literal_util",
+        "//xla:shape_util",
         "//xla/runtime:buffer_use",
         "//xla/runtime:resource_use",
         "//xla/service:buffer_assignment",
@@ -929,7 +930,6 @@ xla_cc_test(
         "//xla/service:buffer_assignment",
         "@com_google_googletest//:gtest_main",
         "@local_tsl//tsl/platform:statusor",
-        "@local_tsl//tsl/platform:test",
     ],
 )
 
@@ -1199,6 +1199,7 @@ cc_library(
     deps = [
         ":thunk",
         ":topk_lib",
+        "//xla:shape_util",
         "//xla/runtime:buffer_use",
         "//xla/service:buffer_assignment",
         "//xla/stream_executor:device_address",
