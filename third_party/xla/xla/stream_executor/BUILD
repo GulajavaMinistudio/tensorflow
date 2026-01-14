@@ -46,6 +46,7 @@ tf_proto_library(
     deps = [
         "//xla:autotune_results_proto",
         "//xla/stream_executor/cuda:cuda_compute_capability_proto",
+        "//xla/stream_executor/sycl:oneapi_compute_capability_proto",
     ],
 )
 
@@ -65,6 +66,7 @@ cc_library(
         "//xla:xla_data_proto_cc",
         "//xla/stream_executor/cuda:cuda_compute_capability",
         "//xla/stream_executor/rocm:rocm_compute_capability",
+        "//xla/stream_executor/sycl:oneapi_compute_capability",
         "//xla/tsl/lib/math:math_util",
         "//xla/tsl/platform:statusor",
         "@com_google_absl//absl/container:flat_hash_map",
@@ -232,6 +234,7 @@ cc_library(
         ":platform",
         ":stream",
         "//xla/hlo/testlib:test",
+        "//xla/stream_executor/sycl:oneapi_compute_capability",
         "@com_google_absl//absl/functional:any_invocable",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
@@ -849,6 +852,7 @@ cc_library(
 
 cc_library(
     name = "command_buffer",
+    srcs = ["command_buffer.cc"],
     hdrs = ["command_buffer.h"],
     visibility = [":internal"],
     deps = [
@@ -858,10 +862,16 @@ cc_library(
         ":kernel",
         ":launch_dim",
         ":platform",
+        "//xla/tsl/lib/gtl:int_type",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/base:no_destructor",
+        "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/functional:any_invocable",
+        "@com_google_absl//absl/functional:function_ref",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/types:span",
     ],
 )

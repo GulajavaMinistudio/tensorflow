@@ -134,6 +134,9 @@ struct CompileOptions {
   absl::Status ApplyOptionFromString(
       const tsl::protobuf::FieldDescriptor* field, const std::string& value);
 
+  // Compiler variant to indicate which compiler is invoked.
+  std::optional<std::string> compiler_variant = std::nullopt;
+
   static absl::StatusOr<EnvironmentOptionOverrides> LoadEnvOptionOverrides(
       const google::protobuf::Map<std::string, xla::OptionOverrideProto>&
           env_option_overrides);
@@ -145,6 +148,9 @@ struct CompileOptions {
   static absl::StatusOr<CompileOptions> FromProto(
       const CompileOptionsProto& proto);
 };
+
+// Returns true if the compilation is an early exit compilation.
+bool IsEarlyExitCompilation(const xla::CompileOptions& compile_options);
 
 struct LoadOptions {
   // Origin of the subslice of the target topology to run computation on.

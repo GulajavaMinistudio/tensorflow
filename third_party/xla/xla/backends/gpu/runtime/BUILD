@@ -81,6 +81,19 @@ xla_cc_test(
 )
 
 cc_library(
+    name = "command",
+    srcs = ["command.cc"],
+    hdrs = ["command.h"],
+    deps = [
+        ":command_state",
+        ":thunk",
+        "//xla/runtime:buffer_use",
+        "//xla/runtime:resource_use",
+        "//xla/stream_executor:command_buffer",
+    ],
+)
+
+cc_library(
     name = "command_buffer_cmd",
     srcs = ["command_buffer_cmd.cc"],
     hdrs = ["command_buffer_cmd.h"],
@@ -93,12 +106,15 @@ cc_library(
         ":collective_execution",
         ":collective_permute_thunk",
         ":collective_thunk",
+        ":command",
         ":command_state",
         ":copy_thunk",
         ":custom_call_thunk",
         ":dynamic_slice_thunk",
         ":gpublas_lt_matmul_thunk",
         ":p2p_thunk_common",
+        ":recv_thunk",
+        ":send_thunk",
         ":shaped_slice",
         ":thunk",
         ":while_thunk",
@@ -164,7 +180,6 @@ cc_library(
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/types:span",
-        "@llvm-project//llvm:Support",
         "@local_tsl//tsl/profiler/lib:scoped_annotation",
     ],
 )
@@ -174,6 +189,7 @@ xla_test(
     srcs = ["command_buffer_cmd_test.cc"],
     backends = ["gpu"],
     deps = [
+        ":command",
         ":command_buffer_cmd",
         ":command_state",
         ":copy_thunk",
@@ -191,6 +207,7 @@ xla_test(
         "//xla/stream_executor:platform",
         "//xla/stream_executor:platform_manager",
         "//xla/stream_executor:semantic_version",
+        "//xla/stream_executor:stream_executor_address_allocator",
         "//xla/stream_executor:stream_executor_h",
         "//xla/stream_executor:stream_executor_memory_allocator",
         "//xla/stream_executor/gpu:gpu_test_kernels_fatbin",
@@ -221,6 +238,7 @@ cc_library(
         ":collective_broadcast_thunk",
         ":collective_permute_thunk",
         ":collective_thunk",
+        ":command",
         ":command_buffer_cmd",
         ":command_state",
         ":conditional_thunk",
@@ -233,7 +251,9 @@ cc_library(
         ":gpublas_lt_matmul_thunk",
         ":kernel_thunk",
         ":memset_thunk",
+        ":recv_thunk",
         ":replica_id_thunk",
+        ":send_thunk",
         ":sequential_thunk",
         ":thunk",
         ":while_thunk",
@@ -354,6 +374,7 @@ cc_library(
     srcs = ["command_buffer_thunk.cc"],
     hdrs = ["command_buffer_thunk.h"],
     deps = [
+        ":command",
         ":command_buffer_cmd",
         ":command_state",
         ":sequential_thunk",  # build_cleaner: keep
@@ -385,6 +406,7 @@ xla_test(
     srcs = ["command_buffer_thunk_test.cc"],
     backends = ["gpu"],
     deps = [
+        ":command",
         ":command_buffer_cmd",
         ":command_buffer_thunk",
         ":dynamic_slice_thunk",
@@ -436,6 +458,7 @@ xla_test(
     backends = ["gpu"],
     tags = ["cuda-only"],
     deps = [
+        ":command",
         ":command_buffer_cmd",
         ":command_buffer_thunk",
         ":thunk",
@@ -1257,6 +1280,7 @@ cc_library(
     deps = [
         ":shaped_slice",
         ":thunk",
+        "//xla:shape_util",
         "//xla/runtime:buffer_use",
         "//xla/service:buffer_assignment",
         "//xla/stream_executor:device_address",
@@ -2096,6 +2120,44 @@ xla_cc_test(
     ],
 )
 
+xla_test(
+    name = "send_recv_thunk_test",
+    srcs = ["send_recv_thunk_test.cc"],
+    backends = ["gpu"],
+    tags = ["pjrt_migration_candidate"],
+    use_legacy_runtime = True,
+    deps = [
+        ":collective_thunk",
+        ":command_buffer_cmd",
+        ":command_buffer_cmd_emitter",
+        ":command_buffer_thunk",
+        ":recv_thunk",
+        ":send_thunk",
+        ":sequential_thunk",
+        ":thunk",
+        ":thunk_proto_cc",
+        "//xla:util",
+        "//xla:xla_data_proto_cc",
+        "//xla/hlo/ir:hlo",
+        "//xla/hlo/testlib:verified_hlo_module",
+        "//xla/service:backend",
+        "//xla/service:buffer_assignment",
+        "//xla/service:executable",
+        "//xla/service:hlo_module_config",
+        "//xla/service/gpu:gpu_constants",
+        "//xla/service/gpu:gpu_executable",
+        "//xla/stream_executor:platform",
+        "//xla/stream_executor:stream",
+        "//xla/stream_executor:stream_executor_h",
+        "//xla/tests:hlo_test_base",
+        "//xla/tsl/platform:statusor",
+        "//xla/tsl/platform:test",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_googletest//:gtest_main",
+        "@local_tsl//tsl/platform:casts",
+    ],
+)
+
 cc_library(
     name = "collective_group_thunk",
     srcs = ["collective_group_thunk.cc"],
@@ -2214,6 +2276,7 @@ cc_library(
     deps = [
         ":thunk",
         ":thunk_proto_cc",
+        "//xla:shape_util",
         "//xla/runtime:buffer_use",
         "//xla/runtime:device_id",
         "//xla/service:buffer_assignment",

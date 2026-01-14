@@ -21,7 +21,8 @@ package_group(
 filegroup(
     name = "runtime_srcs",
     srcs = [
-        "convolution_lib_f16.cc",
+        "convolution_lib_f16_2d.cc",
+        "convolution_lib_f16_3d.cc",
         "convolution_lib_f32.cc",
         "dot_lib_c128.cc",
         "dot_lib_c64.cc",
@@ -160,7 +161,6 @@ tf_proto_library(
         "//xla/backends/cpu:ynn_fusion_options_proto",
         "//xla/service:buffer_assignment_proto",
         "//xla/service:hlo_proto",
-        "@com_google_protobuf//:any_proto",
     ],
 )
 
@@ -397,14 +397,15 @@ cc_library(
 cc_library(
     name = "convolution_lib",
     srcs = [
-        "convolution_lib_f16.cc",
+        "convolution_lib_f16_2d.cc",
+        "convolution_lib_f16_3d.cc",
         "convolution_lib_f32.cc",
     ],
     hdrs = ["convolution_lib.h"],
     copts = runtime_copts(),
     visibility = internal_visibility([":friends"]),
     deps = [
-        "//xla/backends/cpu/runtime:work_queue",
+        ":work_queue",
         "//xla/tsl/concurrency:async_value",
         "//xla/tsl/framework/contraction:eigen_contraction_kernel",
         "//xla/tsl/framework/convolution:eigen_helpers",
@@ -859,6 +860,7 @@ cc_library(
     hdrs = ["logical_id_thunk.h"],
     deps = [
         ":thunk",
+        "//xla:shape_util",
         "//xla:status_macros",
         "//xla/runtime:buffer_use",
         "//xla/runtime:device_id",
@@ -1022,6 +1024,7 @@ cc_library(
     deps = [
         ":rng_state_lib",
         ":thunk",
+        "//xla:shape_util",
         "//xla:util",
         "//xla/runtime:buffer_use",
         "//xla/service:buffer_assignment",

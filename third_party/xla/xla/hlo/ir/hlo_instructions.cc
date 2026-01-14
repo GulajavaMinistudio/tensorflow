@@ -1545,6 +1545,76 @@ std::unique_ptr<HloInstruction> HloReduceInstruction::CloneWithNewOperandsImpl(
                                                 dimensions(), to_apply());
 }
 
+HloScanInstruction::HloScanInstruction(const Shape& shape,
+                                       absl::Span<HloInstruction* const> inputs,
+                                       absl::Span<HloInstruction* const> inits,
+                                       HloComputation* to_apply,
+                                       int64_t scan_dimension, bool is_reverse,
+                                       TriState is_associative)
+    : HloDimensionsInstruction(HloOpcode::kScan, shape, {scan_dimension}),
+      is_reverse_(is_reverse),
+      is_associative_(is_associative),
+      num_carries_(inits.size()) {
+  for (auto* input : inputs) {
+    AppendOperand(input);
+  }
+  for (auto* init : inits) {
+    AppendOperand(init);
+  }
+  AppendComputation(to_apply);
+}
+
+HloInstructionProto HloScanInstruction::ToProto() const {
+  HloInstructionProto proto = HloInstruction::ToProto();
+  for (int64_t dimension : dimensions_) {
+    proto.add_dimensions(dimension);
+  }
+  proto.set_is_reverse(is_reverse_);
+  proto.set_is_associative(is_associative_);
+  proto.set_num_carries(num_carries_);
+  return proto;
+}
+
+void HloScanInstruction::PrintExtraAttributesImpl(
+    AttributePrinter& printer, const HloPrintOptions& options) const {
+  printer.Next([this](Printer* printer) {
+    printer->Append("dimensions={");
+    AppendJoin(printer, dimensions(), ",");
+    printer->Append("}");
+  });
+  if (is_reverse_) {
+    printer.Next([](Printer* printer) { printer->Append("is_reverse=true"); });
+  }
+  if (is_associative_ != TRI_STATE_UNSPECIFIED) {
+    printer.Next([this](Printer* printer) {
+      printer->Append("is_associative=");
+      printer->Append(is_associative_ == TRI_STATE_TRUE ? "true" : "false");
+    });
+  }
+}
+
+bool HloScanInstruction::IdenticalSlowPath(
+    const HloInstruction& other,
+    absl::FunctionRef<bool(const HloComputation*, const HloComputation*)>
+        eq_computations) const {
+  const auto& casted_other = static_cast<const HloScanInstruction&>(other);
+  return dimensions() == casted_other.dimensions() &&
+         is_reverse() == casted_other.is_reverse() &&
+         is_associative() == casted_other.is_associative() &&
+         eq_computations(to_apply(), casted_other.to_apply());
+}
+
+std::unique_ptr<HloInstruction> HloScanInstruction::CloneWithNewOperandsImpl(
+    const Shape& shape, absl::Span<HloInstruction* const> new_operands,
+    HloCloneContext* context) const {
+  int64_t num_carries = this->num_carries();
+  int64_t num_inputs = new_operands.size() - num_carries;
+  return std::make_unique<HloScanInstruction>(
+      shape, new_operands.subspan(0, num_inputs),
+      new_operands.subspan(num_inputs, num_carries), to_apply(),
+      scan_dimension(), is_reverse(), is_associative());
+}
+
 HloSortInstruction::HloSortInstruction(
     const Shape& shape, int64_t dimension,
     absl::Span<HloInstruction* const> operands, HloComputation* compare,
@@ -2065,10 +2135,6 @@ HloCallableInstruction::CloneAndAppendInstructionIntoCalledComputation(
     auto* new_computation = CHECK_NOTNULL(instruction_to_append->GetModule())
                                 ->AddEmbeddedComputation(builder.Build());
     AppendComputation(new_computation);
-    if (opcode() == HloOpcode::kFusion) {
-      new_computation->SetFusionInstruction(this);
-    }
-
     clone = called_computation_root();
   } else {
     // When add_output is false, instruction_to_append is necessarily an
@@ -2299,31 +2365,6 @@ HloFusionInstruction::HloFusionInstruction(
     : HloCallableInstruction(HloOpcode::kFusion, shape, operands,
                              fusion_computation, prefix),
       fusion_kind_(fusion_kind) {
-  fusion_computation->SetFusionInstruction(this);
-}
-
-HloFusionInstruction::~HloFusionInstruction() {
-  ClearFusionComputationInstruction();
-}
-
-void HloFusionInstruction::ClearFusionComputationInstruction() {
-  // Each fusion calls a single computation, but we use called_computations()
-  // instead of fused_instructions_computation(), because the order in which
-  // things get destructed can vary; the fusion computation's back-pointer may
-  // already be null, which violates a check in
-  // fused_instructions_computation.
-  for (HloComputation* computation : called_computations()) {
-    // Some passes that rewrite fusions may reassign a fusion computation to a
-    // different fusion instruction as this instruction gets destructed.
-    if (computation->FusionInstruction() == this) {
-      computation->SetFusionInstruction(nullptr);
-    }
-  }
-}
-
-void HloFusionInstruction::ClearCalledComputations() {
-  ClearFusionComputationInstruction();
-  HloInstruction::ClearCalledComputations();
 }
 
 HloInstruction*
@@ -2579,11 +2620,7 @@ void HloFusionInstruction::MergeFusionInstructionIntoMultiOutput(
 
 HloComputation* HloFusionInstruction::fused_instructions_computation() const {
   CHECK_EQ(called_computations().size(), 1);
-  auto* fused_instructions_computation = called_computations().front();
-  CHECK(fused_instructions_computation->IsFusionComputation())
-      << "Computation " << fused_instructions_computation->name()
-      << " is not a fusion kind";
-  return fused_instructions_computation;
+  return called_computations().front();
 }
 
 HloInstruction* HloFusionInstruction::fused_expression_root() const {

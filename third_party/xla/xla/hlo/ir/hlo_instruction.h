@@ -220,8 +220,7 @@ static constexpr uintptr_t kInstructionTypeMask = 0b111;
 // HLO is pure (mostly).  It has no concept of mutable state.  Instead, data
 // values are produced by one HLO and flow into consumers across dependency
 // edges.
-// Alignment must be explicitly specified due to ARM 32 platforms.
-class alignas(kInstructionTypeMask + 1) HloInstruction {
+class HloInstruction {
  public:
   // A fusion node computes the same value a call to its fusion computation
   // would compute.  However, the choice of fusion kind dictates codegen
@@ -948,6 +947,12 @@ class alignas(kInstructionTypeMask + 1) HloInstruction {
       const Shape& shape, absl::Span<HloInstruction* const> operands,
       absl::Span<HloInstruction* const> init_values, const Window& window,
       HloComputation* reduce_computation);
+
+  static std::unique_ptr<HloInstruction> CreateScan(
+      const Shape& shape, absl::Span<HloInstruction* const> inputs,
+      absl::Span<HloInstruction* const> inits, HloComputation* to_apply,
+      int64_t scan_dimension, bool is_reverse,
+      TriState is_associative = TRI_STATE_UNSPECIFIED);
 
   // Creates a batch-norm-training instruction.
   static std::unique_ptr<HloInstruction> CreateBatchNormTraining(
@@ -2883,6 +2888,7 @@ bool HloPredicateIsNotOp(const HloInstruction* instruction) {
     case HloOpcode::kScatter:
     case HloOpcode::kSelectAndScatter:
     case HloOpcode::kSort:
+    case HloOpcode::kScan:
     case HloOpcode::kCustomCall:
       return true;
     default:

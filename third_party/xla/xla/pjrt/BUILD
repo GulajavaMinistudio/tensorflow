@@ -153,6 +153,7 @@ cc_library(
         "//xla:shape_util",
         "//xla:util",
         "//xla:xla_data_proto_cc",
+        "//xla/error:error_codes",
         "//xla/hlo/ir:hlo",
         "//xla/tsl/concurrency:async_value",
         "//xla/tsl/concurrency:ref_count",
@@ -296,6 +297,7 @@ cc_library(
     hdrs = ["pjrt_client.h"],
     visibility = internal_visibility(["//xla:friends"]),
     deps = [
+        ":pjrt_abi_version",
         ":pjrt_common",
         ":pjrt_compiler",
         ":pjrt_device_description",
@@ -544,6 +546,18 @@ cc_library(
     ],
 )
 
+cc_library(
+    name = "pjrt_abi_version",
+    hdrs = ["pjrt_abi_version.h"],
+    visibility = internal_visibility([":friends"]),
+    deps = [
+        ":pjrt_common",
+        "//xla/pjrt/proto:pjrt_abi_version_proto_cc",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+    ],
+)
+
 xla_cc_test(
     name = "pjrt_common_test",
     srcs = ["pjrt_common_test.cc"],
@@ -651,6 +665,7 @@ cc_library(
         "//xla/hlo/ir:hlo",
         "//xla/pjrt/proto:compile_options_proto_cc",
         "//xla/service:buffer_assignment",
+        "//xla/service:compiled_module",
         "//xla/service:compiler",
         "//xla/service:executable",
         "//xla/service:hlo_proto_cc",
